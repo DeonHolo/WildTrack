@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TrackerColumnRepository extends JpaRepository<TrackerColumn, UUID> {
 
-    List<TrackerColumn> findAllByOrderByDisplayOrderAscLabelAsc();
+    List<TrackerColumn> findAllByWorkspaceIdOrderByDisplayOrderAscLabelAsc(UUID workspaceId);
 
-    Optional<TrackerColumn> findByColumnKeyIgnoreCase(String columnKey);
+    Optional<TrackerColumn> findByWorkspaceIdAndColumnKeyIgnoreCase(UUID workspaceId, String columnKey);
 }

@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
-import { ArrowClockwise, CheckCircle, Database, GoogleLogo, HardDrives, LinkSimple, PlusCircle, Table, X } from '@phosphor-icons/react';
-import { Button, DataTable, Field, PageHeader, StatusBadge } from '../components/ui.jsx';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowClockwise, Buildings, CheckCircle, Database, GoogleLogo, HardDrives, LinkSimple, PlusCircle, Table, X } from '@phosphor-icons/react';
+import { Button, ConfirmDialog, DataTable, Field, PageHeader, StatusBadge } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/workflow.js';
+import { setStoredPreviewRole } from '../hooks/usePreviewRole.js';
 
 const SOURCE_CONFIG = [
   {
@@ -25,8 +26,45 @@ const SOURCE_CONFIG = [
   }
 ];
 
+const SUMMARY_METRIC_LABELS = {
+  students: 'Students',
+  officialIds: 'Official IDs',
+  teams: 'Teams',
+  memberNumbers: 'Member numbers',
+  institutionalEmails: 'Institutional emails',
+  studentRows: 'Student rows',
+  trackerColumns: 'Deliverable columns',
+  rawProgressCells: 'Progress values',
+  matchedRows: 'Roster matches',
+  unmatchedRows: 'Unmatched rows',
+  deadlineValues: 'Deadlines',
+  groups: 'Groups',
+  projectTitles: 'Project titles',
+  softwareNames: 'Software names',
+  descriptions: 'Descriptions',
+  adviserAssignments: 'Adviser assignments',
+  proposalRemarks: 'Proposal remarks',
+  demoComments: 'Demo comments',
+  categories: 'Categories',
+  skippedRows: 'Skipped rows'
+};
+
 export function WorkspacePage() {
-  const { state, connectSheetSource, generateFormsFromSuggestions, refreshBackendData, reset, updateTrackerColumn, addTrackerColumn, saveTemplate } = useWorkflow();
+  const {
+    state,
+    workspaces,
+    activeWorkspace,
+    activeWorkspaceId,
+    switchWorkspace,
+    createWorkspace,
+    connectSheetSource,
+    generateFormsFromSuggestions,
+    refreshBackendData,
+    reset,
+    updateTrackerColumn,
+    addTrackerColumn,
+    saveTemplate
+  } = useWorkflow();
   const [sources, setSources] = useState(() => ({
     teamFormation: state.classRecord.sources?.teamFormation?.sheetUrl || '',
     tracker: state.classRecord.sources?.tracker?.sheetUrl || state.classRecord.sheetUrl || '',
@@ -40,16 +78,39 @@ export function WorkspacePage() {
   const [summary, setSummary] = useState(null);
   const [importing, setImporting] = useState('');
   const [refreshingBackend, setRefreshingBackend] = useState(false);
+  const [maintenanceAction, setMaintenanceAction] = useState('');
+  const [resetConfirmation, setResetConfirmation] = useState('');
+  const [workspaceEditorOpen, setWorkspaceEditorOpen] = useState(false);
+  const [workspaceForm, setWorkspaceForm] = useState({
+    name: '',
+    program: 'IT',
+    courseCode: '',
+    semester: 'Semester 1',
+    academicYear: '2026-27'
+  });
   const activeColumns = getActiveTrackerColumns(state);
   const rows = [
     ['Google Sheets', 'Read Team Formation, Tracker, and Software Project Monitor sources', state.classRecord.status || 'Connected'],
     ['Google Drive', 'Verify PDF links, read file metadata, and prepare final copies', 'Ready'],
-    ['Archive storage', 'Final PDF copies with verification hashes', 'Ready']
+    ['Archive storage', 'Independent final PDF copies in Cloudflare R2 or another S3-compatible store', 'Not configured']
   ];
   const sourceStatuses = useMemo(() => SOURCE_CONFIG.map((source) => ({
     ...source,
     ...(state.classRecord.sources?.[source.key] || {})
   })), [state.classRecord.sources]);
+  const pendingSuggestions = state.classRecord.pendingFormSuggestions || state.classRecord.importSummary?.suggestedForms || [];
+
+  useEffect(() => {
+    setSources({
+      teamFormation: state.classRecord.sources?.teamFormation?.sheetUrl || '',
+      tracker: state.classRecord.sources?.tracker?.sheetUrl || state.classRecord.sheetUrl || '',
+      projectMonitor: state.classRecord.sources?.projectMonitor?.sheetUrl || ''
+    });
+    setWorkspaceName(activeWorkspace?.name || state.classRecord.name);
+    setTrackerSheet(state.classRecord.trackerSheet || `${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
+    setSummary(null);
+    setMessage('');
+  }, [activeWorkspaceId]);
 
   async function importSource(sourceType) {
     setImporting(sourceType);
@@ -81,9 +142,24 @@ export function WorkspacePage() {
     setTemplate({ ...template, name: '', link: '' });
   }
 
-  function generateSuggestedForms() {
-    generateFormsFromSuggestions(summary?.suggestedForms || []);
+  function generateSuggestedForms(suggestions = summary?.suggestedForms || pendingSuggestions) {
+    generateFormsFromSuggestions(suggestions);
     setSummary(null);
+    setMessage(`Generated or updated ${suggestions.length} deliverable form${suggestions.length === 1 ? '' : 's'}.`);
+  }
+
+  async function submitWorkspace(event) {
+    event.preventDefault();
+    const result = await createWorkspace(workspaceForm);
+    if (!result.ok) return;
+    setWorkspaceEditorOpen(false);
+    setWorkspaceForm({
+      name: '',
+      program: 'IT',
+      courseCode: '',
+      semester: 'Semester 1',
+      academicYear: '2026-27'
+    });
   }
 
   async function refreshFromBackend() {
@@ -91,14 +167,52 @@ export function WorkspacePage() {
     setMessage('');
     const result = await refreshBackendData();
     setRefreshingBackend(false);
+    setMaintenanceAction('');
     setMessage(result.ok ? 'Backend data refreshed.' : `Backend unavailable: ${result.error}`);
+  }
+
+  function restoreStarterData() {
+    setStoredPreviewRole('admin');
+    reset();
+    setMaintenanceAction('');
+    setResetConfirmation('');
+    setSources({ teamFormation: '', tracker: '', projectMonitor: '' });
+    setWorkspaceName(activeWorkspace?.name || 'Capstone workspace');
+    setTrackerSheet(`${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
+    setSummary(null);
+    setMessage('Starter data restored.');
   }
 
   return (
     <div className="page-stack">
       <PageHeader title="Workspace Setup" description="Connect the three Google Sheets that define Sir Ralph's capstone workflow." />
+      <section className="panel workspace-selector-panel">
+        <div className="panel-header">
+          <div>
+            <h2>Academic workspace</h2>
+            <p>Each program, section, and semester keeps its own Sheets, forms, tracker, reviews, and archive records.</p>
+          </div>
+          <Button type="button" variant="secondary" icon={PlusCircle} onClick={() => setWorkspaceEditorOpen(true)}>New workspace</Button>
+        </div>
+        <div className="workspace-selector-row">
+          <Field label="Current workspace">
+            <select value={activeWorkspaceId} onChange={(event) => switchWorkspace(event.target.value)}>
+              {workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+              ))}
+            </select>
+          </Field>
+          <div className="workspace-identity">
+            <Buildings weight="regular" aria-hidden="true" />
+            <div>
+              <strong>{activeWorkspace?.program} | {activeWorkspace?.courseCode}</strong>
+              <span>{activeWorkspace?.semester} | {activeWorkspace?.academicYear}</span>
+            </div>
+          </div>
+        </div>
+      </section>
       <section className="metric-grid">
-        <Metric icon={GoogleLogo} label="Sources connected" value={sourceStatuses.filter((item) => item.status === 'Imported' || item.status === 'Starter data').length} />
+        <Metric icon={GoogleLogo} label="Sources imported" value={sourceStatuses.filter((item) => item.status === 'Imported').length} />
         <Metric icon={Table} label="Students loaded" value={state.students.length} />
         <Metric icon={Database} label="Deliverable columns" value={activeColumns.length} />
         <Metric icon={HardDrives} label="Templates" value={state.templates.length} />
@@ -111,14 +225,9 @@ export function WorkspacePage() {
             <p>Team Formation owns identity, Tracker owns progress, and Software Project Monitor owns group metadata.</p>
           </div>
         </div>
-        <div className="two-col">
-          <Field label="Workspace name" required>
-            <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} />
-          </Field>
-          <Field label="Tracker tab label" required>
-            <input value={trackerSheet} onChange={(event) => setTrackerSheet(event.target.value)} />
-          </Field>
-        </div>
+        <Field label="Tracker tab label" helper="Use the tab name shown at the bottom of Sir's Tracker Sheet." required>
+          <input value={trackerSheet} onChange={(event) => setTrackerSheet(event.target.value)} />
+        </Field>
         <div className="source-grid">
           {SOURCE_CONFIG.map((source) => (
             <article className="source-card" key={source.key}>
@@ -142,7 +251,7 @@ export function WorkspacePage() {
             </article>
           ))}
         </div>
-        {message ? <div className={`inline-alert ${message.includes('imported') ? 'success' : 'danger'}`}>{message}</div> : null}
+        {message ? <div className={`inline-alert ${/(imported|refreshed|restored|generated|created)/i.test(message) ? 'success' : 'danger'}`}>{message}</div> : null}
         {state.classRecord.importWarnings?.length ? (
           <div className="inline-alert warning">
             {state.classRecord.importWarnings.map((warning) => <span key={warning}>{warning}</span>)}
@@ -157,6 +266,11 @@ export function WorkspacePage() {
               <h2>Deliverable columns</h2>
               <p>Edit detected Tracker columns. These populate form publishing and tracker views.</p>
             </div>
+            {pendingSuggestions.length ? (
+              <Button type="button" icon={CheckCircle} onClick={() => generateSuggestedForms(pendingSuggestions)}>
+                Generate {pendingSuggestions.length} suggested form{pendingSuggestions.length === 1 ? '' : 's'}
+              </Button>
+            ) : null}
           </div>
           <div className="column-editor-list">
             {state.trackerColumns.map((column) => (
@@ -240,15 +354,15 @@ export function WorkspacePage() {
           <div>
             <h2>Maintenance</h2>
             <p>Switch between backend-loaded data and starter data for testing.</p>
-            <small>Connected at {formatDateTime(state.classRecord.connectedAt)}</small>
+            <small>{state.classRecord.connectedAt ? `Connected at ${formatDateTime(state.classRecord.connectedAt)}` : 'No live Sheet connection yet.'}</small>
             {state.backendSync?.status ? <small>Backend: {state.backendSync.status}</small> : null}
             {state.backendSync?.lastError ? <small>{state.backendSync.lastError}</small> : null}
           </div>
           <div className="button-row">
-            <Button variant="secondary" icon={Database} loading={refreshingBackend} onClick={refreshFromBackend}>
+            <Button variant="secondary" icon={Database} loading={refreshingBackend} onClick={() => setMaintenanceAction('refresh')}>
               {refreshingBackend ? 'Refreshing...' : 'Refresh backend data'}
             </Button>
-            <Button variant="secondary" icon={ArrowClockwise} onClick={reset}>Restore starter data</Button>
+            <Button variant="secondary" icon={ArrowClockwise} onClick={() => { setMaintenanceAction('reset'); setResetConfirmation(''); }}>Restore starter data</Button>
           </div>
         </div>
       </section>
@@ -262,17 +376,27 @@ export function WorkspacePage() {
             <div className="panel-header">
               <div>
                 <h2>{summary.sourceType} import summary</h2>
-                <p>Review what CapVault found before using the imported data.</p>
+                <p>Review the detected fields, missing values, and records applied to this workspace.</p>
               </div>
+              <StatusBadge status={summary.resultStatus || 'Imported'} />
             </div>
             <div className="summary-metric-grid">
-              {'studentsFound' in summary ? <MetricMini label="Students" value={summary.studentsFound} /> : null}
-              {'officialIdsFound' in summary ? <MetricMini label="Official IDs" value={summary.officialIdsFound} /> : null}
-              {'groupsFound' in summary ? <MetricMini label="Groups" value={summary.groupsFound} /> : null}
-              {'columnsFound' in summary ? <MetricMini label="Columns" value={summary.columnsFound} /> : null}
-              {'headerRow' in summary ? <MetricMini label="Header row" value={summary.headerRow} /> : null}
-              {'deadlineRows' in summary ? <MetricMini label="Deadline rows" value={summary.deadlineRows} /> : null}
+              {Object.entries(summary.metrics || {}).map(([key, value]) => (
+                <MetricMini key={key} label={SUMMARY_METRIC_LABELS[key] || key} value={value} />
+              ))}
+              {summary.headerRow ? <MetricMini label="Header row" value={summary.headerRow} /> : null}
+              {summary.sourceType === 'Tracker' ? <MetricMini label="Deadline rows" value={summary.deadlineRows || 0} /> : null}
               {summary.suggestedForms?.length ? <MetricMini label="Suggested forms" value={summary.suggestedForms.length} /> : null}
+            </div>
+            <div className="import-field-summary">
+              <div>
+                <strong>Detected fields</strong>
+                <p>{summary.detectedFields?.length ? summary.detectedFields.join(', ') : 'No expected fields reported.'}</p>
+              </div>
+              <div className={summary.missingFields?.length ? 'has-missing' : ''}>
+                <strong>Missing fields</strong>
+                <p>{summary.missingFields?.length ? summary.missingFields.join(', ') : 'None of the expected fields are missing.'}</p>
+              </div>
             </div>
             {summary.warnings?.length ? (
               <div className="inline-alert warning">
@@ -290,12 +414,80 @@ export function WorkspacePage() {
               </div>
             ) : null}
             <div className="button-row">
-              {summary.suggestedForms?.length ? <Button icon={CheckCircle} onClick={generateSuggestedForms}>Generate suggested forms</Button> : null}
+              {summary.suggestedForms?.length ? <Button icon={CheckCircle} onClick={() => generateSuggestedForms(summary.suggestedForms)}>Generate suggested forms</Button> : null}
               <Button variant="secondary" onClick={() => setSummary(null)}>Close</Button>
             </div>
           </section>
         </div>
       ) : null}
+
+      {workspaceEditorOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <form className="modal-panel form-grid workspace-modal" onSubmit={submitWorkspace} role="dialog" aria-modal="true" aria-label="Create academic workspace">
+            <div className="panel-header">
+              <div>
+                <h2>Create academic workspace</h2>
+                <p>Use one workspace for each program, course or section, semester, and academic year.</p>
+              </div>
+              <button className="icon-close" type="button" onClick={() => setWorkspaceEditorOpen(false)} aria-label="Close workspace form">
+                <X weight="regular" />
+              </button>
+            </div>
+            <Field label="Workspace name" required>
+              <input value={workspaceForm.name} onChange={(event) => setWorkspaceForm({ ...workspaceForm, name: event.target.value })} placeholder="IT Capstone - IT332 - Semester 1 2026-27" />
+            </Field>
+            <div className="two-col">
+              <Field label="Program" required>
+                <input value={workspaceForm.program} onChange={(event) => setWorkspaceForm({ ...workspaceForm, program: event.target.value })} placeholder="IT or CS" />
+              </Field>
+              <Field label="Course or section" required>
+                <input value={workspaceForm.courseCode} onChange={(event) => setWorkspaceForm({ ...workspaceForm, courseCode: event.target.value })} placeholder="IT332" />
+              </Field>
+            </div>
+            <div className="two-col">
+              <Field label="Semester" required>
+                <input value={workspaceForm.semester} onChange={(event) => setWorkspaceForm({ ...workspaceForm, semester: event.target.value })} placeholder="Semester 1" />
+              </Field>
+              <Field label="Academic year" required>
+                <input value={workspaceForm.academicYear} onChange={(event) => setWorkspaceForm({ ...workspaceForm, academicYear: event.target.value })} placeholder="2026-27" />
+              </Field>
+            </div>
+            <div className="button-row">
+              <Button icon={PlusCircle}>Create workspace</Button>
+              <Button type="button" variant="secondary" onClick={() => setWorkspaceEditorOpen(false)}>Cancel</Button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={maintenanceAction === 'refresh'}
+        title="Refresh backend data?"
+        description="This replaces the current students, tracker columns, and project metadata with the latest data available from the backend. Locally published forms and responses remain in place."
+        confirmLabel="Refresh data"
+        loading={refreshingBackend}
+        onClose={() => setMaintenanceAction('')}
+        onConfirm={refreshFromBackend}
+      >
+        <strong>Current workspace</strong>
+        <span>{state.students.length} students | {activeColumns.length} deliverable columns | {state.projectMetadata?.length || 0} project records</span>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={maintenanceAction === 'reset'}
+        title="Restore starter data?"
+        description="This clears imported workspace data and restores the local testing records, forms, responses, feedback, and archive examples."
+        confirmLabel="Restore starter data"
+        confirmText="RESET"
+        confirmationValue={resetConfirmation}
+        onConfirmationValueChange={setResetConfirmation}
+        onClose={() => { setMaintenanceAction(''); setResetConfirmation(''); }}
+        onConfirm={restoreStarterData}
+        intent="danger"
+      >
+        <strong>This affects local workflow data</strong>
+        <span>Connected Sheet links and locally created changes will be replaced by starter data.</span>
+      </ConfirmDialog>
     </div>
   );
 }

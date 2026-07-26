@@ -3,14 +3,20 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle, FilePdf, WarningCircle } from '@phosphor-icons/react';
 import { Button, Field, PublicHeader, SearchableSelect } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
-import { findStudent, findStudentByName, formatDate, formatTime, getDeliverable, getIdentityStudents, isUsableAdviserName, normalizeStudentNumber } from '../lib/workflow.js';
+import { findStudent, findStudentByName, formatDate, formatTime, getDeliverable, getIdentityStudents, getWorkspacePublicKey, isUsableAdviserName, normalizeStudentNumber } from '../lib/workflow.js';
 
 export function PublicSubmissionPage() {
-  const { slug } = useParams();
+  const { slug, workspaceKey } = useParams();
   const [searchParams] = useSearchParams();
-  const { state, submitPublicForm } = useWorkflow();
+  const { state, activeWorkspace, activeWorkspaceId, switchWorkspace, submitPublicForm } = useWorkflow();
+  const activeWorkspaceKey = getWorkspacePublicKey(activeWorkspace);
+  const [workspaceReady, setWorkspaceReady] = useState(!workspaceKey || workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey);
+  const [submitting, setSubmitting] = useState(false);
   const deliverable = getDeliverable(state, slug);
-  const activeAccount = useMemo(() => state.studentAccounts.find((account) => account.studentNumber === state.activeStudentNumber), [state.activeStudentNumber, state.studentAccounts]);
+  const activeAccount = useMemo(
+    () => state.studentAccounts.find((account) => account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()) || null,
+    [state.activeAccountEmail, state.studentAccounts]
+  );
   const queryStudent = searchParams.get('student') || '';
   const [identity, setIdentity] = useState({ studentNumber: '', studentName: '', teamCode: '' });
   const [values, setValues] = useState({});
@@ -29,6 +35,21 @@ export function PublicSubmissionPage() {
     : 'Student Numbers appear after Sir imports the Team Formation sheet in Workspace.';
 
   useEffect(() => {
+    let active = true;
+    if (!workspaceKey || workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey) {
+      setWorkspaceReady(true);
+      return () => { active = false; };
+    }
+    setWorkspaceReady(false);
+    switchWorkspace(workspaceKey).then((response) => {
+      if (!active) return;
+      setWorkspaceReady(Boolean(response?.ok));
+      if (!response?.ok) setFormError(response?.error || 'This academic workspace could not be opened.');
+    });
+    return () => { active = false; };
+  }, [activeWorkspaceId, activeWorkspaceKey, switchWorkspace, workspaceKey]);
+
+  useEffect(() => {
     const matched = queryStudent
       ? findStudent(identityStudents, queryStudent)
       : activeAccount
@@ -43,8 +64,24 @@ export function PublicSubmissionPage() {
   }, [activeAccount, identityStudents, queryStudent, state.activeStudentNumber]);
 
   useEffect(() => {
-    setValues(existingResponse?.values || {});
-  }, [deliverable?.id, existingResponse?.id, existingResponse?.updatedAt]);
+    setValues({});
+    setFieldErrors({});
+  }, [deliverable?.id, identity.studentNumber]);
+
+  if (!workspaceReady) {
+    return (
+      <main className="public-page">
+        <PublicHeader />
+        <section className="form-card">
+          <div className="success-panel">
+            <FilePdf weight="regular" />
+            <h1>Opening submission form</h1>
+            <p>Loading the academic workspace connected to this link.</p>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   if (!deliverable || deliverable.status === 'Unpublished') {
     return (
@@ -88,7 +125,7 @@ export function PublicSubmissionPage() {
     }));
   }
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
     setFormError('');
     setFieldErrors({});
@@ -100,7 +137,9 @@ export function PublicSubmissionPage() {
       setFormError('Choose a Student Number from the connected class record.');
       return;
     }
-    const response = submitPublicForm(deliverable.slug, { ...identity, values });
+    setSubmitting(true);
+    const response = await submitPublicForm(deliverable.slug, { ...identity, values });
+    setSubmitting(false);
     if (!response.ok) {
       setFieldErrors(response.fieldErrors || {});
       setFormError(response.formError || '');
@@ -131,6 +170,11 @@ export function PublicSubmissionPage() {
               <div><span>Deliverable</span><strong>{result.deliverable.shortTitle}</strong></div>
               <div><span>Status</span><strong>{result.attempt.primaryStatus || result.attempt.reviewStatus}</strong></div>
             </div>
+            {result.trackerSync ? (
+              <div className={`inline-alert ${result.trackerSync.status === 'SHEET_WRITTEN' || result.trackerSync.status === 'LOCAL_UPDATED' ? 'success' : 'warning'}`}>
+                {result.trackerSync.message}
+              </div>
+            ) : null}
             <div className="button-row">
               <Button variant="secondary" onClick={() => setResult(null)}>Edit response</Button>
               <Link className="btn btn-primary btn-md" to="/student"><span>Open student dashboard</span></Link>
@@ -146,7 +190,9 @@ export function PublicSubmissionPage() {
                 <div><dt>Deliverable</dt><dd>{deliverable.trackerColumn}</dd></div>
               </dl>
               {existingResponse ? (
-                <div className="inline-alert info">A response already exists for this Student Number. Saving changes will update that response.</div>
+                <div className="inline-alert info">
+                  A response is already recorded for this Student Number. Existing submitted links are kept private and are not shown here. Submitting this form will update the recorded response. Create an optional account to track your progress, submissions, and feedback.
+                </div>
               ) : null}
             </div>
 
@@ -204,7 +250,7 @@ export function PublicSubmissionPage() {
             </section>
 
             <div className="form-footer">
-              <Button icon={CheckCircle}>{existingResponse ? 'Save response changes' : 'Submit response'}</Button>
+              <Button icon={CheckCircle} loading={submitting}>{existingResponse ? 'Save response changes' : 'Submit response'}</Button>
             </div>
           </form>
         )}

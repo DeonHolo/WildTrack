@@ -13,11 +13,14 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "deliverables")
+@Table(name = "academic_deliverables")
 public class Deliverable {
 
     @Id
     private UUID id;
+
+    @Column(name = "workspace_id", nullable = false)
+    private UUID workspaceId;
 
     @Column(name = "tracker_column_key", nullable = false, length = 160)
     private String trackerColumnKey;
@@ -25,7 +28,7 @@ public class Deliverable {
     @Column(name = "title", nullable = false, length = 240)
     private String title;
 
-    @Column(name = "slug", nullable = false, unique = true, length = 180)
+    @Column(name = "slug", nullable = false, length = 180)
     private String slug;
 
     @Column(name = "instructions", length = 4000)
@@ -51,6 +54,7 @@ public class Deliverable {
     }
 
     public Deliverable(
+        UUID workspaceId,
         String trackerColumnKey,
         String title,
         String slug,
@@ -59,6 +63,7 @@ public class Deliverable {
         boolean pdfRequired,
         DeliverableStatus status
     ) {
+        this.workspaceId = workspaceId;
         this.trackerColumnKey = trackerColumnKey;
         this.title = title;
         this.slug = slug;
@@ -87,6 +92,10 @@ public class Deliverable {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getWorkspaceId() {
+        return workspaceId;
     }
 
     public String getTrackerColumnKey() {

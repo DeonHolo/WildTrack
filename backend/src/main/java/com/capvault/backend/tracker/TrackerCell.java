@@ -13,7 +13,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "tracker_cells")
+@Table(name = "academic_tracker_cells")
 public class TrackerCell {
 
     @Id

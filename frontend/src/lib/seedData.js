@@ -1,13 +1,7 @@
 export const trackerColumns = [
-  'ProbExploration',
-  'Convergence',
-  'RRL',
-  'Project Proposal',
   'SRS',
   'SDD',
-  'Adviser Assessment',
-  'SourceCode',
-  'DEMO'
+  'SourceCode'
 ];
 
 export const seedTrackerColumns = trackerColumns.map((column, index) => ({
@@ -19,26 +13,47 @@ export const seedTrackerColumns = trackerColumns.map((column, index) => ({
   pdfRequired: ['RRL', 'Project Proposal', 'SRS', 'SDD'].includes(column)
 }));
 
+export const seedWorkspaces = [
+  {
+    id: '11111111-1111-1111-1111-111111111111',
+    name: 'IT Capstone - IT332 - Semester 2 2025-26',
+    program: 'IT',
+    courseCode: 'IT332',
+    semester: 'Semester 2',
+    academicYear: '2025-26',
+    active: true
+  },
+  {
+    id: '22222222-2222-2222-2222-222222222222',
+    name: 'CS Capstone - Semester 2 2025-26',
+    program: 'CS',
+    courseCode: 'CS Capstone',
+    semester: 'Semester 2',
+    academicYear: '2025-26',
+    active: true
+  }
+];
+
 export const seedProjectMetadata = [
   {
-    groupCode: '2526-sem2-it332-41',
-    projectTitle: 'CapVault: A Google-first capstone submission and review assistant',
-    softwareName: 'CapVault',
-    description: 'A capstone workflow assistant for class-record-connected submissions, file checks, tracker updates, and final archive preparation.',
-    proposalRemarks: 'Approved pending workflow pivot revisions.',
-    demoComments: 'Focus on public submission links, PDF checks, and Sir Ralph review queues.',
-    adviserName: 'Sir Ralph Laviste',
+    groupCode: '2526-sem2-it332-11',
+    projectTitle: 'StudyBuddy: A Collaborative Academic Task Manager',
+    softwareName: 'StudyBuddy',
+    description: 'A collaborative task manager for student groups to organize coursework, milestones, and academic progress.',
+    proposalRemarks: 'Refine the group workflow and clarify the academic planning scope.',
+    demoComments: 'Show the shared task view and the group progress workflow.',
+    adviserName: 'Sir Roberto Villanueva',
     status: 'Active',
     category: 'Academic Capstone'
   },
   {
-    groupCode: '2526-sem2-it332-07',
-    projectTitle: 'Project monitoring sample record',
-    softwareName: 'Sample System',
-    description: 'Seed project metadata used until Software Project Monitor is connected.',
-    proposalRemarks: 'Pending review.',
-    demoComments: 'No current demo remarks.',
-    adviserName: 'Sir Ralph Laviste',
+    groupCode: '2526-sem2-it332-22',
+    projectTitle: 'QuickPark: A Campus Parking Slot Finder',
+    softwareName: 'QuickPark',
+    description: 'A campus parking assistant that helps drivers find available parking areas.',
+    proposalRemarks: 'Add clearer parking availability rules and user flows.',
+    demoComments: 'Demonstrate the parking search and occupancy update flow.',
+    adviserName: 'Sir Roberto Villanueva',
     status: 'Active',
     category: 'Academic Capstone'
   }
@@ -46,12 +61,12 @@ export const seedProjectMetadata = [
 
 export const seedStudents = [
   {
-    studentNumber: '20-0649-750',
-    name: 'TAGHOY, RON LUIGI F.',
-    teamCode: '2526-sem2-it332-41',
+    studentNumber: '22-1001-001',
+    name: 'DELA CRUZ, JUAN CARLOS M.',
+    teamCode: '2526-sem2-it332-11',
     memberNumber: 1,
     section: 'IT332',
-    adviser: 'Sir Ralph Laviste',
+    adviser: 'Sir Roberto Villanueva',
     milestones: {
       ProbExploration: 0,
       Convergence: 0,
@@ -65,12 +80,12 @@ export const seedStudents = [
     }
   },
   {
-    studentNumber: '23-2250-144',
-    name: 'BARANGAN, MARK LORENZ L.',
-    teamCode: '2526-sem2-it332-07',
+    studentNumber: '23-2002-002',
+    name: 'SANTOS, MARIA ANGELA R.',
+    teamCode: '2526-sem2-it332-22',
     memberNumber: 5,
     section: 'IT332',
-    adviser: 'Sir Ralph Laviste',
+    adviser: 'Sir Roberto Villanueva',
     milestones: {
       ProbExploration: 0,
       Convergence: 1,
@@ -84,12 +99,12 @@ export const seedStudents = [
     }
   },
   {
-    studentNumber: '21-0845-312',
-    name: 'PACIO, MURIEL D.',
-    teamCode: '2526-sem2-it332-01',
+    studentNumber: '21-3003-003',
+    name: 'REYES, MIGUEL ANTONIO D.',
+    teamCode: '2526-sem2-it332-33',
     memberNumber: 1,
     section: 'IT332',
-    adviser: 'Sir Ralph Laviste',
+    adviser: 'Sir Roberto Villanueva',
     milestones: {
       ProbExploration: 0,
       Convergence: 0,
@@ -103,12 +118,12 @@ export const seedStudents = [
     }
   },
   {
-    studentNumber: '22-1021-641',
-    name: 'LIM, MICHELU TIA A.',
-    teamCode: '2526-sem2-it332-01',
+    studentNumber: '22-4004-004',
+    name: 'GARCIA, ANA PATRICIA L.',
+    teamCode: '2526-sem2-it332-33',
     memberNumber: 2,
     section: 'IT332',
-    adviser: 'Sir Ralph Laviste',
+    adviser: 'Sir Roberto Villanueva',
     milestones: {
       ProbExploration: 1,
       Convergence: 10,
@@ -122,12 +137,12 @@ export const seedStudents = [
     }
   },
   {
-    studentNumber: '21-3320-018',
-    name: 'NARANJO, ANA CLAIRE ELLEN R.',
-    teamCode: '2526-sem2-it332-02',
+    studentNumber: '21-5005-005',
+    name: 'BAUTISTA, JOSE RAFAEL P.',
+    teamCode: '2526-sem2-it332-44',
     memberNumber: 5,
     section: 'IT332',
-    adviser: 'Engr. Mary Claire Esdrelon',
+    adviser: 'Engr. Carmen Aquino',
     milestones: {
       ProbExploration: 4,
       Convergence: 0,
@@ -141,12 +156,12 @@ export const seedStudents = [
     }
   },
   {
-    studentNumber: '20-1188-702',
-    name: 'RAMOS, JEREMIAH T.',
-    teamCode: '2526-sem2-it332-04',
+    studentNumber: '20-6006-006',
+    name: 'TORRES, RICA MAE S.',
+    teamCode: '2526-sem2-it332-55',
     memberNumber: 1,
     section: 'IT332',
-    adviser: 'Sir Ralph Laviste',
+    adviser: 'Sir Roberto Villanueva',
     milestones: {
       ProbExploration: 0,
       Convergence: 0,
@@ -212,36 +227,36 @@ export const seedAttempts = [
   {
     id: 'att-001',
     deliverableId: 'deliv-srs',
-    studentNumber: '23-2250-144',
-    studentName: 'BARANGAN, MARK LORENZ L.',
-    teamCode: '2526-sem2-it332-07',
+    studentNumber: '23-2002-002',
+    studentName: 'SANTOS, MARIA ANGELA R.',
+    teamCode: '2526-sem2-it332-22',
     matched: true,
     submittedAt: '2026-04-19T11:04:00+08:00',
     values: {
       documentPdf: 'https://drive.google.com/file/d/sample-srs-pdf/view'
     },
-    flags: ['Received', 'PDF OK', 'Needs Review'],
-    primaryStatus: 'Needs Review',
-    checkSummary: 'PDF link opens and contains readable SRS sections. Requirements traceability still needs review.',
-    reviewStatus: 'Needs Review',
+    flags: ['Received', 'Drive link format accepted'],
+    primaryStatus: 'Received',
+    checkSummary: '',
+    reviewStatus: 'Received',
     archiveStatus: 'Not Archived',
     history: []
   },
   {
     id: 'att-002',
     deliverableId: 'deliv-sdd',
-    studentNumber: '20-0649-750',
-    studentName: 'TAGHOY, RON LUIGI F.',
-    teamCode: '2526-sem2-it332-41',
+    studentNumber: '22-1001-001',
+    studentName: 'DELA CRUZ, JUAN CARLOS M.',
+    teamCode: '2526-sem2-it332-11',
     matched: true,
     submittedAt: '2026-04-25T22:14:00+08:00',
     values: {
       documentPdf: 'https://drive.google.com/file/d/template-like-sdd-pdf/view'
     },
-    flags: ['Received', 'PDF OK', 'Template-like'],
-    primaryStatus: 'Needs Review',
-    checkSummary: 'File opens, but several sections appear close to the provided template.',
-    reviewStatus: 'Needs Review',
+    flags: ['Received', 'Drive link format accepted'],
+    primaryStatus: 'Received',
+    checkSummary: '',
+    reviewStatus: 'Received',
     archiveStatus: 'Not Archived',
     history: []
   }
@@ -250,8 +265,8 @@ export const seedAttempts = [
 export const initialState = {
   classRecord: {
     name: 'ClassRec SEM2 2025-26 : IT332 Tracker',
-    sheetUrl: 'https://docs.google.com/spreadsheets/d/class-record',
-    connectedAt: '2026-06-18T00:00:00+08:00',
+    sheetUrl: '',
+    connectedAt: '',
     trackerSheet: 'IT332 Tracker',
     status: 'Connected',
     importedColumns: ['NAME OF STUDENT', 'STUDENT NO', 'TEAM FORMATION', 'MEMBER#', ...trackerColumns],
@@ -265,9 +280,9 @@ export const initialState = {
       },
       tracker: {
         name: 'Tracker',
-        sheetUrl: 'https://docs.google.com/spreadsheets/d/class-record',
+        sheetUrl: '',
         status: 'Starter data',
-        connectedAt: '2026-06-18T00:00:00+08:00',
+        connectedAt: '',
         csvUrl: ''
       },
       projectMonitor: {
@@ -306,9 +321,10 @@ export const initialState = {
   attempts: seedAttempts,
   archives: [],
   studentAccounts: [],
+  activeAccountEmail: '',
   activeStudentNumber: '',
   activity: [
-    { id: 'act-001', at: '2026-06-18T00:10:00+08:00', text: 'Connected IT332 class record sheet.' },
+    { id: 'act-001', at: '2026-06-18T00:10:00+08:00', text: 'Loaded local starter records for testing.' },
     { id: 'act-002', at: '2026-06-18T00:15:00+08:00', text: 'Published SRS and SDD submission forms.' }
   ]
 };

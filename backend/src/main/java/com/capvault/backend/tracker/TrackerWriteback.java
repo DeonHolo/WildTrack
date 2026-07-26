@@ -16,11 +16,14 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "tracker_writebacks")
+@Table(name = "academic_tracker_writebacks")
 public class TrackerWriteback {
 
     @Id
     private UUID id;
+
+    @Column(name = "workspace_id", nullable = false)
+    private UUID workspaceId;
 
     @Column(name = "student_number", length = 80)
     private String studentNumber;
@@ -67,6 +70,7 @@ public class TrackerWriteback {
     }
 
     public TrackerWriteback(
+        UUID workspaceId,
         String studentNumber,
         String teamCode,
         String memberNumber,
@@ -79,6 +83,7 @@ public class TrackerWriteback {
         TrackerWritebackStatus status,
         String message
     ) {
+        this.workspaceId = workspaceId;
         this.studentNumber = normalizeNullable(studentNumber);
         this.teamCode = teamCode;
         this.memberNumber = normalizeNullable(memberNumber);
@@ -119,6 +124,10 @@ public class TrackerWriteback {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getWorkspaceId() {
+        return workspaceId;
     }
 
     public String getStudentNumber() {

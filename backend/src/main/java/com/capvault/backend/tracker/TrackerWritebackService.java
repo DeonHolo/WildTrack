@@ -1,6 +1,7 @@
 package com.capvault.backend.tracker;
 
 import java.util.Optional;
+import java.util.UUID;
 
 import com.capvault.backend.deliverable.Deliverable;
 import com.capvault.backend.deliverable.DeliverableRepository;
@@ -41,9 +42,9 @@ public class TrackerWritebackService {
     }
 
     @Transactional
-    public TrackerWritebackResponse writeBack(TrackerWritebackRequest request) {
-        TrackerRow row = findTargetRow(request);
-        TrackerColumn column = trackerColumnRepository.findByColumnKeyIgnoreCase(request.trackerColumnKey().trim())
+    public TrackerWritebackResponse writeBack(UUID workspaceId, TrackerWritebackRequest request) {
+        TrackerRow row = findTargetRow(workspaceId, request);
+        TrackerColumn column = trackerColumnRepository.findByWorkspaceIdAndColumnKeyIgnoreCase(workspaceId, request.trackerColumnKey().trim())
             .orElseThrow(() -> new IllegalArgumentException("Tracker column was not found."));
 
         String rawValue = String.valueOf(request.daysLate());
@@ -63,15 +64,17 @@ public class TrackerWritebackService {
         Deliverable deliverable = request.deliverableId() == null
             ? null
             : deliverableRepository.findById(request.deliverableId())
+                .filter(item -> item.getWorkspaceId().equals(workspaceId))
                 .orElseThrow(() -> new IllegalArgumentException("Deliverable was not found."));
 
-        WorkspaceSource trackerSource = workspaceSourceRepository.findBySourceType(WorkspaceSourceType.TRACKER)
+        WorkspaceSource trackerSource = workspaceSourceRepository.findByWorkspaceIdAndSourceType(workspaceId, WorkspaceSourceType.TRACKER)
             .orElse(null);
         String a1Cell = toA1Range(trackerSource == null ? null : trackerSource.getDisplayName(), row.getSourceRowNumber(), column.getSourceColumnIndex());
 
         TrackerWritebackStatus status = TrackerWritebackStatus.LOCAL_UPDATED;
         String message = "Local tracker cell updated.";
         TrackerWriteback writeback = new TrackerWriteback(
+            workspaceId,
             row.getStudentNumber(),
             row.getTeamCode(),
             row.getMemberNumber(),
@@ -90,6 +93,7 @@ public class TrackerWritebackService {
                 writeback.markFailed("Tracker source is not connected.");
             } else if (!googleSheetsGateway.isConfigured()) {
                 writeback = new TrackerWriteback(
+                    workspaceId,
                     row.getStudentNumber(),
                     row.getTeamCode(),
                     row.getMemberNumber(),
@@ -115,10 +119,10 @@ public class TrackerWritebackService {
         return TrackerWritebackResponse.from(trackerWritebackRepository.save(writeback));
     }
 
-    private TrackerRow findTargetRow(TrackerWritebackRequest request) {
+    private TrackerRow findTargetRow(UUID workspaceId, TrackerWritebackRequest request) {
         String studentNumber = request.studentNumber() == null ? "" : request.studentNumber().trim();
         if (!studentNumber.isBlank()) {
-            Optional<TrackerRow> byStudentNumber = trackerRowRepository.findByStudentNumberIgnoreCase(studentNumber);
+            Optional<TrackerRow> byStudentNumber = trackerRowRepository.findByWorkspaceIdAndStudentNumberIgnoreCase(workspaceId, studentNumber);
             if (byStudentNumber.isPresent()) {
                 return byStudentNumber.get();
             }
@@ -127,7 +131,7 @@ public class TrackerWritebackService {
         String teamCode = request.teamCode().trim();
         String memberNumber = request.memberNumber() == null ? "" : request.memberNumber().trim();
         if (!memberNumber.isBlank()) {
-            return trackerRowRepository.findFirstByTeamCodeIgnoreCaseAndMemberNumberIgnoreCase(teamCode, memberNumber)
+            return trackerRowRepository.findFirstByWorkspaceIdAndTeamCodeIgnoreCaseAndMemberNumberIgnoreCase(workspaceId, teamCode, memberNumber)
                 .orElseThrow(() -> new IllegalArgumentException("No tracker row matched the given team and member number."));
         }
 

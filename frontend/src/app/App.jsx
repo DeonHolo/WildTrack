@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { AppShell } from '../components/ui.jsx';
+import { AppShell, GlobalDevPreview } from '../components/ui.jsx';
 import { WorkflowProvider } from './WorkflowContext.jsx';
 import { ArchivePage } from '../pages/ArchivePage.jsx';
 import { AdviserViewPage } from '../pages/AdviserViewPage.jsx';
@@ -16,6 +16,7 @@ export default function App() {
   return (
     <WorkflowProvider>
       <Routes>
+        <Route path="/w/:workspaceKey/submit/:slug" element={<PublicSubmissionPage />} />
         <Route path="/submit/:slug" element={<PublicSubmissionPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/login" element={<RegisterPage />} />
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/workspace" element={<AppShell><WorkspacePage /></AppShell>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <GlobalDevPreview />
     </WorkflowProvider>
   );
 }

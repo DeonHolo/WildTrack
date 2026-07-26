@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { CheckCircle, LinkSimple, PencilSimple, PlusCircle, Trash } from '@phosphor-icons/react';
 import { Button, DataTable, Field, PageHeader, StatusBadge } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
-import { formatDate, formatTime, getActiveTrackerColumns, getTrackerColumn, slugify, sortDeliverables } from '../lib/workflow.js';
+import { formatDate, formatTime, getActiveTrackerColumns, getTrackerColumn, getWorkspacePublicKey, slugify, sortDeliverables } from '../lib/workflow.js';
 
 const pdfField = { id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', required: true, pdfRequired: true };
 const linkField = { id: 'primaryLink', label: 'Submission Link', type: 'url', required: true, pdfRequired: false };
@@ -38,20 +38,36 @@ function makeDefaultForm(column = 'SRS') {
 }
 
 export function FormsPage() {
-  const { state, publishDeliverable, removeDeliverable } = useWorkflow();
+  const {
+    state,
+    activeWorkspace,
+    publishDeliverable,
+    removeDeliverable,
+    generateFormsFromSuggestions
+  } = useWorkflow();
   const activeColumns = getActiveTrackerColumns(state);
   const firstColumn = activeColumns[0]?.key || activeColumns[0]?.label || 'SRS';
-  const [form, setForm] = useState(makeDefaultForm(firstColumn));
+  const [form, setForm] = useState(() => {
+    const existing = state.deliverables.find((item) => item.trackerColumn === firstColumn);
+    return existing ? editableForm(existing) : makeDefaultForm(firstColumn);
+  });
   const [editing, setEditing] = useState(null);
   const [copied, setCopied] = useState('');
   const selectedColumn = getTrackerColumn(state, form.trackerColumn);
   const selectedExisting = state.deliverables.find((item) => item.trackerColumn === form.trackerColumn);
   const orderedDeliverables = useMemo(() => sortDeliverables(state, state.deliverables), [state]);
+  const pendingSuggestions = state.classRecord.pendingFormSuggestions || state.classRecord.importSummary?.suggestedForms || [];
   const previewSlug = useMemo(() => slugify(form.title || `${form.trackerColumn} Submission`), [form.title, form.trackerColumn]);
+  const workspaceKey = getWorkspacePublicKey(activeWorkspace);
 
   function updateDeliverable(columnKey, targetSetter = setForm) {
     const column = getTrackerColumn(state, columnKey);
     const label = column?.label || columnKey;
+    const existing = state.deliverables.find((item) => item.trackerColumn === (column?.key || columnKey));
+    if (existing) {
+      targetSetter(editableForm(existing));
+      return;
+    }
     targetSetter((current) => ({
       ...current,
       trackerColumn: column?.key || columnKey,
@@ -78,19 +94,11 @@ export function FormsPage() {
   function submit(event) {
     event.preventDefault();
     publishDeliverable(buildPayload(form));
-    setForm(makeDefaultForm(selectedColumn?.key || selectedColumn?.label || firstColumn));
+    if (!form.id) setForm(makeDefaultForm(selectedColumn?.key || selectedColumn?.label || firstColumn));
   }
 
   function openEditor(item) {
-    setEditing({
-      id: item.id,
-      title: item.title,
-      dueAt: item.dueAt.slice(0, 16),
-      trackerColumn: item.trackerColumn,
-      instructions: item.instructions,
-      pdfRequired: item.fields.some((field) => field.pdfRequired),
-      status: item.status || 'Published'
-    });
+    setEditing(editableForm(item));
   }
 
   function saveEdit(event) {
@@ -100,7 +108,7 @@ export function FormsPage() {
   }
 
   async function copyLink(item) {
-    const path = `${window.location.origin}/submit/${item.slug}`;
+    const path = `${window.location.origin}/w/${workspaceKey}/submit/${item.slug}`;
     await navigator.clipboard?.writeText(path);
     setCopied(item.id);
     window.setTimeout(() => setCopied(''), 1600);
@@ -115,6 +123,18 @@ export function FormsPage() {
   return (
     <div className="page-stack">
       <PageHeader title="Form Publisher" description="Publish one student submission link per deliverable from the connected class record." />
+
+      {pendingSuggestions.length ? (
+        <section className="suggested-forms-banner">
+          <div>
+            <strong>{pendingSuggestions.length} form suggestion{pendingSuggestions.length === 1 ? '' : 's'} ready</strong>
+            <span>Deadlines were detected in the connected Tracker. Review and generate the forms when ready.</span>
+          </div>
+          <Button type="button" icon={CheckCircle} onClick={() => generateFormsFromSuggestions(pendingSuggestions)}>
+            Generate suggested forms
+          </Button>
+        </section>
+      ) : null}
 
       <section className="panel">
         <form className="form-grid" onSubmit={submit}>
@@ -150,7 +170,7 @@ export function FormsPage() {
           </Field>
           <div className="form-preview compact-preview">
             <span>Generated link</span>
-            <strong>/submit/{previewSlug}</strong>
+            <strong>/w/{workspaceKey}/submit/{previewSlug}</strong>
           </div>
           <div className="button-row">
             <Button icon={selectedExisting ? CheckCircle : PlusCircle}>{selectedExisting ? 'Update existing form' : 'Publish form'}</Button>
@@ -178,7 +198,9 @@ export function FormsPage() {
                     <button className="icon-copy-button" type="button" onClick={() => copyLink(item)} aria-label={`Copy ${item.shortTitle} form link`} title="Copy link">
                       <LinkSimple weight="regular" />
                     </button>
-                    <a className="form-link-url" href={`/submit/${item.slug}`} target="_blank" rel="noreferrer">/submit/{item.slug}</a>
+                    <a className="form-link-url" href={`/w/${workspaceKey}/submit/${item.slug}`} target="_blank" rel="noreferrer">
+                      /w/{workspaceKey}/submit/{item.slug}
+                    </a>
                   </div>
                   {copied === item.id ? <small>Copied</small> : null}
                 </td>
@@ -239,6 +261,18 @@ export function FormsPage() {
       ) : null}
     </div>
   );
+}
+
+function editableForm(item) {
+  return {
+    id: item.id,
+    title: item.title,
+    dueAt: item.dueAt.slice(0, 16),
+    trackerColumn: item.trackerColumn,
+    instructions: item.instructions,
+    pdfRequired: item.fields.some((field) => field.pdfRequired),
+    status: item.status || 'Published'
+  };
 }
 
 function DateTimeFields({ value, onChange }) {

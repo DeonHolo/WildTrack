@@ -8,9 +8,13 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface StudentRecordRepository extends JpaRepository<StudentRecord, UUID> {
 
-    List<StudentRecord> findAllByOrderByTeamCodeAscMemberNumberAscStudentNameAsc();
+    List<StudentRecord> findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(UUID workspaceId);
 
-    Optional<StudentRecord> findByStudentNumberIgnoreCase(String studentNumber);
+    Optional<StudentRecord> findByWorkspaceIdAndStudentNumberIgnoreCase(UUID workspaceId, String studentNumber);
 
-    Optional<StudentRecord> findFirstByTeamCodeIgnoreCaseAndMemberNumberIgnoreCase(String teamCode, String memberNumber);
+    Optional<StudentRecord> findFirstByWorkspaceIdAndTeamCodeIgnoreCaseAndMemberNumberIgnoreCase(
+        UUID workspaceId,
+        String teamCode,
+        String memberNumber
+    );
 }

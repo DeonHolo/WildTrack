@@ -2,6 +2,7 @@ package com.capvault.backend.workspace;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,22 +21,23 @@ public class WorkspaceSourceService {
     }
 
     @Transactional(readOnly = true)
-    public List<WorkspaceSourceResponse> listSources() {
-        return repository.findAllByOrderBySourceTypeAsc()
+    public List<WorkspaceSourceResponse> listSources(UUID workspaceId) {
+        return repository.findAllByWorkspaceIdOrderBySourceTypeAsc(workspaceId)
             .stream()
             .map(WorkspaceSourceResponse::from)
             .toList();
     }
 
     @Transactional
-    public WorkspaceSourceResponse upsertSource(WorkspaceSourceType sourceType, WorkspaceSourceRequest request) {
+    public WorkspaceSourceResponse upsertSource(UUID workspaceId, WorkspaceSourceType sourceType, WorkspaceSourceRequest request) {
         String sheetUrl = request.sheetUrl().trim();
         String sheetId = extractSheetId(sheetUrl);
         WorkspaceSourceStatus status = request.status() == null ? WorkspaceSourceStatus.CONNECTED : request.status();
         String displayName = normalizeNullable(request.displayName());
 
-        WorkspaceSource source = repository.findBySourceType(sourceType)
+        WorkspaceSource source = repository.findByWorkspaceIdAndSourceType(workspaceId, sourceType)
             .orElseGet(() -> new WorkspaceSource(
+                workspaceId,
                 sourceType,
                 sheetUrl,
                 sheetId,

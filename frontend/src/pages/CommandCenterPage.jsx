@@ -2,7 +2,7 @@ import { Archive, ArrowSquareOut, ClipboardText, FilePdf, Sparkle, WarningCircle
 import { Link } from 'react-router-dom';
 import { Button, DataTable, EmptyState, PageHeader, StatusBadge } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
-import { findStudent, firstSubmissionLink, formatDateTime, getDeliverable, getIdentityStudents, isAiReportCurrent, makeDriveViewUrl } from '../lib/workflow.js';
+import { DRIVE_CHECK_UNAVAILABLE_MESSAGE, findStudent, firstSubmissionLink, formatDateTime, getDeliverable, getIdentityStudents, isAiReportCurrent, isDriveCheckUnavailable, makeDriveViewUrl } from '../lib/workflow.js';
 
 export function CommandCenterPage() {
   const { state, triggerAiEvaluation, archiveAttempt } = useWorkflow();
@@ -12,6 +12,7 @@ export function CommandCenterPage() {
   const missing = Math.max(0, state.deliverables.filter((item) => item.status !== 'Unpublished').length * identityStudents.length - state.attempts.length);
 
   function runAiReview(response) {
+    if (isDriveCheckUnavailable(response)) return;
     if (!isAiReportCurrent(response) || window.confirm('This response already has a current AI Review. Run it again?')) {
       triggerAiEvaluation(response.id);
     }
@@ -44,6 +45,7 @@ export function CommandCenterPage() {
           <DataTable columns={['Priority', 'Student', 'Deliverable', 'Issue', 'Updated', 'Actions']} minWidth={980} className="today-work-table">
             {attention.slice(0, 12).map((item) => {
               const fileLink = firstSubmissionLink(item.response.values);
+              const checkUnavailable = isDriveCheckUnavailable(item.response);
               return (
                 <tr key={item.response.id}>
                   <td><StatusBadge status={item.priority} /></td>
@@ -54,8 +56,8 @@ export function CommandCenterPage() {
                   <td>
                     <div className="row-action-group">
                       {fileLink ? <a className="btn btn-secondary btn-sm" href={makeDriveViewUrl(fileLink)} target="_blank" rel="noreferrer"><ArrowSquareOut weight="regular" /><span>Open file link</span></a> : null}
-                      <Button size="sm" variant="secondary" icon={Sparkle} onClick={() => runAiReview(item.response)}>
-                        {isAiReportCurrent(item.response) ? 'View AI' : 'AI Review'}
+                      <Button size="sm" variant="secondary" icon={Sparkle} disabled={checkUnavailable} title={checkUnavailable ? DRIVE_CHECK_UNAVAILABLE_MESSAGE : undefined} onClick={() => runAiReview(item.response)}>
+                        {checkUnavailable ? 'Drive check unavailable' : isAiReportCurrent(item.response) ? 'View AI' : 'AI Review'}
                       </Button>
                     </div>
                   </td>
@@ -121,6 +123,7 @@ export function CommandCenterPage() {
 
 function buildAttentionQueue(state) {
   return state.attempts
+    .filter((response) => response.reviewStatus !== 'Accepted' && response.archiveStatus !== 'Archived')
     .map((response) => {
       const student = findStudent(state.students, response.studentNumber);
       const deliverable = getDeliverable(state, response.deliverableId);
@@ -130,7 +133,7 @@ function buildAttentionQueue(state) {
         : flags.includes('Too Short')
           ? 'Extracted content appears too short.'
           : !isAiReportCurrent(response)
-            ? 'AI Review has not been run for the latest response.'
+            ? 'Automatic file checks are unavailable until Google Drive API is connected.'
             : response.reviewStatus === 'Needs Review'
               ? 'Review status still needs a decision.'
               : '';

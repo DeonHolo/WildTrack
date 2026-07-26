@@ -12,14 +12,17 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "workspace_sources")
+@Table(name = "academic_workspace_sources")
 public class WorkspaceSource {
 
     @Id
     private UUID id;
 
+    @Column(name = "workspace_id", nullable = false)
+    private UUID workspaceId;
+
     @Enumerated(EnumType.STRING)
-    @Column(name = "source_type", nullable = false, unique = true, length = 40)
+    @Column(name = "source_type", nullable = false, length = 40)
     private WorkspaceSourceType sourceType;
 
     @Column(name = "sheet_url", nullable = false, length = 2048)
@@ -45,6 +48,7 @@ public class WorkspaceSource {
     }
 
     public WorkspaceSource(
+        UUID workspaceId,
         WorkspaceSourceType sourceType,
         String sheetUrl,
         String sheetId,
@@ -52,6 +56,7 @@ public class WorkspaceSource {
         WorkspaceSourceStatus status,
         LocalDateTime connectedAt
     ) {
+        this.workspaceId = workspaceId;
         this.sourceType = sourceType;
         this.sheetUrl = sheetUrl;
         this.sheetId = sheetId;
@@ -69,6 +74,10 @@ public class WorkspaceSource {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getWorkspaceId() {
+        return workspaceId;
     }
 
     public WorkspaceSourceType getSourceType() {

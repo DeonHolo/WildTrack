@@ -1,41 +1,33 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { CheckCircle, GoogleLogo, Key, Student } from '@phosphor-icons/react';
-import { Button, Field, PublicHeader, SearchableSelect } from '../components/ui.jsx';
+import { useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { GoogleLogo, Key } from '@phosphor-icons/react';
+import { Button, Field, PublicHeader } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
-import { findStudent, getIdentityStudents, getStudentOptions } from '../lib/workflow.js';
 
 export function RegisterPage() {
-  const { state, registerStudentAccount, loginStudentAccount } = useWorkflow();
+  const { registerStudentAccount, loginStudentAccount } = useWorkflow();
   const navigate = useNavigate();
-  const [mode, setMode] = useState('register');
-  const [form, setForm] = useState({ email: '', password: '', studentNumber: '' });
+  const location = useLocation();
+  const [mode, setMode] = useState(() => location.pathname === '/login' ? 'login' : 'register');
+  const [form, setForm] = useState({ email: '', password: '' });
   const [message, setMessage] = useState('');
-  const student = useMemo(() => findStudent(state.students, form.studentNumber), [form.studentNumber, state.students]);
-  const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
-  const options = useMemo(() => getStudentOptions(identityStudents, state.studentAccounts), [identityStudents, state.studentAccounts]);
-  const available = options.filter((item) => !item.claimed || item.studentNumber === form.studentNumber);
-  const studentNumberHelper = identityStudents.length
-    ? `${available.length} unclaimed of ${identityStudents.length} Student Numbers loaded from Team Formation.`
-    : 'Import the Team Formation sheet in Workspace before student registration can claim official IDs.';
-
-  function updateStudentNumber(value) {
-    setForm((current) => ({ ...current, studentNumber: value }));
-    setMessage('');
-  }
 
   function register(authMethod = 'Email') {
     setMessage('');
-    if (!form.email || (authMethod === 'Email' && !form.password) || !form.studentNumber) {
-      setMessage('Enter your email, password, and Student Number.');
+    if (authMethod === 'Google') {
+      setMessage('Google sign-in is not connected yet. Use email registration for now.');
       return;
     }
-    const response = registerStudentAccount({ email: form.email, studentNumber: form.studentNumber, authMethod });
+    if (!form.email || (authMethod === 'Email' && !form.password)) {
+      setMessage('Enter your email and password.');
+      return;
+    }
+    const response = registerStudentAccount({ email: form.email, authMethod });
     if (!response.ok) {
       setMessage(response.error);
       return;
     }
-    setMessage('Account registered. Your student dashboard is ready.');
+    setMessage('Account registered. Claim your Student Number in the dashboard.');
     window.setTimeout(() => navigate('/student'), 500);
   }
 
@@ -56,20 +48,15 @@ export function RegisterPage() {
 
   return (
     <main className="public-page auth-page">
-      <PublicHeader subtitle="Student access" />
-      <section className="auth-card">
-        <div className="auth-copy">
-          <div className="brand-mark"><Student weight="regular" /></div>
-          <h1>Student access</h1>
-          <p>Accounts are optional. Submissions still work through public form links, but an account lets students view their own status and fills form details automatically.</p>
-          <div className="auth-facts">
-            <span>Student Number comes from the class record.</span>
-            <span>Name and team are filled after the number is claimed.</span>
-            <span>Claimed numbers are hidden from new registrations.</span>
-          </div>
-        </div>
-
+      <PublicHeader subtitle="Student portal" />
+      <section className="auth-card auth-card-focused">
         <div className="auth-panel">
+          <header className="auth-heading">
+            <h1>{mode === 'register' ? 'Create your account' : 'Sign in to CapVault'}</h1>
+            <p>{mode === 'register'
+              ? 'Create an optional account to view your submissions, tracker status, and adviser feedback.'
+              : 'Use the account connected to your student dashboard.'}</p>
+          </header>
           <div className="segmented-control" role="tablist" aria-label="Access mode">
             <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Register</button>
             <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Sign in</button>
@@ -85,25 +72,9 @@ export function RegisterPage() {
               <Field label="Password" required>
                 <input type="password" autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Create a password" />
               </Field>
-              <Field label="Student Number" helper={studentNumberHelper} required>
-                <SearchableSelect
-                  value={form.studentNumber}
-                  onChange={updateStudentNumber}
-                  options={available}
-                  placeholder="Search Student Number"
-                  getValue={(item) => item.studentNumber}
-                  getLabel={(item) => `${item.name} | ${item.teamCode}`}
-                  disabledOptions={(item) => item.claimed}
-                />
-              </Field>
-              {student ? (
-                <div className="identity-card matched">
-                  <CheckCircle weight="regular" />
-                  <div><span>Class record match</span><strong>{student.name}</strong><small>{student.teamCode} | Member {student.memberNumber}</small></div>
-                </div>
-              ) : null}
-              {message ? <div className={`inline-alert ${message.includes('ready') ? 'success' : 'danger'}`}>{message}</div> : null}
+              {message ? <div className={`inline-alert ${message.startsWith('Account registered') ? 'success' : 'danger'}`}>{message}</div> : null}
               <Button icon={Key}>Create account</Button>
+              <p className="auth-account-note">After registration, connect your Student Number from the dashboard to load your official name, team, submissions, and tracker data.</p>
             </form>
           ) : (
             <form className="form-grid" onSubmit={login}>
@@ -117,8 +88,8 @@ export function RegisterPage() {
               <Button icon={Key}>Sign in</Button>
             </form>
           )}
-          <p className="auth-footnote">Need to submit without an account? Open the deliverable link from your class announcement.</p>
-          <Link className="text-link" to="/submit/week-9-srs">Open sample form</Link>
+          <p className="auth-footnote">An account is not required to answer a public deliverable form.</p>
+          <Link className="text-link" to="/">Return to CapVault</Link>
         </div>
       </section>
     </main>

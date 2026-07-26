@@ -40,7 +40,7 @@ class SheetImportControllerTest {
     private static final String TRACKER_CSV = """
         ClassRec SEM2 2025-26 : IT332 Tracker
         NAME OF STUDENT,TEAM FORMATION,MEMBER#,ProbExploration,SRS,SDD
-        ,,,"February 14, 2026","April 18, 2026","April 25, 2026"
+        ,,,2/14/2026 23:59:59,4/18/2026 23:59:59,4/25/2026 23:59:59
         "TAGHOY, RON LUIGI F.",2526-sem2-it332-41,1,0,,21
         "BARANGAN, MARK LORENZ L.",2526-sem2-it332-07,5,1,51,51
         """;
@@ -133,7 +133,10 @@ class SheetImportControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.rowsFound").value(2))
             .andExpect(jsonPath("$.columnsFound").value(3))
-            .andExpect(jsonPath("$.deadlineSuggestions", hasSize(3)));
+            .andExpect(jsonPath("$.deadlineSuggestions", hasSize(3)))
+            .andExpect(jsonPath("$.deadlineSuggestions[0].dueAt").value("2026-02-14T23:59"))
+            .andExpect(jsonPath("$.details.deadlineRows").value(1))
+            .andExpect(jsonPath("$.details.metrics.deadlineValues").value(3));
 
         mockMvc.perform(get("/api/tracker/rows"))
             .andExpect(status().isOk())

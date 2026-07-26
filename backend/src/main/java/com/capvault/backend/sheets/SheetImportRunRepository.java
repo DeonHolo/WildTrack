@@ -7,5 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface SheetImportRunRepository extends JpaRepository<SheetImportRun, UUID> {
 
-    List<SheetImportRun> findTop20ByOrderByStartedAtDesc();
+    List<SheetImportRun> findTop20ByWorkspaceIdOrderByStartedAtDesc(UUID workspaceId);
 }

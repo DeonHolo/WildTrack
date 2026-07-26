@@ -1,16 +1,215 @@
-import { initialState } from './seedData.js';
+import { initialState, seedWorkspaces } from './seedData.js';
 
 const STORAGE_KEY = 'capvault.v2.workflow';
+const WORKSPACE_STORAGE_PREFIX = 'capvault.v2.workspace.';
+const WORKSPACE_CATALOG_KEY = 'capvault.v2.workspaces';
+const ACTIVE_WORKSPACE_KEY = 'capvault.v2.active-workspace';
+const STUDENT_ACCOUNTS_KEY = 'capvault.v2.student-accounts';
+const ACTIVE_STUDENT_ACCOUNT_KEY = 'capvault.v2.active-student-account';
+export const DEFAULT_WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
+export const DRIVE_CHECK_UNAVAILABLE_MESSAGE = 'Automatic file checks and AI review are unavailable until Google Drive API is connected. Open the submitted file link to review it manually.';
+const LEGACY_PLACEHOLDER_SUMMARIES = new Set([
+  'PDF link opens and contains readable SRS sections. Requirements traceability still needs review.',
+  'File opens, but several sections appear close to the provided template.',
+  'File opens, but extracted content appears too short for the selected deliverable.',
+  'File opens and contains readable capstone sections. Review can proceed from this submission.'
+]);
 
-export function loadWorkflowState() {
+export function loadWorkspaceCatalog() {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return initialState;
-    const parsed = JSON.parse(stored);
+    const stored = JSON.parse(localStorage.getItem(WORKSPACE_CATALOG_KEY) || 'null');
+    return Array.isArray(stored) && stored.length ? stored : seedWorkspaces;
+  } catch {
+    return seedWorkspaces;
+  }
+}
+
+export function saveWorkspaceCatalog(workspaces) {
+  localStorage.setItem(WORKSPACE_CATALOG_KEY, JSON.stringify(workspaces));
+}
+
+export function loadActiveWorkspaceId(workspaces = loadWorkspaceCatalog()) {
+  const stored = localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+  return workspaces.some((workspace) => workspace.id === stored)
+    ? stored
+    : workspaces[0]?.id || DEFAULT_WORKSPACE_ID;
+}
+
+export function saveActiveWorkspaceId(workspaceId) {
+  localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
+}
+
+export function getWorkspacePublicKey(workspace) {
+  return slugify([
+    workspace?.program,
+    workspace?.courseCode,
+    workspace?.academicYear,
+    workspace?.semester
+  ].filter(Boolean).join('-')) || String(workspace?.id || 'workspace');
+}
+
+export function findWorkspace(workspaces, idOrPublicKey) {
+  return (workspaces || []).find((workspace) => (
+    workspace.id === idOrPublicKey ||
+    getWorkspacePublicKey(workspace) === String(idOrPublicKey || '').toLowerCase()
+  )) || null;
+}
+
+export function loadStudentAccounts(fallback = []) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(STUDENT_ACCOUNTS_KEY) || 'null');
+    const accounts = Array.isArray(stored) ? stored : fallback;
+    return accounts.map((account) => ({
+      ...account,
+      workspaceClaims: account.workspaceClaims || {}
+    }));
+  } catch {
+    return fallback.map((account) => ({ ...account, workspaceClaims: account.workspaceClaims || {} }));
+  }
+}
+
+export function saveStudentAccounts(accounts) {
+  localStorage.setItem(STUDENT_ACCOUNTS_KEY, JSON.stringify(accounts || []));
+}
+
+export function loadActiveStudentAccountEmail(fallback = '') {
+  return localStorage.getItem(ACTIVE_STUDENT_ACCOUNT_KEY) || fallback || '';
+}
+
+export function saveActiveStudentAccountEmail(email) {
+  if (email) localStorage.setItem(ACTIVE_STUDENT_ACCOUNT_KEY, email);
+  else localStorage.removeItem(ACTIVE_STUDENT_ACCOUNT_KEY);
+}
+
+export function materializeStudentSession(workflowState, workspaceId) {
+  const fallbackAccounts = workflowState.studentAccounts || [];
+  const accounts = loadStudentAccounts(fallbackAccounts);
+  const activeEmail = loadActiveStudentAccountEmail(workflowState.activeAccountEmail);
+  const materializedAccounts = accounts.map((account) => {
+    const hasWorkspaceClaims = Object.keys(account.workspaceClaims || {}).length > 0;
+    const legacyClaim = account.studentNumber && !hasWorkspaceClaims
+      ? {
+          studentNumber: account.studentNumber,
+          studentName: account.studentName || '',
+          teamCode: account.teamCode || '',
+          claimedAt: account.claimedAt || account.createdAt
+        }
+      : null;
+    const workspaceClaim = account.workspaceClaims?.[workspaceId] || legacyClaim;
     return {
-      ...initialState,
+      ...account,
+      workspaceClaims: {
+        ...(account.workspaceClaims || {}),
+        ...(legacyClaim && !account.workspaceClaims?.[workspaceId] ? { [workspaceId]: legacyClaim } : {})
+      },
+      studentNumber: workspaceClaim?.studentNumber || '',
+      studentName: workspaceClaim?.studentName || '',
+      teamCode: workspaceClaim?.teamCode || '',
+      claimedAt: workspaceClaim?.claimedAt || ''
+    };
+  });
+  const activeAccount = materializedAccounts.find((account) => account.email.toLowerCase() === String(activeEmail).toLowerCase());
+  if (accounts.length && !localStorage.getItem(STUDENT_ACCOUNTS_KEY)) saveStudentAccounts(materializedAccounts);
+  return {
+    ...workflowState,
+    studentAccounts: materializedAccounts,
+    activeAccountEmail: activeAccount?.email || '',
+    activeStudentNumber: activeAccount?.studentNumber || ''
+  };
+}
+
+export function createWorkspaceInitialState(workspace) {
+  const cloned = JSON.parse(JSON.stringify(initialState));
+  if (!workspace) return cloned;
+  cloned.workspaceId = workspace.id;
+  cloned.classRecord.name = workspace.name;
+  cloned.classRecord.trackerSheet = `${workspace.courseCode || workspace.program} Tracker`;
+  if (workspace.id !== DEFAULT_WORKSPACE_ID) {
+    cloned.classRecord.status = 'Starter data';
+    cloned.classRecord.sources = Object.fromEntries(
+      Object.entries(cloned.classRecord.sources).map(([key, source]) => [
+        key,
+        { ...source, status: 'Starter data', sheetUrl: '', connectedAt: '', csvUrl: '' }
+      ])
+    );
+    const courseKey = slugify(workspace.courseCode || workspace.program || 'capstone');
+    const workspaceNames = [
+      'MENDOZA, ALTHEA NICOLE R.',
+      'NAVARRO, GABRIEL LUIS T.',
+      'LIM, SOFIA ISABEL M.',
+      'RAMOS, ETHAN MIGUEL C.',
+      'VILLANUEVA, CLARISSE MAE D.',
+      'CASTILLO, NATHANIEL JOSE P.'
+    ];
+    const studentMap = new Map();
+    cloned.students = cloned.students.map((student, index) => {
+      const teamSuffix = String(Math.floor(index / 2) + 1).padStart(2, '0');
+      const mapped = {
+        ...student,
+        studentNumber: `CS-${String(index + 1).padStart(4, '0')}`,
+        name: workspaceNames[index] || `STUDENT ${index + 1}`,
+        teamCode: `${workspace.academicYear?.replace(/-/g, '') || '2526'}-${courseKey}-${teamSuffix}`,
+        section: workspace.courseCode || workspace.program,
+        adviser: index < 4 ? 'Dr. Elena Mercado' : 'Prof. Adrian Flores'
+      };
+      studentMap.set(student.studentNumber, mapped);
+      return mapped;
+    });
+    const projectNames = [
+      ['CodeCompass: Programming Practice Companion', 'CodeCompass'],
+      ['LabLink: Computing Laboratory Scheduler', 'LabLink']
+    ];
+    cloned.projectMetadata = cloned.projectMetadata.map((project, index) => ({
+      ...project,
+      groupCode: cloned.students[index * 2]?.teamCode || `${courseKey}-${index + 1}`,
+      projectTitle: projectNames[index]?.[0] || project.projectTitle,
+      softwareName: projectNames[index]?.[1] || project.softwareName,
+      adviserName: cloned.students[index * 2]?.adviser || 'Unassigned'
+    }));
+    cloned.attempts = cloned.attempts.map((attempt) => {
+      const mapped = studentMap.get(attempt.studentNumber);
+      return mapped ? {
+        ...attempt,
+        id: `${attempt.id}-${courseKey}`,
+        studentNumber: mapped.studentNumber,
+        studentName: mapped.name,
+        teamCode: mapped.teamCode
+      } : attempt;
+    });
+    cloned.archives = [];
+    cloned.studentAccounts = [];
+    cloned.activeAccountEmail = '';
+    cloned.activeStudentNumber = '';
+    cloned.activity = [
+      { id: `act-starter-${workspace.id}`, at: new Date().toISOString(), text: `Loaded starter records for ${workspace.name}.` }
+    ];
+  }
+  return cloned;
+}
+
+export function loadWorkflowState(workspaceId = DEFAULT_WORKSPACE_ID, workspace = null) {
+  try {
+    const workspaceKey = `${WORKSPACE_STORAGE_PREFIX}${workspaceId}`;
+    const stored = localStorage.getItem(workspaceKey)
+      || (workspaceId === DEFAULT_WORKSPACE_ID ? localStorage.getItem(STORAGE_KEY) : '');
+    if (!stored) return materializeStudentSession(createWorkspaceInitialState(workspace), workspaceId);
+    const parsed = JSON.parse(stored);
+    const workspaceInitial = createWorkspaceInitialState(workspace);
+    const isLegacyBlankSeed = workspaceId === seedWorkspaces[1]?.id &&
+      !(parsed.students || []).length &&
+      !(parsed.deliverables || []).length &&
+      Object.values(parsed.classRecord?.sources || {}).every((source) => (
+        !source?.sheetUrl && source?.status === 'Not connected'
+      ));
+    if (isLegacyBlankSeed) {
+      saveWorkflowState(workspaceInitial, workspaceId);
+      return materializeStudentSession(workspaceInitial, workspaceId);
+    }
+    return materializeStudentSession({
+      ...workspaceInitial,
       ...parsed,
-      deliverables: (parsed.deliverables || initialState.deliverables).map((deliverable) => ({
+      workspaceId,
+      deliverables: (parsed.deliverables || workspaceInitial.deliverables).map((deliverable) => ({
         ...deliverable,
         status: deliverable.status || 'Published',
         shortTitle: deliverable.shortTitle || deliverable.trackerColumn || deliverable.title,
@@ -19,31 +218,30 @@ export function loadWorkflowState() {
           .filter((field) => field.id !== 'notes')
           .map((field) => field.pdfRequired ? { ...field, label: 'PDF Drive Link' } : field)
       })),
-      attempts: (parsed.attempts || initialState.attempts).map((attempt) => ({
-        ...attempt,
-        flags: (attempt.flags || []).map((flag) => flag === 'AI Checked' ? 'Checked' : flag),
-        primaryStatus: attempt.primaryStatus || attempt.reviewStatus || 'Received',
-        checkSummary: attempt.checkSummary || attempt.aiSummary || '',
-        history: attempt.history || []
-      })),
-      trackerColumns: parsed.trackerColumns || initialState.trackerColumns,
-      projectMetadata: parsed.projectMetadata || initialState.projectMetadata || [],
+      attempts: (parsed.attempts || workspaceInitial.attempts).map(normalizeStoredAttempt),
+      trackerColumns: parsed.trackerColumns || workspaceInitial.trackerColumns,
+      projectMetadata: parsed.projectMetadata || workspaceInitial.projectMetadata || [],
       classRecord: {
-        ...initialState.classRecord,
+        ...workspaceInitial.classRecord,
         ...(parsed.classRecord || {}),
+        name: workspace?.name || (parsed.classRecord || {}).name || workspaceInitial.classRecord.name,
+        trackerSheet: workspace && (parsed.classRecord || {}).sources?.tracker?.status === 'Not connected'
+          ? `${workspace.courseCode || workspace.program} Tracker`
+          : (parsed.classRecord || {}).trackerSheet || workspaceInitial.classRecord.trackerSheet,
         sources: {
-          ...(initialState.classRecord.sources || {}),
+          ...(workspaceInitial.classRecord.sources || {}),
           ...((parsed.classRecord || {}).sources || {})
         },
         importWarnings: (parsed.classRecord || {}).importWarnings || [],
         importSummary: (parsed.classRecord || {}).importSummary || null
       },
-      templates: parsed.templates || initialState.templates,
-      studentAccounts: parsed.studentAccounts || initialState.studentAccounts,
+      templates: parsed.templates || workspaceInitial.templates,
+      studentAccounts: parsed.studentAccounts || workspaceInitial.studentAccounts,
+      activeAccountEmail: parsed.activeAccountEmail || '',
       activeStudentNumber: parsed.activeStudentNumber || ''
-    };
+    }, workspaceId);
   } catch {
-    return initialState;
+    return materializeStudentSession(createWorkspaceInitialState(workspace), workspaceId);
   }
 }
 
@@ -57,13 +255,14 @@ function normalizeDeliverableInstructions(deliverable) {
   return text;
 }
 
-export function saveWorkflowState(state) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+export function saveWorkflowState(state, workspaceId = state.workspaceId || DEFAULT_WORKSPACE_ID) {
+  localStorage.setItem(`${WORKSPACE_STORAGE_PREFIX}${workspaceId}`, JSON.stringify({ ...state, workspaceId }));
 }
 
-export function resetWorkflowState() {
-  localStorage.removeItem(STORAGE_KEY);
-  return initialState;
+export function resetWorkflowState(workspaceId = DEFAULT_WORKSPACE_ID, workspace = null) {
+  localStorage.removeItem(`${WORKSPACE_STORAGE_PREFIX}${workspaceId}`);
+  if (workspaceId === DEFAULT_WORKSPACE_ID) localStorage.removeItem(STORAGE_KEY);
+  return materializeStudentSession(createWorkspaceInitialState(workspace), workspaceId);
 }
 
 export function findStudent(students, studentNumber) {
@@ -126,6 +325,23 @@ export function isUsableAdviserName(value) {
   if (/^(none|null|pending)$/i.test(text)) return false;
   if (/^\d+$/i.test(text)) return false;
   return true;
+}
+
+export function getTeamAdviser(state, teamCode) {
+  const project = getProjectMetadata(state, teamCode);
+  if (isUsableAdviserName(project?.adviserName)) return project.adviserName;
+
+  const memberAdviser = (state.students || [])
+    .filter((student) => student.teamCode === teamCode)
+    .map((student) => student.adviser)
+    .find((name) => isUsableAdviserName(name) && name !== 'Sir Ralph Laviste');
+  return memberAdviser || 'Unassigned';
+}
+
+export function getAdviserOptions(state) {
+  const teamCodes = [...new Set((state.students || []).map((student) => student.teamCode).filter(Boolean))];
+  const names = teamCodes.map((teamCode) => getTeamAdviser(state, teamCode)).filter(isUsableAdviserName);
+  return [...new Set(names)].sort().concat('Unassigned');
 }
 
 export function slugify(value) {
@@ -312,8 +528,34 @@ function normalizeTeamFormationRows(rows, current, csvUrl) {
   const existingByNumber = new Map((current.students || []).map((student) => [normalizeStudentNumber(student.studentNumber), student]));
   const existingByTeamMember = new Map((current.students || []).map((student) => [makeTeamMemberKey(student.teamCode, student.memberNumber), student]));
 
-  if (identity.studentNumber < 0) {
-    warnings.push('Team Formation needs a Student Number column before public forms and registration can use official IDs.');
+  const detectedFields = [
+    identity.studentNumber >= 0 ? 'Student Number' : '',
+    identity.studentName >= 0 || identity.lastName >= 0 || identity.firstName >= 0 ? 'Student Name' : '',
+    identity.teamCode >= 0 ? 'Team Code' : '',
+    identity.memberNumber >= 0 ? 'Member Number' : '',
+    identity.email >= 0 ? 'Institutional Email' : ''
+  ].filter(Boolean);
+  const missingFields = [
+    identity.studentNumber < 0 ? 'Student Number' : '',
+    identity.studentName < 0 && identity.lastName < 0 && identity.firstName < 0 ? 'Student Name' : '',
+    identity.teamCode < 0 ? 'Team Code' : ''
+  ].filter(Boolean);
+  if (missingFields.length) {
+    return {
+      ok: false,
+      sourceType: 'teamFormation',
+      csvUrl,
+      error: `This Sheet does not match Team Formation. Missing: ${missingFields.join(', ')}.`,
+      importSummary: {
+        sourceType: 'Team Formation',
+        resultStatus: 'Import blocked',
+        headerRow: headerInfo.index + 1,
+        detectedFields,
+        missingFields,
+        metrics: {},
+        warnings: []
+      }
+    };
   }
 
   let skippedRows = 0;
@@ -344,6 +586,17 @@ function normalizeTeamFormationRows(rows, current, csvUrl) {
   if (skippedRows) {
     warnings.push(`Skipped ${skippedRows} Team Formation row${skippedRows === 1 ? '' : 's'} without Student Number, name, or team code.`);
   }
+  if (identity.memberNumber < 0) warnings.push('Member Number was not found; team membership order will be blank.');
+  if (identity.email < 0) warnings.push('Institutional Email was not found; account matching will use Student Number.');
+
+  const metrics = {
+    students: students.length,
+    officialIds: students.filter((student) => student.studentNumber).length,
+    teams: new Set(students.map((student) => student.teamCode).filter(Boolean)).size,
+    memberNumbers: students.filter((student) => String(student.memberNumber || '').trim()).length,
+    institutionalEmails: students.filter((student) => student.email).length,
+    skippedRows
+  };
 
   return {
     ok: true,
@@ -355,10 +608,14 @@ function normalizeTeamFormationRows(rows, current, csvUrl) {
     warnings,
     importSummary: {
       sourceType: 'Team Formation',
+      resultStatus: warnings.length ? 'Imported with warnings' : 'Imported',
       studentsFound: students.length,
       officialIdsFound: students.filter((student) => student.studentNumber).length,
       columnsFound: headers.length,
       headerRow: headerInfo.index + 1,
+      detectedFields,
+      missingFields: [],
+      metrics,
       warnings
     }
   };
@@ -380,6 +637,36 @@ function normalizeTrackerRows(rows, current, csvUrl) {
       active: true,
       pdfRequired: isLikelyPdfDeliverable(header)
     }));
+  const detectedFields = [
+    identity.studentName >= 0 || identity.lastName >= 0 || identity.firstName >= 0 ? 'Student Name' : '',
+    identity.teamCode >= 0 ? 'Team Code' : '',
+    identity.memberNumber >= 0 ? 'Member Number' : '',
+    trackerColumns.length ? `${trackerColumns.length} deliverable column${trackerColumns.length === 1 ? '' : 's'}` : ''
+  ].filter(Boolean);
+  const missingFields = [
+    identity.studentName < 0 && identity.lastName < 0 && identity.firstName < 0 ? 'Student Name' : '',
+    identity.teamCode < 0 ? 'Team Code' : '',
+    trackerColumns.length === 0 ? 'Deliverable columns' : ''
+  ].filter(Boolean);
+  if (missingFields.length) {
+    return {
+      ok: false,
+      sourceType: 'tracker',
+      csvUrl,
+      error: `This Sheet does not match Tracker. Missing: ${missingFields.join(', ')}.`,
+      importSummary: {
+        sourceType: 'Tracker',
+        resultStatus: 'Import blocked',
+        headerRow: headerInfo.index + 1,
+        detectedFields,
+        missingFields,
+        metrics: {},
+        deadlineRows: 0,
+        suggestedForms: [],
+        warnings: []
+      }
+    };
+  }
 
   const existingStudents = current.students || [];
   const existingByNameTeamMember = new Map(existingStudents.map((student) => [
@@ -448,9 +735,25 @@ function normalizeTrackerRows(rows, current, csvUrl) {
   }
   if (deadlineRows.length) {
     warnings.push(`Detected ${deadlineRows.flatMap((row) => row.suggestions).length} deadline value${deadlineRows.flatMap((row) => row.suggestions).length === 1 ? '' : 's'} from skipped tracker rows.`);
+  } else {
+    warnings.push('No deadline row was detected. Tracker data was imported without form suggestions.');
   }
 
   const suggestedForms = deadlineRows.flatMap((row) => row.suggestions);
+  const rosterNumbers = new Set(existingStudents.map((student) => normalizeStudentNumber(student.studentNumber)).filter(Boolean));
+  const matchedRows = trackerRows.filter((student) => (
+    rosterNumbers.has(normalizeStudentNumber(student.studentNumber)) ||
+    existingByTeamMember.has(makeTeamMemberKey(student.teamCode, student.memberNumber))
+  )).length;
+  const metrics = {
+    studentRows: trackerRows.length,
+    trackerColumns: trackerColumns.length,
+    rawProgressCells: trackerRows.length * trackerColumns.length,
+    matchedRows,
+    unmatchedRows: Math.max(0, trackerRows.length - matchedRows),
+    deadlineValues: suggestedForms.length,
+    skippedRows
+  };
   return {
     ok: true,
     sourceType: 'tracker',
@@ -464,10 +767,14 @@ function normalizeTrackerRows(rows, current, csvUrl) {
     suggestedForms,
     importSummary: {
       sourceType: 'Tracker',
+      resultStatus: warnings.length ? 'Imported with warnings' : 'Imported',
       studentsFound: trackerRows.length,
       officialIdsFound: students.filter((student) => student.studentNumber).length,
       columnsFound: trackerColumns.length,
       headerRow: headerInfo.index + 1,
+      detectedFields,
+      missingFields: [],
+      metrics,
       deadlineRows: deadlineRows.length,
       suggestedForms,
       warnings
@@ -480,6 +787,37 @@ function normalizeProjectMonitorRows(rows, current, csvUrl) {
   const headers = headerInfo.headers;
   const indexes = inferProjectMonitorColumns(headers);
   const warnings = [];
+  const detectedFields = [
+    indexes.groupCode >= 0 ? 'Group Code' : '',
+    indexes.projectTitle >= 0 ? 'Project Title' : '',
+    indexes.softwareName >= 0 ? 'Software Name' : '',
+    indexes.description >= 0 ? 'Description' : '',
+    indexes.proposalRemarks >= 0 ? 'Proposal Remarks' : '',
+    indexes.demoComments >= 0 ? 'Demo Comments' : '',
+    indexes.statusAdviser >= 0 ? 'Status / Adviser' : '',
+    indexes.category >= 0 ? 'Category' : ''
+  ].filter(Boolean);
+  const missingFields = [
+    indexes.groupCode < 0 ? 'Group Code' : '',
+    indexes.projectTitle < 0 ? 'Project Title' : ''
+  ].filter(Boolean);
+  if (missingFields.length) {
+    return {
+      ok: false,
+      sourceType: 'projectMonitor',
+      csvUrl,
+      error: `This Sheet does not match Software Project Monitor. Missing: ${missingFields.join(', ')}.`,
+      importSummary: {
+        sourceType: 'Software Project Monitor',
+        resultStatus: 'Import blocked',
+        headerRow: headerInfo.index + 1,
+        detectedFields,
+        missingFields,
+        metrics: {},
+        warnings: []
+      }
+    };
+  }
   let skippedRows = 0;
   const projectMetadata = rows.slice(headerInfo.index + 1).map((row) => {
     const groupCode = getCell(row, indexes.groupCode);
@@ -502,6 +840,17 @@ function normalizeProjectMonitorRows(rows, current, csvUrl) {
   }).filter(Boolean);
 
   if (skippedRows) warnings.push(`Skipped ${skippedRows} Software Project Monitor row${skippedRows === 1 ? '' : 's'} without a group code.`);
+  const metrics = {
+    groups: projectMetadata.length,
+    projectTitles: projectMetadata.filter((project) => project.projectTitle).length,
+    softwareNames: projectMetadata.filter((project) => project.softwareName).length,
+    descriptions: projectMetadata.filter((project) => project.description).length,
+    adviserAssignments: projectMetadata.filter((project) => project.adviserName).length,
+    proposalRemarks: projectMetadata.filter((project) => project.proposalRemarks).length,
+    demoComments: projectMetadata.filter((project) => project.demoComments).length,
+    categories: projectMetadata.filter((project) => project.category).length,
+    skippedRows
+  };
 
   return {
     ok: true,
@@ -512,9 +861,13 @@ function normalizeProjectMonitorRows(rows, current, csvUrl) {
     warnings,
     importSummary: {
       sourceType: 'Software Project Monitor',
+      resultStatus: warnings.length ? 'Imported with warnings' : 'Imported',
       groupsFound: projectMetadata.length,
       columnsFound: headers.length,
       headerRow: headerInfo.index + 1,
+      detectedFields,
+      missingFields: [],
+      metrics,
       warnings
     }
   };
@@ -664,12 +1017,24 @@ function detectDeadlineSuggestions(row, headers, trackerColumns) {
 function coerceDueAt(value) {
   const text = String(value || '').trim();
   if (!text || /^#N\/A$/i.test(text)) return '';
-  const parsed = new Date(text);
+  const timestampMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  const parsed = timestampMatch
+    ? new Date(
+        Number(timestampMatch[3].length === 2 ? `20${timestampMatch[3]}` : timestampMatch[3]),
+        Number(timestampMatch[1]) - 1,
+        Number(timestampMatch[2]),
+        timestampMatch[4] === undefined ? 23 : Number(timestampMatch[4]),
+        timestampMatch[5] === undefined ? 59 : Number(timestampMatch[5]),
+        timestampMatch[6] === undefined ? 0 : Number(timestampMatch[6])
+      )
+    : new Date(text);
   if (Number.isNaN(parsed.getTime())) return '';
   const year = parsed.getFullYear();
   const month = String(parsed.getMonth() + 1).padStart(2, '0');
   const day = String(parsed.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}T23:59`;
+  const hour = String(parsed.getHours()).padStart(2, '0');
+  const minute = String(parsed.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 export function applyClassRecordImport(current, payload, imported) {
@@ -703,6 +1068,9 @@ export function applyClassRecordImport(current, payload, imported) {
       importedColumns: imported.headers || current.classRecord.importedColumns || [],
       importWarnings: imported.warnings || [],
       importSummary: imported.importSummary || null,
+      pendingFormSuggestions: sourceType === 'tracker'
+        ? imported.suggestedForms || imported.importSummary?.suggestedForms || []
+        : current.classRecord.pendingFormSuggestions || [],
       importError: imported.ok ? '' : imported.error,
       csvUrl: sourceType === 'tracker' ? imported.csvUrl || '' : current.classRecord.csvUrl,
       sourceType: imported.ok ? 'Published Sheet CSV' : current.classRecord.sourceType,
@@ -743,8 +1111,8 @@ export function validateSubmission({ deliverable, values }) {
       const pdfResult = inspectDriveLink(value);
       if (!pdfResult.ok) {
         errors[field.id] = pdfResult.message;
-      } else if (!flags.includes('PDF OK')) {
-        flags.push('PDF OK');
+      } else if (!flags.includes('Drive link format accepted')) {
+        flags.push('Drive link format accepted');
       }
     }
   }
@@ -786,17 +1154,34 @@ export function inspectDriveLink(value) {
 }
 
 export function deriveAttemptFlags(values, baseFlags) {
-  const flags = [...baseFlags];
-  const combined = Object.values(values).join(' ').toLowerCase();
-  if (combined.includes('template') && !flags.includes('Template-like')) flags.push('Template-like');
-  if (combined.includes('blank') && !flags.includes('Too Short')) flags.push('Too Short');
-  return flags;
+  return [...baseFlags];
 }
 
 export function isAiReportCurrent(response) {
-  if (!response?.aiReport?.generatedAt) return false;
+  if (response?.aiReport?.status !== 'Current' || !response.aiReport.generatedAt) return false;
   const sourceTimestamp = response.updatedAt || response.submittedAt;
   return response.aiReport.sourceResponseUpdatedAt === sourceTimestamp;
+}
+
+export function isDriveCheckUnavailable(response) {
+  return response?.aiReport?.status === 'Unavailable';
+}
+
+function normalizeStoredAttempt(attempt) {
+  const sourceSummary = attempt.checkSummary || attempt.aiSummary || '';
+  const legacyAiReport = attempt.aiReport?.status === 'Current' && LEGACY_PLACEHOLDER_SUMMARIES.has(attempt.aiReport.summary);
+  const flags = (attempt.flags || [])
+    .map((flag) => flag === 'PDF OK' ? 'Drive link format accepted' : flag)
+    .filter((flag) => !['AI Checked', 'Checked', 'Template-like', 'Too Short'].includes(flag));
+
+  return {
+    ...attempt,
+    flags,
+    primaryStatus: attempt.primaryStatus || attempt.reviewStatus || 'Received',
+    checkSummary: LEGACY_PLACEHOLDER_SUMMARIES.has(sourceSummary) ? '' : sourceSummary,
+    aiReport: legacyAiReport ? null : attempt.aiReport,
+    history: attempt.history || []
+  };
 }
 
 export function calculateDaysLate(dueAt, submittedAt) {
@@ -816,28 +1201,40 @@ export async function hashArchiveRecord(input) {
 }
 
 export function formatDateTime(value) {
+  const date = parseDisplayDate(value);
+  if (!date) return 'Not available';
   return new Intl.DateTimeFormat('en-PH', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit'
-  }).format(new Date(value));
+  }).format(date);
 }
 
 export function formatDate(value) {
+  const date = parseDisplayDate(value);
+  if (!date) return 'Not available';
   return new Intl.DateTimeFormat('en-PH', {
     month: 'short',
     day: 'numeric',
     year: 'numeric'
-  }).format(new Date(value));
+  }).format(date);
 }
 
 export function formatTime(value) {
+  const date = parseDisplayDate(value);
+  if (!date) return 'Not available';
   return new Intl.DateTimeFormat('en-PH', {
     hour: 'numeric',
     minute: '2-digit'
-  }).format(new Date(value));
+  }).format(date);
+}
+
+function parseDisplayDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 export function statusTone(status) {

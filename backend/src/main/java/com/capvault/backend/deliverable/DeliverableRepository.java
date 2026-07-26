@@ -8,11 +8,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface DeliverableRepository extends JpaRepository<Deliverable, UUID> {
 
-    Optional<Deliverable> findBySlug(String slug);
+    Optional<Deliverable> findByWorkspaceIdAndSlug(UUID workspaceId, String slug);
 
-    boolean existsBySlug(String slug);
+    boolean existsByWorkspaceIdAndSlug(UUID workspaceId, String slug);
 
-    boolean existsBySlugAndIdNot(String slug, UUID id);
+    boolean existsByWorkspaceIdAndSlugAndIdNot(UUID workspaceId, String slug, UUID id);
 
-    List<Deliverable> findAllByOrderByDueAtAscTitleAsc();
+    List<Deliverable> findAllByWorkspaceIdOrderByDueAtAscTitleAsc(UUID workspaceId);
 }

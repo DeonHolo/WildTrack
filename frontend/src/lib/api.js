@@ -18,6 +18,17 @@ export function getApiBaseUrl() {
   return API_BASE_URL;
 }
 
+export async function getWorkspaces() {
+  return request('/workspaces');
+}
+
+export async function createWorkspace(payload) {
+  return request('/workspaces', {
+    method: 'POST',
+    body: payload
+  });
+}
+
 export function toApiSourceType(sourceType) {
   return SOURCE_TYPE_TO_API[sourceType] || sourceType;
 }
@@ -26,8 +37,8 @@ export async function getBackendHealth() {
   return request('/health');
 }
 
-export async function importSheetSource(sourceType, payload) {
-  return request(`/sheets/import/${toApiSourceType(sourceType)}`, {
+export async function importSheetSource(sourceType, payload, workspaceId) {
+  return request(withWorkspace(`/sheets/import/${toApiSourceType(sourceType)}`, workspaceId), {
     method: 'POST',
     body: {
       sheetUrl: payload.sheetUrl,
@@ -36,13 +47,14 @@ export async function importSheetSource(sourceType, payload) {
   });
 }
 
-export async function getBackendSnapshot() {
+export async function getBackendSnapshot(workspaceId) {
+  const scoped = (path) => withWorkspace(path, workspaceId);
   const [students, projects, trackerColumns, trackerRows, deliverables] = await Promise.all([
-    request('/students'),
-    request('/projects'),
-    request('/tracker/columns'),
-    request('/tracker/rows'),
-    request('/deliverables')
+    request(scoped('/students')),
+    request(scoped('/projects')),
+    request(scoped('/tracker/columns')),
+    request(scoped('/tracker/rows')),
+    request(scoped('/deliverables'))
   ]);
 
   return {
@@ -52,6 +64,19 @@ export async function getBackendSnapshot() {
     trackerRows,
     deliverables
   };
+}
+
+export async function writeTrackerValue(workspaceId, payload) {
+  return request(withWorkspace('/tracker/writebacks', workspaceId), {
+    method: 'POST',
+    body: payload
+  });
+}
+
+function withWorkspace(path, workspaceId) {
+  if (!workspaceId) return path;
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}workspaceId=${encodeURIComponent(workspaceId)}`;
 }
 
 export async function request(path, options = {}) {

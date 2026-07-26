@@ -10,13 +10,16 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "student_records")
+@Table(name = "academic_student_records")
 public class StudentRecord {
 
     @Id
     private UUID id;
 
-    @Column(name = "student_number", length = 80, unique = true)
+    @Column(name = "workspace_id", nullable = false)
+    private UUID workspaceId;
+
+    @Column(name = "student_number", length = 80)
     private String studentNumber;
 
     @Column(name = "student_name", nullable = false, length = 240)
@@ -47,6 +50,7 @@ public class StudentRecord {
     }
 
     public StudentRecord(
+        UUID workspaceId,
         String studentNumber,
         String studentName,
         String teamCode,
@@ -56,6 +60,7 @@ public class StudentRecord {
         String institutionalEmail,
         Integer sourceRowNumber
     ) {
+        this.workspaceId = workspaceId;
         this.studentNumber = normalizeNullable(studentNumber);
         this.studentName = studentName;
         this.teamCode = teamCode;
@@ -100,6 +105,10 @@ public class StudentRecord {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getWorkspaceId() {
+        return workspaceId;
     }
 
     public String getStudentNumber() {

@@ -7,5 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TrackerWritebackRepository extends JpaRepository<TrackerWriteback, UUID> {
 
-    List<TrackerWriteback> findTop50ByOrderByRequestedAtDesc();
+    List<TrackerWriteback> findTop50ByWorkspaceIdOrderByRequestedAtDesc(UUID workspaceId);
 }

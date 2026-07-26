@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ProjectMetadataRepository extends JpaRepository<ProjectMetadata, UUID> {
 
-    List<ProjectMetadata> findAllByOrderByGroupCodeAsc();
+    List<ProjectMetadata> findAllByWorkspaceIdOrderByGroupCodeAsc(UUID workspaceId);
 
-    Optional<ProjectMetadata> findByGroupCodeIgnoreCase(String groupCode);
+    Optional<ProjectMetadata> findByWorkspaceIdAndGroupCodeIgnoreCase(UUID workspaceId, String groupCode);
 }

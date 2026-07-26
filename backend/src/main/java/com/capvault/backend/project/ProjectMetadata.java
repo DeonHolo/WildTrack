@@ -10,13 +10,16 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "project_metadata")
+@Table(name = "academic_project_metadata")
 public class ProjectMetadata {
 
     @Id
     private UUID id;
 
-    @Column(name = "group_code", nullable = false, unique = true, length = 160)
+    @Column(name = "workspace_id", nullable = false)
+    private UUID workspaceId;
+
+    @Column(name = "group_code", nullable = false, length = 160)
     private String groupCode;
 
     @Column(name = "project_title", length = 1000)
@@ -53,6 +56,7 @@ public class ProjectMetadata {
     }
 
     public ProjectMetadata(
+        UUID workspaceId,
         String groupCode,
         String projectTitle,
         String softwareName,
@@ -64,6 +68,7 @@ public class ProjectMetadata {
         String category,
         Integer sourceRowNumber
     ) {
+        this.workspaceId = workspaceId;
         updateFrom(
             groupCode,
             projectTitle,
@@ -115,6 +120,10 @@ public class ProjectMetadata {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getWorkspaceId() {
+        return workspaceId;
     }
 
     public String getGroupCode() {

@@ -10,11 +10,14 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "tracker_rows")
+@Table(name = "academic_tracker_rows")
 public class TrackerRow {
 
     @Id
     private UUID id;
+
+    @Column(name = "workspace_id", nullable = false)
+    private UUID workspaceId;
 
     @Column(name = "student_number", length = 80)
     private String studentNumber;
@@ -44,6 +47,7 @@ public class TrackerRow {
     }
 
     public TrackerRow(
+        UUID workspaceId,
         String studentNumber,
         String studentName,
         String teamCode,
@@ -52,6 +56,7 @@ public class TrackerRow {
         String adviserName,
         Integer sourceRowNumber
     ) {
+        this.workspaceId = workspaceId;
         updateFrom(studentNumber, studentName, teamCode, memberNumber, sectionName, adviserName, sourceRowNumber);
     }
 
@@ -86,6 +91,10 @@ public class TrackerRow {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getWorkspaceId() {
+        return workspaceId;
     }
 
     public String getStudentNumber() {

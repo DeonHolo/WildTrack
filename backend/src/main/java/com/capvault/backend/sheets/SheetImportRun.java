@@ -17,11 +17,14 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "sheet_import_runs")
+@Table(name = "academic_sheet_import_runs")
 public class SheetImportRun {
 
     @Id
     private UUID id;
+
+    @Column(name = "workspace_id", nullable = false)
+    private UUID workspaceId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "source_type", nullable = false, length = 40)
@@ -56,7 +59,8 @@ public class SheetImportRun {
     protected SheetImportRun() {
     }
 
-    public SheetImportRun(WorkspaceSourceType sourceType, WorkspaceSource source) {
+    public SheetImportRun(UUID workspaceId, WorkspaceSourceType sourceType, WorkspaceSource source) {
+        this.workspaceId = workspaceId;
         this.sourceType = sourceType;
         this.source = source;
         this.status = SheetImportStatus.ERROR;
@@ -89,6 +93,10 @@ public class SheetImportRun {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getWorkspaceId() {
+        return workspaceId;
     }
 
     public WorkspaceSourceType getSourceType() {

@@ -1,8 +1,12 @@
-# CapVault V2
+# CapVault
 
-CapVault V2 is the Google-first rebuild of CapVault for Sir Ralph Laviste's capstone workflow. The current app focuses on public student submission forms, Google Sheet-based class records, tracker visibility, teacher/adviser review, and final archive preparation.
+CapVault supports Sir Ralph Laviste's capstone workflow through public student submission forms, connected class records, tracker visibility, teacher/adviser review, and final archive preparation.
 
-Current state: the UI is React/Vite and the backend is Spring Boot. Workspace Sheet imports call the backend first, then the frontend can refresh students, tracker rows, tracker columns, project metadata, and deliverables from backend data. Public submissions, review notes, archive actions, and most screen state are still browser-local while the backend is expanded.
+Current state: the UI is React/Vite and the backend is Spring Boot. Academic workspaces, Sheet imports, students, tracker data, project metadata, deliverables, and tracker writeback attempts are backend-backed. Public responses, review notes, and archive actions still use browser storage while their backend modules are completed.
+
+For the exact production boundary, identity design, and current demonstration limitations, read:
+
+- `docs/CapVaultV2_Production_Readiness_And_Identity_Design.md`
 
 ## Read This First
 
@@ -15,25 +19,28 @@ Before changing behavior, read these documents:
 - `docs/CapVaultV2_Current_Batch_Actionable_Change_Instructions.md`
 - `design-system/MASTER.md`
 
-The V2 direction is not the old login-first vault. The main workflow is:
+The current direction is not the old login-first vault. The main workflow is:
 
-1. Sir connects public Google Sheets for Team Formation, Tracker, and Software Project Monitoring.
-2. Sir publishes one form link per deliverable.
-3. Students submit Google Drive PDF links through a Google-Forms-like CapVault form.
-4. Student Number comes from Team Formation and auto-fills name/team when selected.
-5. The tracker stores lateness values and submission state.
-6. Sir/advisers review file checks and AI summaries.
-7. Final accepted PDFs are prepared for archive.
+1. Sir selects or creates an academic workspace for a program, course/section, and term.
+2. Sir connects public Google Sheets for Team Formation, Tracker, and Software Project Monitoring.
+3. CapVault validates each source by its expected columns and summarizes what was found or missing.
+4. Tracker deadline rows can generate suggested deliverable forms after Sir confirms them.
+5. Sir publishes one form link per deliverable.
+6. Students submit Google Drive PDF links through a public CapVault form.
+7. Student Number comes from Team Formation and auto-fills name/team when selected.
+8. The tracker stores lateness values and submission state.
+9. Sir/advisers open submitted links, give feedback, and accept responses. Automatic file checks remain unavailable until Google Drive API is connected.
+10. Final accepted PDFs are prepared for archive.
 
 ## Repository Layout
 
-- `frontend/` - Current CapVault V2 React + Vite app.
+- `frontend/` - Current CapVault React + Vite app.
 - `backend/` - Spring Boot backend foundation for secure Google/API work.
 - `docs/` - SRS, SDD, transcript notes, pivot notes, and current UX/action docs.
 - `design-system/` - UI/UX rules for the app.
 - `legacy/` - Old CapVault implementation kept for reference only.
 
-Do not build new V2 work inside `legacy/`.
+Do not build current CapVault work inside `legacy/`.
 
 ## Requirements
 
@@ -121,10 +128,11 @@ Preview opens on the Vite preview URL printed in the terminal.
 - `/` - Command Center / teacher overview
 - `/workspace` - Connect/import Team Formation, Tracker, and Software Project Monitor Sheets
 - `/forms` - Publish, edit, unpublish, and copy/open deliverable form links
-- `/submit/:slug` - Public student submission form
-- `/tracker` - Class tracker table and selected student summary
+- `/w/:workspaceKey/submit/:slug` - Workspace-scoped public student submission form using a readable academic-workspace key
+- `/submit/:slug` - Compatibility route for older local form links
+- `/tracker` - Class-wide Admin tracker or assigned-team read-only Adviser tracker
 - `/review` - Sir/teacher review view
-- `/adviser` - Adviser-scoped review view
+- `/adviser` - Team Review; a normal Admin/Sir tab and the adviser-scoped review surface
 - `/archive` - Final archive preparation
 - `/student` - Student status/dashboard view
 - `/register` - Optional student account registration/login flow
@@ -133,26 +141,30 @@ Preview opens on the Vite preview URL printed in the terminal.
 
 1. Start the backend and frontend.
 2. Go to `/workspace`.
-3. Import or refresh the three source Sheets:
+3. Select or create the academic workspace you want to manage.
+4. Import or refresh the three source Sheets:
    - Team Formation: Student Number, name, team code, member number, CIT account.
    - Tracker: deliverable columns and lateness values.
    - Software Project Monitor: project titles, software names, remarks, adviser/status, category.
-4. Go to `/forms`.
-5. Publish or edit a deliverable form.
-6. Open the generated `/submit/...` link.
-7. Select a Student Number, confirm auto-filled details, and submit a Drive PDF link.
-8. Check `/tracker`, `/review`, `/adviser`, and `/student`.
+5. Review the import summary. If Tracker deadlines were detected, use **Generate suggested forms**.
+6. Go to `/forms`.
+7. Publish or edit a deliverable form.
+8. Open its generated `/w/{workspaceKey}/submit/...` link.
+9. Select a Student Number, confirm auto-filled details, and submit a Drive PDF link.
+10. Check `/tracker`, `/review`, `/adviser`, and `/student`.
 
 Useful testing controls:
 
-- `/workspace` -> **Refresh backend data** reloads imported backend data into the frontend.
-- `/workspace` -> **Restore starter data** resets the browser state to the local starter dataset and disables backend auto-refresh until you import or refresh again.
+- The floating **Dev Preview** control stays available on every route and switches among Admin, Adviser, Student, and sample-form views.
+- Admin shows all staff tabs. Adviser shows Team Review and an assigned-team read-only Tracker.
+- `/workspace` -> **Refresh backend data** asks for confirmation before loading imported backend data into the frontend.
+- `/workspace` -> **Restore starter data** requires typing `RESET`, then restores the browser-local testing dataset.
 - `/tracker` -> **Load all rows** shows every tracker row at once; **Use pages** returns to 25 rows per page.
 - `/tracker` -> **Summary** opens the hidden tracker value counts.
 
 ## Current Data Behavior
 
-The current V2 app still stores most interactive demo data in browser `localStorage` under:
+The app stores browser-side workflow state under workspace-specific keys derived from:
 
 ```text
 capvault.v2.workflow
@@ -160,14 +172,14 @@ capvault.v2.workflow
 
 This means:
 
-- Data is local to your browser.
-- Other teammates will not see your local changes unless they import the same Sheets or share code/state another way.
-- Public form responses, adviser feedback, archive actions, and many UI choices are not persisted to the backend yet.
+- Each academic workspace has isolated browser state and isolated backend records.
+- Public form responses, adviser feedback, archive actions, and some UI choices are still local to the current browser.
+- Other teammates will see backend-imported records when using the same backend database, but they will not yet share browser-local responses and feedback.
 - If old test data appears, use **Restore starter data** in Workspace or clear the `localStorage` key in browser devtools.
 
 Workspace imports now try the backend API first. If the backend is unavailable, the frontend falls back to the local public-Sheet importer so the demo can still run.
 
-The backend currently persists imported Sheet data, workspace source records, deliverable records, tracker rows/cells, tracker columns, project metadata, and tracker writeback attempts in the local H2 database.
+The backend currently persists academic workspaces, imported Sheet data, workspace source records, deliverable records, tracker rows/cells, tracker columns, project metadata, and tracker writeback attempts in the local H2 database.
 
 Use **Refresh backend data** in Workspace to reload backend students, tracker rows, tracker columns, project metadata, and deliverables into the frontend.
 
@@ -180,19 +192,25 @@ Working now:
 - React + Vite frontend.
 - Spring Boot backend foundation.
 - Backend health endpoint: `GET /api/health`.
+- Academic workspace endpoints:
+  - `GET /api/workspaces`
+  - `POST /api/workspaces`
+  - `PUT /api/workspaces/{workspaceId}`
+- Workspace selector for separate programs, sections, and terms.
+- Workspace-scoped backend records and public form links.
 - Backend workspace source endpoints:
-  - `GET /api/workspace/sources`
-  - `PUT /api/workspace/sources/{sourceType}`
+  - `GET /api/workspace/sources?workspaceId={workspaceId}`
+  - `PUT /api/workspace/sources/{sourceType}?workspaceId={workspaceId}`
 - Backend deliverable endpoints:
   - `GET /api/deliverables`
   - `GET /api/deliverables/{id}`
   - `POST /api/deliverables`
   - `PUT /api/deliverables/{id}`
 - Backend Sheet import endpoints:
-  - `POST /api/sheets/import/TEAM_FORMATION`
-  - `POST /api/sheets/import/TRACKER`
-  - `POST /api/sheets/import/PROJECT_MONITOR`
-  - `GET /api/sheets/import-runs`
+  - `POST /api/sheets/import/TEAM_FORMATION?workspaceId={workspaceId}`
+  - `POST /api/sheets/import/TRACKER?workspaceId={workspaceId}`
+  - `POST /api/sheets/import/PROJECT_MONITOR?workspaceId={workspaceId}`
+  - `GET /api/sheets/import-runs?workspaceId={workspaceId}`
 - Backend imported data endpoints:
   - `GET /api/students`
   - `GET /api/projects`
@@ -204,18 +222,29 @@ Working now:
 - Flyway database migrations.
 - Local H2 profile and PostgreSQL-ready profile.
 - Public/published Google Sheet import.
+- Source-specific column validation and import summaries.
 - Team Formation roster import.
-- Tracker import.
+- Tracker import with exact bottom-row deadline detection, including timestamps such as `2/14/2026 23:59:59`.
 - Software Project Monitor import.
+- Explicit suggested-form generation from detected Tracker deadlines.
 - Frontend Workspace import calls the backend Sheet import endpoints first.
 - Frontend Register, Forms, and Tracker screens can read backend-loaded students/tracker data after import or refresh.
 - Workspace backend refresh and starter-data restore controls.
 - Public student submission form flow.
-- Optional student registration UI.
-- Teacher review, adviser view, student dashboard, tracker, and archive screens.
+- Optional account-first student registration followed by Student Number claiming in the Student Dashboard.
+- One student account can be used across academic workspaces, while Student Number claims remain separate per workspace.
+- Claimed students see a read-only profile summary; unclaimed students see one focused claim flow with confirmation.
+- Student logout from the persistent public header.
+- Teacher review, Team Review, student dashboard, tracker, and archive screens.
+- A route-independent floating Admin/Adviser/Student Dev Preview for testing role-specific layouts.
 - Tracker page with sticky selected-student band, sticky toolbar, sticky table header, toolbar search, paged rows, load-all-rows mode, and hidden summary counts.
-- Student Dashboard with compact deliverable rows, group progress, adviser feedback preview, full feedback modal, and `Reviewed` status when feedback exists.
+- Student Dashboard with compact deliverable rows, group progress, team-only tracker, adviser feedback preview, full feedback modal, and `Reviewed` status when feedback exists.
 - Published form editing/unpublishing flow that preserves responses in browser state.
+- Readable public form URLs such as `/w/it-it332-2025-26-semester-2/submit/week-9-srs`.
+- Adviser group-output acceptance with reviewer attribution in class-wide Review.
+- Acceptance revocation before archive, single archive confirmation, and bulk archive confirmation requiring `ARCHIVE`.
+- A clearly labeled archive-storage placeholder: current archive actions create local metadata records, while Cloudflare R2 is the planned independent PDF store.
+- A searchable, filterable, paged Archive index with compact rows and selected-record details for hashes and planned storage keys.
 
 Not fully connected yet:
 
@@ -226,8 +255,73 @@ Not fully connected yet:
 - Real Gemini AI evaluation.
 - Backend persistence for public submissions, reviews, feedback, archive records, and AI reports.
 - Real account/session handling for students/advisers/admins.
+- Cloudflare R2 or another S3-compatible archive connection, independent PDF copies, and byte-level SHA-256 verification.
 
-The current "AI Review" is placeholder logic. It uses saved flags such as `Not PDF`, `Inaccessible`, `Too Short`, and `Template-like`. It does not call Gemini yet.
+The current AI Review control is intentionally honest: it reports that Google Drive API is not connected and does not claim to have inspected the submitted file. Real file checks and Gemini review are deferred until the backend has Drive access.
+
+## Demo Readiness And Known Limitations
+
+CapVault has a real backend database, but production persistence is only partially complete.
+
+### What the database currently preserves
+
+- Academic workspaces
+- Connected Sheet sources and import runs
+- Imported Team Formation students
+- Tracker columns, rows, cells, and writeback attempts
+- Software Project Monitoring metadata
+- Deliverables
+
+The default local profile stores these records in the ignored H2 file:
+
+```text
+backend/data/capvault-local.mv.db
+```
+
+PostgreSQL is configured as the production target but is not required for the current local demonstration.
+
+### What is demonstration-only or not connected
+
+| Feature | Current behavior | Reason |
+|---|---|---|
+| Student registration/login | Stored in the current browser | Secure password hashing, OAuth, and server sessions have not been implemented |
+| Student Number claim | Browser-local and unverified | OTP or institutional Microsoft login is required before a claim can safely unlock private data |
+| Admin/adviser permissions | Role-specific UI preview | Server-enforced RBAC and authenticated staff accounts are not implemented |
+| Public responses and history | Stored in browser workflow state | The team validated the public submission UX before committing the final backend response model |
+| Existing response links | Never prefilled on a public form | Selecting a Student Number alone must not reveal another student's Drive link |
+| Response ownership | Demo updates are matched by workspace, deliverable, and Student Number | Production needs a private edit-response link so a fresh visitor cannot overwrite an existing response |
+| Adviser feedback and review | Stored in browser workflow state | These require authenticated staff identity and backend response records |
+| Google Drive file checks | Link-format validation only | MIME type, access, text extraction, and PDF verification require Drive API credentials |
+| Google Sheet writeback | Local/backend update with pending remote status | Actual Sheet changes require service-account credentials and Sheet permission |
+| AI Review | Reports that the integration is unavailable | Gemini needs backend PDF extraction, templates, prompts, quotas, and a protected API key |
+| Final archive | Metadata record only | Independent PDF storage, byte-level SHA-256, and verification require Cloudflare R2 or another S3-compatible store |
+| Notifications | Not connected | Durable in-app or email notifications depend on backend accounts, events, and delivery jobs |
+
+### Production student identity
+
+In production, Student Number lookup must search all active Team Formation records and infer the correct academic workspace. Students must never use the staff workspace switcher.
+
+The matched record determines program, course/section, term, name, team, member number, and adviser. Before private dashboard data is shown, the claim must be verified using the imported `cit.edu` address or institutional Microsoft login. OTP is intentionally deferred from the current demonstration.
+
+The current Student Dashboard includes a self-service **Disconnect** action so a student can remove an incorrect browser-local claim without asking Sir to manage a routine correction.
+
+Public submission remains account-optional. In production, a successful submission should return an unguessable edit-response link. Only that link or a verified optional account should reopen and update the saved response. OTP or institutional Microsoft sign-in is needed only when a student claims private dashboard access or recovers a lost edit link.
+
+## Public Form Links When Hosted
+
+CapVault does not need to store a hardcoded production domain. Form links are built from the website origin currently serving the app, a readable workspace key, and the stable deliverable form slug.
+
+For example:
+
+```text
+https://capvault.example.edu/w/it-it332-2025-26-semester-2/submit/week-9-srs
+```
+
+- `https://capvault.example.edu` comes from the deployed website.
+- `it-it332-2025-26-semester-2` identifies the academic workspace.
+- `week-9-srs` identifies the published deliverable form.
+
+The Copy Link control automatically uses the current origin, so local links use `http://127.0.0.1:5173` and hosted links use the production domain without a code change. Older UUID-based links remain resolvable for compatibility, but new links display the readable workspace key.
 
 ## API And Secret Rules
 
@@ -246,7 +340,7 @@ Backend env used now:
 ```powershell
 $env:CAPVAULT_GOOGLE_SHEETS_ENABLED='true'
 $env:CAPVAULT_GOOGLE_SERVICE_ACCOUNT_JSON='D:\path\to\service-account.json'
-$env:CAPVAULT_GOOGLE_APPLICATION_NAME='CapVault V2'
+$env:CAPVAULT_GOOGLE_APPLICATION_NAME='CapVault'
 ```
 
 Gemini is not wired yet. When added, the Gemini key should be read only by the backend, not by Vite.

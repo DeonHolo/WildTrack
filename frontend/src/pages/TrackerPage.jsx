@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CaretLeft, CaretRight, ChartBar } from '@phosphor-icons/react';
+import { CaretLeft, CaretRight, ChartBar, UsersThree } from '@phosphor-icons/react';
 import { Button, PageHeader, SearchBox } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
-import { formatDateTime, getActiveTrackerColumns, getProjectMetadata, isUsableAdviserName, normalizeStudentNumber } from '../lib/workflow.js';
+import { formatDateTime, getActiveTrackerColumns, getAdviserOptions, getProjectMetadata, getTeamAdviser, isUsableAdviserName, normalizeStudentNumber } from '../lib/workflow.js';
+import { getStoredPreviewAdviser, usePreviewRole } from '../hooks/usePreviewRole.js';
 
 const PAGE_SIZE = 25;
 const COMPACT_LABELS = {
@@ -20,31 +21,44 @@ const COMPACT_LABELS = {
 
 export function TrackerPage() {
   const { state } = useWorkflow();
+  const previewRole = usePreviewRole();
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState(state.activeStudentNumber || getStudentKey(state.students[0]) || '');
   const [page, setPage] = useState(1);
   const [showSummary, setShowSummary] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
   const activeColumns = getActiveTrackerColumns(state);
+  const adviserOptions = useMemo(() => getAdviserOptions(state), [state]);
+  const adviserName = previewRole === 'adviser'
+    ? adviserOptions.includes(getStoredPreviewAdviser()) ? getStoredPreviewAdviser() : adviserOptions[0] || 'Unassigned'
+    : '';
+  const scopeStudents = useMemo(
+    () => previewRole === 'adviser'
+      ? state.students.filter((student) => getTeamAdviser(state, student.teamCode) === adviserName)
+      : state.students,
+    [adviserName, previewRole, state]
+  );
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const filtered = needle
-      ? state.students.filter((student) => `${student.name} ${student.teamCode} ${student.studentNumber}`.toLowerCase().includes(needle))
-      : state.students;
+      ? scopeStudents.filter((student) => `${student.name} ${student.teamCode} ${student.studentNumber}`.toLowerCase().includes(needle))
+      : scopeStudents;
     return [...filtered].sort((first, second) => String(first.teamCode).localeCompare(String(second.teamCode)) || Number(first.memberNumber || 0) - Number(second.memberNumber || 0));
-  }, [query, state.students]);
+  }, [query, scopeStudents]);
 
   const pageCount = showAllRows ? 1 : Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const pageRows = showAllRows ? rows : rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const selected = state.students.find((student) => getStudentKey(student) === selectedKey || student.studentNumber === selectedKey) || pageRows[0] || rows[0];
+  const selected = scopeStudents.find((student) => getStudentKey(student) === selectedKey || student.studentNumber === selectedKey) || pageRows[0] || rows[0];
   const selectedProject = selected ? getProjectMetadata(state, selected.teamCode) : null;
-  const selectedAdviser = isUsableAdviserName(selectedProject?.adviserName)
-    ? selectedProject.adviserName
-    : isUsableAdviserName(selected?.adviser)
-      ? selected.adviser
-      : 'Unassigned';
-  const counts = useMemo(() => buildTrackerCounts(state.students, activeColumns), [activeColumns, state.students]);
+  const selectedAdviser = previewRole === 'adviser'
+    ? adviserName
+    : isUsableAdviserName(selectedProject?.adviserName)
+      ? selectedProject.adviserName
+      : isUsableAdviserName(selected?.adviser)
+        ? selected.adviser
+        : 'Unassigned';
+  const counts = useMemo(() => buildTrackerCounts(scopeStudents, activeColumns), [activeColumns, scopeStudents]);
   const selectedSummary = useMemo(() => selected ? buildSelectedStudentSummary(selected, state) : null, [selected, state]);
 
   useEffect(() => {
@@ -59,7 +73,16 @@ export function TrackerPage() {
     <div className="page-stack">
       <PageHeader
         title="Tracker"
-        description="Raw class-record values stay visible as days-late numbers, dates, blanks, or Sheet values."
+        description={previewRole === 'adviser'
+          ? 'Read-only class-record values for teams assigned to the selected adviser.'
+          : 'Raw class-record values stay visible as days-late numbers, dates, blanks, or Sheet values.'}
+        actions={previewRole === 'adviser' ? (
+          <div className="role-scope-note">
+            <UsersThree weight="regular" aria-hidden="true" />
+            <span>Adviser scope</span>
+            <strong>{adviserName}</strong>
+          </div>
+        ) : null}
       />
 
       <section className="panel tracker-shell-panel">
@@ -83,7 +106,7 @@ export function TrackerPage() {
 
         <section className="tracker-table-panel" aria-label="Class-wide tracker table">
           <div className="tracker-table-title">
-            <span>Class-wide tracker table</span>
+            <span>{previewRole === 'adviser' ? 'Assigned-team tracker' : 'Class-wide tracker table'}</span>
             <strong>{rows.length} rows</strong>
           </div>
           <div className="tracker-table-toolbar">
@@ -157,7 +180,7 @@ function TrackerGrid({ rows, columns, selectedKey, onSelect }) {
           {rows.map((student) => (
             <tr key={getStudentKey(student)} className={getStudentKey(student) === selectedKey ? 'selected-row active-data-row' : ''} onClick={() => onSelect(student)}>
               <td className="tracker-sticky tracker-sticky-name"><strong>{student.name}</strong><small>{student.studentNumber || 'No official ID'}</small></td>
-              <td className="tracker-sticky tracker-sticky-team mono-cell">{student.teamCode}</td>
+              <td className="tracker-sticky tracker-sticky-team tracker-team-code mono-cell">{student.teamCode}</td>
               <td className="tracker-sticky tracker-sticky-member mono-cell">{student.memberNumber}</td>
               {columns.map((column) => <td key={column.id}><TrackerCell value={student.milestones?.[column.key]} /></td>)}
             </tr>

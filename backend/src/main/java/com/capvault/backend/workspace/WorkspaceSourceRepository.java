@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface WorkspaceSourceRepository extends JpaRepository<WorkspaceSource, UUID> {
 
-    Optional<WorkspaceSource> findBySourceType(WorkspaceSourceType sourceType);
+    Optional<WorkspaceSource> findByWorkspaceIdAndSourceType(UUID workspaceId, WorkspaceSourceType sourceType);
 
-    List<WorkspaceSource> findAllByOrderBySourceTypeAsc();
+    List<WorkspaceSource> findAllByWorkspaceIdOrderBySourceTypeAsc(UUID workspaceId);
 }

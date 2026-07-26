@@ -8,13 +8,18 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TrackerRowRepository extends JpaRepository<TrackerRow, UUID> {
 
-    List<TrackerRow> findAllByOrderByTeamCodeAscMemberNumberAscStudentNameAsc();
+    List<TrackerRow> findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(UUID workspaceId);
 
-    Optional<TrackerRow> findByStudentNumberIgnoreCase(String studentNumber);
+    Optional<TrackerRow> findByWorkspaceIdAndStudentNumberIgnoreCase(UUID workspaceId, String studentNumber);
 
-    Optional<TrackerRow> findFirstByTeamCodeIgnoreCaseAndMemberNumberIgnoreCase(String teamCode, String memberNumber);
+    Optional<TrackerRow> findFirstByWorkspaceIdAndTeamCodeIgnoreCaseAndMemberNumberIgnoreCase(
+        UUID workspaceId,
+        String teamCode,
+        String memberNumber
+    );
 
-    Optional<TrackerRow> findFirstByTeamCodeIgnoreCaseAndMemberNumberIgnoreCaseAndStudentNameIgnoreCase(
+    Optional<TrackerRow> findFirstByWorkspaceIdAndTeamCodeIgnoreCaseAndMemberNumberIgnoreCaseAndStudentNameIgnoreCase(
+        UUID workspaceId,
         String teamCode,
         String memberNumber,
         String studentName

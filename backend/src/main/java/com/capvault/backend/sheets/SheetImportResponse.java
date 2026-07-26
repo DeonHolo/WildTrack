@@ -17,6 +17,7 @@ public record SheetImportResponse(
     Integer groupsFound,
     List<String> warnings,
     List<DeadlineSuggestionResponse> deadlineSuggestions,
+    SheetImportDetails details,
     LocalDateTime importedAt
 ) {
 }

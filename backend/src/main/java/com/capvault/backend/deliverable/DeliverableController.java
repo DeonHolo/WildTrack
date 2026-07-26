@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,26 +26,35 @@ public class DeliverableController {
     }
 
     @GetMapping
-    public List<DeliverableResponse> listDeliverables() {
-        return service.listDeliverables();
+    public List<DeliverableResponse> listDeliverables(
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+    ) {
+        return service.listDeliverables(workspaceId);
     }
 
     @GetMapping("/{id}")
-    public DeliverableResponse getDeliverable(@PathVariable UUID id) {
-        return service.getDeliverable(id);
+    public DeliverableResponse getDeliverable(
+        @PathVariable UUID id,
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+    ) {
+        return service.getDeliverable(workspaceId, id);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public DeliverableResponse createDeliverable(@Valid @RequestBody DeliverableRequest request) {
-        return service.createDeliverable(request);
+    public DeliverableResponse createDeliverable(
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        @Valid @RequestBody DeliverableRequest request
+    ) {
+        return service.createDeliverable(workspaceId, request);
     }
 
     @PutMapping("/{id}")
     public DeliverableResponse updateDeliverable(
         @PathVariable UUID id,
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
         @Valid @RequestBody DeliverableRequest request
     ) {
-        return service.updateDeliverable(id, request);
+        return service.updateDeliverable(workspaceId, id, request);
     }
 }

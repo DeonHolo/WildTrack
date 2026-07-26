@@ -17,27 +17,28 @@ public class DeliverableService {
     }
 
     @Transactional(readOnly = true)
-    public List<DeliverableResponse> listDeliverables() {
-        return repository.findAllByOrderByDueAtAscTitleAsc()
+    public List<DeliverableResponse> listDeliverables(UUID workspaceId) {
+        return repository.findAllByWorkspaceIdOrderByDueAtAscTitleAsc(workspaceId)
             .stream()
             .map(DeliverableResponse::from)
             .toList();
     }
 
     @Transactional(readOnly = true)
-    public DeliverableResponse getDeliverable(UUID id) {
-        return DeliverableResponse.from(findRequired(id));
+    public DeliverableResponse getDeliverable(UUID workspaceId, UUID id) {
+        return DeliverableResponse.from(findRequired(workspaceId, id));
     }
 
     @Transactional
-    public DeliverableResponse createDeliverable(DeliverableRequest request) {
+    public DeliverableResponse createDeliverable(UUID workspaceId, DeliverableRequest request) {
         String title = request.title().trim();
         String slug = normalizeSlug(request.slug(), title);
-        if (repository.existsBySlug(slug)) {
+        if (repository.existsByWorkspaceIdAndSlug(workspaceId, slug)) {
             throw new IllegalArgumentException("A deliverable with this slug already exists.");
         }
 
         Deliverable deliverable = new Deliverable(
+            workspaceId,
             request.trackerColumnKey().trim(),
             title,
             slug,
@@ -51,11 +52,11 @@ public class DeliverableService {
     }
 
     @Transactional
-    public DeliverableResponse updateDeliverable(UUID id, DeliverableRequest request) {
-        Deliverable deliverable = findRequired(id);
+    public DeliverableResponse updateDeliverable(UUID workspaceId, UUID id, DeliverableRequest request) {
+        Deliverable deliverable = findRequired(workspaceId, id);
         String title = request.title().trim();
         String slug = normalizeSlug(request.slug(), title);
-        if (repository.existsBySlugAndIdNot(slug, id)) {
+        if (repository.existsByWorkspaceIdAndSlugAndIdNot(workspaceId, slug, id)) {
             throw new IllegalArgumentException("A deliverable with this slug already exists.");
         }
 
@@ -70,8 +71,9 @@ public class DeliverableService {
         return DeliverableResponse.from(repository.save(deliverable));
     }
 
-    private Deliverable findRequired(UUID id) {
+    private Deliverable findRequired(UUID workspaceId, UUID id) {
         return repository.findById(id)
+            .filter(deliverable -> deliverable.getWorkspaceId().equals(workspaceId))
             .orElseThrow(() -> new IllegalArgumentException("Deliverable was not found."));
     }
 

@@ -10,13 +10,16 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "tracker_columns")
+@Table(name = "academic_tracker_columns")
 public class TrackerColumn {
 
     @Id
     private UUID id;
 
-    @Column(name = "column_key", nullable = false, unique = true, length = 180)
+    @Column(name = "workspace_id", nullable = false)
+    private UUID workspaceId;
+
+    @Column(name = "column_key", nullable = false, length = 180)
     private String columnKey;
 
     @Column(name = "label", nullable = false, length = 180)
@@ -44,6 +47,7 @@ public class TrackerColumn {
     }
 
     public TrackerColumn(
+        UUID workspaceId,
         String columnKey,
         String label,
         String sourceColumn,
@@ -52,6 +56,7 @@ public class TrackerColumn {
         Boolean active,
         Boolean pdfRequired
     ) {
+        this.workspaceId = workspaceId;
         updateFrom(columnKey, label, sourceColumn, sourceColumnIndex, displayOrder, active, pdfRequired);
     }
 
@@ -86,6 +91,10 @@ public class TrackerColumn {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getWorkspaceId() {
+        return workspaceId;
     }
 
     public String getColumnKey() {

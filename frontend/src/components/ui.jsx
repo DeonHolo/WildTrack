@@ -1,19 +1,24 @@
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
   Archive,
   ClipboardText,
+  Eye,
   FilePdf,
   Gauge,
   GoogleLogo,
-  IdentificationCard,
   ListChecks,
   MagnifyingGlass,
+  SignOut,
   Student,
   Table,
-  WarningCircle
+  UsersThree,
+  WarningCircle,
+  X
 } from '@phosphor-icons/react';
-import { useMemo, useState } from 'react';
-import { statusTone } from '../lib/workflow.js';
+import { useEffect, useId, useMemo, useState } from 'react';
+import { getWorkspacePublicKey, statusTone } from '../lib/workflow.js';
+import { setStoredPreviewRole, usePreviewRole } from '../hooks/usePreviewRole.js';
+import { useWorkflow } from '../app/WorkflowContext.jsx';
 
 export function Button({ children, variant = 'primary', size = 'md', icon: Icon, loading = false, className = '', ...props }) {
   return (
@@ -63,17 +68,83 @@ export function EmptyState({ title, description, icon: Icon = WarningCircle }) {
   );
 }
 
+export function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  confirmText = '',
+  confirmationValue = '',
+  onConfirmationValueChange,
+  onConfirm,
+  onClose,
+  intent = 'primary',
+  loading = false,
+  children
+}) {
+  const titleId = useId();
+  if (!open) return null;
+  const requiresText = Boolean(confirmText);
+  const canConfirm = !requiresText || confirmationValue === confirmText;
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal-panel confirm-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div className={`confirm-dialog-icon ${intent === 'danger' ? 'danger' : ''}`}>
+          <WarningCircle weight="regular" aria-hidden="true" />
+        </div>
+        <div className="confirm-dialog-copy">
+          <h2 id={titleId}>{title}</h2>
+          {description ? <p>{description}</p> : null}
+        </div>
+        {children ? <div className="confirm-dialog-details">{children}</div> : null}
+        {requiresText ? (
+          <div className="confirm-text-block">
+            <p>Type the confirmation word below to continue:</p>
+            <strong>{confirmText}</strong>
+          </div>
+        ) : null}
+        {requiresText ? (
+          <Field label="Confirmation">
+            <input
+              autoFocus
+              value={confirmationValue}
+              onChange={(event) => onConfirmationValueChange?.(event.target.value)}
+              autoComplete="off"
+              placeholder={`Type ${confirmText}`}
+              aria-label={`Type ${confirmText} to continue`}
+            />
+          </Field>
+        ) : null}
+        <div className="button-row confirm-dialog-actions">
+          <Button variant="secondary" onClick={onClose} disabled={loading}>{cancelLabel}</Button>
+          <Button variant={intent === 'danger' ? 'danger' : 'primary'} loading={loading} disabled={!canConfirm || loading} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function AppShell({ children }) {
-  const nav = [
+  const previewRole = usePreviewRole();
+  const { workspaces, activeWorkspace, activeWorkspaceId, switchWorkspace } = useWorkflow();
+  const adminNav = [
     { to: '/', label: 'Command Center', icon: Gauge },
     { to: '/forms', label: 'Forms', icon: ClipboardText },
     { to: '/tracker', label: 'Tracker', icon: Table },
     { to: '/review', label: 'Review', icon: ListChecks },
-    { to: '/adviser', label: 'Adviser View', icon: IdentificationCard },
+    { to: '/adviser', label: 'Team Review', icon: UsersThree },
     { to: '/archive', label: 'Archive', icon: Archive },
-    { to: '/workspace', label: 'Workspace', icon: GoogleLogo },
-    { to: '/student', label: 'Student View', icon: Student }
+    { to: '/workspace', label: 'Workspace', icon: GoogleLogo }
   ];
+  const adviserNav = [
+    { to: '/adviser', label: 'Team Review', icon: UsersThree },
+    { to: '/tracker', label: 'Tracker', icon: Table }
+  ];
+  const nav = previewRole === 'adviser' ? adviserNav : adminNav;
 
   return (
     <div className="shell">
@@ -81,8 +152,7 @@ export function AppShell({ children }) {
         <div className="brand-block">
           <div className="brand-mark"><FilePdf weight="regular" /></div>
           <div>
-            <strong>CapVault V2</strong>
-            <span>Google-first capstone operations</span>
+            <strong>CapVault</strong>
           </div>
         </div>
         <nav className="nav-list" aria-label="Main navigation">
@@ -96,15 +166,74 @@ export function AppShell({ children }) {
       </aside>
       <main className="workspace">
         <div className="topbar">
-          <div>
-            <strong>IT332 SEM2 2025-26</strong>
-            <span>Class record, forms, file checks, tracker, and final archive</span>
+          <div className="topbar-workspace">
+            <label htmlFor="global-workspace-select">Workspace</label>
+            <select id="global-workspace-select" value={activeWorkspaceId} onChange={(event) => switchWorkspace(event.target.value)}>
+              {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+            </select>
           </div>
-          <NavLink className="public-link" to="/submit/week-9-srs">Open student form</NavLink>
+          <div className="topbar-context">
+            <strong>{activeWorkspace?.program} | {activeWorkspace?.courseCode}</strong>
+            <span>{previewRole === 'adviser' ? 'Adviser View' : 'Admin View'} | {activeWorkspace?.semester} {activeWorkspace?.academicYear}</span>
+          </div>
         </div>
         <section className="main-surface">{children}</section>
       </main>
     </div>
+  );
+}
+
+export function GlobalDevPreview() {
+  const navigate = useNavigate();
+  const role = usePreviewRole();
+  const { activeWorkspace } = useWorkflow();
+  const [open, setOpen] = useState(() => localStorage.getItem('capvault.v2.dev-preview-open') === 'true');
+
+  useEffect(() => {
+    localStorage.setItem('capvault.v2.dev-preview-open', String(open));
+  }, [open]);
+
+  function switchView(nextRole, destination) {
+    setStoredPreviewRole(nextRole);
+    setOpen(false);
+    navigate(destination);
+  }
+
+  return (
+    <aside className={`global-dev-preview ${open ? 'open' : ''}`} aria-label="Development view switcher">
+      <button
+        type="button"
+        className="global-dev-trigger"
+        aria-label={open ? 'Close Dev Preview' : 'Open Dev Preview'}
+        aria-expanded={open}
+        title={open ? 'Close Dev Preview' : 'Open Dev Preview'}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {open ? <X weight="bold" aria-hidden="true" /> : <Eye weight="regular" aria-hidden="true" />}
+      </button>
+      {open ? (
+        <div className="global-dev-panel">
+          <div className="global-dev-heading">
+            <span>Development tools</span>
+            <strong>Preview role</strong>
+          </div>
+          <div className="global-dev-options">
+            <button type="button" className={role === 'admin' ? 'active' : ''} onClick={() => switchView('admin', '/')}>
+              <Gauge weight="regular" /><span>Admin View</span>
+            </button>
+            <button type="button" className={role === 'adviser' ? 'active' : ''} onClick={() => switchView('adviser', '/adviser')}>
+              <UsersThree weight="regular" /><span>Adviser View</span>
+            </button>
+            <button type="button" className={role === 'student' ? 'active' : ''} onClick={() => switchView('student', '/student')}>
+              <Student weight="regular" /><span>Student View</span>
+            </button>
+            <button type="button" onClick={() => { setOpen(false); navigate(`/w/${getWorkspacePublicKey(activeWorkspace)}/submit/week-9-srs`); }}>
+              <FilePdf weight="regular" /><span>Open sample form</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </aside>
   );
 }
 
@@ -122,15 +251,31 @@ export function DataTable({ columns, children, minWidth = 780, className = '' })
 }
 
 export function PublicHeader({ subtitle }) {
+  const navigate = useNavigate();
+  const { state, logoutStudentAccount } = useWorkflow();
+  const activeAccount = state.studentAccounts.find((account) => account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase());
+
+  function logout() {
+    logoutStudentAccount();
+    navigate('/register');
+  }
+
   return (
     <header className="public-header">
       <Link className="public-brand" to="/">
         <span className="brand-mark small"><FilePdf weight="regular" /></span>
-        <span><strong>CapVault V2</strong><small>{subtitle || 'Capstone submissions'}</small></span>
+        <span><strong>CapVault</strong><small>{subtitle || 'Capstone submissions'}</small></span>
       </Link>
       <nav className="public-nav" aria-label="Student access">
         <Link to="/student">Student Dashboard</Link>
-        <Link to="/register">Sign in / Register</Link>
+        {activeAccount ? (
+          <>
+            <span className="public-account-email">{activeAccount.email}</span>
+            <button type="button" className="public-nav-button" onClick={logout}>
+              <SignOut weight="regular" /><span>Log out</span>
+            </button>
+          </>
+        ) : <Link to="/register">Sign in / Register</Link>}
       </nav>
     </header>
   );
