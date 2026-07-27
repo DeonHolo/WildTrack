@@ -129,7 +129,7 @@ export function StudentStatusPage() {
         <div className="dashboard-hero">
           <div>
             <h1>Student Dashboard</h1>
-            <p>Check your own submission status, file check results, and tracker values.</p>
+            <p>Check your own submission status, Document Check results, and tracker values.</p>
           </div>
         </div>
 

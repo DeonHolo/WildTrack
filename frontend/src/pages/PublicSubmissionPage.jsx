@@ -175,6 +175,11 @@ export function PublicSubmissionPage() {
                 {result.trackerSync.message}
               </div>
             ) : null}
+            {result.documentCheckStarted ? (
+              <div className="inline-alert info">
+                Response saved. Document Check is now verifying the Drive link and PDF in the background; it does not delay submission.
+              </div>
+            ) : null}
             <div className="button-row">
               <Button variant="secondary" onClick={() => setResult(null)}>Edit response</Button>
               <Link className="btn btn-primary btn-md" to="/student"><span>Open student dashboard</span></Link>

@@ -1,21 +1,52 @@
-import { Archive, ArrowSquareOut, ClipboardText, FilePdf, Sparkle, WarningCircle } from '@phosphor-icons/react';
+import { useMemo, useState } from 'react';
+import { Archive, ArrowSquareOut, ClipboardText, FilePdf, Files, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
 import { Link } from 'react-router-dom';
-import { Button, DataTable, EmptyState, PageHeader, StatusBadge } from '../components/ui.jsx';
+import { Button, ConfirmDialog, DataTable, EmptyState, PageHeader, StatusBadge } from '../components/ui.jsx';
+import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
-import { DRIVE_CHECK_UNAVAILABLE_MESSAGE, findStudent, firstSubmissionLink, formatDateTime, getDeliverable, getIdentityStudents, isAiReportCurrent, isDriveCheckUnavailable, makeDriveViewUrl } from '../lib/workflow.js';
+import {
+  findStudent,
+  deliverableUsesDocumentCheck,
+  firstSubmissionLink,
+  formatDateTime,
+  getDeliverable,
+  getIdentityStudents,
+  isDocumentCheckCurrent,
+  isDocumentCheckUnavailable,
+  makeDriveViewUrl
+} from '../lib/workflow.js';
 
 export function CommandCenterPage() {
-  const { state, triggerAiEvaluation, archiveAttempt } = useWorkflow();
+  const { state, runDocumentCheck, runDocumentChecks, archiveAttempt } = useWorkflow();
+  const [checkDialogId, setCheckDialogId] = useState('');
+  const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(null);
   const identityStudents = getIdentityStudents(state.students);
   const attention = buildAttentionQueue(state);
   const accepted = state.attempts.filter((response) => response.reviewStatus === 'Accepted' && response.archiveStatus !== 'Archived');
   const missing = Math.max(0, state.deliverables.filter((item) => item.status !== 'Unpublished').length * identityStudents.length - state.attempts.length);
+  const pendingChecks = useMemo(
+    () => attention
+      .filter((item) => deliverableUsesDocumentCheck(item.deliverable))
+      .map((item) => item.response)
+      .filter((response) => response.fileCheckStatus !== 'Checking' && !isDocumentCheckCurrent(response)),
+    [attention]
+  );
+  const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
 
-  function runAiReview(response) {
-    if (isDriveCheckUnavailable(response)) return;
-    if (!isAiReportCurrent(response) || window.confirm('This response already has a current AI Review. Run it again?')) {
-      triggerAiEvaluation(response.id);
-    }
+  async function openOrRunDocumentCheck(response) {
+    if (!isDocumentCheckCurrent(response)) await runDocumentCheck(response.id);
+    setCheckDialogId(response.id);
+  }
+
+  async function runPendingChecks() {
+    setBatchConfirmOpen(false);
+    setBatchProgress({ completed: 0, total: pendingChecks.length, failed: 0 });
+    const result = await runDocumentChecks(
+      pendingChecks.map((response) => response.id),
+      { onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total })) }
+    );
+    setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, done: true });
   }
 
   return (
@@ -39,13 +70,24 @@ export function CommandCenterPage() {
             <h2>Action queue</h2>
             <p>Rows are ordered by work that saves the most checking time first.</p>
           </div>
-          <Link className="text-link" to="/review">Open full review</Link>
+          <div className="panel-header-actions">
+            <Button size="sm" variant="secondary" icon={Files} disabled={!pendingChecks.length || Boolean(batchProgress && !batchProgress.done)} onClick={() => setBatchConfirmOpen(true)}>
+              Check pending documents
+            </Button>
+            <Link className="text-link" to="/review">Open full review</Link>
+          </div>
         </div>
+        {batchProgress ? (
+          <div className={`batch-progress ${batchProgress.done ? batchProgress.failed ? 'warning' : 'success' : ''}`} role="status">
+            <div><strong>{batchProgress.done ? 'Document checks complete' : 'Checking documents'}</strong><span>{batchProgress.completed} of {batchProgress.total}{batchProgress.failed ? ` | ${batchProgress.failed} could not be checked` : ''}</span></div>
+            <progress value={batchProgress.completed} max={Math.max(batchProgress.total, 1)} />
+            {batchProgress.done ? <button type="button" onClick={() => setBatchProgress(null)}>Dismiss</button> : null}
+          </div>
+        ) : null}
         {attention.length ? (
           <DataTable columns={['Priority', 'Student', 'Deliverable', 'Issue', 'Updated', 'Actions']} minWidth={980} className="today-work-table">
             {attention.slice(0, 12).map((item) => {
               const fileLink = firstSubmissionLink(item.response.values);
-              const checkUnavailable = isDriveCheckUnavailable(item.response);
               return (
                 <tr key={item.response.id}>
                   <td><StatusBadge status={item.priority} /></td>
@@ -56,9 +98,11 @@ export function CommandCenterPage() {
                   <td>
                     <div className="row-action-group">
                       {fileLink ? <a className="btn btn-secondary btn-sm" href={makeDriveViewUrl(fileLink)} target="_blank" rel="noreferrer"><ArrowSquareOut weight="regular" /><span>Open file link</span></a> : null}
-                      <Button size="sm" variant="secondary" icon={Sparkle} disabled={checkUnavailable} title={checkUnavailable ? DRIVE_CHECK_UNAVAILABLE_MESSAGE : undefined} onClick={() => runAiReview(item.response)}>
-                        {checkUnavailable ? 'Drive check unavailable' : isAiReportCurrent(item.response) ? 'View AI' : 'AI Review'}
-                      </Button>
+                      {deliverableUsesDocumentCheck(item.deliverable) ? (
+                        <Button size="sm" variant="secondary" icon={MagnifyingGlass} loading={item.response.fileCheckStatus === 'Checking'} onClick={() => openOrRunDocumentCheck(item.response)}>
+                          {isDocumentCheckCurrent(item.response) ? 'View check' : 'Check document'}
+                        </Button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -66,7 +110,7 @@ export function CommandCenterPage() {
             })}
           </DataTable>
         ) : (
-          <EmptyState title="No urgent work right now" description="Review is clear based on current responses and file checks." />
+          <EmptyState title="No urgent work right now" description="Review is clear based on current responses and Document Check results." />
         )}
       </section>
 
@@ -117,6 +161,24 @@ export function CommandCenterPage() {
           </div>
         </section>
       </section>
+
+      <DocumentCheckDialog
+        open={Boolean(checkDialogResponse)}
+        response={checkDialogResponse}
+        fileLink={firstSubmissionLink(checkDialogResponse?.values)}
+        rechecking={checkDialogResponse?.fileCheckStatus === 'Checking'}
+        onClose={() => setCheckDialogId('')}
+        onRecheck={() => runDocumentCheck(checkDialogResponse.id)}
+      />
+
+      <ConfirmDialog
+        open={batchConfirmOpen}
+        title={`Check ${pendingChecks.length} pending document${pendingChecks.length === 1 ? '' : 's'}?`}
+        description="CapVault checks up to three PDFs at a time and continues if an individual document cannot be checked."
+        confirmLabel="Start Document Check"
+        onClose={() => setBatchConfirmOpen(false)}
+        onConfirm={runPendingChecks}
+      />
     </div>
   );
 }
@@ -128,26 +190,32 @@ function buildAttentionQueue(state) {
       const student = findStudent(state.students, response.studentNumber);
       const deliverable = getDeliverable(state, response.deliverableId);
       const flags = response.flags || [];
+      const currentCheck = isDocumentCheckCurrent(response);
+      const checkEligible = deliverableUsesDocumentCheck(deliverable);
       const issue = flags.includes('Template-like')
         ? 'Submission appears close to the provided template.'
         : flags.includes('Too Short')
           ? 'Extracted content appears too short.'
-          : !isAiReportCurrent(response)
-            ? 'Automatic file checks are unavailable until Google Drive API is connected.'
+          : checkEligible && !currentCheck
+            ? isDocumentCheckUnavailable(response)
+              ? 'This file was not checked because Google Drive API was not configured on that machine.'
+              : 'This submitted file has not been checked yet.'
             : response.reviewStatus === 'Needs Review'
-              ? 'Review status still needs a decision.'
-              : '';
+              ? 'Document Check found items that need a staff decision.'
+              : 'Document Check is complete and this response is ready for a staff decision.';
       if (!issue) return null;
       return {
         response,
         student,
         deliverable,
         issue,
-        priority: flags.includes('Template-like') || flags.includes('Too Short') ? 'Needs Review' : 'Unchecked'
+        priority: flags.includes('Template-like') || flags.includes('Too Short') || response.reviewStatus === 'Needs Review'
+          ? 'Needs attention'
+          : checkEligible && !currentCheck ? 'Not checked' : 'Ready for review'
       };
     })
     .filter(Boolean)
-    .sort((a, b) => Number(isAiReportCurrent(a.response)) - Number(isAiReportCurrent(b.response)));
+    .sort((a, b) => Number(isDocumentCheckCurrent(a.response)) - Number(isDocumentCheckCurrent(b.response)));
 }
 
 function Metric({ icon: Icon, label, value }) {

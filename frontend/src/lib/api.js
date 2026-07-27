@@ -49,12 +49,13 @@ export async function importSheetSource(sourceType, payload, workspaceId) {
 
 export async function getBackendSnapshot(workspaceId) {
   const scoped = (path) => withWorkspace(path, workspaceId);
-  const [students, projects, trackerColumns, trackerRows, deliverables] = await Promise.all([
+  const [students, projects, trackerColumns, trackerRows, deliverables, templates] = await Promise.all([
     request(scoped('/students')),
     request(scoped('/projects')),
     request(scoped('/tracker/columns')),
     request(scoped('/tracker/rows')),
-    request(scoped('/deliverables'))
+    request(scoped('/deliverables')),
+    request(scoped('/templates'))
   ]);
 
   return {
@@ -62,8 +63,37 @@ export async function getBackendSnapshot(workspaceId) {
     projects,
     trackerColumns,
     trackerRows,
-    deliverables
+    deliverables,
+    templates
   };
+}
+
+export async function getDriveConnectionStatus() {
+  return request('/file-checks/status');
+}
+
+export async function runDocumentCheck(workspaceId, payload) {
+  return request(withWorkspace('/file-checks', workspaceId), {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function uploadDocumentTemplate(workspaceId, payload) {
+  const formData = new FormData();
+  formData.append('deliverableKey', payload.deliverableKey);
+  formData.append('displayName', payload.displayName);
+  formData.append('file', payload.file);
+  return requestForm(withWorkspace('/templates', workspaceId), {
+    method: 'POST',
+    body: formData
+  });
+}
+
+export async function deleteDocumentTemplate(workspaceId, templateId) {
+  return requestForm(withWorkspace(`/templates/${templateId}`, workspaceId), {
+    method: 'DELETE'
+  });
 }
 
 export async function writeTrackerValue(workspaceId, payload) {
@@ -106,5 +136,30 @@ export async function request(path, options = {}) {
     return null;
   }
 
+  return response.json();
+}
+
+async function requestForm(path, options = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: options.method || 'GET',
+    headers: {
+      Accept: 'application/json',
+      ...(options.headers || {})
+    },
+    body: options.body
+  });
+
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`;
+    try {
+      const error = await response.json();
+      message = error.error || error.message || message;
+    } catch {
+      const text = await response.text();
+      if (text) message = text;
+    }
+    throw new ApiError(message, response.status);
+  }
+  if (response.status === 204) return null;
   return response.json();
 }

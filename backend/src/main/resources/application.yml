@@ -23,3 +23,14 @@ capvault:
       enabled: ${CAPVAULT_GOOGLE_SHEETS_ENABLED:false}
       service-account-json-path: ${CAPVAULT_GOOGLE_SERVICE_ACCOUNT_JSON:}
       application-name: ${CAPVAULT_GOOGLE_APPLICATION_NAME:CapVault}
+    drive:
+      enabled: ${CAPVAULT_GOOGLE_DRIVE_ENABLED:false}
+      api-key: ${CAPVAULT_GOOGLE_DRIVE_API_KEY:}
+      maximum-file-size-bytes: ${CAPVAULT_GOOGLE_DRIVE_MAX_FILE_SIZE:26214400}
+  templates:
+    storage-path: ${CAPVAULT_TEMPLATE_STORAGE_PATH:./storage/templates}
+    maximum-file-size-bytes: ${CAPVAULT_TEMPLATE_MAX_FILE_SIZE:15728640}
+  file-check:
+    minimum-readable-characters: ${CAPVAULT_FILE_CHECK_MINIMUM_CHARACTERS:300}
+    template-coverage-threshold: ${CAPVAULT_FILE_CHECK_TEMPLATE_COVERAGE:0.75}
+    maximum-added-content-ratio: ${CAPVAULT_FILE_CHECK_MAX_ADDED_RATIO:0.25}

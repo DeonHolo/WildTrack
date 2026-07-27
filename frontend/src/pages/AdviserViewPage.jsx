@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowSquareOut, CaretDown, CaretUp, ChatCenteredText, CheckCircle, Sparkle } from '@phosphor-icons/react';
+import { ArrowSquareOut, CaretDown, CaretUp, ChatCenteredText, CheckCircle, Files, MagnifyingGlass } from '@phosphor-icons/react';
 import { Button, ConfirmDialog, DataTable, EmptyState, Field, PageHeader, SearchBox, StatusBadge } from '../components/ui.jsx';
+import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import {
   firstSubmissionLink,
+  deliverableUsesDocumentCheck,
   formatDate,
   formatDateTime,
   DRIVE_CHECK_UNAVAILABLE_MESSAGE,
@@ -11,8 +13,7 @@ import {
   getProjectMetadata,
   getPublishedDeliverables,
   getTeamAdviser,
-  isAiReportCurrent,
-  isDriveCheckUnavailable,
+  isDocumentCheckCurrent,
   makeDriveViewUrl,
   normalizeStudentNumber,
   sortDeliverables
@@ -20,7 +21,7 @@ import {
 import { getStoredPreviewAdviser, setStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
 
 export function AdviserViewPage() {
-  const { state, markAccepted, saveFeedback, triggerAiEvaluation } = useWorkflow();
+  const { state, markAccepted, saveFeedback, runDocumentCheck, runDocumentChecks } = useWorkflow();
   const adviserOptions = useMemo(() => getAdviserOptions(state), [state]);
   const [adviserName, setAdviserName] = useState(() => {
     const stored = getStoredPreviewAdviser();
@@ -31,11 +32,20 @@ export function AdviserViewPage() {
   const [selectedDeliverableId, setSelectedDeliverableId] = useState('');
   const [feedback, setFeedback] = useState('');
   const [acceptTarget, setAcceptTarget] = useState(null);
+  const [checkDialogId, setCheckDialogId] = useState('');
+  const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(null);
 
   const teams = useMemo(() => buildAdviserTeams(state, adviserName, query), [adviserName, query, state]);
   const selectedTeam = teams.find((team) => team.teamCode === selectedTeamCode) || teams[0] || null;
   const deliverableRows = useMemo(() => selectedTeam ? buildTeamDeliverableRows(state, selectedTeam) : [], [selectedTeam, state]);
   const selectedRow = deliverableRows.find((row) => row.deliverable.id === selectedDeliverableId) || deliverableRows[0] || null;
+  const pendingSelectedChecks = deliverableUsesDocumentCheck(selectedRow?.deliverable)
+    ? (selectedRow?.responses || []).filter((response) =>
+        response.fileCheckStatus !== 'Checking' && !isDocumentCheckCurrent(response)
+      )
+    : [];
+  const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
 
   useEffect(() => {
     if (!adviserOptions.includes(adviserName)) {
@@ -64,13 +74,21 @@ export function AdviserViewPage() {
     setFeedback('');
   }
 
-  function runAiReview(row) {
+  async function runFileCheck(row) {
     if (!row.latest) return;
     setSelectedDeliverableId(row.deliverable.id);
-    if (isDriveCheckUnavailable(row.latest)) return;
-    if (!isAiReportCurrent(row.latest) || window.confirm('This response already has a current AI Review. Run it again?')) {
-      triggerAiEvaluation(row.latest.id);
-    }
+    if (!isDocumentCheckCurrent(row.latest)) await runDocumentCheck(row.latest.id);
+    setCheckDialogId(row.latest.id);
+  }
+
+  async function runPendingTeamChecks() {
+    setBatchConfirmOpen(false);
+    setBatchProgress({ completed: 0, total: pendingSelectedChecks.length, failed: 0 });
+    const result = await runDocumentChecks(
+      pendingSelectedChecks.map((response) => response.id),
+      { onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total })) }
+    );
+    setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, done: true });
   }
 
   function acceptGroupOutput() {
@@ -143,7 +161,6 @@ export function AdviserViewPage() {
           <DataTable columns={['Deliverable', 'Group response', 'Latest saved', 'Review', 'Actions']} minWidth={840} className="adviser-table">
             {deliverableRows.map((row) => {
               const fileLink = firstSubmissionLink(row.latest?.values);
-              const checkUnavailable = isDriveCheckUnavailable(row.latest);
               return (
                 <tr
                   key={row.deliverable.id}
@@ -167,9 +184,11 @@ export function AdviserViewPage() {
                           <ArrowSquareOut weight="regular" /><span>Open file</span>
                         </a>
                       ) : null}
-                      <Button size="sm" variant="secondary" icon={Sparkle} disabled={!row.latest || checkUnavailable} title={checkUnavailable ? DRIVE_CHECK_UNAVAILABLE_MESSAGE : undefined} onClick={(event) => { event.stopPropagation(); runAiReview(row); }}>
-                        {checkUnavailable ? 'Drive check unavailable' : row.latest && isAiReportCurrent(row.latest) ? 'View AI' : 'AI Review'}
-                      </Button>
+                      {deliverableUsesDocumentCheck(row.deliverable) ? (
+                        <Button size="sm" variant="secondary" icon={MagnifyingGlass} disabled={!row.latest} loading={row.latest?.fileCheckStatus === 'Checking'} onClick={(event) => { event.stopPropagation(); runFileCheck(row); }}>
+                          {row.latest && isDocumentCheckCurrent(row.latest) ? 'View check' : 'Check document'}
+                        </Button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -186,9 +205,13 @@ export function AdviserViewPage() {
                 setFeedback={setFeedback}
                 onSubmit={submitFeedback}
                 onRequestAccept={() => setAcceptTarget(selectedRow)}
+                pendingCheckCount={pendingSelectedChecks.length}
+                batchProgress={batchProgress}
+                onRequestBatchCheck={() => setBatchConfirmOpen(true)}
+                onDismissBatch={() => setBatchProgress(null)}
               />
             ) : (
-              <EmptyState title="Select a deliverable" description="Feedback and AI review details appear here." />
+              <EmptyState title="Select a deliverable" description="Feedback and file-check details appear here." />
             )}
           </aside>
         </section>
@@ -206,11 +229,42 @@ export function AdviserViewPage() {
         <span>{selectedTeam?.teamCode} | Latest response saved {acceptTarget?.latest ? formatDateTime(acceptTarget.latest.updatedAt || acceptTarget.latest.submittedAt) : ''}</span>
         <span>{firstSubmissionLink(acceptTarget?.latest?.values) || 'No submitted link found'}</span>
       </ConfirmDialog>
+
+      <DocumentCheckDialog
+        open={Boolean(checkDialogResponse)}
+        response={checkDialogResponse}
+        fileLink={firstSubmissionLink(checkDialogResponse?.values)}
+        rechecking={checkDialogResponse?.fileCheckStatus === 'Checking'}
+        onClose={() => setCheckDialogId('')}
+        onRecheck={() => runDocumentCheck(checkDialogResponse.id)}
+      />
+
+      <ConfirmDialog
+        open={batchConfirmOpen}
+        title={`Check ${pendingSelectedChecks.length} pending document${pendingSelectedChecks.length === 1 ? '' : 's'}?`}
+        description="This checks pending member responses for the selected team and deliverable. Current results are skipped."
+        confirmLabel="Start Document Check"
+        onClose={() => setBatchConfirmOpen(false)}
+        onConfirm={runPendingTeamChecks}
+      >
+        <strong>{selectedTeam?.teamCode} | {selectedRow?.deliverable?.title}</strong>
+      </ConfirmDialog>
     </div>
   );
 }
 
-function SelectedFeedback({ row, teamCode, feedback, setFeedback, onSubmit, onRequestAccept }) {
+function SelectedFeedback({
+  row,
+  teamCode,
+  feedback,
+  setFeedback,
+  onSubmit,
+  onRequestAccept,
+  pendingCheckCount,
+  batchProgress,
+  onRequestBatchCheck,
+  onDismissBatch
+}) {
   const latest = row.latest;
   const [showAllFeedback, setShowAllFeedback] = useState(false);
   const [expandedFeedbackIds, setExpandedFeedbackIds] = useState([]);
@@ -235,6 +289,15 @@ function SelectedFeedback({ row, teamCode, feedback, setFeedback, onSubmit, onRe
         <h2>{row.deliverable.shortTitle}</h2>
         <p>{latest ? `${row.responses.length} response${row.responses.length === 1 ? '' : 's'} recorded for this group.` : 'No current group response yet.'}</p>
         <div className="selected-review-actions">
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={Files}
+            disabled={!pendingCheckCount || Boolean(batchProgress && !batchProgress.done)}
+            onClick={onRequestBatchCheck}
+          >
+            Check pending documents
+          </Button>
           {latest?.reviewStatus === 'Accepted' ? (
             <div className="acceptance-note">
               <StatusBadge status="Accepted" />
@@ -245,9 +308,18 @@ function SelectedFeedback({ row, teamCode, feedback, setFeedback, onSubmit, onRe
           )}
         </div>
       </div>
+      {batchProgress ? (
+        <div className={`batch-progress ${batchProgress.done ? batchProgress.failed ? 'warning' : 'success' : ''}`} role="status">
+          <div><strong>{batchProgress.done ? 'Document checks complete' : 'Checking documents'}</strong><span>{batchProgress.completed} of {batchProgress.total}{batchProgress.failed ? ` | ${batchProgress.failed} could not be checked` : ''}</span></div>
+          <progress value={batchProgress.completed} max={Math.max(batchProgress.total, 1)} />
+          {batchProgress.done ? <button type="button" onClick={onDismissBatch}>Dismiss</button> : null}
+        </div>
+      ) : null}
       <div className="detail-section">
-        <h3>File check status</h3>
-        <p>{latest?.aiReport?.summary || latest?.checkSummary || DRIVE_CHECK_UNAVAILABLE_MESSAGE}</p>
+        <h3>Document Check status</h3>
+        <p>{deliverableUsesDocumentCheck(row.deliverable)
+          ? latest?.documentCheck?.summary || latest?.checkSummary || DRIVE_CHECK_UNAVAILABLE_MESSAGE
+          : 'Not required for this link-based deliverable.'}</p>
       </div>
       <form className="detail-section adviser-feedback-form" onSubmit={onSubmit}>
         <Field label="Feedback for student">
@@ -332,7 +404,7 @@ function buildTeamDeliverableRows(state, team) {
       .filter((response) => teamNumbers.has(normalizeStudentNumber(response.studentNumber)) || response.teamCode === team.teamCode)
       .sort((first, second) => new Date(second.updatedAt || second.submittedAt) - new Date(first.updatedAt || first.submittedAt));
     const latest = responses[0] || null;
-    const status = deriveGroupStatus(responses, latest);
+    const status = deriveGroupStatus(responses, latest, deliverable);
     const senderNames = responses
       .map((response) => team.members.find((member) => normalizeStudentNumber(member.studentNumber) === normalizeStudentNumber(response.studentNumber))?.name || response.studentName)
       .filter(Boolean)
@@ -344,15 +416,15 @@ function buildTeamDeliverableRows(state, team) {
       latest,
       status,
       senderNames,
-      summary: latest?.checkSummary || latest?.aiReport?.summary || (latest ? 'A group response exists. Open the submitted file link to review it.' : 'No group member has submitted this deliverable yet.')
+      summary: latest?.checkSummary || latest?.documentCheck?.summary || (latest ? 'A group response exists. Open the submitted file link to review it.' : 'No group member has submitted this deliverable yet.')
     };
   });
 }
 
-function deriveGroupStatus(responses, latest) {
+function deriveGroupStatus(responses, latest, deliverable) {
   if (!responses.length) return 'Missing';
   if (latest?.reviewStatus === 'Accepted') return 'Accepted';
   if (responses.some((response) => response.reviewStatus === 'Needs Review' || (response.flags || []).some((flag) => ['Template-like', 'Too Short', 'Not PDF', 'Inaccessible'].includes(flag)))) return 'Needs Review';
-  if (latest && !isAiReportCurrent(latest)) return 'Unchecked';
+  if (deliverableUsesDocumentCheck(deliverable) && latest && !isDocumentCheckCurrent(latest)) return 'Not checked';
   return 'Received';
 }

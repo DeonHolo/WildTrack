@@ -193,12 +193,34 @@ Phase 2 implementation status:
 - Strictly block non-PDF links for PDF-required deliverables.
 - Store file metadata.
 
+Phase 4 implementation status:
+
+- Restricted backend-only Google Drive API key configuration is implemented.
+- `setup-local.ps1` stores the key in the Windows user environment without committing it.
+- `run-local.ps1` starts and health-checks both services.
+- Public Drive file links and resource keys are parsed.
+- Metadata, MIME type, file size, viewer download permission, and modified time are read through Drive API.
+- PDF bytes are downloaded temporarily for automatic or staff-triggered Document Check and are discarded after inspection.
+- PDF integrity, password protection, page count, and readable text are inspected.
+- Check results and history are stored in the backend database.
+- Official DOCX/PDF templates can be uploaded per workspace and deliverable.
+- Template text is extracted and compared deterministically with the submitted PDF.
+- Google Sheets writeback remains intentionally separate and deferred.
+
 ### Phase 5: AI Review
 
 - Extract PDF text.
 - Compare against official templates.
-- Call Gemini only when Sir/adviser triggers review.
+- Call Gemini only when Admin/Sir triggers an individual or selected-deliverable batch review.
 - Save short summary, flags, missing/weak sections, confidence, and suggested action.
+
+Phase 5 boundary:
+
+- PDF extraction and deterministic template comparison are implemented as **Document Check**.
+- Document Check runs automatically for new or materially changed PDF responses and remains manually repeatable.
+- Gemini remains **AI Review**, is Admin/Sir-only, and is deferred until its prompt, quota, rate-limit, and visibility rules are finalized.
+- AI Review must consume the already-extracted PDF/template text through the backend; the Gemini key must never reach Vite.
+- Advisers receive Document Check results but cannot invoke individual or batch AI Review.
 
 ### Phase 6: Archive
 

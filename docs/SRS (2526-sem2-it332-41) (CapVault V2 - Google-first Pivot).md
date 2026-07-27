@@ -11,7 +11,7 @@ Working product name: CapVault, pending rename discussion
 
 CapVault V2 shall support the existing capstone class workflow used by Sir Ralph Laviste. The system shall reduce manual checking, copying, and review work while keeping Google Sheets, Google Drive, and Google Docs as the visible operating environment.
 
-The system shall not force students into a login-first portal just to submit deliverables. Submission shall happen through generated, form-like links. The system shall use Student Number to match submissions to the class record when possible, accept PDF and link submissions according to deliverable rules, write essential records back to Google Sheets, flag problematic submissions, assist Sir/advisers through AI triage, and archive only final accepted documents.
+The system shall not force students into a login-first portal just to submit deliverables. Submission shall happen through generated, form-like links. The system shall use Student Number to match submissions to the class record when possible, accept PDF and link submissions according to deliverable rules, write essential records back to Google Sheets, flag problematic submissions through Document Check, provide Admin/Sir with controlled AI Review, and archive only final accepted documents.
 
 ## 2. Background And Pivot Rationale
 
@@ -45,7 +45,7 @@ The system shall therefore prioritize:
 - Write tracker lateness values to Sir's tracker sheet.
 - Count tracker lateness from the first accepted attempt for that deliverable.
 - Run lightweight automatic checks for Drive access, MIME type, readability, empty content, and template-like content.
-- Let Sir/advisers manually trigger full AI evaluation.
+- Let only Teacher/Admin manually trigger individual or selected-deliverable batch AI Review.
 - Show role-specific dashboards for Sir/teacher, adviser, and optional student accounts.
 - Preserve submission link history during the semester.
 - Archive only final accepted PDF versions.
@@ -75,7 +75,7 @@ A student with an optional account can view their own submissions, submission fl
 
 ### 4.3 Adviser
 
-An adviser can view assigned teams, submissions, validation flags, AI summaries, attempt history, feedback, and archive status for advised teams.
+An adviser can view assigned teams, submissions, Document Check findings, attempt history, feedback, and archive status for advised teams. Advisers cannot trigger or view privileged AI Review controls or reports.
 
 ### 4.4 Teacher/Admin
 
@@ -111,6 +111,23 @@ The system shall use Google Drive API to:
 - Download final accepted PDF bytes during archiving.
 - Optionally create a Drive mirror copy for Sir's convenience.
 - Read metadata such as modified time, owner-visible file name, and size when available.
+
+### 5.2.1 Document Check
+
+The system shall:
+
+- Save a new or edited response before attempting validation.
+- Automatically run Document Check after a new response or a materially changed PDF link.
+- Verify Drive accessibility, PDF MIME type, download permission, size limit, PDF integrity, password protection, page count, and readable text.
+- Compare readable submission text with the official deliverable template where configured.
+- Mark old Document Check and AI Review results as outdated when the submitted document changes.
+- Retain the response when checking fails.
+- Provide scoped batch Document Check actions in Command Center, Admin Review, and Team Review.
+- Temporarily download PDF bytes for inspection without treating that temporary download as an archive copy.
+
+### 5.2.2 AI Review Permissions
+
+The system shall expose individual and batch AI Review only to Admin/Sir and only from Admin Review. AI Review shall not run automatically. Advisers shall use Document Check results but shall not invoke AI Review.
 
 ### 5.3 Google Docs API
 
@@ -240,7 +257,7 @@ The system shall provide AI-assisted evaluation as a triage tool.
 
 Acceptance criteria:
 
-- Full AI evaluation is manually triggered by Teacher/Admin or adviser by default.
+- Full AI evaluation is manually triggered only by Teacher/Admin, either for one eligible response or as a selected-deliverable batch.
 - The system can summarize document contents.
 - The system can flag missing major sections, possible template-only submissions, weak content signals, missing diagrams, and accessibility problems.
 - The system can write short results to Sheets.
@@ -264,8 +281,8 @@ The system shall provide adviser views for assigned teams.
 Acceptance criteria:
 
 - Advisers can see assigned teams and deliverables.
-- Advisers can see submission attempts, validation flags, AI summaries, and feedback history.
-- Advisers can trigger or view AI evaluation where allowed.
+- Advisers can see submission attempts, Document Check findings, and feedback history for assigned teams.
+- Advisers cannot trigger or view Admin-only AI Review controls or reports.
 - Advisers can mark review statuses where permitted by Teacher/Admin.
 
 ### FR-012 Teacher/Admin Attention Dashboard

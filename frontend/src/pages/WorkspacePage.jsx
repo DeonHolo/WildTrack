@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowClockwise, Buildings, CheckCircle, Database, GoogleLogo, HardDrives, LinkSimple, PlusCircle, Table, X } from '@phosphor-icons/react';
+import { ArrowClockwise, Buildings, CheckCircle, Database, GoogleLogo, HardDrives, LinkSimple, PlusCircle, Table, Trash, X } from '@phosphor-icons/react';
 import { Button, ConfirmDialog, DataTable, Field, PageHeader, StatusBadge } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/workflow.js';
 import { setStoredPreviewRole } from '../hooks/usePreviewRole.js';
+import { getDriveConnectionStatus } from '../lib/api.js';
 
 const SOURCE_CONFIG = [
   {
@@ -63,7 +64,8 @@ export function WorkspacePage() {
     reset,
     updateTrackerColumn,
     addTrackerColumn,
-    saveTemplate
+    saveTemplate,
+    removeTemplate
   } = useWorkflow();
   const [sources, setSources] = useState(() => ({
     teamFormation: state.classRecord.sources?.teamFormation?.sheetUrl || '',
@@ -73,7 +75,10 @@ export function WorkspacePage() {
   const [workspaceName, setWorkspaceName] = useState(state.classRecord.name);
   const [trackerSheet, setTrackerSheet] = useState(state.classRecord.trackerSheet);
   const [newColumn, setNewColumn] = useState('');
-  const [template, setTemplate] = useState({ deliverable: 'SRS', name: '', link: '' });
+  const [template, setTemplate] = useState({ deliverable: 'SRS', name: '', file: null });
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateToRemove, setTemplateToRemove] = useState(null);
+  const [driveStatus, setDriveStatus] = useState({ configured: false, message: 'Checking connection...' });
   const [message, setMessage] = useState('');
   const [summary, setSummary] = useState(null);
   const [importing, setImporting] = useState('');
@@ -91,7 +96,7 @@ export function WorkspacePage() {
   const activeColumns = getActiveTrackerColumns(state);
   const rows = [
     ['Google Sheets', 'Read Team Formation, Tracker, and Software Project Monitor sources', state.classRecord.status || 'Connected'],
-    ['Google Drive', 'Verify PDF links, read file metadata, and prepare final copies', 'Ready'],
+    ['Google Drive', 'Verify submitted PDF links and read file metadata', driveStatus.configured ? 'Connected' : 'Not configured'],
     ['Archive storage', 'Independent final PDF copies in Cloudflare R2 or another S3-compatible store', 'Not configured']
   ];
   const sourceStatuses = useMemo(() => SOURCE_CONFIG.map((source) => ({
@@ -110,6 +115,12 @@ export function WorkspacePage() {
     setTrackerSheet(state.classRecord.trackerSheet || `${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
     setSummary(null);
     setMessage('');
+  }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    getDriveConnectionStatus()
+      .then(setDriveStatus)
+      .catch((error) => setDriveStatus({ configured: false, message: `Backend unavailable: ${error.message}` }));
   }, [activeWorkspaceId]);
 
   async function importSource(sourceType) {
@@ -135,11 +146,31 @@ export function WorkspacePage() {
     setNewColumn('');
   }
 
-  function submitTemplate(event) {
+  async function submitTemplate(event) {
     event.preventDefault();
-    if (!template.name || !template.link) return;
-    saveTemplate(template);
-    setTemplate({ ...template, name: '', link: '' });
+    const form = event.currentTarget;
+    if (!template.name || !template.file) {
+      setMessage('Choose a template name and a DOCX or PDF file.');
+      return;
+    }
+    setTemplateSaving(true);
+    setMessage('');
+    const result = await saveTemplate(template);
+    setTemplateSaving(false);
+    if (!result.ok) {
+      setMessage(result.error);
+      return;
+    }
+    setTemplate({ ...template, name: '', file: null });
+    form.reset();
+    setMessage(`${result.template.name} is ready for Document Check comparison.`);
+  }
+
+  async function confirmRemoveTemplate() {
+    if (!templateToRemove) return;
+    const result = await removeTemplate(templateToRemove.id);
+    setTemplateToRemove(null);
+    setMessage(result.ok ? 'Template removed.' : result.error);
   }
 
   function generateSuggestedForms(suggestions = summary?.suggestedForms || pendingSuggestions) {
@@ -302,10 +333,11 @@ export function WorkspacePage() {
           <div className="panel-header">
             <div>
               <h2>Official templates</h2>
-              <p>Templates let file checks detect unchanged instructions or very low added content.</p>
+              <p>Upload Sir's downloaded DOCX or PDF template for each deliverable.</p>
             </div>
+            <StatusBadge status={driveStatus.configured ? 'Drive connected' : 'Drive not configured'} />
           </div>
-          <form className="form-grid" onSubmit={submitTemplate}>
+          <form className="form-grid template-upload-form" onSubmit={submitTemplate}>
             <Field label="Deliverable">
               <select value={template.deliverable} onChange={(event) => setTemplate({ ...template, deliverable: event.target.value })}>
                 {activeColumns.map((column) => <option key={column.id} value={column.label}>{column.label}</option>)}
@@ -314,19 +346,37 @@ export function WorkspacePage() {
             <Field label="Template name">
               <input value={template.name} onChange={(event) => setTemplate({ ...template, name: event.target.value })} placeholder="SRS official template" />
             </Field>
-            <Field label="Google Drive template link">
-              <input value={template.link} onChange={(event) => setTemplate({ ...template, link: event.target.value })} placeholder="https://drive.google.com/file/d/..." />
+            <Field label="Template file" helper="DOCX or PDF, up to 15 MB">
+              <input
+                type="file"
+                accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={(event) => setTemplate({ ...template, file: event.target.files?.[0] || null })}
+              />
             </Field>
-            <Button icon={PlusCircle}>Save template</Button>
+            <Button icon={PlusCircle} loading={templateSaving}>Upload template</Button>
           </form>
           <div className="template-list">
             {state.templates.map((item) => (
               <div className="template-row" key={item.id}>
-                <div><strong>{item.name}</strong><span>{item.deliverable}</span></div>
-                <a className="text-link" href={item.link} target="_blank" rel="noreferrer">Open</a>
+                <div>
+                  <strong>{item.name}</strong>
+                  <span>{item.deliverable} | {item.originalFilename || 'Starter template reference'}{item.extractedCharacterCount ? ` | ${item.extractedCharacterCount.toLocaleString()} readable characters` : ''}</span>
+                </div>
+                {item.originalFilename ? (
+                  <Button size="sm" variant="secondary" icon={Trash} onClick={() => setTemplateToRemove(item)}>Remove</Button>
+                ) : (
+                  <StatusBadge status="Starter data" />
+                )}
               </div>
             ))}
+            {!state.templates.length ? (
+              <div className="template-empty-state">
+                <strong>No official templates uploaded</strong>
+                <span>Upload one template per deliverable to enable template comparison during Document Check.</span>
+              </div>
+            ) : null}
           </div>
+          <small className="integration-note">{driveStatus.message}</small>
         </section>
       </section>
 
@@ -471,6 +521,19 @@ export function WorkspacePage() {
       >
         <strong>Current workspace</strong>
         <span>{state.students.length} students | {activeColumns.length} deliverable columns | {state.projectMetadata?.length || 0} project records</span>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={Boolean(templateToRemove)}
+        title="Remove this official template?"
+        description="New Document Checks for this deliverable will no longer compare submissions against the template. Saved check reports remain available."
+        confirmLabel="Remove template"
+        intent="danger"
+        onClose={() => setTemplateToRemove(null)}
+        onConfirm={confirmRemoveTemplate}
+      >
+        <strong>{templateToRemove?.name}</strong>
+        <span>{templateToRemove?.deliverable}</span>
       </ConfirmDialog>
 
       <ConfirmDialog

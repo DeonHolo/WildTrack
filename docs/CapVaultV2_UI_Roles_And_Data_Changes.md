@@ -591,6 +591,8 @@ Implement a **Team-only tracker table** section directly inside the Student Dash
 
 ## 16. Review Tab Filter Cleanup: "Needs Action" vs "Unchecked"
 
+Historical discussion only. The confirmed terminology and behavior are in Section 25; the implemented interface uses `Pending` and Document Check statuses rather than an `Unchecked` filter.
+
 ### Problem
 
 The Review page has 5 filter tabs: `Needs Action`, `Unchecked`, `Flagged`, `All`, `Accepted`. The first two sound nearly identical to a user.
@@ -623,6 +625,8 @@ Use these four filters:
 ---
 
 ## 17. File Check / AI Review: What's Real and What's Fake
+
+Historical exploration only. Section 25 supersedes the `Tier 1` / `Tier 2` naming and defines the approved Document Check / Admin-only AI Review boundary.
 
 ### Previous Placeholder Behavior (Removed July 26)
 
@@ -724,13 +728,15 @@ Implemented decision: the local UI says automatic file checks and AI review are 
 
 ---
 
-## 18. July 26 Discussion: Tier 1 File Checks and Adviser Acceptance
+## 18. July 26 Discussion: Document Checks and Adviser Acceptance
 
-### Tier 1: Current Technical Position
+The July 27 decision in Section 25 supersedes any implementation-status statements in this section.
+
+### Document Check: Current Technical Position
 
 The existing backend can import public Google Sheets and write tracker values when Google Sheets credentials are configured. It does **not** yet contain a Google Drive API client, a PDF text extraction library, submission persistence, or a file-check endpoint. The frontend now records AI Review as `Unavailable` and shows the Google Drive API requirement instead of manufacturing a report from saved flags.
 
-Proper Tier 1 checking needs this backend slice:
+Proper Document Check behavior needs this backend slice:
 
 1. Extract and validate a Google Drive file ID from the submitted link.
 2. Read Drive file metadata and verify that the file is accessible and has the `application/pdf` MIME type.
@@ -741,14 +747,14 @@ Proper Tier 1 checking needs this backend slice:
 
 This is medium-sized backend work, not a cosmetic frontend change. The metadata/PDF/accessibility portion is a reasonable first implementation once a Google Cloud project, Drive API, and service-account or OAuth access approach are ready. Template comparison is the harder part because template PDFs need their own extraction and the result must be phrased as `possible template overlap`, never as a verdict that the student did no work. A very short text result is also a warning, not proof of an empty PDF, because diagrams and scanned pages may contain little extractable text.
 
-### Tier 1 Recommendation
+### Document Check Recommendation
 
 Do both in sequence:
 
 1. **Immediately make the current placeholder honest.** Replace invented claims such as "File opens and contains readable capstone sections" with a visible message that Google Drive API is not connected and no file check was performed.
-2. **Defer real Tier 1 until the team is ready to configure Google Drive API credentials.** It has no Gemini usage cost and directly addresses Sir's main pain: opening dead links, wrong file types, blank/unreadable PDFs, and submissions that are mostly unchanged templates.
+2. **Implement Document Check when the team configures Google Drive API credentials.** It has no Gemini usage cost and directly addresses Sir's main pain: opening dead links, wrong file types, blank/unreadable PDFs, and submissions that are mostly unchanged templates.
 
-Tier 2 Gemini review remains a manual action after Tier 1 establishes that there is an accessible, readable PDF. Gemini should summarize content and compare it against the deliverable instructions/template; it should not be the first or only validation layer.
+Gemini AI Review remains a manual Admin/Sir action after Document Check establishes that there is an accessible, readable PDF. Gemini should summarize content and compare it against the deliverable instructions/template; it should not be the first or only validation layer.
 
 ### CONFIRMED Adviser Acceptance Permission and UI
 
@@ -784,14 +790,14 @@ An adviser-accepted submission is immediately eligible for archive, but only Sir
 | 13 | Collapsible feedback in Team Review | ✅ CONFIRMED | Truncated preview + "Show all" toggle + per-entry "Read more" |
 | 14 | Student View layout and button styling | ✅ FIXED | Deliverable rows use stable responsive areas for identity, status, message/feedback, and actions. Desktop, tablet, and mobile layouts were browser-verified. |
 | 16 | Review filter cleanup | CONFIRMED | Use `Pending / Flagged / All / Accepted`; Pending is the default queue |
-| 17 | File Check / AI Review honesty | CONFIRMED | Show Google Drive API not connected; defer real Tier 1 until Drive API access is configured |
+| 17 | Document Check / AI Review honesty | CONFIRMED | Document Check uses Drive/PDF/template validation; AI Review remains a separate Admin-only action |
 | 18 | Adviser acceptance | CONFIRMED | Advisers accept the latest group output for their teams; Sir/Admin retains archive action |
 
 ---
 
 ## Open Questions Awaiting Decision
 
-1. **Tier 1 timing:** When the team is ready to configure a Google Cloud project and Google Drive API credentials, real Tier 1 is the next backend feature. See Section 18.
+1. **Document Check timing:** Document Check runs automatically for new or materially changed PDF responses when Google Drive access is configured. See Section 18.
 
 ---
 
@@ -830,7 +836,7 @@ Two constraints must remain visible while implementing the batch:
 
 1. Real role guards cannot be claimed until backend authentication exists. The current Admin, Adviser, and Student switcher is explicitly a local Dev Preview, not security.
 2. Archive actions currently create browser-local workflow records and hash response metadata. Independent PDF download, storage, and byte-level SHA-256 verification still require Google Drive API and archive storage.
-3. Automatic file checks and AI Review remain unavailable until Google Drive API is connected. The UI no longer claims that a submitted file was inspected.
+3. Automatic Document Check remains unavailable until Google Drive API is connected. AI Review additionally requires Gemini configuration. The UI must not claim that a submitted file was inspected when either integration is unavailable.
 
 ---
 
@@ -877,7 +883,7 @@ The role description says advisers see their assigned teams' submissions, tracke
 
 Advisers should have two real tabs:
 
-1. `Team Review` - group-deliverable submissions, AI Review availability, acceptance, and feedback for assigned teams.
+1. `Team Review` - group-deliverable submissions, Document Check results, acceptance, and feedback for assigned teams. Advisers cannot run AI Review.
 2. `Tracker` - read-only tracker data limited to students in assigned teams.
 
 The Adviser Tracker should reuse the same tracker interface instead of creating a separate tracker page, but its dataset must be scoped by adviser assignments. It should not expose Admin editing, Sheet import/sync, class-wide rows outside the adviser's assignments, or maintenance controls.
@@ -1467,3 +1473,58 @@ Long hashes and storage keys are no longer repeated across every row. The curren
 - A reset sets backend auto-refresh off for that workspace.
 - Switching away and back respects the reset state instead of silently loading the previous backend import.
 - Backend data returns only when Sir explicitly imports or chooses Refresh Backend Data.
+
+## 25. July 27 Decision: Automatic Document Check and Admin-only AI Review
+
+### 25.1 Product Terminology
+
+`Tier 1` and `Tier 2` are implementation-planning terms and must not appear in the product UI. The user-facing capabilities are:
+
+- **Document Check** for deterministic Google Drive, PDF, readable-text, and official-template validation.
+- **AI Review** for Gemini-generated content summary, instruction/template evaluation, red flags, weak or missing sections, and suggested action.
+
+Document Check statuses are `Not checked`, `Checking`, `Ready for review`, `Needs attention`, `Could not check`, and `Outdated`.
+
+### 25.2 Automatic Document Check
+
+- A new response is saved immediately and then checked automatically.
+- Automatic and batch Document Check apply only to deliverables whose published form explicitly requires a PDF Drive link. Repository and other link-only fields are not sent through PDF validation.
+- A materially changed PDF response makes the previous Document Check and AI Review outdated.
+- A changed Drive link triggers a new Document Check.
+- An edit that does not change saved response data triggers neither tracker lateness nor another check.
+- Replacing the bytes behind the same Drive file without changing the form response cannot be detected at form-save time. Staff can use **Check again** or a scoped pending/recheck workflow to read the current Drive file.
+- Identity-only corrections with the same Drive file retain the current Document Check.
+- The backend reads Drive metadata, temporarily downloads up to 25 MB of PDF bytes, inspects the PDF, extracts text, compares it with the official template, saves the report, and discards the submission bytes.
+- Document Check is not archival storage and does not retain an independent PDF copy.
+- If automatic checking is interrupted or fails, the response remains accepted and appears as `Could not check` or `Not checked`.
+
+### 25.3 Batch Document Check
+
+- Command Center provides **Check pending documents** for unchecked, outdated, and failed responses in its actionable queue.
+- Admin Review provides **Check pending documents** for the selected deliverable.
+- Team Review provides **Check pending documents** for the selected team and deliverable.
+- Current reports are skipped unless staff explicitly chooses an individual **Check again** action.
+- Batch execution uses limited concurrency, reports progress, and continues after individual failures.
+- Accepted or archived responses do not remain in Command Center's action queue.
+
+### 25.4 AI Review Access and Placement
+
+- Only Admin/Sir can run AI Review.
+- Individual and batch AI Review controls appear only on the Admin Review page.
+- Advisers can see current Document Check results, open the PDF, give feedback, and accept assigned-team output, but cannot trigger or view privileged AI Review controls.
+- Batch AI Review is scoped to the selected deliverable, skips current AI reports, requires confirmation, and reports progress.
+- AI Review never runs automatically.
+- If a response changes after AI Review, the report becomes `Outdated`; Sir decides whether to run it again.
+
+### 25.5 Document Check Result Presentation
+
+The compact row/detail summary shows the overall result, core measurements, and only the first few missing template headings followed by `... and N more`. A **View document check** action opens a full modal containing:
+
+- Check status, source file, and timestamp
+- Drive access, PDF format, size, download permission, page count, and readable-text results
+- Template coverage and estimated added-content ratio
+- Complete missing-heading and warning lists
+- Limitations explaining that template comparison is a screening aid, not a grading decision
+- Actions to open the submitted file or run Document Check again
+
+Template-heading detection must ignore institutional headers and other document boilerplate that are not meaningful deliverable sections.

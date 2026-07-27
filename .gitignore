@@ -16,7 +16,9 @@ frontend/.vite/
 *.log
 *.out.log
 *.err.log
+.capvault-local.pids.json
 .chrome-*/
 verification-screenshots/
 backend/target/
 frontend/dist/
+.capvault-local.pids.json

@@ -1,17 +1,30 @@
 import { useMemo, useState } from 'react';
-import { Archive, ArrowCounterClockwise, ArrowSquareOut, CheckCircle, Sparkle } from '@phosphor-icons/react';
+import {
+  Archive,
+  ArrowCounterClockwise,
+  ArrowSquareOut,
+  CheckCircle,
+  Files,
+  MagnifyingGlass,
+  Sparkle
+} from '@phosphor-icons/react';
 import { Button, ConfirmDialog, DataTable, EmptyState, PageHeader, SearchBox, StatusBadge } from '../components/ui.jsx';
+import {
+  compactMissingSections,
+  DocumentCheckDialog,
+  documentCheckStatus
+} from '../components/review/DocumentCheckDialog.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import {
   findStudent,
+  deliverableUsesDocumentCheck,
   firstSubmissionLink,
   formatDate,
   formatDateTime,
   getIdentityStudents,
   getProjectMetadata,
-  DRIVE_CHECK_UNAVAILABLE_MESSAGE,
   isAiReportCurrent,
-  isDriveCheckUnavailable,
+  isDocumentCheckCurrent,
   makeDriveViewUrl,
   sortDeliverables
 } from '../lib/workflow.js';
@@ -19,82 +32,119 @@ import {
 const reviewFilters = ['Pending', 'Flagged', 'All', 'Accepted'];
 
 export function ReviewPage() {
-  const { state, triggerAiEvaluation, markAccepted, revokeAcceptance, archiveAttempt } = useWorkflow();
+  const {
+    state,
+    runDocumentCheck,
+    runDocumentChecks,
+    runAiReview,
+    markAccepted,
+    revokeAcceptance,
+    archiveAttempt
+  } = useWorkflow();
   const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
   const orderedDeliverables = useMemo(() => sortDeliverables(state, state.deliverables), [state]);
   const [selectedDeliverableId, setSelectedDeliverableId] = useState(orderedDeliverables[0]?.id || '');
   const [expandedResponseId, setExpandedResponseId] = useState('');
+  const [checkDialogId, setCheckDialogId] = useState('');
   const [filter, setFilter] = useState('Pending');
   const [query, setQuery] = useState('');
   const [actionTarget, setActionTarget] = useState(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(null);
+  const [aiTarget, setAiTarget] = useState(null);
 
   const deliverableSummaries = useMemo(() => orderedDeliverables.map((deliverable) => {
     const responses = state.attempts.filter((response) => response.deliverableId === deliverable.id);
+    const usesDocumentCheck = deliverableUsesDocumentCheck(deliverable);
     const accepted = responses.filter((response) => response.reviewStatus === 'Accepted').length;
     const flagged = responses.filter(isFlaggedResponse).length;
-    const unchecked = responses.filter((response) => response.reviewStatus !== 'Accepted' && !isAiReportCurrent(response)).length;
+    const notChecked = usesDocumentCheck
+      ? responses.filter((response) => response.reviewStatus !== 'Accepted' && !isDocumentCheckCurrent(response)).length
+      : 0;
     const needsCheck = responses.filter(needsReviewAction).length;
     const missing = Math.max(0, identityStudents.length - responses.length);
-    return { deliverable, responses, expected: identityStudents.length, received: responses.length, accepted, flagged, unchecked, needsCheck, missing };
+    return { deliverable, responses, expected: identityStudents.length, received: responses.length, accepted, flagged, notChecked, needsCheck, missing, usesDocumentCheck };
   }), [identityStudents.length, orderedDeliverables, state.attempts]);
 
   const selectedSummary = deliverableSummaries.find((item) => item.deliverable.id === selectedDeliverableId) || deliverableSummaries[0];
   const selectedDeliverable = selectedSummary?.deliverable || null;
+  const pendingDocumentChecks = useMemo(
+    () => selectedSummary?.usesDocumentCheck ? (selectedSummary.responses || []).filter((response) =>
+      response.reviewStatus !== 'Accepted' &&
+      response.fileCheckStatus !== 'Checking' &&
+      !isDocumentCheckCurrent(response)
+    ) : [],
+    [selectedSummary]
+  );
+  const pendingAiReviews = useMemo(
+    () => (selectedSummary?.responses || []).filter((response) =>
+      response.reviewStatus !== 'Accepted' &&
+      isDocumentCheckCurrent(response) &&
+      !isAiReportCurrent(response)
+    ),
+    [selectedSummary]
+  );
 
   const selectedResponses = useMemo(() => {
     if (!selectedDeliverable) return [];
     const needle = query.trim().toLowerCase();
     let rows = state.attempts.filter((response) => response.deliverableId === selectedDeliverable.id);
-
     if (filter === 'Accepted') rows = rows.filter((response) => response.reviewStatus === 'Accepted');
     if (filter === 'Pending') rows = rows.filter((response) => response.reviewStatus !== 'Accepted');
     if (filter === 'Flagged') rows = rows.filter(isFlaggedResponse);
-
     if (needle) {
       rows = rows.filter((response) => {
         const student = findStudent(state.students, response.studentNumber);
         return `${student?.name || response.studentName} ${student?.teamCode || response.teamCode} ${response.studentNumber}`.toLowerCase().includes(needle);
       });
     }
-
     return rows.sort((first, second) => new Date(second.updatedAt || second.submittedAt) - new Date(first.updatedAt || first.submittedAt));
   }, [filter, query, selectedDeliverable, state.attempts, state.students]);
+
+  const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
 
   function chooseDeliverable(id) {
     setSelectedDeliverableId(id);
     setExpandedResponseId('');
+    setCheckDialogId('');
   }
 
-  function toggleResponse(id) {
-    setExpandedResponseId((current) => current === id ? '' : id);
-  }
-
-  function runOrView(response) {
-    setExpandedResponseId(response.id);
-    if (!isAiReportCurrent(response) && !isDriveCheckUnavailable(response)) {
-      triggerAiEvaluation(response.id);
+  async function openOrRunDocumentCheck(response) {
+    if (!isDocumentCheckCurrent(response)) {
+      await runDocumentCheck(response.id);
     }
+    setCheckDialogId(response.id);
   }
 
-  function rerunWithConfirmation(response) {
-    setExpandedResponseId(response.id);
-    if (isDriveCheckUnavailable(response)) return;
-    if (!isAiReportCurrent(response) || window.confirm('This response already has a current AI Review. Run it again?')) {
-      triggerAiEvaluation(response.id);
-    }
+  async function recheckFromDialog() {
+    if (!checkDialogResponse) return;
+    await runDocumentCheck(checkDialogResponse.id);
+  }
+
+  async function runPendingDocumentChecks() {
+    setBatchConfirmOpen(false);
+    if (!pendingDocumentChecks.length) return;
+    setBatchProgress({ completed: 0, total: pendingDocumentChecks.length, failed: 0 });
+    const result = await runDocumentChecks(
+      pendingDocumentChecks.map((response) => response.id),
+      { onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total })) }
+    );
+    setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, done: true });
   }
 
   async function confirmTargetAction() {
     if (!actionTarget?.response) return;
     setActionBusy(true);
-    if (actionTarget.type === 'archive') {
-      await archiveAttempt(actionTarget.response.id);
-    } else {
-      revokeAcceptance(actionTarget.response.id);
-    }
+    if (actionTarget.type === 'archive') await archiveAttempt(actionTarget.response.id);
+    else revokeAcceptance(actionTarget.response.id);
     setActionBusy(false);
     setActionTarget(null);
+  }
+
+  async function acknowledgeAiUnavailable() {
+    await runAiReview(aiTarget?.response?.id);
+    setAiTarget(null);
   }
 
   return (
@@ -122,7 +172,7 @@ export function ReviewPage() {
               <span>{item.deliverable.shortTitle}</span>
               <strong>{item.received}/{item.expected}</strong>
               <small>{item.missing} missing</small>
-              <em>{item.needsCheck} needs review</em>
+              <em>{item.needsCheck} pending</em>
             </button>
           ))}
         </div>
@@ -139,12 +189,36 @@ export function ReviewPage() {
               </div>
               <div className="review-count-grid" aria-label="Selected deliverable counts">
                 <Count label="Missing" value={selectedSummary.missing} />
-                <Count label="Unchecked" value={selectedSummary.unchecked} />
+                <Count label="Not checked" value={selectedSummary.notChecked} />
                 <Count label="Flagged" value={selectedSummary.flagged} />
                 <Count label="Accepted" value={selectedSummary.accepted} />
               </div>
-              <span className="muted-copy">Automatic checks are unavailable until Google Drive API is connected.</span>
+              <div className="review-batch-actions">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={Files}
+                  disabled={!pendingDocumentChecks.length || Boolean(batchProgress && !batchProgress.done)}
+                  onClick={() => setBatchConfirmOpen(true)}
+                >
+                  Check pending documents
+                </Button>
+                <Button size="sm" variant="secondary" icon={Sparkle} onClick={() => setAiTarget({ type: 'batch', count: pendingAiReviews.length })}>
+                  Run AI reviews
+                </Button>
+              </div>
             </div>
+
+            {batchProgress ? (
+              <div className={`batch-progress ${batchProgress.done ? batchProgress.failed ? 'warning' : 'success' : ''}`} role="status">
+                <div>
+                  <strong>{batchProgress.done ? 'Document checks complete' : 'Checking documents'}</strong>
+                  <span>{batchProgress.completed} of {batchProgress.total}{batchProgress.failed ? ` | ${batchProgress.failed} could not be checked` : ''}</span>
+                </div>
+                <progress value={batchProgress.completed} max={Math.max(batchProgress.total, 1)} />
+                {batchProgress.done ? <button type="button" onClick={() => setBatchProgress(null)}>Dismiss</button> : null}
+              </div>
+            ) : null}
 
             <div className="review-toolbar">
               <div className="review-filter-row" role="tablist" aria-label="Review filter">
@@ -164,9 +238,10 @@ export function ReviewPage() {
                   response={response}
                   state={state}
                   expanded={expandedResponseId === response.id}
-                  onToggle={() => toggleResponse(response.id)}
-                  onAiReview={() => runOrView(response)}
-                  onRerun={() => rerunWithConfirmation(response)}
+                  onToggle={() => setExpandedResponseId((current) => current === response.id ? '' : response.id)}
+                  onDocumentCheck={() => openOrRunDocumentCheck(response)}
+                  documentCheckEnabled={selectedSummary.usesDocumentCheck}
+                  onAiReview={() => setAiTarget({ type: 'individual', response })}
                   onAccept={() => markAccepted(response.id, { name: 'Sir Ralph Laviste', role: 'Teacher/Admin', scope: 'Individual response' })}
                   onRevoke={() => setActionTarget({ type: 'revoke', response })}
                   onArchive={() => setActionTarget({ type: 'archive', response })}
@@ -181,10 +256,43 @@ export function ReviewPage() {
               />
             ) : null}
           </>
-        ) : (
-          <EmptyState title="No deliverables published" description="Publish a form before reviewing student responses." />
-        )}
+        ) : <EmptyState title="No deliverables published" description="Publish a form before reviewing student responses." />}
       </section>
+
+      <DocumentCheckDialog
+        open={Boolean(checkDialogResponse)}
+        response={checkDialogResponse}
+        fileLink={firstSubmissionLink(checkDialogResponse?.values)}
+        rechecking={checkDialogResponse?.fileCheckStatus === 'Checking'}
+        onClose={() => setCheckDialogId('')}
+        onRecheck={recheckFromDialog}
+      />
+
+      <ConfirmDialog
+        open={batchConfirmOpen}
+        title={`Check ${pendingDocumentChecks.length} pending document${pendingDocumentChecks.length === 1 ? '' : 's'}?`}
+        description="CapVault will process up to three PDFs at a time. Current checks are skipped and one failure will not stop the remaining documents."
+        confirmLabel="Start Document Check"
+        loading={false}
+        onClose={() => setBatchConfirmOpen(false)}
+        onConfirm={runPendingDocumentChecks}
+      >
+        <strong>{selectedDeliverable?.title}</strong>
+        <span>Google Drive metadata and PDF bytes will be read temporarily. Submission files are not archived by this action.</span>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={Boolean(aiTarget)}
+        title="AI Review is not connected yet"
+        description="Gemini AI Review will be available only to Admin/Sir from this Review page. Document Check is already available and does not make generative claims."
+        confirmLabel="Understood"
+        cancelLabel="Close"
+        onClose={() => setAiTarget(null)}
+        onConfirm={acknowledgeAiUnavailable}
+      >
+        <strong>{aiTarget?.type === 'batch' ? `${selectedDeliverable?.title}: ${aiTarget.count} eligible response${aiTarget.count === 1 ? '' : 's'}` : findStudent(state.students, aiTarget?.response?.studentNumber)?.name || 'Selected response'}</strong>
+        <span>When Gemini is connected, this action will summarize content, compare instructions, identify weak or missing sections, and suggest the next review action.</span>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={Boolean(actionTarget)}
@@ -206,15 +314,15 @@ export function ReviewPage() {
   );
 }
 
-function ReviewTableRows({ response, state, expanded, onToggle, onAiReview, onRerun, onAccept, onRevoke, onArchive }) {
+function ReviewTableRows({ response, state, expanded, documentCheckEnabled, onToggle, onDocumentCheck, onAiReview, onAccept, onRevoke, onArchive }) {
   const student = findStudent(state.students, response.studentNumber);
   const fileLink = firstSubmissionLink(response.values);
   const project = getProjectMetadata(state, student?.teamCode || response.teamCode);
   const primary = response.primaryStatus || response.reviewStatus || 'Received';
-  const checkUnavailable = isDriveCheckUnavailable(response);
-  const secondaryFlags = (response.flags || [])
-    .filter((flag) => !['Received', primary, response.reviewStatus].includes(flag))
-    .slice(0, 2);
+  const checkRunning = response.fileCheckStatus === 'Checking';
+  const report = response.documentCheck;
+  const secondaryFlags = (response.flags || []).filter((flag) => !['Received', primary, response.reviewStatus].includes(flag)).slice(0, 2);
+  const missingPreview = compactMissingSections(report?.missingSections);
 
   return (
     <>
@@ -224,14 +332,13 @@ function ReviewTableRows({ response, state, expanded, onToggle, onAiReview, onRe
         <td><strong>{formatDateTime(response.updatedAt || response.submittedAt)}</strong></td>
         <td>
           <div className="review-status-summary">
-          <div className="status-strip stable">
-            <StatusBadge status={primary} />
-            {secondaryFlags.map((flag) => <StatusBadge key={flag} status={flag} />)}
-          </div>
-          <p>{response.checkSummary || DRIVE_CHECK_UNAVAILABLE_MESSAGE}</p>
-          {response.acceptance ? (
-            <small>Accepted by {response.acceptance.acceptedBy} ({response.acceptance.acceptedByRole})</small>
-          ) : null}
+            <div className="status-strip stable">
+              <StatusBadge status={primary} />
+              {documentCheckEnabled ? <StatusBadge status={documentCheckStatus(response)} /> : null}
+              {secondaryFlags.map((flag) => <StatusBadge key={flag} status={flag} />)}
+            </div>
+            <p>{response.checkSummary || (documentCheckEnabled ? 'Document Check will run automatically for this response.' : 'This deliverable does not require PDF Document Check.')}</p>
+            {response.acceptance ? <small>Accepted by {response.acceptance.acceptedBy} ({response.acceptance.acceptedByRole})</small> : null}
           </div>
         </td>
         <td>
@@ -241,22 +348,14 @@ function ReviewTableRows({ response, state, expanded, onToggle, onAiReview, onRe
                 <ArrowSquareOut weight="regular" /><span>Open file</span>
               </a>
             ) : null}
-            <Button size="sm" variant="secondary" icon={Sparkle} disabled={checkUnavailable} title={checkUnavailable ? DRIVE_CHECK_UNAVAILABLE_MESSAGE : undefined} onClick={(event) => { event.stopPropagation(); onAiReview(); }}>
-              {checkUnavailable ? 'Drive check unavailable' : isAiReportCurrent(response) ? 'View AI' : 'AI Review'}
-            </Button>
-            {response.reviewStatus === 'Accepted' ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={ArrowCounterClockwise}
-                disabled={response.archiveStatus === 'Archived'}
-                onClick={(event) => { event.stopPropagation(); onRevoke(); }}
-              >
-                Revoke
+            {documentCheckEnabled ? (
+              <Button size="sm" variant="secondary" icon={MagnifyingGlass} loading={checkRunning} onClick={(event) => { event.stopPropagation(); onDocumentCheck(); }}>
+                {isDocumentCheckCurrent(response) ? 'View check' : 'Check document'}
               </Button>
-            ) : (
-              <Button size="sm" variant="secondary" icon={CheckCircle} onClick={(event) => { event.stopPropagation(); onAccept(); }}>Accept</Button>
-            )}
+            ) : null}
+            {response.reviewStatus === 'Accepted' ? (
+              <Button size="sm" variant="secondary" icon={ArrowCounterClockwise} disabled={response.archiveStatus === 'Archived'} onClick={(event) => { event.stopPropagation(); onRevoke(); }}>Revoke</Button>
+            ) : <Button size="sm" variant="secondary" icon={CheckCircle} onClick={(event) => { event.stopPropagation(); onAccept(); }}>Accept</Button>}
             <Button size="sm" variant="primary" icon={Archive} disabled={response.reviewStatus !== 'Accepted' || response.archiveStatus === 'Archived'} onClick={(event) => { event.stopPropagation(); onArchive(); }}>Archive</Button>
           </div>
         </td>
@@ -266,16 +365,18 @@ function ReviewTableRows({ response, state, expanded, onToggle, onAiReview, onRe
           <td colSpan={5}>
             <div className="review-expanded-content">
               <section>
-                <span>File check status</span>
-                <p>{response.aiReport?.summary || response.checkSummary || DRIVE_CHECK_UNAVAILABLE_MESSAGE}</p>
-                {response.aiReport?.redFlags?.length ? (
-                  <div className="status-strip stable">
-                    {response.aiReport.redFlags.map((flag) => <StatusBadge key={flag} status={flag} />)}
-                  </div>
-                ) : null}
-                {response.aiReport?.missingSections?.length ? (
-                  <small>Missing or weak: {response.aiReport.missingSections.join(', ')}</small>
-                ) : null}
+                <span>Document Check</span>
+                {documentCheckEnabled ? (
+                  <>
+                    <p>{report?.summary || response.checkSummary || 'This response has not been checked yet.'}</p>
+                    {report?.redFlags?.length ? <div className="status-strip stable">{report.redFlags.map((flag) => <StatusBadge key={flag} status={flag} />)}</div> : null}
+                    {missingPreview ? <small>Template headings not detected: {missingPreview}</small> : null}
+                    {report?.document ? <small>{report.document.pageCount} pages | {report.document.extractedCharacterCount.toLocaleString()} readable characters</small> : null}
+                    <Button size="sm" variant="secondary" icon={MagnifyingGlass} loading={checkRunning} onClick={onDocumentCheck}>
+                      {isDocumentCheckCurrent(response) ? 'View document check' : 'Check document'}
+                    </Button>
+                  </>
+                ) : <p>Not required for this link-based deliverable.</p>}
               </section>
               <section>
                 <span>Project context</span>
@@ -284,15 +385,12 @@ function ReviewTableRows({ response, state, expanded, onToggle, onAiReview, onRe
                 {project?.proposalRemarks ? <small>{project.proposalRemarks}</small> : null}
               </section>
               <section>
-                <span>Review actions</span>
-                <p>{response.aiReport?.suggestedAction || 'Open the submitted link, then accept or archive when it is ready.'}</p>
-                {response.acceptance ? (
-                  <small>Accepted by {response.acceptance.acceptedBy} on {formatDateTime(response.acceptance.acceptedAt)}. Scope: {response.acceptance.scope}.</small>
-                ) : null}
-                <div className="row-action-group">
-                  {fileLink ? <a className="btn btn-secondary btn-sm" href={makeDriveViewUrl(fileLink)} target="_blank" rel="noreferrer"><ArrowSquareOut weight="regular" /><span>Open submitted file link</span></a> : null}
-                  <Button size="sm" variant="secondary" icon={Sparkle} disabled={checkUnavailable} title={checkUnavailable ? DRIVE_CHECK_UNAVAILABLE_MESSAGE : undefined} onClick={onRerun}>{checkUnavailable ? 'Drive check unavailable' : isAiReportCurrent(response) ? 'Rerun AI Review' : 'AI Review'}</Button>
-                </div>
+                <span>Admin AI Review</span>
+                <p>{response.aiReport?.summary || 'Generate a content summary and instruction-level findings after Gemini is connected.'}</p>
+                <Button size="sm" variant="secondary" icon={Sparkle} disabled={!documentCheckEnabled || !isDocumentCheckCurrent(response)} onClick={onAiReview}>
+                  {!documentCheckEnabled ? 'Not available for this form' : !isDocumentCheckCurrent(response) ? 'Check document first' : response.aiReport ? 'View AI Review' : 'Run AI Review'}
+                </Button>
+                {response.acceptance ? <small>Accepted by {response.acceptance.acceptedBy} on {formatDateTime(response.acceptance.acceptedAt)}.</small> : null}
               </section>
             </div>
           </td>
@@ -303,19 +401,26 @@ function ReviewTableRows({ response, state, expanded, onToggle, onAiReview, onRe
 }
 
 function Count({ label, value }) {
-  return (
-    <div>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
+  return <div><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function isFlaggedResponse(response) {
-  return (response.flags || []).some((flag) => ['Template-like', 'Too Short', 'Not PDF', 'Inaccessible'].includes(flag));
+  return (response.flags || []).some((flag) => [
+    'Template-like',
+    'Too Short',
+    'Template Headings Missing',
+    'Not PDF',
+    'Inaccessible',
+    'Invalid Drive Link',
+    'Download Disabled',
+    'File Too Large',
+    'Download Failed',
+    'Password Protected',
+    'Corrupt PDF'
+  ].includes(flag));
 }
 
 function needsReviewAction(response) {
   if (response.reviewStatus === 'Accepted') return false;
-  return isFlaggedResponse(response) || !isAiReportCurrent(response) || response.reviewStatus === 'Needs Review' || response.reviewStatus === 'Received';
+  return isFlaggedResponse(response) || !isDocumentCheckCurrent(response) || response.reviewStatus === 'Needs Review' || response.reviewStatus === 'Received';
 }

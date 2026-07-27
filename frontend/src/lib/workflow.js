@@ -7,7 +7,7 @@ const ACTIVE_WORKSPACE_KEY = 'capvault.v2.active-workspace';
 const STUDENT_ACCOUNTS_KEY = 'capvault.v2.student-accounts';
 const ACTIVE_STUDENT_ACCOUNT_KEY = 'capvault.v2.active-student-account';
 export const DEFAULT_WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
-export const DRIVE_CHECK_UNAVAILABLE_MESSAGE = 'Automatic file checks and AI review are unavailable until Google Drive API is connected. Open the submitted file link to review it manually.';
+export const DRIVE_CHECK_UNAVAILABLE_MESSAGE = 'This submitted file has not been checked yet.';
 const LEGACY_PLACEHOLDER_SUMMARIES = new Set([
   'PDF link opens and contains readable SRS sections. Requirements traceability still needs review.',
   'File opens, but several sections appear close to the provided template.',
@@ -1157,29 +1157,49 @@ export function deriveAttemptFlags(values, baseFlags) {
   return [...baseFlags];
 }
 
+export function isDocumentCheckCurrent(response) {
+  if (response?.documentCheck?.status !== 'Current' || !response.documentCheck.checkedAt) return false;
+  const sourceTimestamp = response.updatedAt || response.submittedAt;
+  return response.documentCheck.sourceResponseUpdatedAt === sourceTimestamp;
+}
+
+export function isDocumentCheckUnavailable(response) {
+  return response?.documentCheck?.status === 'Unavailable';
+}
+
 export function isAiReportCurrent(response) {
   if (response?.aiReport?.status !== 'Current' || !response.aiReport.generatedAt) return false;
   const sourceTimestamp = response.updatedAt || response.submittedAt;
   return response.aiReport.sourceResponseUpdatedAt === sourceTimestamp;
 }
 
-export function isDriveCheckUnavailable(response) {
-  return response?.aiReport?.status === 'Unavailable';
-}
-
 function normalizeStoredAttempt(attempt) {
   const sourceSummary = attempt.checkSummary || attempt.aiSummary || '';
   const legacyAiReport = attempt.aiReport?.status === 'Current' && LEGACY_PLACEHOLDER_SUMMARIES.has(attempt.aiReport.summary);
+  const legacyDocumentCheck = attempt.aiReport?.type === 'Tier 1 File Check' || attempt.aiReport?.type === 'Document Check';
+  const storedDocumentCheck = attempt.documentCheck || (
+    legacyDocumentCheck
+      ? {
+          ...attempt.aiReport,
+          checkedAt: attempt.aiReport.generatedAt,
+          checkedBy: attempt.aiReport.generatedBy,
+          type: 'Document Check'
+        }
+      : null
+  );
+  const storedAiReport = legacyDocumentCheck ? null : attempt.aiReport;
   const flags = (attempt.flags || [])
     .map((flag) => flag === 'PDF OK' ? 'Drive link format accepted' : flag)
-    .filter((flag) => !['AI Checked', 'Checked', 'Template-like', 'Too Short'].includes(flag));
+    .filter((flag) => !['AI Checked', 'Checked'].includes(flag))
+    .filter((flag) => !(legacyAiReport && ['Template-like', 'Too Short'].includes(flag)));
 
   return {
     ...attempt,
     flags,
     primaryStatus: attempt.primaryStatus || attempt.reviewStatus || 'Received',
     checkSummary: LEGACY_PLACEHOLDER_SUMMARIES.has(sourceSummary) ? '' : sourceSummary,
-    aiReport: legacyAiReport ? null : attempt.aiReport,
+    documentCheck: legacyAiReport ? null : storedDocumentCheck,
+    aiReport: legacyAiReport ? null : storedAiReport,
     history: attempt.history || []
   };
 }
@@ -1239,9 +1259,9 @@ function parseDisplayDate(value) {
 
 export function statusTone(status) {
   const key = String(status).toLowerCase();
-  if (['pdf ok', 'accepted', 'archived', 'verified', 'on time', 'active', 'ready', 'connected', 'imported', 'published'].includes(key)) return 'success';
-  if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'unchecked', 'starter data'].includes(key)) return 'warning';
-  if (['not pdf', 'editable link', 'inaccessible', 'blocked', 'needs attention', 'not connected'].includes(key)) return 'danger';
+  if (['pdf ok', 'accepted', 'archived', 'verified', 'on time', 'active', 'ready', 'ready for review', 'connected', 'imported', 'published'].includes(key)) return 'success';
+  if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'not checked', 'outdated', 'starter data'].includes(key)) return 'warning';
+  if (['not pdf', 'editable link', 'inaccessible', 'blocked', 'needs attention', 'could not check', 'not connected'].includes(key)) return 'danger';
   if (['checked', 'checking', 'received', 'reviewed', 'pdf required', 'link fields', 'late', 'unpublished'].includes(key)) return 'info';
   return 'neutral';
 }
@@ -1255,4 +1275,8 @@ export function makeDriveViewUrl(value) {
 
 export function firstSubmissionLink(values) {
   return Object.values(values || {}).find((value) => /^https?:\/\//i.test(String(value || '').trim())) || '';
+}
+
+export function deliverableUsesDocumentCheck(deliverable) {
+  return Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
 }

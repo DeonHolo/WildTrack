@@ -12,3 +12,7 @@ logging:
   level:
     root: WARN
     com.capvault.backend: INFO
+
+capvault:
+  templates:
+    storage-path: ./target/test-template-storage

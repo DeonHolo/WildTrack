@@ -1,6 +1,6 @@
 # Software Design Description
 
-## CapVault V2: Google-first Capstone Submission, Tracking, AI Triage, and Archive System
+## CapVault V2: Google-first Capstone Submission, Tracking, Document Check, AI Review, and Archive System
 
 Status: Draft source-of-truth for the V2 pivot  
 Date: 2026-06-18  
@@ -17,7 +17,7 @@ Primary design goals:
 - Use the class record Sheet as the source for identity and tracker mapping.
 - Write essential submission and tracker data back to Sheets.
 - Prevent editable document links from counting as document submissions.
-- Reduce manual document checking through validation and AI triage.
+- Reduce manual document checking through automatic Document Check and controlled Admin-only AI Review.
 - Archive only final accepted PDFs as independent byte copies with hashes.
 - Keep role-specific surfaces narrow and useful.
 
@@ -69,9 +69,15 @@ Recommended stack:
 - Controller/service/repository layering.
 - PostgreSQL for internal state where needed.
 - Google APIs for Sheets/Drive/Docs integration.
-- Background jobs for validation, AI evaluation, tracker writeback, and archive capture.
+- Background jobs for Document Check, Admin-triggered AI Review, tracker writeback, and archive capture.
 
 The backend should act as the automation layer. It should not try to become the primary class record.
+
+### 3.2.1 Document Check and AI Review Boundary
+
+Document Check is deterministic and uses Google Drive metadata, temporary PDF download, PDF text extraction, and official-template comparison. It runs after a new or materially changed response and may also be run in limited-concurrency batches. The downloaded submission bytes are discarded after inspection.
+
+AI Review is generative and separate. It is available only to Admin/Sir from Admin Review, runs only on explicit individual or selected-deliverable batch request, and consumes the readable document/template data prepared by the backend. Advisers can use Document Check results but cannot invoke AI Review.
 
 ### 3.3 Storage Strategy
 
@@ -218,7 +224,7 @@ Responsibilities:
 
 Responsibilities:
 
-- Run only when manually triggered or batch-triggered by authorized staff.
+- Run only when manually triggered or selected-deliverable batch-triggered by Teacher/Admin.
 - Extract document text and relevant metadata.
 - Generate short summary.
 - Flag missing major sections, weak content signals, missing diagrams, template-like content, and accessibility issues.
@@ -315,8 +321,8 @@ Responsibilities:
 
 1. Background validation checks accepted submissions.
 2. Flags are written to Sheets.
-3. Sir/adviser dashboard highlights attention items.
-4. Sir/adviser manually triggers full AI evaluation when needed.
+3. Sir and adviser dashboards highlight Document Check attention items within their role scope.
+4. Only Sir/Admin manually triggers individual or selected-deliverable batch AI Review when needed.
 5. AI short result is written to Sheets.
 6. Optional long report is written to Google Docs.
 
@@ -324,7 +330,7 @@ Responsibilities:
 
 1. Sir/adviser opens attention dashboard.
 2. Sir/adviser filters by class, deliverable, team, adviser, or status.
-3. Sir/adviser reads flags and AI summaries.
+3. Sir/Admin reads Document Check findings and AI summaries; advisers read Document Check findings only.
 4. Sir/adviser opens original submitted link only when needed.
 5. Sir/adviser records remarks/status.
 6. Sir/adviser marks final accepted version when ready.

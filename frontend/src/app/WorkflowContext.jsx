@@ -2,8 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   calculateDaysLate,
   applyClassRecordImport,
-  DRIVE_CHECK_UNAVAILABLE_MESSAGE,
   deriveAttemptFlags,
+  deliverableUsesDocumentCheck,
   findStudent,
   findWorkspace,
   firstSubmissionLink,
@@ -17,7 +17,6 @@ import {
   loadStudentAccounts,
   loadWorkflowState,
   loadWorkspaceCatalog,
-  makeDriveViewUrl,
   materializeStudentSession,
   normalizeStudentNumber,
   resetWorkflowState,
@@ -33,10 +32,13 @@ import {
 } from '../lib/workflow.js';
 import {
   createWorkspace as createBackendWorkspace,
+  deleteDocumentTemplate,
   getApiBaseUrl,
   getBackendSnapshot,
   getWorkspaces as getBackendWorkspaces,
   importSheetSource as importBackendSheetSource,
+  runDocumentCheck as requestDocumentCheck,
+  uploadDocumentTemplate,
   writeTrackerValue
 } from '../lib/api.js';
 
@@ -439,6 +441,107 @@ export function WorkflowProvider({ children }) {
     setState((current) => ({ ...current, activeStudentNumber: studentNumber }));
   }, []);
 
+  const executeDocumentCheck = useCallback(async (attempt, deliverable) => {
+    const attemptId = attempt.id;
+    const workspaceId = activeWorkspaceRef.current;
+    const sourceUrl = firstSubmissionLink(attempt.values);
+    if (!sourceUrl) return { ok: false, error: 'This response does not contain a submitted file link.' };
+
+    setState((current) => ({
+      ...current,
+      attempts: current.attempts.map((item) => item.id === attemptId
+        ? { ...item, fileCheckStatus: 'Checking', fileCheckError: '' }
+        : item)
+    }));
+
+    try {
+      const report = await requestDocumentCheck(workspaceId, {
+        responseId: attempt.id,
+        deliverableKey: deliverable?.trackerColumn || deliverable?.shortTitle || attempt.deliverableId,
+        sourceUrl,
+        sourceResponseUpdatedAt: attempt.updatedAt || attempt.submittedAt
+      });
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before Document Check finished.' };
+      }
+      const reportStatus = report.status === 'UNAVAILABLE' ? 'Unavailable' : 'Current';
+      setState((current) => ({
+        ...current,
+        attempts: current.attempts.map((item) => {
+          if (item.id !== attemptId) return item;
+          const preservedFlags = (item.flags || []).filter((flag) =>
+            !['Not Checked', 'PDF Verified', 'No Template', 'Too Short', 'Template-like',
+              'Template Headings Missing', 'Invalid Drive Link', 'Inaccessible', 'Not PDF',
+              'Download Disabled', 'File Too Large', 'Download Failed', 'Password Protected',
+              'Corrupt PDF'].includes(flag)
+          );
+          const resultFlags = report.flags || [];
+          const reviewStatus = item.reviewStatus === 'Accepted'
+            ? 'Accepted'
+            : report.attentionRequired ? 'Needs Review' : 'Received';
+          return {
+            ...item,
+            flags: [...new Set([...preservedFlags, ...resultFlags])],
+            checkSummary: report.summary,
+            fileCheckStatus: report.status,
+            fileCheckError: '',
+            primaryStatus: item.reviewStatus === 'Accepted' ? 'Accepted' : reviewStatus,
+            reviewStatus,
+            documentCheck: {
+              status: reportStatus,
+              type: 'Document Check',
+              summary: report.summary,
+              flags: resultFlags,
+              redFlags: report.redFlags || [],
+              missingSections: report.missingSections || [],
+              suggestedAction: report.suggestedAction,
+              checkedBy: report.checkedBy,
+              checkedAt: report.checkedAt,
+              sourceResponseUpdatedAt: report.sourceResponseUpdatedAt,
+              metadata: report.metadata,
+              document: report.document,
+              templateComparison: report.templateComparison,
+              reportId: report.id
+            }
+          };
+        }),
+        activity: [{
+          id: `act-${Date.now()}`,
+          at: new Date().toISOString(),
+          text: `${deliverable?.shortTitle || 'Submitted document'} check completed.`
+        }, ...current.activity]
+      }));
+      return { ok: true, report };
+    } catch (error) {
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before Document Check finished.' };
+      }
+      setState((current) => ({
+        ...current,
+        attempts: current.attempts.map((item) => item.id === attemptId
+          ? {
+              ...item,
+              fileCheckStatus: 'Error',
+              fileCheckError: error.message,
+              checkSummary: `Document Check could not finish: ${error.message}`,
+              documentCheck: {
+                status: 'Error',
+                type: 'Document Check',
+                summary: `Document Check could not finish: ${error.message}`,
+                flags: [],
+                redFlags: [],
+                missingSections: [],
+                suggestedAction: 'Confirm that the backend and Google Drive API are available, then check this document again.',
+                checkedAt: new Date().toISOString(),
+                sourceResponseUpdatedAt: attempt.updatedAt || attempt.submittedAt
+              }
+            }
+          : item)
+      }));
+      return { ok: false, error: error.message };
+    }
+  }, []);
+
   const submitPublicForm = useCallback(async (slug, payload) => {
     const deliverable = getDeliverable(state, slug);
     if (!deliverable) return { ok: false, formError: 'This submission form was not found.' };
@@ -449,13 +552,18 @@ export function WorkflowProvider({ children }) {
     const student = findStudent(state.students, payload.studentNumber);
     if (!student) return { ok: false, formError: 'Choose a Student Number from the class record list.' };
     const submittedAt = new Date().toISOString();
-    const flags = deriveAttemptFlags(payload.values, validation.flags);
     const existing = state.attempts.find((oldAttempt) => normalizeStudentNumber(oldAttempt.studentNumber) === normalizeStudentNumber(student.studentNumber) && oldAttempt.deliverableId === deliverable.id);
     const identityChanged = existing && (
       existing.studentName !== (payload.studentName || student.name) ||
       existing.teamCode !== (payload.teamCode || student.teamCode)
     );
     const changed = !existing || identityChanged || valuesChanged(existing.values, payload.values);
+    const documentChanged = deliverableUsesDocumentCheck(deliverable) && (
+      !existing || firstSubmissionLink(existing.values) !== firstSubmissionLink(payload.values)
+    );
+    const flags = documentChanged
+      ? deriveAttemptFlags(payload.values, validation.flags)
+      : existing?.flags || deriveAttemptFlags(payload.values, validation.flags);
 
     if (existing && !changed) {
       return { ok: true, unchanged: true, attempt: existing, student, deliverable };
@@ -472,12 +580,15 @@ export function WorkflowProvider({ children }) {
       updatedAt: submittedAt,
       values: payload.values,
       flags,
-      checkSummary: '',
+      checkSummary: documentChanged ? '' : existing?.checkSummary || '',
+      fileCheckStatus: documentChanged ? 'Pending' : existing?.fileCheckStatus,
+      fileCheckError: '',
       primaryStatus: 'Received',
       reviewStatus: 'Received',
       archiveStatus: existing?.archiveStatus || 'Not Archived',
       feedback: existing?.feedback || [],
-      aiReport: null,
+      documentCheck: documentChanged ? null : existing?.documentCheck || null,
+      aiReport: documentChanged ? null : existing?.aiReport || null,
       acceptance: null,
       history: existing ? [
         {
@@ -511,6 +622,10 @@ export function WorkflowProvider({ children }) {
       };
     });
 
+    if (documentChanged) {
+      void executeDocumentCheck(attempt, deliverable);
+    }
+
     const daysLate = calculateDaysLate(deliverable.dueAt, submittedAt);
     let trackerSync;
     try {
@@ -529,36 +644,50 @@ export function WorkflowProvider({ children }) {
       };
     }
 
-    return { ok: true, updated: Boolean(existing), attempt, student, deliverable, trackerSync };
-  }, [state]);
+    return { ok: true, updated: Boolean(existing), attempt, student, deliverable, trackerSync, documentCheckStarted: documentChanged };
+  }, [executeDocumentCheck, state]);
 
-  const triggerAiEvaluation = useCallback((attemptId) => {
-    setState((current) => ({
-      ...current,
-      attempts: current.attempts.map((attempt) => {
-        if (attempt.id !== attemptId) return attempt;
-        const summary = DRIVE_CHECK_UNAVAILABLE_MESSAGE;
-        return {
-          ...attempt,
-          checkSummary: summary,
-          aiReport: {
-            status: 'Unavailable',
-            summary,
-            flags: [],
-            redFlags: [],
-            missingSections: [],
-            suggestedAction: 'Open the submitted file link to review it manually. Connect Google Drive API to enable automatic file checks.',
-            generatedBy: 'Unavailable until Google Drive API is connected',
-            generatedAt: new Date().toISOString(),
-            sourceResponseUpdatedAt: attempt.updatedAt || attempt.submittedAt
-          },
-          primaryStatus: attempt.primaryStatus || attempt.reviewStatus || 'Received',
-          reviewStatus: attempt.reviewStatus || 'Received'
-        };
-      }),
-      activity: [{ id: `act-${Date.now()}`, at: new Date().toISOString(), text: 'Automatic file check unavailable: Google Drive API is not connected.' }, ...current.activity]
-    }));
-  }, []);
+  const runDocumentCheck = useCallback(async (attemptId) => {
+    const attempt = state.attempts.find((item) => item.id === attemptId);
+    if (!attempt) return { ok: false, error: 'The selected response was not found.' };
+    const deliverable = getDeliverable(state, attempt.deliverableId);
+    return executeDocumentCheck(attempt, deliverable);
+  }, [executeDocumentCheck, state]);
+
+  const runDocumentChecks = useCallback(async (attemptIds, options = {}) => {
+    const requestedIds = new Set(attemptIds || []);
+    const candidates = state.attempts.filter((attempt) => requestedIds.has(attempt.id));
+    const results = [];
+    let completed = 0;
+    let cursor = 0;
+    const workerCount = Math.min(3, candidates.length);
+    const runWorker = async () => {
+      while (cursor < candidates.length) {
+        const index = cursor;
+        cursor += 1;
+        const attempt = candidates[index];
+        const deliverable = getDeliverable(state, attempt.deliverableId);
+        const result = await executeDocumentCheck(attempt, deliverable);
+        results.push({ attemptId: attempt.id, ...result });
+        completed += 1;
+        options.onProgress?.({ completed, total: candidates.length });
+      }
+    };
+    await Promise.all(Array.from({ length: workerCount }, runWorker));
+    return {
+      ok: results.every((result) => result.ok),
+      total: candidates.length,
+      completed,
+      failed: results.filter((result) => !result.ok).length,
+      results
+    };
+  }, [executeDocumentCheck, state]);
+
+  const runAiReview = useCallback(async () => ({
+    ok: false,
+    unavailable: true,
+    error: 'Gemini AI Review is not connected yet. Document Check results remain available without Gemini.'
+  }), []);
 
   const saveFeedback = useCallback((attemptId, payload) => {
     const note = String(payload.note || '').trim();
@@ -703,23 +832,40 @@ export function WorkflowProvider({ children }) {
     }));
   }, []);
 
-  const saveTemplate = useCallback((payload) => {
-    setState((current) => {
-      const template = {
-        id: payload.id || `tpl-${Date.now()}`,
-        deliverable: payload.deliverable,
-        name: payload.name,
-        link: makeDriveViewUrl(payload.link),
-        status: 'Active',
-        extractedAt: new Date().toISOString()
-      };
-      return {
+  const saveTemplate = useCallback(async (payload) => {
+    try {
+      const saved = await uploadDocumentTemplate(activeWorkspaceRef.current, {
+        deliverableKey: payload.deliverable,
+        displayName: payload.name,
+        file: payload.file
+      });
+      const template = mapBackendTemplate(saved);
+      setState((current) => ({
         ...current,
-        templates: payload.id
-          ? current.templates.map((item) => item.id === payload.id ? template : item)
-          : [template, ...current.templates]
-      };
-    });
+        templates: [
+          template,
+          ...current.templates.filter((item) =>
+            String(item.deliverable).toLowerCase() !== String(template.deliverable).toLowerCase()
+          )
+        ]
+      }));
+      return { ok: true, template };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }, []);
+
+  const removeTemplate = useCallback(async (templateId) => {
+    try {
+      await deleteDocumentTemplate(activeWorkspaceRef.current, templateId);
+      setState((current) => ({
+        ...current,
+        templates: current.templates.filter((item) => item.id !== templateId)
+      }));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
   }, []);
 
   const reset = useCallback(() => {
@@ -754,10 +900,13 @@ export function WorkflowProvider({ children }) {
     refreshBackendData,
     registerStudentAccount,
     removeDeliverable,
+    removeTemplate,
     saveTemplate,
     setActiveStudentNumber,
     submitPublicForm,
-    triggerAiEvaluation,
+    runDocumentCheck,
+    runDocumentChecks,
+    runAiReview,
     updateTrackerColumn,
     saveFeedback,
     markAccepted,
@@ -765,7 +914,7 @@ export function WorkflowProvider({ children }) {
     archiveAttempt,
     archiveAttempts,
     reset
-  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStudentAccount, markAccepted, publishDeliverable, refreshBackendData, registerStudentAccount, removeDeliverable, reset, revokeAcceptance, saveFeedback, saveTemplate, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, triggerAiEvaluation, updateTrackerColumn, workspaces]);
+  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStudentAccount, markAccepted, publishDeliverable, refreshBackendData, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>;
 }
@@ -808,6 +957,7 @@ function applyBackendSnapshot(current, snapshot, options = {}) {
     ...(mapped.trackerColumns.length ? { trackerColumns: mapped.trackerColumns } : {}),
     ...(mapped.projectMetadata.length ? { projectMetadata: mapped.projectMetadata } : {}),
     ...(mapped.deliverables.length ? { deliverables: sortDeliverables(current, mergeDeliverables(current.deliverables, mapped.deliverables)) } : {}),
+    templates: mapped.templates,
     backendSync: {
       enabled: options.enabled ?? true,
       apiBaseUrl: getApiBaseUrl(),
@@ -945,12 +1095,28 @@ function mapBackendSnapshot(snapshot) {
       ? [{ id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', required: true, pdfRequired: true }]
       : [{ id: 'primaryLink', label: 'Submission Link', type: 'url', required: true, pdfRequired: false }]
   }));
+  const templates = (snapshot.templates || []).map(mapBackendTemplate);
 
   return {
     students,
     trackerColumns,
     projectMetadata,
-    deliverables
+    deliverables,
+    templates
+  };
+}
+
+function mapBackendTemplate(template) {
+  return {
+    id: template.id,
+    deliverable: template.deliverableKey,
+    name: template.displayName,
+    originalFilename: template.originalFilename,
+    contentType: template.contentType,
+    sha256: template.sha256,
+    extractedCharacterCount: template.extractedCharacterCount,
+    status: 'Active',
+    extractedAt: template.updatedAt
   };
 }
 

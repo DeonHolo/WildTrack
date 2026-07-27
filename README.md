@@ -2,7 +2,7 @@
 
 CapVault supports Sir Ralph Laviste's capstone workflow through public student submission forms, connected class records, tracker visibility, teacher/adviser review, and final archive preparation.
 
-Current state: the UI is React/Vite and the backend is Spring Boot. Academic workspaces, Sheet imports, students, tracker data, project metadata, deliverables, and tracker writeback attempts are backend-backed. Public responses, review notes, and archive actions still use browser storage while their backend modules are completed.
+Current state: the UI is React/Vite and the backend is Spring Boot. Academic workspaces, Sheet imports, students, tracker data, project metadata, deliverables, official templates, tracker writeback attempts, and Document Check reports are backend-backed. Public responses, review notes, and archive actions still use browser storage while their backend modules are completed.
 
 For the exact production boundary, identity design, and current demonstration limitations, read:
 
@@ -29,7 +29,7 @@ The current direction is not the old login-first vault. The main workflow is:
 6. Students submit Google Drive PDF links through a public CapVault form.
 7. Student Number comes from Team Formation and auto-fills name/team when selected.
 8. The tracker stores lateness values and submission state.
-9. Sir/advisers open submitted links, give feedback, and accept responses. Automatic file checks remain unavailable until Google Drive API is connected.
+9. New and materially changed responses run Document Check for Drive access, PDF integrity, readable text, and template similarity when the local Drive API key is configured. Staff can also check pending documents in batches.
 10. Final accepted PDFs are prepared for archive.
 
 ## Repository Layout
@@ -54,9 +54,40 @@ Install these first:
 
 PostgreSQL is not required for the default local backend profile. The backend uses a local H2 database by default so teammates can run it immediately.
 
+## First-Time Google Drive Setup
+
+CapVault uses a restricted Google Drive API key only in the Spring Boot backend. Never place the key in the frontend, a tracked `.env` file, a screenshot, or chat.
+
+On each laptop that will run CapVault:
+
+1. Clone or pull the repository.
+2. Open PowerShell in the repository root.
+3. Run:
+
+```powershell
+.\setup-local.ps1
+```
+
+4. Paste that laptop's restricted Google Drive API key into the hidden prompt.
+5. Start both services:
+
+```powershell
+.\run-local.ps1
+```
+
+The setup script stores the key in the current Windows user's environment. It is not copied into the repository, so each teammate's laptop must run the one-time setup. The same restricted key can be entered on the presentation laptop for local testing, but it must never be committed.
+
+Stop both services with:
+
+```powershell
+.\stop-local.ps1
+```
+
+The launcher checks Java, Maven, Node, dependencies, ports, backend health, and frontend readiness before reporting success. Logs are written under ignored `logs/`.
+
 ## How To Run Locally: Backend And Frontend
 
-This is the section teammates should use first.
+Use the scripts above for the normal local workflow. The manual two-terminal workflow below remains useful for debugging.
 
 Use two terminals from the repo root.
 
@@ -87,7 +118,7 @@ Check the backend:
 http://127.0.0.1:8080/api/health
 ```
 
-The frontend expects the backend at `http://127.0.0.1:8080/api` by default. If the backend is not running, Workspace import falls back to the frontend public-Sheet importer where possible. For the current backend-backed flow, run both servers.
+The frontend expects the backend at `http://127.0.0.1:8080/api` by default. If the backend is not running, Workspace import falls back to the frontend public-Sheet importer where possible. File checks and official template uploads always require the backend.
 
 The default backend profile is `local`. It creates a local H2 database under `backend/data/`, which is intentionally ignored by Git. To run backend tests, use:
 
@@ -152,6 +183,8 @@ Preview opens on the Vite preview URL printed in the terminal.
 8. Open its generated `/w/{workspaceKey}/submit/...` link.
 9. Select a Student Number, confirm auto-filled details, and submit a Drive PDF link.
 10. Check `/tracker`, `/review`, `/adviser`, and `/student`.
+11. In `/workspace`, upload a downloaded official DOCX or PDF template for the deliverable.
+12. In `/review` or `/adviser`, run **Check file** on a response whose Drive PDF is shared as **Anyone with the link - Viewer** with downloads allowed.
 
 Useful testing controls:
 
@@ -179,7 +212,7 @@ This means:
 
 Workspace imports now try the backend API first. If the backend is unavailable, the frontend falls back to the local public-Sheet importer so the demo can still run.
 
-The backend currently persists academic workspaces, imported Sheet data, workspace source records, deliverable records, tracker rows/cells, tracker columns, project metadata, and tracker writeback attempts in the local H2 database.
+The backend currently persists academic workspaces, imported Sheet data, workspace source records, deliverable records, tracker rows/cells, tracker columns, project metadata, official template metadata/text, Document Check history, and tracker writeback attempts in the local H2 database. Uploaded template files are stored under ignored `backend/storage/templates/`.
 
 Use **Refresh backend data** in Workspace to reload backend students, tracker rows, tracker columns, project metadata, and deliverables into the frontend.
 
@@ -219,6 +252,15 @@ Working now:
   - `GET /api/tracker/writebacks`
 - Backend tracker writeback endpoint:
   - `POST /api/tracker/writebacks`
+- Google Drive and Document Check endpoints:
+  - `GET /api/file-checks/status`
+  - `POST /api/file-checks?workspaceId={workspaceId}`
+  - `GET /api/file-checks/{responseId}?workspaceId={workspaceId}`
+  - `GET /api/file-checks/{responseId}/history?workspaceId={workspaceId}`
+- Official template endpoints:
+  - `GET /api/templates?workspaceId={workspaceId}`
+  - `POST /api/templates?workspaceId={workspaceId}`
+  - `DELETE /api/templates/{id}?workspaceId={workspaceId}`
 - Flyway database migrations.
 - Local H2 profile and PostgreSQL-ready profile.
 - Public/published Google Sheet import.
@@ -245,19 +287,22 @@ Working now:
 - Acceptance revocation before archive, single archive confirmation, and bulk archive confirmation requiring `ARCHIVE`.
 - A clearly labeled archive-storage placeholder: current archive actions create local metadata records, while Cloudflare R2 is the planned independent PDF store.
 - A searchable, filterable, paged Archive index with compact rows and selected-record details for hashes and planned storage keys.
+- Restricted Google Drive API integration for public file metadata and PDF download.
+- Document Check for Drive access, PDF MIME type, download permission, file size, corrupt/password-protected PDFs, page count, readable-text length, and official-template comparison.
+- Per-deliverable DOCX/PDF official template upload, text extraction, replacement, removal, and deterministic template-similarity checks.
+- Persisted Document Check reports and report history.
 
 Not fully connected yet:
 
 - Real Google OAuth.
 - Google Sheets API writeback to Sir's actual Sheet, unless service-account credentials are configured.
-- Google Drive API file metadata/PDF verification.
 - Google Docs API report creation.
 - Real Gemini AI evaluation.
 - Backend persistence for public submissions, reviews, feedback, archive records, and AI reports.
 - Real account/session handling for students/advisers/admins.
 - Cloudflare R2 or another S3-compatible archive connection, independent PDF copies, and byte-level SHA-256 verification.
 
-The current AI Review control is intentionally honest: it reports that Google Drive API is not connected and does not claim to have inspected the submitted file. Real file checks and Gemini review are deferred until the backend has Drive access.
+Document Check is not generative AI. It performs deterministic Drive, PDF, readable-text, and official-template checks. If a laptop has not run `setup-local.ps1`, CapVault reports **Not checked** rather than inventing findings. Gemini-based summaries and instruction-level evaluation remain a separate Admin-only AI Review capability.
 
 ## Demo Readiness And Known Limitations
 
@@ -291,9 +336,9 @@ PostgreSQL is configured as the production target but is not required for the cu
 | Existing response links | Never prefilled on a public form | Selecting a Student Number alone must not reveal another student's Drive link |
 | Response ownership | Demo updates are matched by workspace, deliverable, and Student Number | Production needs a private edit-response link so a fresh visitor cannot overwrite an existing response |
 | Adviser feedback and review | Stored in browser workflow state | These require authenticated staff identity and backend response records |
-| Google Drive file checks | Link-format validation only | MIME type, access, text extraction, and PDF verification require Drive API credentials |
+| Google Drive Document Check | Working locally after `setup-local.ps1` | Requires a restricted Drive API key on each machine and public viewer access to each submitted file |
 | Google Sheet writeback | Local/backend update with pending remote status | Actual Sheet changes require service-account credentials and Sheet permission |
-| AI Review | Reports that the integration is unavailable | Gemini needs backend PDF extraction, templates, prompts, quotas, and a protected API key |
+| Gemini AI Review | Not connected; Document Check is working | Gemini still needs prompts, quotas, rate limits, a protected backend key, and Admin-only authorization |
 | Final archive | Metadata record only | Independent PDF storage, byte-level SHA-256, and verification require Cloudflare R2 or another S3-compatible store |
 | Notifications | Not connected | Durable in-app or email notifications depend on backend accounts, events, and delivery jobs |
 
@@ -338,12 +383,33 @@ $env:VITE_API_BASE_URL='http://127.0.0.1:8080/api'
 Backend env used now:
 
 ```powershell
+$env:CAPVAULT_GOOGLE_DRIVE_ENABLED='true'
+$env:CAPVAULT_GOOGLE_DRIVE_API_KEY='set-this-with-setup-local.ps1'
 $env:CAPVAULT_GOOGLE_SHEETS_ENABLED='true'
 $env:CAPVAULT_GOOGLE_SERVICE_ACCOUNT_JSON='D:\path\to\service-account.json'
 $env:CAPVAULT_GOOGLE_APPLICATION_NAME='CapVault'
 ```
 
-Gemini is not wired yet. When added, the Gemini key should be read only by the backend, not by Vite.
+Prefer `.\setup-local.ps1` over typing the Drive key into a visible command. Gemini is not wired yet. When added, the Gemini key should be read only by the backend, not by Vite.
+
+## Document Check Behavior
+
+Document Check runs after a new or materially changed response and can also be started manually for pending or outdated responses. Batch checks use limited concurrency and skip current results.
+
+Only fields configured as PDF Drive submissions use Document Check. Repository and other link-only fields are not sent through PDF validation. Because public responses are still browser-backed in this phase, closing the page during an automatic check can interrupt that request; the staff batch action can recover unchecked responses. Backend response persistence and a durable job queue are still required for production reliability.
+
+It checks:
+
+- The submitted URL is a Google Drive file link.
+- The file is accessible through the Drive API.
+- The Drive MIME type is `application/pdf`.
+- Viewers are allowed to download it.
+- The file is within the 25 MB local check limit.
+- The downloaded bytes are a readable, non-password-protected PDF.
+- Extracted text is not extremely short.
+- If an official template exists for the deliverable, how much template text remains and how much new student content appears.
+
+The template comparison is a screening signal, not a grading decision. Staff still open the submitted PDF before accepting it. Gemini AI Review will later provide richer summaries and instruction-level evaluation only when Admin/Sir explicitly starts an individual or selected-deliverable batch review.
 
 ## Backend Google Sheets Setup
 

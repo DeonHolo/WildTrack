@@ -298,24 +298,7 @@ export const initialState = {
   },
   trackerColumns: seedTrackerColumns,
   projectMetadata: seedProjectMetadata,
-  templates: [
-    {
-      id: 'tpl-srs',
-      deliverable: 'SRS',
-      name: 'SRS official template',
-      link: 'https://drive.google.com/file/d/srs-template/view',
-      status: 'Active',
-      extractedAt: '2026-06-18T00:00:00+08:00'
-    },
-    {
-      id: 'tpl-sdd',
-      deliverable: 'SDD',
-      name: 'SDD official template',
-      link: 'https://drive.google.com/file/d/sdd-template/view',
-      status: 'Active',
-      extractedAt: '2026-06-18T00:00:00+08:00'
-    }
-  ],
+  templates: [],
   students: seedStudents,
   deliverables: seedDeliverables,
   attempts: seedAttempts,
