@@ -7,6 +7,14 @@ Date: 2026-06-18
 Primary user: Sir Ralph Laviste  
 Working product name: CapVault, pending rename discussion
 
+Identity amendment, 2026-08-19: `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md` supersedes this draft's anonymous-submission, optional student account, password registration, OTP, and pre-matched Gmail assumptions. Until this SDD is fully revised, use the amendment for all student identity, dashboard access, response ownership, and draft behavior.
+
+Sheet-mapping amendment, 2026-08-19: fixed assumptions such as `first three columns are labels and every later column is a deliverable` are superseded. Use source-specific required keys, header/value-based suggestions, dynamic milestone and deadline detection, explicit import diagnostics, and user-correctable mappings. The confirmed details are recorded in `docs/CapVaultV2_Post_Demo_Debrief_And_Completion_Roadmap.md`.
+
+Submission-lifecycle amendment, 2026-08-19: due dates determine tracker lateness but do not automatically close or unpublish forms. A response that passes identity, required-field, accessibility, downloadability, and PDF preflight remains a submitted attempt even when later Document Check flags blank, short, incomplete, or template-like content. See `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md` Sections 8 and 14.
+
+File-snapshot amendment, 2026-08-19: an unchanged Drive URL is not treated as immutable content. Accepted PDFs receive immutable metadata and SHA-256 snapshots. Changed bytes under the same Drive file ID create version events, invalidate stale checks/reviews, and recalculate canonical tracker lateness from the later material-save/Drive-modified time. See `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md` Section 14.3.
+
 ## 1. Design Goals
 
 CapVault V2 is designed as a Google-first workflow assistant, not a replacement portal. The system should help Sir Ralph manage capstone submissions across classes while keeping Google Sheets and Google Drive at the center of the workflow.

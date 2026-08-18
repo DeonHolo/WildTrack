@@ -373,6 +373,34 @@ export function getResponseIdentity(response) {
   return `${normalizeStudentNumber(response.studentNumber)}::${response.deliverableId}`;
 }
 
+export function getResponseOwnerKey(response) {
+  const subject = String(response?.googleSubject || response?.googleSub || '').trim();
+  if (subject) return `sub:${subject}`;
+  const email = String(response?.googleEmailSnapshot || response?.googleEmail || response?.submittedByEmail || '').trim().toLowerCase();
+  return email ? `email:${email}` : '';
+}
+
+export function findOwnedResponse(responses, { deliverableId, studentNumber, googleSubject, googleEmail } = {}) {
+  const ownerKey = getResponseOwnerKey({ googleSubject, googleEmailSnapshot: googleEmail });
+  if (!ownerKey || !deliverableId || !studentNumber) return null;
+  return (responses || []).find((response) => (
+    response.deliverableId === deliverableId &&
+    normalizeStudentNumber(response.studentNumber) === normalizeStudentNumber(studentNumber) &&
+    getResponseOwnerKey(response) === ownerKey
+  )) || null;
+}
+
+export function hasResponseConflict(responses, { deliverableId, studentNumber, googleSubject, googleEmail } = {}) {
+  const ownerKey = getResponseOwnerKey({ googleSubject, googleEmailSnapshot: googleEmail });
+  if (!deliverableId || !studentNumber) return false;
+  const matchingResponses = (responses || []).filter((response) => (
+    response.deliverableId === deliverableId &&
+    normalizeStudentNumber(response.studentNumber) === normalizeStudentNumber(studentNumber)
+  ));
+  if (ownerKey && matchingResponses.some((response) => getResponseOwnerKey(response) === ownerKey)) return false;
+  return matchingResponses.length > 0;
+}
+
 export function valuesChanged(previous, next) {
   return JSON.stringify(previous || {}) !== JSON.stringify(next || {});
 }

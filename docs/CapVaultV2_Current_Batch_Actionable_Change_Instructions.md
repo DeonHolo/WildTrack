@@ -2,6 +2,8 @@
 
 Date captured: 2026-06-18
 
+Identity supersession notice: the login, registration, anonymous submission, and Student Number claim instructions in this historical batch are superseded by `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md`.
+
 This document translates the latest feedback into implementation instructions for the next CapVault V2 pass. It is intentionally direct and workflow-focused. The goal is to prevent future implementation from drifting back into a generic portal, generic dashboard, or vague AI feature set.
 
 ## Core Direction
@@ -333,4 +335,3 @@ Actionable instructions:
 ## Implementation Reminder For Future Pass
 
 Before implementing, use this document as the checklist for the next V2 correction pass. Do not silently simplify these requirements. If any item is too large, ask what to defer.
-

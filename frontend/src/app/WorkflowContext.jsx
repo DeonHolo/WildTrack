@@ -4,12 +4,13 @@ import {
   applyClassRecordImport,
   deriveAttemptFlags,
   deliverableUsesDocumentCheck,
+  findOwnedResponse,
   findStudent,
   findWorkspace,
   firstSubmissionLink,
   getDeliverable,
-  getResponseIdentity,
   getTrackerColumn,
+  hasResponseConflict,
   hashArchiveRecord,
   importPublicClassRecord,
   importPublicSheetSource,
@@ -552,7 +553,18 @@ export function WorkflowProvider({ children }) {
     const student = findStudent(state.students, payload.studentNumber);
     if (!student) return { ok: false, formError: 'Choose a Student Number from the class record list.' };
     const submittedAt = new Date().toISOString();
-    const existing = state.attempts.find((oldAttempt) => normalizeStudentNumber(oldAttempt.studentNumber) === normalizeStudentNumber(student.studentNumber) && oldAttempt.deliverableId === deliverable.id);
+    const existing = findOwnedResponse(state.attempts, {
+      deliverableId: deliverable.id,
+      studentNumber: student.studentNumber,
+      googleSubject: payload.googleSubject,
+      googleEmail: payload.googleEmail
+    });
+    const identityConflict = !existing && hasResponseConflict(state.attempts, {
+      deliverableId: deliverable.id,
+      studentNumber: student.studentNumber,
+      googleSubject: payload.googleSubject,
+      googleEmail: payload.googleEmail
+    });
     const identityChanged = existing && (
       existing.studentName !== (payload.studentName || student.name) ||
       existing.teamCode !== (payload.teamCode || student.teamCode)
@@ -575,6 +587,9 @@ export function WorkflowProvider({ children }) {
       studentNumber: payload.studentNumber,
       studentName: payload.studentName || student?.name || '',
       teamCode: payload.teamCode || student?.teamCode || '',
+      googleSubject: payload.googleSubject || existing?.googleSubject || '',
+      googleEmailSnapshot: payload.googleEmail || existing?.googleEmailSnapshot || '',
+      identityConflict,
       matched: Boolean(student),
       submittedAt,
       updatedAt: submittedAt,
@@ -603,7 +618,7 @@ export function WorkflowProvider({ children }) {
     };
 
     setState((current) => {
-      const nextStudents = current.students.map((item) => {
+      const nextStudents = identityConflict ? current.students : current.students.map((item) => {
         if (item.studentNumber !== student.studentNumber) return item;
         return {
           ...item,
@@ -613,12 +628,14 @@ export function WorkflowProvider({ children }) {
           }
         };
       });
-      const withoutExisting = current.attempts.filter((oldAttempt) => getResponseIdentity(oldAttempt) !== getResponseIdentity(attempt));
+      const withoutExisting = existing
+        ? current.attempts.filter((oldAttempt) => oldAttempt.id !== existing.id)
+        : current.attempts;
       return {
         ...current,
         students: nextStudents,
         attempts: [attempt, ...withoutExisting],
-        activity: [{ id: `act-${Date.now()}`, at: submittedAt, text: `${payload.studentName || student?.name || payload.studentNumber} ${existing ? 'updated' : 'submitted'} ${deliverable.shortTitle}${existing?.acceptance ? '; prior acceptance requires review.' : '.'}` }, ...current.activity]
+        activity: [{ id: `act-${Date.now()}`, at: submittedAt, text: `${payload.studentName || student?.name || payload.studentNumber} ${existing ? 'updated' : 'submitted'} ${deliverable.shortTitle}${identityConflict ? '; identity conflict requires review.' : existing?.acceptance ? '; prior acceptance requires review.' : '.'}` }, ...current.activity]
       };
     });
 
@@ -628,20 +645,27 @@ export function WorkflowProvider({ children }) {
 
     const daysLate = calculateDaysLate(deliverable.dueAt, submittedAt);
     let trackerSync;
-    try {
-      trackerSync = await writeTrackerValue(activeWorkspaceRef.current, {
-        studentNumber: student.studentNumber,
-        teamCode: student.teamCode,
-        memberNumber: String(student.memberNumber || ''),
-        trackerColumnKey: deliverable.trackerColumn,
-        daysLate,
-        writeToGoogleSheet: true
-      });
-    } catch (error) {
+    if (identityConflict) {
       trackerSync = {
-        status: 'LOCAL_ONLY',
-        message: `Response saved and the CapVault tracker was updated. Google Sheet sync is pending: ${error.message}`
+        status: 'IDENTITY_CONFLICT',
+        message: 'Response saved separately. The existing tracker source was not replaced.'
       };
+    } else {
+      try {
+        trackerSync = await writeTrackerValue(activeWorkspaceRef.current, {
+          studentNumber: student.studentNumber,
+          teamCode: student.teamCode,
+          memberNumber: String(student.memberNumber || ''),
+          trackerColumnKey: deliverable.trackerColumn,
+          daysLate,
+          writeToGoogleSheet: true
+        });
+      } catch (error) {
+        trackerSync = {
+          status: 'LOCAL_ONLY',
+          message: `Response saved and the WildTrack tracker was updated. Google Sheet sync is pending: ${error.message}`
+        };
+      }
     }
 
     return { ok: true, updated: Boolean(existing), attempt, student, deliverable, trackerSync, documentCheckStarted: documentChanged };
