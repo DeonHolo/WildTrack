@@ -88,7 +88,7 @@ export function ArchivePage() {
         <div>
           <span>Archive storage not configured</span>
           <strong>Independent PDF preservation is not active yet.</strong>
-          <p>Current archive actions create metadata records only. Connect Cloudflare R2 or another S3-compatible service before using CapVault as the permanent file archive.</p>
+          <p>Current archive actions create metadata records only. Connect Cloudflare R2 or another S3-compatible service before using WildTrack as the permanent file archive.</p>
         </div>
         <StatusBadge status="Not configured" />
       </section>

@@ -265,6 +265,6 @@ function buildSelectedStudentSummary(student, state) {
     latest: latestResponse ? `${state.deliverables.find((deliverable) => deliverable.id === latestResponse.deliverableId)?.shortTitle || 'Deliverable'} at ${formatDateTime(latestResponse.updatedAt || latestResponse.submittedAt)}` : '',
     summary: summaryParts.length
       ? `This student needs attention: ${summaryParts.join('; ')}.`
-      : 'This student has no current file-check flags in CapVault.'
+      : 'This student has no current file-check flags in WildTrack.'
   };
 }

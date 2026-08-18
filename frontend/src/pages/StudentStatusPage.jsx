@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowSquareOut, IdentificationCard, LinkBreak, PencilSimple, Student, X } from '@phosphor-icons/react';
-import { Button, ConfirmDialog, DataTable, EmptyState, Field, PublicHeader, SearchableSelect, StatusBadge } from '../components/ui.jsx';
+import { Button, ConfirmDialog, DataTable, EmptyState, Field, SearchableSelect, StatusBadge } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { findStudent, firstSubmissionLink, formatDate, formatDateTime, getActiveTrackerColumns, getIdentityStudents, getProjectMetadata, getPublishedDeliverables, getStudentOptions, getWorkspacePublicKey, isUsableAdviserName, makeDriveViewUrl, normalizeStudentNumber } from '../lib/workflow.js';
 
@@ -123,8 +123,7 @@ export function StudentStatusPage() {
   }, [activeAccount?.studentNumber, studentNumber]);
 
   return (
-    <main className="public-page dashboard-page">
-      <PublicHeader subtitle="Student dashboard" />
+    <div className="public-page dashboard-page">
       <section className="student-dashboard">
         <div className="dashboard-hero">
           <div>
@@ -414,7 +413,7 @@ export function StudentStatusPage() {
         <strong>{student?.name}</strong>
         <span>{student?.studentNumber} | {student?.teamCode}</span>
       </ConfirmDialog>
-    </main>
+    </div>
   );
 }
 

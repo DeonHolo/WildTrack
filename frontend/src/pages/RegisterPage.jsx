@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { GoogleLogo, Key } from '@phosphor-icons/react';
-import { Button, Field, PublicHeader } from '../components/ui.jsx';
+import { Button, Field } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 
 export function RegisterPage() {
@@ -47,12 +47,11 @@ export function RegisterPage() {
   }
 
   return (
-    <main className="public-page auth-page">
-      <PublicHeader subtitle="Student portal" />
+    <div className="public-page auth-page">
       <section className="auth-card auth-card-focused">
         <div className="auth-panel">
           <header className="auth-heading">
-            <h1>{mode === 'register' ? 'Create your account' : 'Sign in to CapVault'}</h1>
+            <h1>{mode === 'register' ? 'Create your account' : 'Sign in to WildTrack'}</h1>
             <p>{mode === 'register'
               ? 'Create an optional account to view your submissions, tracker status, and adviser feedback.'
               : 'Use the account connected to your student dashboard.'}</p>
@@ -89,9 +88,9 @@ export function RegisterPage() {
             </form>
           )}
           <p className="auth-footnote">An account is not required to answer a public deliverable form.</p>
-          <Link className="text-link" to="/">Return to CapVault</Link>
+          <Link className="text-link" to="/student">Return to dashboard</Link>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

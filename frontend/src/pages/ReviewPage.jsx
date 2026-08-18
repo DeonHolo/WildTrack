@@ -271,7 +271,7 @@ export function ReviewPage() {
       <ConfirmDialog
         open={batchConfirmOpen}
         title={`Check ${pendingDocumentChecks.length} pending document${pendingDocumentChecks.length === 1 ? '' : 's'}?`}
-        description="CapVault will process up to three PDFs at a time. Current checks are skipped and one failure will not stop the remaining documents."
+        description="WildTrack will process up to three PDFs at a time. Current checks are skipped and one failure will not stop the remaining documents."
         confirmLabel="Start Document Check"
         loading={false}
         onClose={() => setBatchConfirmOpen(false)}

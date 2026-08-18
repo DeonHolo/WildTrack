@@ -9,6 +9,251 @@
   --wt-border: #ded5d8;
 }
 
+.wt-skip-link {
+  position: fixed;
+  z-index: 1000;
+  top: 8px;
+  left: 8px;
+  border-radius: 6px;
+  background: var(--wt-maroon-deep);
+  color: #ffffff;
+  padding: 10px 14px;
+  text-decoration: none;
+  transform: translateY(-140%);
+  transition: transform 120ms ease;
+}
+
+.wt-skip-link:focus {
+  transform: translateY(0);
+}
+
+.wt-brand {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+  color: var(--wt-text);
+  text-decoration: none;
+}
+
+.wt-brand-mark {
+  flex: 0 0 auto;
+  border: 1px solid rgba(72, 16, 32, 0.22);
+}
+
+.wt-brand-copy {
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.wt-brand-copy strong,
+.wt-brand-copy small {
+  display: block;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.wt-brand-copy small {
+  color: var(--wt-muted);
+}
+
+.wt-staff-shell,
+.wt-student-shell {
+  min-height: 100dvh;
+  background: var(--wt-bg);
+  color: var(--wt-text);
+}
+
+.wt-staff-header,
+.wt-student-header {
+  border-bottom: 1px solid var(--wt-border);
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(10px);
+}
+
+.wt-staff-navbar {
+  border-right: 1px solid var(--wt-border);
+  background: #ffffff;
+}
+
+.wt-navbar-brand {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--wt-border);
+  padding: 12px 16px;
+}
+
+.wt-navbar-context {
+  display: grid;
+  gap: 3px;
+  padding: 14px 16px;
+}
+
+.wt-navbar-context span {
+  color: var(--wt-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.wt-navbar-context strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wt-navbar-scroll {
+  flex: 1 1 auto;
+  padding-inline: 10px;
+}
+
+.wt-nav-group-label {
+  margin: 0;
+  color: var(--wt-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  padding-inline: 10px;
+  text-transform: uppercase;
+}
+
+.wt-staff-navbar .mantine-NavLink-root {
+  min-height: 40px;
+  border-radius: 6px;
+  color: #4d4146;
+  font-size: 0.86rem;
+  font-weight: 700;
+  padding-inline: 10px;
+}
+
+.wt-staff-navbar .mantine-NavLink-root:hover {
+  background: var(--mantine-color-wildtrackMaroon-0);
+}
+
+.wt-staff-navbar .mantine-NavLink-root[data-active] {
+  background: var(--wt-maroon-deep);
+  color: #ffffff;
+}
+
+.wt-navbar-footer {
+  border-top: 1px solid var(--wt-border);
+  padding: 13px 16px;
+}
+
+.wt-workspace-control {
+  min-width: 0;
+}
+
+.wt-workspace-control .mantine-Select-root {
+  width: min(340px, 35vw);
+}
+
+.wt-workspace-period {
+  min-width: 150px;
+}
+
+.wt-workspace-period strong,
+.wt-workspace-period span,
+.wt-account-copy strong,
+.wt-account-copy span {
+  display: block;
+  line-height: 1.3;
+}
+
+.wt-staff-account {
+  min-width: 0;
+}
+
+.wt-account-copy {
+  min-width: 0;
+}
+
+.wt-account-copy strong,
+.wt-account-copy span {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wt-staff-main {
+  width: min(1440px, 100%);
+  margin-inline: auto;
+  padding: 28px;
+}
+
+.wt-student-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-inline: 18px;
+}
+
+.wt-student-shell .public-page {
+  min-height: calc(100dvh - 68px);
+  background: var(--wt-bg);
+  color: var(--wt-text);
+  padding-top: 28px;
+}
+
+.wt-student-shell .auth-card,
+.wt-student-shell .student-dashboard {
+  border-color: var(--wt-border);
+  box-shadow: 0 16px 42px rgba(72, 16, 32, 0.07);
+}
+
+.wt-student-email {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wt-role-preview {
+  position: fixed;
+  z-index: 300;
+  bottom: 16px;
+  left: 16px;
+}
+
+.wt-role-preview-panel {
+  border-color: var(--wt-border);
+}
+
+.wt-role-preview-heading {
+  display: grid;
+  gap: 2px;
+  border-bottom: 1px solid var(--wt-border);
+  padding: 2px 4px 10px;
+}
+
+.wt-role-preview-option {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #4d4146;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
+.wt-role-preview-option:hover,
+.wt-role-preview-option.is-active {
+  border-color: #d9c6cd;
+  background: var(--mantine-color-wildtrackMaroon-0);
+  color: var(--wt-maroon);
+}
+
+.wt-role-preview-option.is-active {
+  box-shadow: inset 3px 0 0 var(--wt-maroon);
+}
+
 .wt-public-root {
   min-height: 100dvh;
   background: var(--wt-bg);
@@ -325,5 +570,58 @@
     width: 38px;
     height: 38px;
     border-width: 2px;
+  }
+}
+
+@media (max-width: 900px) {
+  .wt-staff-main {
+    padding: 20px 16px;
+  }
+
+  .wt-workspace-control .mantine-Select-root {
+    width: min(360px, 52vw);
+  }
+
+  .wt-workspace-period,
+  .wt-account-copy {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .wt-workspace-control {
+    flex: 1 1 auto;
+  }
+
+  .wt-workspace-control .mantine-Select-root {
+    width: 100%;
+  }
+
+  .wt-staff-account {
+    display: none;
+  }
+
+  .wt-student-header-inner {
+    gap: 8px;
+    padding-inline: 12px;
+  }
+
+  .wt-student-header .wt-brand-copy,
+  .wt-student-email {
+    display: none;
+  }
+
+  .wt-student-header .mantine-Button-root {
+    min-height: 40px;
+    padding-inline: 10px;
+  }
+
+  .wt-student-shell .public-page {
+    padding-inline: 12px;
+  }
+
+  .wt-role-preview {
+    bottom: 10px;
+    left: 10px;
   }
 }
