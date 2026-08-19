@@ -108,7 +108,7 @@ describe('role-specific application shells', () => {
 
   it('limits adviser navigation and redirects an adviser away from admin-only routes', async () => {
     setRole('adviser');
-    renderApp('/forms');
+    renderApp('/review');
 
     expect(await screen.findByRole('heading', { name: 'Team review page' })).toBeInTheDocument();
     const navigation = screen.getByRole('navigation', { name: 'Staff navigation' });
