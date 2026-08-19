@@ -1,41 +1,26 @@
 import { useMemo, useState } from 'react';
-import { CheckCircle, LinkSimple, PencilSimple, PlusCircle, Trash } from '@phosphor-icons/react';
-import { Button, DataTable, Field, PageHeader, StatusBadge } from '../components/ui.jsx';
+import {
+  Alert,
+  Button,
+  Group,
+  Stack,
+  Text,
+  Title,
+  VisuallyHidden
+} from '@mantine/core';
+import { modals } from '@mantine/modals';
+import { notifications } from '@mantine/notifications';
+import { CheckCircle, PlusCircle } from '@phosphor-icons/react';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
-import { formatDate, formatTime, getActiveTrackerColumns, getTrackerColumn, getWorkspacePublicKey, slugify, sortDeliverables } from '../lib/workflow.js';
-
-const pdfField = { id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', required: true, pdfRequired: true };
-const linkField = { id: 'primaryLink', label: 'Submission Link', type: 'url', required: true, pdfRequired: false };
-
-function todayAt2359() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}T23:59`;
-}
-
-function splitLocalDateTime(value) {
-  const clean = String(value || todayAt2359()).slice(0, 16);
-  const [date = '', time = '23:59'] = clean.split('T');
-  return { date, time };
-}
-
-function joinLocalDateTime(date, time) {
-  return `${date || splitLocalDateTime().date}T${time || '23:59'}`;
-}
-
-function makeDefaultForm(column = 'SRS') {
-  return {
-    id: '',
-    title: `${column} Submission`,
-    dueAt: todayAt2359(),
-    trackerColumn: column,
-    instructions: `Submit your ${column} as a PDF Drive file.`,
-    pdfRequired: true,
-    status: 'Published'
-  };
-}
+import { FormEditorModal } from '../components/forms/FormEditorModal.jsx';
+import { PublishedFormsTable } from '../components/forms/PublishedFormsTable.jsx';
+import { buildDeliverableFormPayload, makeDeliverableFormDraft } from '../lib/forms.js';
+import {
+  getActiveTrackerColumns,
+  getTrackerColumn,
+  getWorkspacePublicKey,
+  sortDeliverables
+} from '../lib/workflow.js';
 
 export function FormsPage() {
   const {
@@ -45,253 +30,151 @@ export function FormsPage() {
     removeDeliverable,
     generateFormsFromSuggestions
   } = useWorkflow();
-  const activeColumns = getActiveTrackerColumns(state);
-  const firstColumn = activeColumns[0]?.key || activeColumns[0]?.label || 'SRS';
-  const [form, setForm] = useState(() => {
-    const existing = state.deliverables.find((item) => item.trackerColumn === firstColumn);
-    return existing ? editableForm(existing) : makeDefaultForm(firstColumn);
-  });
-  const [editing, setEditing] = useState(null);
-  const [copied, setCopied] = useState('');
-  const selectedColumn = getTrackerColumn(state, form.trackerColumn);
-  const selectedExisting = state.deliverables.find((item) => item.trackerColumn === form.trackerColumn);
+  const activeColumns = useMemo(() => getActiveTrackerColumns(state), [state]);
   const orderedDeliverables = useMemo(() => sortDeliverables(state, state.deliverables), [state]);
   const pendingSuggestions = state.classRecord.pendingFormSuggestions || state.classRecord.importSummary?.suggestedForms || [];
-  const previewSlug = useMemo(() => slugify(form.title || `${form.trackerColumn} Submission`), [form.title, form.trackerColumn]);
   const workspaceKey = getWorkspacePublicKey(activeWorkspace);
+  const [editor, setEditor] = useState({ opened: false, form: null });
+  const [copyStatus, setCopyStatus] = useState('');
+  const columnOptions = activeColumns.map((column) => ({ value: column.key, label: column.label }));
 
-  function updateDeliverable(columnKey, targetSetter = setForm) {
-    const column = getTrackerColumn(state, columnKey);
-    const label = column?.label || columnKey;
-    const existing = state.deliverables.find((item) => item.trackerColumn === (column?.key || columnKey));
-    if (existing) {
-      targetSetter(editableForm(existing));
-      return;
-    }
-    targetSetter((current) => ({
-      ...current,
-      trackerColumn: column?.key || columnKey,
-      title: current.id ? current.title : `${label} Submission`,
-      instructions: column?.pdfRequired ? `Submit your ${label} as a PDF Drive file.` : `Submit the required link for ${label}.`,
-      pdfRequired: column?.pdfRequired ?? current.pdfRequired
-    }));
+  function formForColumn(columnKey) {
+    const column = getTrackerColumn(state, columnKey) || activeColumns[0];
+    const existing = state.deliverables.find((item) => item.trackerColumn === column?.key);
+    return existing ? editableForm(existing) : makeDeliverableFormDraft(state, column?.key || columnKey);
   }
 
-  function buildPayload(source) {
-    const column = getTrackerColumn(state, source.trackerColumn);
-    const shortTitle = column?.label || source.trackerColumn;
-    return {
-      ...source,
-      title: source.title || `${shortTitle} Submission`,
-      shortTitle,
-      dueAt: `${String(source.dueAt || todayAt2359()).slice(0, 16)}:00+08:00`,
-      audience: 'Students',
-      status: 'Published',
-      fields: source.pdfRequired ? [pdfField] : [linkField]
-    };
-  }
-
-  function submit(event) {
-    event.preventDefault();
-    publishDeliverable(buildPayload(form));
-    if (!form.id) setForm(makeDefaultForm(selectedColumn?.key || selectedColumn?.label || firstColumn));
+  function openCreate() {
+    const firstUnpublishedColumn = activeColumns.find((column) => (
+      !state.deliverables.some((deliverable) => deliverable.trackerColumn === column.key)
+    ));
+    const column = firstUnpublishedColumn || activeColumns[0];
+    setEditor({ opened: true, form: formForColumn(column?.key || 'SRS') });
   }
 
   function openEditor(item) {
-    setEditing(editableForm(item));
+    setEditor({ opened: true, form: editableForm(item) });
   }
 
-  function saveEdit(event) {
-    event.preventDefault();
-    publishDeliverable(buildPayload(editing));
-    setEditing(null);
+  function closeEditor() {
+    setEditor({ opened: false, form: null });
   }
 
-  async function copyLink(item) {
-    const path = `${window.location.origin}/w/${workspaceKey}/submit/${item.slug}`;
-    await navigator.clipboard?.writeText(path);
-    setCopied(item.id);
-    window.setTimeout(() => setCopied(''), 1600);
+  function saveForm(source) {
+    const payload = buildDeliverableFormPayload(state, source);
+    publishDeliverable(payload);
+    notifications.show({
+      color: 'green',
+      title: source.id ? 'Form updated' : 'Form published',
+      message: `${payload.shortTitle} keeps one stable public link.`
+    });
+    closeEditor();
   }
 
-  function confirmRemove(item) {
-    if (window.confirm(`Unpublish ${item.shortTitle}? Existing responses stay connected to this deliverable.`)) {
-      removeDeliverable(item.id);
+  async function copyLink(item, path) {
+    const absoluteLink = `${window.location.origin}${path}`;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+      await navigator.clipboard.writeText(absoluteLink);
+      setCopyStatus(`${item.shortTitle} form link copied`);
+      notifications.show({ color: 'green', message: `${item.shortTitle} form link copied.` });
+    } catch {
+      setCopyStatus(`Could not copy the ${item.shortTitle} form link`);
+      notifications.show({ color: 'red', message: 'The form link could not be copied.' });
     }
   }
 
+  function confirmUnpublish(item) {
+    const responseCount = state.attempts.filter((attempt) => attempt.deliverableId === item.id).length;
+    modals.openConfirmModal({
+      title: `Unpublish ${item.shortTitle}?`,
+      children: (
+        <Stack gap="xs">
+          <Text size="sm">The public link will stop accepting new responses.</Text>
+          <Text size="sm" fw={700}>
+            {responseCount} existing response{responseCount === 1 ? '' : 's'} will remain recorded and connected to this deliverable.
+          </Text>
+        </Stack>
+      ),
+      labels: { confirm: 'Unpublish form', cancel: 'Keep published' },
+      confirmProps: { color: 'red' },
+      centered: true,
+      onConfirm: () => removeDeliverable(item.id)
+    });
+  }
+
+  function republish(item) {
+    publishDeliverable({ ...item, status: 'Published' });
+    notifications.show({ color: 'green', message: `${item.shortTitle} is accepting responses again.` });
+  }
+
   return (
-    <div className="page-stack">
-      <PageHeader title="Form Publisher" description="Publish one student submission link per deliverable from the connected class record." />
+    <Stack gap="lg" className="wt-forms-page">
+      <header className="wt-staff-page-heading">
+        <div>
+          <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">Submission links</Text>
+          <Title order={1}>Forms</Title>
+          <Text c="dimmed">Publish and maintain one student submission form per deliverable.</Text>
+        </div>
+        <Button color="wildtrackMaroon" leftSection={<PlusCircle size={18} />} onClick={openCreate} disabled={!activeColumns.length}>
+          Publish form
+        </Button>
+      </header>
 
       {pendingSuggestions.length ? (
-        <section className="suggested-forms-banner">
-          <div>
-            <strong>{pendingSuggestions.length} form suggestion{pendingSuggestions.length === 1 ? '' : 's'} ready</strong>
-            <span>Deadlines were detected in the connected Tracker. Review and generate the forms when ready.</span>
-          </div>
-          <Button type="button" icon={CheckCircle} onClick={() => generateFormsFromSuggestions(pendingSuggestions)}>
-            Generate suggested forms
-          </Button>
-        </section>
+        <Alert
+          color="wildtrackGold"
+          variant="light"
+          title={`${pendingSuggestions.length} suggested form${pendingSuggestions.length === 1 ? '' : 's'} ready`}
+          icon={<CheckCircle size={19} />}
+        >
+          <Group justify="space-between" gap="md">
+            <Text size="sm">WildTrack detected deliverable deadlines in the connected Tracker.</Text>
+            <Button
+              size="sm"
+              variant="light"
+              color="wildtrackMaroon"
+              onClick={() => generateFormsFromSuggestions(pendingSuggestions)}
+            >
+              Generate suggested forms
+            </Button>
+          </Group>
+        </Alert>
       ) : null}
 
-      <section className="panel">
-        <form className="form-grid" onSubmit={submit}>
-          <div className="panel-header">
-            <div>
-              <h2>{selectedExisting ? 'Update a deliverable form' : 'Publish a deliverable form'}</h2>
-              <p>Choose a mapped deliverable, confirm the deadline, then share the generated link.</p>
-            </div>
-          </div>
-          <div className="two-col">
-            <Field label="Deliverable" helper="Loaded from the connected Tracker columns." required>
-              <select value={form.trackerColumn} onChange={(event) => updateDeliverable(event.target.value)}>
-                {activeColumns.map((column) => <option key={column.id} value={column.key}>{column.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Due date" required>
-              <DateTimeFields value={form.dueAt} onChange={(dueAt) => setForm({ ...form, dueAt })} />
-            </Field>
-          </div>
-          <div className="two-col">
-            <Field label="Form title" required>
-              <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
-            </Field>
-            <Field label="Document rule">
-              <select value={form.pdfRequired ? 'pdf' : 'link'} onChange={(event) => setForm({ ...form, pdfRequired: event.target.value === 'pdf' })}>
-                <option value="pdf">PDF Drive link only</option>
-                <option value="link">General link field</option>
-              </select>
-            </Field>
-          </div>
-          <Field label="Instructions">
-            <textarea value={form.instructions} onChange={(event) => setForm({ ...form, instructions: event.target.value })} rows={3} />
-          </Field>
-          <div className="form-preview compact-preview">
-            <span>Generated link</span>
-            <strong>/w/{workspaceKey}/submit/{previewSlug}</strong>
-          </div>
-          <div className="button-row">
-            <Button icon={selectedExisting ? CheckCircle : PlusCircle}>{selectedExisting ? 'Update existing form' : 'Publish form'}</Button>
-          </div>
-        </form>
-      </section>
+      <PublishedFormsTable
+        deliverables={orderedDeliverables}
+        workspaceKey={workspaceKey}
+        onCopy={copyLink}
+        onEdit={openEditor}
+        onRepublish={republish}
+        onUnpublish={confirmUnpublish}
+      />
+      <VisuallyHidden role="status" aria-live="polite">{copyStatus}</VisuallyHidden>
 
-      <section className="panel">
-        <div className="panel-header">
-          <div>
-            <h2>Published forms</h2>
-            <p>Each deliverable can have only one form. Unpublishing closes the public link but keeps responses.</p>
-          </div>
-        </div>
-        <DataTable columns={['Deliverable', 'Due', 'Rule', 'Link', 'Status', 'Actions']} minWidth={920} className="forms-table-wrap">
-          {orderedDeliverables.map((item) => {
-            const isPdf = item.fields.some((field) => field.pdfRequired);
-            return (
-              <tr key={item.id}>
-                <td><strong>{item.shortTitle}</strong><small>{item.title}</small></td>
-                <td><strong className="due-inline">{formatDate(item.dueAt)} | {formatTime(item.dueAt)}</strong></td>
-                <td><StatusBadge status={isPdf ? 'PDF required' : 'Link fields'} /></td>
-                <td>
-                  <div className="form-link-cell">
-                    <button className="icon-copy-button" type="button" onClick={() => copyLink(item)} aria-label={`Copy ${item.shortTitle} form link`} title="Copy link">
-                      <LinkSimple weight="regular" />
-                    </button>
-                    <a className="form-link-url" href={`/w/${workspaceKey}/submit/${item.slug}`} target="_blank" rel="noreferrer">
-                      /w/{workspaceKey}/submit/{item.slug}
-                    </a>
-                  </div>
-                  {copied === item.id ? <small>Copied</small> : null}
-                </td>
-                <td><StatusBadge status={item.status || 'Published'} /></td>
-                <td>
-                  <div className="row-action-group">
-                    <Button type="button" size="sm" variant="secondary" icon={PencilSimple} onClick={() => openEditor(item)}>Edit</Button>
-                    {item.status === 'Unpublished' ? (
-                      <Button type="button" size="sm" variant="primary" icon={CheckCircle} onClick={() => publishDeliverable({ ...item, status: 'Published' })}>Republish</Button>
-                    ) : (
-                      <Button type="button" size="sm" variant="secondary" icon={Trash} onClick={() => confirmRemove(item)}>Unpublish</Button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </DataTable>
-      </section>
-
-      {editing ? (
-        <div className="modal-backdrop" role="presentation">
-          <form className="modal-panel form-grid" onSubmit={saveEdit} role="dialog" aria-modal="true" aria-label="Edit published form">
-            <div className="panel-header">
-              <div>
-                <h2>Edit form</h2>
-                <p>Changes update the existing deliverable link and preserve all responses.</p>
-              </div>
-            </div>
-            <Field label="Deliverable" required>
-              <select value={editing.trackerColumn} onChange={(event) => updateDeliverable(event.target.value, setEditing)}>
-                {activeColumns.map((column) => <option key={column.id} value={column.key}>{column.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Form title" required>
-              <input value={editing.title} onChange={(event) => setEditing({ ...editing, title: event.target.value })} />
-            </Field>
-            <div className="two-col">
-              <Field label="Due date" required>
-                <DateTimeFields value={editing.dueAt} onChange={(dueAt) => setEditing({ ...editing, dueAt })} />
-              </Field>
-              <Field label="Document rule">
-                <select value={editing.pdfRequired ? 'pdf' : 'link'} onChange={(event) => setEditing({ ...editing, pdfRequired: event.target.value === 'pdf' })}>
-                  <option value="pdf">PDF Drive link only</option>
-                  <option value="link">General link field</option>
-                </select>
-              </Field>
-            </div>
-            <Field label="Instructions">
-              <textarea value={editing.instructions} onChange={(event) => setEditing({ ...editing, instructions: event.target.value })} rows={3} />
-            </Field>
-            <div className="button-row">
-              <Button icon={CheckCircle}>Save changes</Button>
-              <Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
-            </div>
-          </form>
-        </div>
-      ) : null}
-    </div>
+      <FormEditorModal
+        opened={editor.opened}
+        initialForm={editor.form}
+        columns={columnOptions}
+        workspaceKey={workspaceKey}
+        onClose={closeEditor}
+        onColumnChange={formForColumn}
+        onSave={saveForm}
+      />
+    </Stack>
   );
 }
 
 function editableForm(item) {
   return {
     id: item.id,
+    slug: item.slug,
     title: item.title,
-    dueAt: item.dueAt.slice(0, 16),
+    shortTitle: item.shortTitle,
+    dueAt: String(item.dueAt || '').slice(0, 16),
     trackerColumn: item.trackerColumn,
-    instructions: item.instructions,
-    pdfRequired: item.fields.some((field) => field.pdfRequired),
+    instructions: item.instructions || '',
+    pdfRequired: item.fields?.some((field) => field.pdfRequired) || false,
     status: item.status || 'Published'
   };
-}
-
-function DateTimeFields({ value, onChange }) {
-  const parts = splitLocalDateTime(value);
-  return (
-    <div className="date-time-pair">
-      <input
-        aria-label="Due date"
-        type="date"
-        value={parts.date}
-        onChange={(event) => onChange(joinLocalDateTime(event.target.value, parts.time))}
-      />
-      <span aria-hidden="true">|</span>
-      <input
-        aria-label="Due time"
-        type="time"
-        value={parts.time}
-        onChange={(event) => onChange(joinLocalDateTime(parts.date, event.target.value))}
-      />
-    </div>
-  );
 }

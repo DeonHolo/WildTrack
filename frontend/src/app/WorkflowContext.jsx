@@ -4,6 +4,7 @@ import {
   applyClassRecordImport,
   deriveAttemptFlags,
   deliverableUsesDocumentCheck,
+  findDeliverableForUpsert,
   findOwnedResponse,
   findStudent,
   findWorkspace,
@@ -28,6 +29,7 @@ import {
   saveWorkspaceCatalog,
   slugify,
   sortDeliverables,
+  upsertDeliverable,
   validateSubmission,
   valuesChanged
 } from '../lib/workflow.js';
@@ -175,30 +177,24 @@ export function WorkflowProvider({ children }) {
 
   const publishDeliverable = useCallback((payload) => {
     setState((current) => {
-      const existingByColumn = current.deliverables.find((item) => item.trackerColumn === payload.trackerColumn);
-      const id = payload.id || existingByColumn?.id || `deliv-${Date.now()}`;
+      const existingDeliverable = findDeliverableForUpsert(current.deliverables, payload);
       const trackerColumn = getTrackerColumn(current, payload.trackerColumn);
       const shortTitle = payload.shortTitle || trackerColumn?.label || payload.trackerColumn;
       const title = payload.title || `${shortTitle} Submission`;
-      const slug = payload.slug || slugify(title);
       const deliverable = {
-        ...(existingByColumn || {}),
-        id,
-        slug,
+        ...(existingDeliverable || {}),
         title,
         shortTitle,
         status: payload.status || 'Published',
         fields: payload.fields,
         ...payload
       };
-      const existing = current.deliverables.some((item) => item.id === id);
-      const nextDeliverables = existing
-        ? current.deliverables.map((item) => item.id === id ? deliverable : item)
-        : [...current.deliverables.filter((item) => item.trackerColumn !== payload.trackerColumn), deliverable];
+      const nextDeliverables = upsertDeliverable(current.deliverables, deliverable);
+      const savedDeliverable = nextDeliverables.find((item) => item.trackerColumn === payload.trackerColumn);
       return {
         ...current,
         deliverables: sortDeliverables(current, nextDeliverables),
-        activity: [{ id: `act-${Date.now()}`, at: new Date().toISOString(), text: `${existing ? 'Updated' : 'Published'} ${deliverable.title}.` }, ...current.activity]
+        activity: [{ id: `act-${Date.now()}`, at: new Date().toISOString(), text: `${existingDeliverable ? 'Updated' : 'Published'} ${savedDeliverable?.title || title}.` }, ...current.activity]
       };
     });
   }, []);

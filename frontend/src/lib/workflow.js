@@ -290,6 +290,29 @@ export function getPublishedDeliverables(state) {
   return sortDeliverables(state, (state.deliverables || []).filter((item) => item.status !== 'Unpublished'));
 }
 
+export function upsertDeliverable(deliverables = [], payload = {}) {
+  const existing = findDeliverableForUpsert(deliverables, payload);
+  const id = existing?.id || payload.id || `deliv-${Date.now()}`;
+  const slug = existing?.slug || payload.slug || slugify(payload.title || payload.shortTitle || payload.trackerColumn);
+  const next = {
+    ...(existing || {}),
+    ...payload,
+    id,
+    slug
+  };
+
+  if (!existing) return [...deliverables, next];
+  return deliverables.map((item) => item.id === existing.id ? next : item);
+}
+
+export function findDeliverableForUpsert(deliverables = [], payload = {}) {
+  const existingByColumn = deliverables.find((item) => item.trackerColumn === payload.trackerColumn);
+  const existingById = payload.id
+    ? deliverables.find((item) => item.id === payload.id)
+    : null;
+  return existingByColumn || existingById || null;
+}
+
 export function sortDeliverables(state, deliverables = []) {
   const trackerOrder = new Map();
   (state.trackerColumns || initialState.trackerColumns || []).forEach((column, index) => {

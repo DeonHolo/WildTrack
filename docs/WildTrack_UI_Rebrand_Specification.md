@@ -110,6 +110,7 @@ The first vertical slice will establish the theme and rebuild the public submiss
 
 ### Form artwork
 
+- **Current implementation decision (Ticket 04):** use the bundled WildTrack banner only. Staff-side artwork configuration is deferred until WildTrack has durable media storage; browser-local base64 uploads are not an acceptable persistence design. The Forms page must not reserve a large management section for this deferred control.
 - Each academic workspace may define one default public-form header image.
 - Each published deliverable may optionally override the workspace image.
 - When neither image exists, WildTrack displays the bundled temporary banner.
@@ -157,7 +158,7 @@ The first vertical slice will establish the theme and rebuild the public submiss
 - Preserve existing backend controller and service tests; the rebrand must not require backend behavior changes.
 - Theme smoke tests verify that the Mantine provider renders core controls and that supported routes do not depend on dark mode.
 - Public-form tests cover published, unpublished, missing, loading, first-time identity, returning identity, existing response, validation error, submitting, received, updated, and unchanged states.
-- Form-artwork tests cover workspace fallback, per-form override, missing asset fallback, responsive crop metadata, replace, reposition, and remove behavior.
+- When durable artwork storage is implemented, form-artwork tests cover workspace fallback, per-form override, missing asset fallback, responsive crop metadata, replace, reposition, and remove behavior.
 - Role-shell tests verify Sir/Admin, adviser, student, public, and development-preview navigation boundaries.
 - Staff scale tests use at least 318 tracker students and a comparable submission volume to detect card growth, layout shifts, slow filtering, and controls escaping their containers.
 - Review tests cover deliverable-first navigation, stable status columns, batch selection, accepted items leaving active queues, and selected-response details.
