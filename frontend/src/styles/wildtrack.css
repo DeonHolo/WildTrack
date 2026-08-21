@@ -1644,17 +1644,18 @@
 .wt-personal-tracker-values {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+  gap: 1px;
   overflow: hidden;
   margin: 0;
   border: 1px solid var(--wt-border);
   border-radius: 4px;
+  background: var(--wt-border);
 }
 
 .wt-personal-tracker-values > div {
   min-width: 0;
   padding: 11px 12px;
-  border-right: 1px solid var(--wt-border);
-  border-bottom: 1px solid var(--wt-border);
+  background: #fff;
 }
 
 @media (max-width: 900px) {
