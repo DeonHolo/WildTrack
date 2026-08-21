@@ -7,6 +7,7 @@ import { StudentIdentityPanel } from '../components/public/StudentIdentityPanel.
 import { StudentDeliverableList } from '../components/student/StudentDeliverableList.jsx';
 import { StudentProfileSummary } from '../components/student/StudentProfileSummary.jsx';
 import { StudentProgressPanel } from '../components/student/StudentProgressPanel.jsx';
+import { StudentWelcomeBanner } from '../components/student/StudentWelcomeBanner.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import {
   findOwnedResponse,
@@ -193,6 +194,7 @@ export function StudentStatusPage() {
       </header>
 
       {connectionError ? <Alert color="red" icon={<WarningCircle size={18} />}>{connectionError}</Alert> : null}
+      <StudentWelcomeBanner student={student} rows={deliverableRows} />
       <StudentProfileSummary
         account={activeAccount}
         student={student}

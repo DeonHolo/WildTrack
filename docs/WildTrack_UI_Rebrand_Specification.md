@@ -117,6 +117,8 @@ The first vertical slice will establish the theme and rebuild the public submiss
 - Roster-size messages such as the number of available class-record entries are not shown beside Student Number controls.
 - Team submission progress is calculated per deliverable, never as the number of members who submitted any response anywhere in the workspace.
 - Each deliverable may show a concise team count such as `3 of 5 submitted` and an optional member breakdown. Teammate Drive links, submitted values, and other private response content are never exposed.
+- The connected Student Dashboard includes one compact welcome strip below the page heading. It pairs a replaceable student-facing mascot asset with the student's first name, current submitted-deliverable count, and next missing deliverable; it must not push the core dashboard workflow below a large decorative hero.
+- The welcome artwork reserves stable desktop and mobile dimensions so replacing the temporary image with commissioned mascot artwork does not shift or overlap dashboard content.
 
 ### Form artwork
 
@@ -127,7 +129,7 @@ The first vertical slice will establish the theme and rebuild the public submiss
 - The banner uses a wide approximately 4:1 presentation, responsive cropping, meaningful alternative text, and a stored focal position so important artwork remains visible on narrow screens.
 - Form management supports previewing, replacing, repositioning, and removing an override. Removing an override falls back to the workspace image rather than leaving a broken image.
 - Artwork configuration is independent from the deliverable slug and response history. Replacing artwork never creates a duplicate form or loses responses.
-- Temporary graphics are limited to the public form banner and submission-success banner.
+- Temporary graphics are limited to the public form banner, submission-success banner, and the connected Student Dashboard welcome strip.
 - The future mascot remains student-facing. It is not inserted into staff navigation, tracker rows, review tables, status indicators, AI results, serious warnings, or identity-conflict states.
 
 ### Staff workflow layouts

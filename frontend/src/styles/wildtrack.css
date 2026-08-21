@@ -1441,6 +1441,96 @@
   line-height: 1.15;
 }
 
+.wt-student-welcome {
+  position: relative;
+  display: grid;
+  min-height: 156px;
+  grid-template-columns: minmax(0, 1fr) 230px;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--wt-maroon-deep);
+  border-radius: 8px;
+  background: var(--wt-maroon-deep);
+  color: #fffdf9;
+  isolation: isolate;
+  padding: 22px 30px;
+}
+
+.wt-student-welcome::before {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 28px 28px;
+  content: '';
+}
+
+.wt-student-welcome::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  width: 42%;
+  background: var(--wt-maroon);
+  clip-path: polygon(30% 0, 100% 0, 100% 100%, 0 100%);
+  content: '';
+}
+
+.wt-student-welcome-copy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.wt-student-welcome-kicker {
+  color: var(--mantine-color-wildtrackGold-2);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.wt-student-welcome-copy h2 {
+  color: #fffdf9;
+  font-size: 1.7rem;
+  letter-spacing: 0;
+  line-height: 1.12;
+}
+
+.wt-student-welcome-progress {
+  color: rgba(255, 253, 249, 0.88);
+  font-size: 0.9rem;
+}
+
+.wt-student-welcome-next {
+  color: #fffdf9;
+  font-size: 0.86rem;
+}
+
+.wt-student-welcome-next strong {
+  color: var(--mantine-color-wildtrackGold-2);
+}
+
+.wt-student-welcome-art {
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  display: grid;
+  width: 230px;
+  height: 156px;
+  place-items: center;
+  pointer-events: none;
+}
+
+.wt-student-welcome-art img {
+  display: block;
+  width: 230px;
+  height: auto;
+  object-fit: contain;
+}
+
 .wt-student-access-state,
 .wt-student-data-state {
   display: grid;
@@ -1816,6 +1906,44 @@
 
   .wt-personal-tracker-values {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .wt-student-welcome {
+    min-height: 148px;
+    grid-template-columns: minmax(0, 1fr) 102px;
+    padding: 20px;
+  }
+
+  .wt-student-welcome::after {
+    width: 38%;
+  }
+
+  .wt-student-welcome-copy {
+    position: relative;
+    z-index: 1;
+  }
+
+  .wt-student-welcome-copy h2 {
+    max-width: 13ch;
+    font-size: 1.38rem;
+  }
+
+  .wt-student-welcome-progress,
+  .wt-student-welcome-next {
+    max-width: 26ch;
+    font-size: 0.78rem;
+  }
+
+  .wt-student-welcome-art {
+    right: -10px;
+    bottom: 0;
+    width: 150px;
+    height: 148px;
+  }
+
+  .wt-student-welcome-art img {
+    width: 142px;
+    height: auto;
   }
 }
 

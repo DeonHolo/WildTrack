@@ -242,6 +242,17 @@ describe('student dashboard', () => {
     expect(document.body).not.toHaveTextContent('teammate-private-response');
   });
 
+  it('welcomes the connected student with useful progress and student-facing artwork', () => {
+    associateAccount();
+    renderDashboard();
+
+    const welcome = screen.getByRole('region', { name: 'Student dashboard welcome' });
+    expect(within(welcome).getByRole('heading', { name: 'Welcome back, Juan' })).toBeInTheDocument();
+    expect(welcome).toHaveTextContent('2 of 3 deliverables submitted');
+    expect(welcome).toHaveTextContent('Next to submit: Source Code');
+    expect(within(welcome).getByRole('img', { name: 'WildTrack mascot finding quest nodes' })).toBeInTheDocument();
+  });
+
   it('shows only response details owned by the active Google account', () => {
     associateAccount();
     renderDashboard();
