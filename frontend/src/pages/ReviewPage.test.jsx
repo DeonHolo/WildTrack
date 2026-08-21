@@ -264,6 +264,51 @@ describe('deliverable-first submission review', () => {
     expect(completionAlert).toHaveTextContent('Taghoy, Ron Luigi F.: Download is disabled.');
   });
 
+  it('checks every unchecked response for the selected deliverable in one action', async () => {
+    const base = createState();
+    const unchecked = Array.from({ length: 62 }, (_, index) => ({
+      id: `unchecked-${index + 1}`,
+      deliverableId: 'deliverable-srs',
+      studentNumber: `23-9000-${String(index + 1).padStart(3, '0')}`,
+      studentName: `Queue Student ${index + 1}`,
+      teamCode: `2526-sem2-it332-${String(Math.floor(index / 5) + 1).padStart(2, '0')}`,
+      submittedAt: '2026-04-18T12:00:00+08:00',
+      updatedAt: `2026-04-18T12:${String(index % 60).padStart(2, '0')}:00+08:00`,
+      values: { documentPdf: `https://drive.google.com/file/d/unchecked-${index + 1}/view` },
+      reviewStatus: 'Received',
+      primaryStatus: 'Received',
+      archiveStatus: 'Not Archived',
+      fileCheckStatus: 'Not checked',
+      flags: ['Received']
+    }));
+    workflow.state = {
+      ...base,
+      students: [
+        ...base.students,
+        ...unchecked.map((response, index) => ({
+          id: `queue-student-${index + 1}`,
+          studentNumber: response.studentNumber,
+          name: response.studentName,
+          teamCode: response.teamCode,
+          memberNumber: (index % 5) + 1
+        }))
+      ],
+      attempts: [...base.attempts, ...unchecked]
+    };
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check all unchecked (63)' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Check all 63 unchecked documents?' });
+    expect(confirmation).not.toHaveTextContent(/three PDFs|archive/i);
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Start Document Check' }));
+
+    await waitFor(() => expect(workflow.runDocumentChecks).toHaveBeenCalledTimes(1));
+    const requestedIds = workflow.runDocumentChecks.mock.calls[0][0];
+    expect(requestedIds).toHaveLength(63);
+    expect(requestedIds).toContain('response-muriel-srs');
+    expect(requestedIds).toContain('unchecked-62');
+  });
+
   it('keeps 318 responses in one compact submissions table instead of creating response cards', () => {
     const students = Array.from({ length: 318 }, (_, index) => ({
       id: `student-${index + 1}`,

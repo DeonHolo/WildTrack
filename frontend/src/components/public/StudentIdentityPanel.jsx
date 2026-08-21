@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  Button,
   Combobox,
   Group,
   InputBase,
@@ -17,13 +16,11 @@ import {
   CheckCircle,
   GoogleLogo,
   IdentificationCard,
-  MagnifyingGlass,
-  UserSwitch
+  MagnifyingGlass
 } from '@phosphor-icons/react';
-import { modals } from '@mantine/modals';
 import { isUsableAdviserName } from '../../lib/workflow.js';
 
-function StudentNumberCombobox({ students, value, onChange }) {
+function SearchableIdentityField({ label, placeholder, value, options, onChange, onSelect, renderOption, emptyLabel, error }) {
   const combobox = useCombobox({
     onDropdownClose: () => combobox.resetSelectedOption()
   });
@@ -35,61 +32,104 @@ function StudentNumberCombobox({ students, value, onChange }) {
 
   const matches = useMemo(() => {
     const needle = query.toLowerCase().trim();
-    return students
-      .filter((student) => !needle || `${student.studentNumber} ${student.name} ${student.teamCode}`.toLowerCase().includes(needle))
+    return options
+      .filter((option) => !needle || option.searchText.toLowerCase().includes(needle))
       .slice(0, 30);
-  }, [query, students]);
+  }, [options, query]);
 
-  function selectStudent(studentNumber) {
-    const selected = students.find((student) => student.studentNumber === studentNumber) || null;
-    setQuery(studentNumber);
-    onChange(studentNumber, selected);
+  function selectOption(optionValue) {
+    const selected = options.find((option) => option.value === optionValue) || null;
+    if (!selected) return;
+    setQuery(selected.inputValue);
+    onSelect(selected);
     combobox.closeDropdown();
   }
 
   return (
-    <Combobox store={combobox} onOptionSubmit={selectStudent} withinPortal={false}>
+    <Combobox store={combobox} onOptionSubmit={selectOption} withinPortal={false}>
       <Combobox.Target>
         <InputBase
-          label="Student Number"
+          label={label}
           required
           value={query}
           leftSection={<MagnifyingGlass size={18} aria-hidden="true" />}
           rightSection={<CaretDown size={16} aria-hidden="true" />}
-          placeholder="Search by Student Number or name"
-          description={students.length
-            ? `${students.length} class-record entries available in this workspace.`
-            : 'Student records appear after the Team Formation sheet is connected.'}
+          placeholder={placeholder}
+          error={error}
           role="combobox"
           aria-expanded={combobox.dropdownOpened}
-          aria-controls="student-number-options"
           onFocus={() => combobox.openDropdown()}
           onClick={() => combobox.openDropdown()}
           onChange={(event) => {
             const nextValue = event.currentTarget.value;
             setQuery(nextValue);
-            onChange(nextValue, null);
+            onChange(nextValue);
             combobox.openDropdown();
             combobox.updateSelectedOptionIndex();
           }}
         />
       </Combobox.Target>
-      <Combobox.Dropdown id="student-number-options">
+      <Combobox.Dropdown>
         <Combobox.Options mah={280} style={{ overflowY: 'auto' }}>
-          {matches.length ? matches.map((student) => (
-            <Combobox.Option key={student.studentNumber} value={student.studentNumber}>
-              <Group gap="md" wrap="nowrap" align="flex-start">
-                <Text ff="monospace" fw={650} size="sm" className="wt-nowrap">{student.studentNumber}</Text>
-                <div>
-                  <Text fw={650} size="sm">{student.name}</Text>
-                  <Text c="dimmed" size="xs">{student.teamCode}</Text>
-                </div>
-              </Group>
+          {matches.length ? matches.map((option) => (
+            <Combobox.Option key={option.value} value={option.value}>
+              {renderOption(option)}
             </Combobox.Option>
-          )) : <Combobox.Empty>No matching student record</Combobox.Empty>}
+          )) : <Combobox.Empty>{emptyLabel}</Combobox.Empty>}
         </Combobox.Options>
       </Combobox.Dropdown>
     </Combobox>
+  );
+}
+
+function studentOptions(students, inputKey) {
+  return students.map((student) => ({
+    value: student.studentNumber,
+    inputValue: inputKey === 'name' ? student.name : student.studentNumber,
+    searchText: `${student.studentNumber} ${student.name} ${student.teamCode}`,
+    student
+  }));
+}
+
+function teamOptions(students) {
+  return [...new Set(students.map((student) => student.teamCode).filter(Boolean))]
+    .sort((first, second) => first.localeCompare(second, undefined, { numeric: true }))
+    .map((teamCode) => ({
+      value: teamCode,
+      inputValue: teamCode,
+      searchText: teamCode,
+      teamCode
+    }));
+}
+
+function StudentOption({ option, primary }) {
+  const student = option.student;
+  return (
+    <Group gap="md" wrap="nowrap" align="flex-start">
+      <Text ff={primary === 'number' ? 'monospace' : undefined} fw={650} size="sm" className="wt-nowrap">
+        {primary === 'number' ? student.studentNumber : student.name}
+      </Text>
+      <div>
+        <Text fw={650} size="sm">{primary === 'number' ? student.name : student.studentNumber}</Text>
+        <Text c="dimmed" size="xs">{student.teamCode}</Text>
+      </div>
+    </Group>
+  );
+}
+
+function StudentNumberField({ students, value, onChange, onSelect }) {
+  const options = useMemo(() => studentOptions(students, 'number'), [students]);
+  return (
+    <SearchableIdentityField
+      label="Student Number"
+      placeholder="Search Student Number"
+      value={value}
+      options={options}
+      onChange={onChange}
+      onSelect={(option) => onSelect(option.student)}
+      renderOption={(option) => <StudentOption option={option} primary="number" />}
+      emptyLabel="No matching Student Number"
+    />
   );
 }
 
@@ -111,61 +151,126 @@ function IdentitySummary({ student, email }) {
             <Text size="sm"><Text component="span" c="dimmed">Member </Text>{student.memberNumber || 'Not listed'}</Text>
             <Text size="sm"><Text component="span" c="dimmed">Adviser </Text>{isUsableAdviserName(student.adviser) ? student.adviser : 'Unassigned'}</Text>
           </SimpleGrid>
-          {email ? (
-            <Group gap={6} mt={4} wrap="nowrap">
-              <GoogleLogo size={16} weight="bold" aria-hidden="true" />
-              <Text size="xs" c="dimmed">This response will be associated with {email}.</Text>
-            </Group>
-          ) : null}
+          {email ? <AccountAttribution email={email} /> : null}
         </Stack>
       </Group>
     </Paper>
   );
 }
 
-export function StudentIdentityPanel({ students, student, value, activeAccount, returning, onChange, onUseDifferent }) {
-  function confirmDifferentRecord() {
-    modals.openConfirmModal({
-      title: 'Use a different student record?',
-      children: (
-        <Text size="sm">
-          Your current selection will be cleared. Submitted responses and their private links will not be shown for another record.
-        </Text>
-      ),
-      labels: { confirm: 'Choose another record', cancel: 'Keep this record' },
-      confirmProps: { color: 'wildtrackMaroon' },
-      centered: true,
-      onConfirm: onUseDifferent
+function AccountAttribution({ email }) {
+  return (
+    <Group gap={6} wrap="nowrap" className="wt-account-attribution">
+      <GoogleLogo size={16} weight="bold" aria-hidden="true" />
+      <Text size="xs" c="dimmed">This response will be associated with {email}.</Text>
+    </Group>
+  );
+}
+
+function SubmissionIdentityFields({ students, identity, activeAccount, errors, onChange }) {
+  const numberOptions = useMemo(() => studentOptions(students, 'number'), [students]);
+  const nameOptions = useMemo(() => studentOptions(students, 'name'), [students]);
+  const teams = useMemo(() => teamOptions(students), [students]);
+
+  function selectStudent(student) {
+    onChange({
+      studentNumber: student.studentNumber,
+      studentName: student.name,
+      teamCode: student.teamCode
     });
   }
 
   return (
     <Stack gap="md">
       <div>
-        <Text component="h2" className="wt-section-title">Student record</Text>
-        <Text c="dimmed" size="sm">Choose your record once. WildTrack fills in the matching team details.</Text>
+        <Text component="h2" className="wt-section-title">Student details</Text>
+        <Text c="dimmed" size="sm">Select your Student Number or name to fill the matching class-record details.</Text>
       </div>
+      <div className="wt-public-identity-grid">
+        <SearchableIdentityField
+          label="Student Number"
+          placeholder="Search Student Number"
+          value={identity.studentNumber}
+          options={numberOptions}
+          onChange={(studentNumber) => onChange({ ...identity, studentNumber })}
+          onSelect={(option) => selectStudent(option.student)}
+          renderOption={(option) => <StudentOption option={option} primary="number" />}
+          emptyLabel="No matching Student Number"
+          error={errors?.studentNumber}
+        />
+        <SearchableIdentityField
+          label="Student Name"
+          placeholder="Search student name"
+          value={identity.studentName}
+          options={nameOptions}
+          onChange={(studentName) => onChange({ ...identity, studentName })}
+          onSelect={(option) => selectStudent(option.student)}
+          renderOption={(option) => <StudentOption option={option} primary="name" />}
+          emptyLabel="No matching student name"
+          error={errors?.studentName}
+        />
+        <SearchableIdentityField
+          label="Team Code"
+          placeholder="Search team code"
+          value={identity.teamCode}
+          options={teams}
+          onChange={(teamCode) => onChange({ ...identity, teamCode })}
+          onSelect={(option) => onChange({ ...identity, teamCode: option.teamCode })}
+          renderOption={(option) => <Text size="sm" ff="monospace" fw={650}>{option.teamCode}</Text>}
+          emptyLabel="No matching team code"
+          error={errors?.teamCode}
+        />
+      </div>
+      {activeAccount?.email ? <AccountAttribution email={activeAccount.email} /> : null}
+      {identity.studentNumber && !students.some((student) => student.studentNumber === identity.studentNumber) ? (
+        <Alert color="orange" variant="light" icon={<IdentificationCard size={19} />}>
+          Choose a Student Number from this workspace's class record.
+        </Alert>
+      ) : null}
+    </Stack>
+  );
+}
 
-      {returning && student ? (
-        <>
-          <IdentitySummary student={student} email={activeAccount?.email} />
-          <Group justify="flex-start" gap="md">
-            <Button variant="subtle" color="wildtrackMaroon" size="compact-sm" leftSection={<UserSwitch size={17} />} onClick={confirmDifferentRecord}>
-              Use a different student record
-            </Button>
-          </Group>
-        </>
-      ) : (
-        <>
-          <StudentNumberCombobox students={students} value={value} onChange={onChange} />
-          <IdentitySummary student={student} email={activeAccount?.email} />
-          {value && !student ? (
-            <Alert color="orange" variant="light" icon={<IdentificationCard size={19} />}>
-              Choose a Student Number from this workspace's class record.
-            </Alert>
-          ) : null}
-        </>
-      )}
+export function StudentIdentityPanel({
+  students,
+  student,
+  value,
+  identity,
+  activeAccount,
+  errors,
+  mode = 'connection',
+  onChange
+}) {
+  if (mode === 'submission') {
+    return (
+      <SubmissionIdentityFields
+        students={students}
+        identity={identity}
+        activeAccount={activeAccount}
+        errors={errors}
+        onChange={onChange}
+      />
+    );
+  }
+
+  return (
+    <Stack gap="md">
+      <div>
+        <Text component="h2" className="wt-section-title">Student record</Text>
+        <Text c="dimmed" size="sm">Choose your Student Number. WildTrack fills in the matching team details.</Text>
+      </div>
+      <StudentNumberField
+        students={students}
+        value={value}
+        onChange={(nextValue) => onChange(nextValue, null)}
+        onSelect={(selected) => onChange(selected.studentNumber, selected)}
+      />
+      <IdentitySummary student={student} email={activeAccount?.email} />
+      {value && !student ? (
+        <Alert color="orange" variant="light" icon={<IdentificationCard size={19} />}>
+          Choose a Student Number from this workspace's class record.
+        </Alert>
+      ) : null}
     </Stack>
   );
 }

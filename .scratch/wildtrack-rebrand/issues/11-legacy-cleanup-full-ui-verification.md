@@ -2,7 +2,7 @@
 
 **What to build:** Complete the migration by removing superseded presentation code and verifying WildTrack as one coherent interface across all roles, routes, workspaces, content lengths, and supported viewports. This ticket does not add new product behavior; it closes inconsistencies left by incremental migration.
 
-**Blocked by:** 01 through 10.
+**Blocked by:** 01 through 10, including 05a - Submission identity and review feedback corrections.
 
 **Status:** ready-for-agent
 

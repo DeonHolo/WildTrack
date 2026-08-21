@@ -210,6 +210,8 @@ describe('student dashboard', () => {
     });
     renderDashboard();
 
+    expect(screen.queryByText(/class-record entries available/i)).not.toBeInTheDocument();
+
     const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
     fireEvent.focus(studentNumber);
     fireEvent.change(studentNumber, { target: { value: '22-1001' } });
@@ -222,6 +224,22 @@ describe('student dashboard', () => {
     expect(dialog).toHaveTextContent('juan.student@gmail.com');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
     expect(workflow.claimStudentNumber).toHaveBeenCalledWith('22-1001-001');
+  });
+
+  it('shows team submission progress in the context of each deliverable', () => {
+    associateAccount();
+    renderDashboard();
+
+    const deliverables = screen.getByRole('list', { name: 'Your deliverables' });
+    const srs = within(deliverables).getByText('SRS').closest('article');
+    const sdd = within(deliverables).getByText('SDD').closest('article');
+    const source = within(deliverables).getByText('Source Code', { selector: '.wt-student-deliverable-title *' }).closest('article');
+
+    expect(srs).toHaveTextContent('Team 2/2 submitted');
+    expect(sdd).toHaveTextContent('Team 1/2 submitted');
+    expect(source).toHaveTextContent('Team 0/2 submitted');
+    expect(screen.queryByText(/Members with a recorded response/i)).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('teammate-private-response');
   });
 
   it('shows only response details owned by the active Google account', () => {

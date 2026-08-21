@@ -1,25 +1,24 @@
-import { Badge } from '@mantine/core';
-
-const STATUS_COLORS = {
-  Accepted: 'green',
-  Archived: 'wildtrackMaroon',
-  Received: 'blue',
-  'Needs Review': 'orange',
-  'Needs attention': 'orange',
-  'Ready for review': 'green',
-  'Not checked': 'gray',
-  'Not applicable': 'gray',
-  'Could not check': 'red',
-  Outdated: 'yellow',
-  Checking: 'blue',
-  Reviewed: 'wildtrackMaroon',
-  'Not reviewed': 'gray'
+const STATUS_TONES = {
+  Accepted: 'success',
+  Archived: 'maroon',
+  Received: 'info',
+  'Needs Review': 'warning',
+  'Needs attention': 'warning',
+  'Ready for review': 'success',
+  'Not checked': 'neutral',
+  'Not applicable': 'neutral',
+  'Could not check': 'danger',
+  Outdated: 'warning',
+  Checking: 'info',
+  Reviewed: 'maroon',
+  'Not reviewed': 'neutral'
 };
 
 export function ReviewStatusBadge({ label }) {
   return (
-    <Badge color={STATUS_COLORS[label] || 'gray'} variant="light" radius="sm" size="sm" className="wt-review-status">
-      {label}
-    </Badge>
+    <span className="wt-review-status" data-tone={STATUS_TONES[label] || 'neutral'}>
+      <span className="wt-review-status-dot" aria-hidden="true" />
+      <span>{label}</span>
+    </span>
   );
 }

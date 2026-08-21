@@ -25,10 +25,10 @@ The first vertical slice will establish the theme and rebuild the public submiss
 1. As a student, I want a published form to open directly, so that I can submit without navigating through a marketing page or separate WildTrack registration screen.
 2. As a student, I want WildTrack to use the Google account already active in my browser when possible, so that identity attribution feels almost invisible.
 3. As a student, I want a compact `Continue with Google` fallback when automatic Google identification is unavailable, so that I can continue without creating another password.
-4. As a first-time student, I want to select my Student Number from the form's workspace roster, so that WildTrack can derive my class-record details.
+4. As a first-time student, I want separate searchable Student Number, Student Name, and Team Code fields, so that I can see and correct the identity submitted with the form.
 5. As a first-time student, I want to see my selected name, team, member number, adviser, and active Google email before submitting, so that I can catch a mistaken association.
-6. As a returning student, I want my remembered workspace identity to appear automatically, so that repeat submissions require fewer actions.
-7. As a returning student, I want explicit actions for switching Google accounts or using a different student record, so that reassignment cannot happen accidentally.
+6. As a returning student, I want my remembered workspace identity to prefill the same editable fields, so that repeat submissions require fewer actions without hiding what will be submitted.
+7. As a returning student, I want to switch Google accounts or correct prefilled roster fields directly, so that Google attribution does not lock the form into a separate identity-summary state.
 8. As a student, I want the submission form to remain one continuous page, so that identity attribution does not become a separate wizard or login barrier.
 9. As a student, I want the due date, deliverable instructions, and required PDF Drive link to be visually clear, so that I know what Sir expects before submitting.
 10. As a student, I want the form to remain open after its due date, so that a late response can still be recorded correctly.
@@ -58,6 +58,7 @@ The first vertical slice will establish the theme and rebuild the public submiss
 34. As a mobile student, I want the public form and dashboard to fit without horizontal overflow or overlapping controls, so that submission works from a phone.
 35. As a developer, I want role and workflow behavior separated from presentation components, so that replacing the UI does not rewrite academic rules.
 36. As a developer, I want each migrated route to remain demonstrable and testable before the next route is changed, so that the rebrand does not become an unstable big-bang rewrite.
+37. As a student, I want team submission progress shown per deliverable, so that a count always explains which requirement my teammates have or have not submitted.
 
 ## Implementation Decisions
 
@@ -100,13 +101,22 @@ The first vertical slice will establish the theme and rebuild the public submiss
 - The approved identity workflow in the WildTrack identity design remains authoritative.
 - Opening a published form displays the form immediately. There is no separate WildTrack login, registration, password, OTP, or `cit.edu` authentication page.
 - Google Identity Services or the existing session identifies the active Google account. A compact `Continue with Google` action is the fallback.
-- On first use in a workspace, the form displays an inline searchable Student Number selector populated only from that workspace's Team Formation data.
-- Selecting a Student Number derives the roster name, team code, member number, adviser, course, and section when present.
-- Before the first submission, the page shows the active Google email and derived class-record identity clearly enough to catch a mistake.
-- Returning students see a compact identity summary instead of the full selector. `Switch Google account` and `Use a different student record` are explicit secondary actions.
+- Public forms always display separate searchable `Student Number`, `Student Name`, and `Team Code` fields populated only from the active workspace's Team Formation data.
+- Selecting a Student Number or Student Name selects the corresponding roster record and prefills the other identity fields. Team Code remains independently editable because one team contains multiple students and cannot identify one student by itself.
+- The remembered workspace association and active Google identity prefill these same fields for returning students; they do not replace the fields with a locked identity summary or a `Use a different student record` mode.
+- Before submission, the page shows the active Google email and the values that will be submitted clearly enough to catch a mistake.
 - The identity portion is not a separate stepper page. The public form remains a single continuous form.
 - Self-declared associations are not labeled verified.
 - Existing response data and Drive links remain private to their owning Google identity and are never populated merely because another account selected the same Student Number.
+- Editing Student Number, Student Name, or Team Code never transfers response ownership or reveals another Google identity's saved response. Google subject attribution and submitted roster values remain separate audit facts.
+- Form identity and submission-file sections use one concise label/helper hierarchy. Repeated wrapper headings, duplicate PDF instructions, roster-size helper text, and other explanatory copy that does not change a decision are omitted.
+
+### Student dashboard progress
+
+- The unassociated-account connection form is presented as a centered, bounded column while retaining left-aligned form content.
+- Roster-size messages such as the number of available class-record entries are not shown beside Student Number controls.
+- Team submission progress is calculated per deliverable, never as the number of members who submitted any response anywhere in the workspace.
+- Each deliverable may show a concise team count such as `3 of 5 submitted` and an optional member breakdown. Teammate Drive links, submitted values, and other private response content are never exposed.
 
 ### Form artwork
 
@@ -124,6 +134,11 @@ The first vertical slice will establish the theme and rebuild the public submiss
 
 - Command Center becomes a compact `Today's work` queue containing unresolved operational items, not decorative metric cards or navigation shortcuts.
 - Review remains deliverable-first. A deliverable summary leads to a compact submissions table, and selecting a response opens a stable detail area or drawer for Document Check, AI Review, acceptance, archive, and file actions.
+- Review deliverable rows align the short code, title, due date, counts, and row affordance on one consistent vertical axis rather than stacking competing baselines.
+- Review status columns use centered compact text-and-indicator treatments instead of wide filled pills. Status meaning is still available in text and never relies on color alone.
+- Row selection uses a compact centered checkbox column. Page selection remains available for custom subsets, while a direct `Check all unchecked` action processes every unchecked response for the selected deliverable in one operation.
+- Document Check may use bounded internal concurrency to protect Drive and backend capacity, but the UI describes the complete batch rather than exposing worker-count implementation details. A failed file does not stop the remaining selected files.
+- Document Check confirmation copy states the affected count and expected result without unrelated archive disclaimers.
 - AI Review controls remain Sir/Admin-only. Advisers may view an existing permitted result but do not run or rerun it.
 - Team Review groups equivalent member submissions by team for adviser work while preserving individual records for grading and audit.
 - Tracker uses sticky headers and sticky identity columns, compact raw values, in-table search and paging controls, selected-row indication, and a student detail treatment that remains reachable while scrolling.
@@ -158,10 +173,13 @@ The first vertical slice will establish the theme and rebuild the public submiss
 - Preserve existing backend controller and service tests; the rebrand must not require backend behavior changes.
 - Theme smoke tests verify that the Mantine provider renders core controls and that supported routes do not depend on dark mode.
 - Public-form tests cover published, unpublished, missing, loading, first-time identity, returning identity, existing response, validation error, submitting, received, updated, and unchanged states.
+- Public-form identity tests verify separate Student Number, Student Name, and Team Code controls, bidirectional roster autofill from number or name, editable returning prefill, and response-link privacy across Google identities.
 - When durable artwork storage is implemented, form-artwork tests cover workspace fallback, per-form override, missing asset fallback, responsive crop metadata, replace, reposition, and remove behavior.
 - Role-shell tests verify Sir/Admin, adviser, student, public, and development-preview navigation boundaries.
 - Staff scale tests use at least 318 tracker students and a comparable submission volume to detect card growth, layout shifts, slow filtering, and controls escaping their containers.
 - Review tests cover deliverable-first navigation, stable status columns, batch selection, accepted items leaving active queues, and selected-response details.
+- Review tests verify `Check all unchecked` processes the full filtered deliverable queue rather than only one page or one internal worker group, while progress and individual failures remain visible.
+- Student Dashboard tests verify centered unassociated-account layout and per-deliverable team counts without teammate response links.
 - Tracker tests cover sticky context, centered member numbers and team codes, pagination, search focus stability, load-all behavior, selected-row visibility, and raw mixed values.
 - Responsive browser checks use representative desktop, laptop, tablet, and mobile viewports, including approximately 1440x900, 1280x720, 768x1024, and 390x844.
 - Accessibility checks cover keyboard-only operation, visible focus, labels, dialog focus management, status meaning, contrast, and reduced-motion preferences.

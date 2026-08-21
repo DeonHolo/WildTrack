@@ -70,10 +70,14 @@ export function StudentStatusPage() {
         response.deliverableId === deliverable.id &&
         normalizeStudentNumber(response.studentNumber) === normalizeStudentNumber(student.studentNumber)
       ));
-      return buildStudentDeliverableRow(deliverable, ownedResponse, recorded);
+      return buildStudentDeliverableRow(
+        deliverable,
+        ownedResponse,
+        recorded,
+        buildDeliverableTeamProgress(state, student, deliverable.id)
+      );
     });
   }, [activeAccount, state, student]);
-  const groupProgress = useMemo(() => buildGroupProgress(state, student), [state, student]);
   const syncStatus = String(state.backendSync?.status || '');
   const isLoading = state.dashboardStatus === 'loading' || /^loading\b/i.test(syncStatus);
   const loadError = state.dashboardStatus === 'error'
@@ -130,13 +134,14 @@ export function StudentStatusPage() {
   if (!activeAccount.studentNumber) {
     return (
       <DashboardContainer>
-        <header className="wt-student-page-heading">
-          <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">Complete your profile</Text>
-          <Title order={1}>Connect your student record</Title>
-          <Text c="dimmed">Choose your Student Number once. WildTrack fills in the matching name and team details.</Text>
-        </header>
-        {connectionOptions.length ? (
-          <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
+        <div className="wt-student-connect-column">
+          <header className="wt-student-page-heading">
+            <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">Complete your profile</Text>
+            <Title order={1}>Connect your student record</Title>
+            <Text c="dimmed">Choose your Student Number once. WildTrack fills in the matching name and team details.</Text>
+          </header>
+          {connectionOptions.length ? (
+            <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
             <StudentIdentityPanel
               students={connectionOptions}
               student={selectedStudent}
@@ -152,15 +157,16 @@ export function StudentStatusPage() {
             <Button mt="lg" color="wildtrackMaroon" disabled={!selectedStudent} onClick={connectSelectedRecord}>
               Connect student record
             </Button>
-          </Paper>
-        ) : identityStudents.length ? (
-          <StudentDataUnavailable
-            title="No student records are available to connect"
-            error="Every Student Number in this workspace is already associated with another account. Ask the administrator to review the account records."
-          />
-        ) : (
-          <StudentDataUnavailable error={loadError} onRetry={refreshBackendData} />
-        )}
+            </Paper>
+          ) : identityStudents.length ? (
+            <StudentDataUnavailable
+              title="No student records are available to connect"
+              error="Every Student Number in this workspace is already associated with another account. Ask the administrator to review the account records."
+            />
+          ) : (
+            <StudentDataUnavailable error={loadError} onRetry={refreshBackendData} />
+          )}
+        </div>
       </DashboardContainer>
     );
   }
@@ -195,7 +201,7 @@ export function StudentStatusPage() {
         onDisconnect={disconnectRecord}
       />
       <StudentDeliverableList rows={deliverableRows} workspaceKey={workspaceKey} studentNumber={student.studentNumber} />
-      <StudentProgressPanel activeColumns={activeColumns} groupProgress={groupProgress} student={student} />
+      <StudentProgressPanel activeColumns={activeColumns} student={student} />
     </DashboardContainer>
   );
 }
@@ -266,7 +272,7 @@ function StudentDataUnavailable({
   );
 }
 
-function buildStudentDeliverableRow(deliverable, response, recorded) {
+function buildStudentDeliverableRow(deliverable, response, recorded, teamProgress) {
   if (!response) {
     return {
       deliverable,
@@ -277,6 +283,7 @@ function buildStudentDeliverableRow(deliverable, response, recorded) {
       link: '',
       feedback: null,
       documentCheck: null,
+      teamProgress,
       fileCheck: {
         label: recorded ? 'Private response' : 'Not submitted',
         summary: recorded ? 'Response details are private to the Google account that submitted them.' : 'No response has been recorded.',
@@ -296,6 +303,7 @@ function buildStudentDeliverableRow(deliverable, response, recorded) {
     link: firstSubmissionLink(response.values),
     feedback,
     documentCheck: response.documentCheck || null,
+    teamProgress,
     fileCheck: getStudentFileCheck(response)
   };
 }
@@ -323,16 +331,19 @@ function getStudentFileCheck(response) {
   return { label: 'Not checked', summary: 'Document Check has not inspected this response yet.', tone: 'neutral' };
 }
 
-function buildGroupProgress(state, student) {
-  if (!student) return { teamSize: 0, submittedMembers: 0, names: [] };
+function buildDeliverableTeamProgress(state, student, deliverableId) {
+  if (!student) return { expected: 0, submitted: 0, names: [] };
   const teamMembers = state.students.filter((item) => item.teamCode === student.teamCode);
   const teamNumbers = new Set(teamMembers.map((item) => normalizeStudentNumber(item.studentNumber)));
   const submittedMembers = new Set(state.attempts
-    .filter((response) => teamNumbers.has(normalizeStudentNumber(response.studentNumber)))
+    .filter((response) => (
+      response.deliverableId === deliverableId
+      && teamNumbers.has(normalizeStudentNumber(response.studentNumber))
+    ))
     .map((response) => normalizeStudentNumber(response.studentNumber)));
   return {
-    teamSize: teamMembers.length,
-    submittedMembers: submittedMembers.size,
+    expected: teamMembers.length,
+    submitted: submittedMembers.size,
     names: teamMembers
       .filter((member) => submittedMembers.has(normalizeStudentNumber(member.studentNumber)))
       .map((member) => member.name)

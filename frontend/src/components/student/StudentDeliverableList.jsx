@@ -58,6 +58,9 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
               <div className="wt-student-deliverable-state">
                 <StatusBadge status={row.status} />
                 {row.savedAt ? <Text size="xs" c="dimmed">Saved {formatDateTime(row.savedAt)}</Text> : null}
+                <Text size="xs" c="dimmed" className="wt-nowrap wt-tabular">
+                  Team {row.teamProgress.submitted}/{row.teamProgress.expected} submitted
+                </Text>
               </div>
 
               <div className="wt-student-deliverable-detail">

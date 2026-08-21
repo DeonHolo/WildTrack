@@ -1,4 +1,4 @@
-import { Button, Paper, ScrollArea, Stack, Table, Text } from '@mantine/core';
+import { Group, Paper, ScrollArea, Table, Text, UnstyledButton } from '@mantine/core';
 import { CaretRight } from '@phosphor-icons/react';
 import { formatDate } from '../../lib/workflow.js';
 
@@ -35,21 +35,18 @@ export function ReviewDeliverablesTable({ summaries, selectedId, onSelect }) {
                 return (
                   <Table.Tr key={summary.deliverable.id} data-selected={selected || undefined}>
                     <Table.Td>
-                      <Button
-                        variant="subtle"
-                        color="wildtrackMaroon"
-                        justify="space-between"
-                        rightSection={<CaretRight size={15} />}
+                      <UnstyledButton
                         className="wt-review-deliverable-button"
                         aria-label={`Open ${summary.deliverable.shortTitle} review`}
                         aria-current={selected ? 'true' : undefined}
                         onClick={() => onSelect(summary.deliverable.id)}
                       >
-                        <Stack gap={0} align="flex-start">
-                          <Text component="span" fw={800} size="sm">{summary.deliverable.shortTitle}</Text>
-                          <Text component="span" size="xs" c="dimmed" lineClamp={1}>{summary.deliverable.title}</Text>
-                        </Stack>
-                      </Button>
+                        <Group gap="sm" wrap="nowrap" className="wt-review-deliverable-label">
+                          <Text component="span" fw={800} size="sm" className="wt-review-deliverable-code">{summary.deliverable.shortTitle}</Text>
+                          <Text component="span" size="sm" c="dimmed" lineClamp={1} className="wt-review-deliverable-title">{summary.deliverable.title}</Text>
+                          <CaretRight size={15} aria-hidden="true" />
+                        </Group>
+                      </UnstyledButton>
                     </Table.Td>
                     <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{formatDate(summary.deliverable.dueAt)}</Text></Table.Td>
                     <Table.Td className="wt-review-number">{summary.expected}</Table.Td>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -92,6 +92,13 @@ function selectStudent() {
   fireEvent.click(screen.getByRole('option', { name: /DELA CRUZ, JUAN CARLOS M\./i }));
 }
 
+function selectStudentByName(name = 'DELA CRUZ') {
+  const studentName = screen.getByRole('combobox', { name: /Student Name/i });
+  fireEvent.focus(studentName);
+  fireEvent.change(studentName, { target: { value: name } });
+  fireEvent.click(screen.getByRole('option', { name: /DELA CRUZ, JUAN CARLOS M\./i }));
+}
+
 function successfulResponse(overrides = {}) {
   const student = workflow.state.students[0];
   const deliverable = workflow.state.deliverables[0];
@@ -121,21 +128,42 @@ describe('public submission form', () => {
     expect(screen.queryByRole('button', { name: /next/i })).not.toBeInTheDocument();
   });
 
-  it('derives the class-record identity from one searchable Student Number control', async () => {
+  it('keeps all submitted identity fields visible and autofills them from Student Number', () => {
     renderForm();
 
     selectStudent();
 
-    const identity = screen.getByLabelText('Selected student record');
-    expect(within(identity).getByText('DELA CRUZ, JUAN CARLOS M.')).toBeInTheDocument();
-    expect(identity).toHaveTextContent('Team 2526-sem2-it332-11');
-    expect(identity).toHaveTextContent('Member 1');
-    expect(identity).toHaveTextContent('Adviser Sir Roberto Villanueva');
-    expect(screen.queryByRole('textbox', { name: /Student Name/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: /Team Code/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /Student Number/i })).toHaveValue('22-1001-001');
+    expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
+    expect(screen.getByRole('combobox', { name: /Team Code/i })).toHaveValue('2526-sem2-it332-11');
+    expect(screen.queryByText(/class-record entries available/i)).not.toBeInTheDocument();
   });
 
-  it('shows a compact returning identity with the active account', async () => {
+  it('autofills Student Number and Team Code when a Student Name is selected', () => {
+    renderForm();
+
+    selectStudentByName();
+
+    expect(screen.getByRole('combobox', { name: /Student Number/i })).toHaveValue('22-1001-001');
+    expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
+    expect(screen.getByRole('combobox', { name: /Team Code/i })).toHaveValue('2526-sem2-it332-11');
+  });
+
+  it('keeps all three identity fields required after autofill', async () => {
+    renderForm();
+    selectStudent();
+
+    fireEvent.change(screen.getByRole('combobox', { name: /Student Name/i }), { target: { value: '' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /PDF Drive Link/i }), {
+      target: { value: 'https://drive.google.com/file/d/submission' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Submit response/i }));
+
+    expect(await screen.findByText('Choose a Student Name.')).toBeInTheDocument();
+    expect(workflow.submitPublicForm).not.toHaveBeenCalled();
+  });
+
+  it('prefills editable identity fields for the active account without a locked record mode', async () => {
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{
       email: 'juan.student@gmail.com',
@@ -145,10 +173,11 @@ describe('public submission form', () => {
     }];
     renderForm();
 
-    const identity = await screen.findByLabelText('Selected student record');
-    expect(identity).toHaveTextContent('juan.student@gmail.com');
-    expect(screen.queryByRole('combobox', { name: /Student Number/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Use a different student record/i })).toBeInTheDocument();
+    expect(await screen.findByRole('combobox', { name: /Student Number/i })).toHaveValue('22-1001-001');
+    expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
+    expect(screen.getByRole('combobox', { name: /Team Code/i })).toHaveValue('2526-sem2-it332-11');
+    expect(screen.getByText(/associated with juan\.student@gmail\.com/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Use a different student record/i })).not.toBeInTheDocument();
   });
 
   it('does not let a query parameter silently replace a returning account identity', async () => {
@@ -161,9 +190,9 @@ describe('public submission form', () => {
     }];
     renderForm('/submit/week-9-srs?student=22-1002-002');
 
-    const identity = await screen.findByLabelText('Selected student record');
-    expect(identity).toHaveTextContent('DELA CRUZ, JUAN CARLOS M.');
-    expect(identity).not.toHaveTextContent('SANTOS, MARIA L.');
+    expect(await screen.findByRole('combobox', { name: /Student Number/i })).toHaveValue('22-1001-001');
+    expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
+    expect(screen.getByRole('combobox', { name: /Team Code/i })).toHaveValue('2526-sem2-it332-11');
   });
 
   it('prefills only a response owned by the active account', async () => {
@@ -185,6 +214,31 @@ describe('public submission form', () => {
 
     expect(await screen.findByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('https://drive.google.com/file/d/owned-response');
     expect(screen.getByRole('button', { name: /Save response changes/i })).toBeInTheDocument();
+  });
+
+  it('clears private response values when a returning account changes to another student record', async () => {
+    workflow.state.activeAccountEmail = 'juan.student@gmail.com';
+    workflow.state.studentAccounts = [{
+      email: 'juan.student@gmail.com',
+      studentNumber: '22-1001-001',
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
+      teamCode: '2526-sem2-it332-11'
+    }];
+    workflow.state.attempts = [{
+      id: 'resp-owned',
+      deliverableId: 'deliv-srs',
+      studentNumber: '22-1001-001',
+      googleEmailSnapshot: 'juan.student@gmail.com',
+      values: { documentPdf: 'https://drive.google.com/file/d/owned-response' }
+    }];
+    renderForm();
+
+    const studentNumber = await screen.findByRole('combobox', { name: /Student Number/i });
+    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('https://drive.google.com/file/d/owned-response');
+    fireEvent.change(studentNumber, { target: { value: '22-1002-002' } });
+
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue(''));
+    expect(document.body).not.toHaveTextContent('owned-response');
   });
 
   it('does not expose an existing response link after another user selects the same Student Number', () => {
@@ -278,7 +332,8 @@ describe('public submission form', () => {
     renderForm();
 
     expect(screen.getByText('Submission links required')).toBeInTheDocument();
-    expect(screen.getByText('Documentation links')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Frontend repository link' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Presentation link' })).toBeInTheDocument();
     expect(screen.queryByText('PDF Drive link required')).not.toBeInTheDocument();
     expect(screen.queryByText(/final PDF/i)).not.toBeInTheDocument();
   });

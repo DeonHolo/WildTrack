@@ -53,9 +53,9 @@ export function ReviewSubmissionsTable({
                 <Table.Th>Student</Table.Th>
                 <Table.Th>Team</Table.Th>
                 <Table.Th>Submitted</Table.Th>
-                <Table.Th>Document Check</Table.Th>
-                <Table.Th>AI Review</Table.Th>
-                <Table.Th>Decision</Table.Th>
+                <Table.Th className="wt-review-status-cell">Document Check</Table.Th>
+                <Table.Th className="wt-review-status-cell">AI Review</Table.Th>
+                <Table.Th className="wt-review-status-cell">Decision</Table.Th>
                 <Table.Th className="wt-review-open-cell"><VisuallyHidden>Open details</VisuallyHidden></Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -85,9 +85,9 @@ export function ReviewSubmissionsTable({
                     </Table.Td>
                     <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{student?.teamCode || response.teamCode || 'Not assigned'}</Text></Table.Td>
                     <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{formatDateTime(response.updatedAt || response.submittedAt)}</Text></Table.Td>
-                    <Table.Td><ReviewStatusBadge label={documentCheckEnabled ? documentCheckStatus(response) : 'Not applicable'} /></Table.Td>
-                    <Table.Td><ReviewStatusBadge label={isAiReportCurrent(response) ? 'Reviewed' : 'Not reviewed'} /></Table.Td>
-                    <Table.Td><ReviewStatusBadge label={decision} /></Table.Td>
+                    <Table.Td className="wt-review-status-cell"><ReviewStatusBadge label={documentCheckEnabled ? documentCheckStatus(response) : 'Not applicable'} /></Table.Td>
+                    <Table.Td className="wt-review-status-cell"><ReviewStatusBadge label={isAiReportCurrent(response) ? 'Reviewed' : 'Not reviewed'} /></Table.Td>
+                    <Table.Td className="wt-review-status-cell"><ReviewStatusBadge label={decision} /></Table.Td>
                     <Table.Td className="wt-review-open-cell">
                       <Tooltip label={`Review ${studentName}`}>
                         <ActionIcon variant="subtle" color="wildtrackMaroon" size="lg" aria-label={`Open ${studentName} review details`} onClick={() => onOpen(response.id)}>

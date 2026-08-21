@@ -174,7 +174,7 @@ export function CommandCenterPage() {
       <ConfirmDialog
         open={batchConfirmOpen}
         title={`Check ${pendingChecks.length} pending document${pendingChecks.length === 1 ? '' : 's'}?`}
-        description="WildTrack checks up to three PDFs at a time and continues if an individual document cannot be checked."
+        description="WildTrack checks every selected PDF and continues if an individual document cannot be checked."
         confirmLabel="Start Document Check"
         onClose={() => setBatchConfirmOpen(false)}
         onConfirm={runPendingChecks}

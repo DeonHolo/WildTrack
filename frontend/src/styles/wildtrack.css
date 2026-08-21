@@ -367,6 +367,17 @@
   background: #fffafb;
 }
 
+.wt-public-identity-grid {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(220px, 1.4fr) minmax(150px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.wt-account-attribution {
+  min-width: 0;
+}
+
 .wt-nowrap {
   white-space: nowrap;
 }
@@ -707,6 +718,10 @@
     box-shadow: 0 12px 32px rgba(72, 16, 32, 0.07);
   }
 
+  .wt-public-identity-grid {
+    grid-template-columns: 1fr;
+  }
+
   .wt-identity-summary .mantine-Group-root,
   .wt-success-surface .mantine-Group-root {
     min-width: 0;
@@ -784,7 +799,15 @@
 }
 
 .wt-student-connect {
+  width: 100%;
   max-width: 760px;
+}
+
+.wt-student-connect-column {
+  display: grid;
+  width: min(100%, 760px);
+  gap: 18px;
+  margin-inline: auto;
 }
 
 .wt-student-profile-head {
@@ -951,8 +974,7 @@
 
 .wt-student-progress-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.75fr);
-  gap: 28px;
+  grid-template-columns: minmax(0, 1fr);
   padding: 20px;
 }
 
@@ -970,12 +992,6 @@
   padding: 11px 12px;
   border-right: 1px solid var(--wt-border);
   border-bottom: 1px solid var(--wt-border);
-}
-
-.wt-team-progress {
-  min-width: 0;
-  padding-left: 28px;
-  border-left: 1px solid var(--wt-border);
 }
 
 @media (max-width: 900px) {
@@ -1008,11 +1024,6 @@
     grid-template-columns: 1fr;
   }
 
-  .wt-team-progress {
-    padding: 22px 0 0;
-    border-top: 1px solid var(--wt-border);
-    border-left: 0;
-  }
 }
 
 @media (max-width: 560px) {
@@ -1206,14 +1217,36 @@
 }
 
 .wt-review-deliverable-button {
+  display: block;
   width: 100%;
   min-height: 48px !important;
-  padding-inline: 9px;
+  border-radius: 4px;
+  color: inherit;
+  padding: 6px 9px;
 }
 
-.wt-review-deliverable-button .mantine-Button-inner,
-.wt-review-deliverable-button .mantine-Button-label {
+.wt-review-deliverable-button:hover {
+  background: #f7f2f4;
+}
+
+.wt-review-deliverable-button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--wt-maroon) 28%, transparent);
+  outline-offset: 1px;
+}
+
+.wt-review-deliverable-label {
   width: 100%;
+}
+
+.wt-review-deliverable-code {
+  flex: 0 0 44px;
+  color: var(--wt-maroon);
+}
+
+.wt-review-deliverable-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: left;
 }
 
 .wt-review-number {
@@ -1268,6 +1301,10 @@
   min-height: 40px;
 }
 
+.wt-review-toolbar-actions {
+  min-width: 0;
+}
+
 .wt-review-selection-bar {
   min-height: 58px;
   padding: 9px 20px;
@@ -1282,6 +1319,12 @@
 
 .wt-review-batch-progress {
   margin: 14px 20px;
+}
+
+.wt-review-batch-failures {
+  max-height: 160px;
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
 .wt-review-submissions-surface {
@@ -1332,9 +1375,15 @@
 }
 
 .wt-review-select-cell {
-  width: 48px;
-  padding-inline: 14px !important;
-  text-align: center;
+  width: 42px;
+  padding-inline: 9px !important;
+  text-align: center !important;
+  vertical-align: middle;
+}
+
+.wt-review-select-cell .mantine-Checkbox-root {
+  display: inline-flex;
+  vertical-align: middle;
 }
 
 .wt-review-open-cell {
@@ -1362,9 +1411,52 @@
 }
 
 .wt-review-status {
-  min-width: 100px;
-  justify-content: center;
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  color: #4f4649;
+  font-size: 0.75rem;
+  font-weight: 700;
   white-space: nowrap;
+}
+
+.wt-review-status-cell {
+  text-align: center !important;
+  vertical-align: middle;
+}
+
+.wt-review-status-cell .wt-review-status {
+  justify-content: center;
+}
+
+.wt-review-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #9b9296;
+}
+
+.wt-review-status[data-tone="success"] .wt-review-status-dot {
+  background: #267a59;
+}
+
+.wt-review-status[data-tone="maroon"] .wt-review-status-dot {
+  background: var(--wt-maroon);
+}
+
+.wt-review-status[data-tone="info"] .wt-review-status-dot {
+  background: #2769a6;
+}
+
+.wt-review-status[data-tone="warning"] .wt-review-status-dot {
+  background: #c56b21;
+}
+
+.wt-review-status[data-tone="danger"] .wt-review-status-dot {
+  background: #c23d44;
 }
 
 .wt-review-empty {
@@ -1453,6 +1545,15 @@
     align-items: flex-start;
     flex-direction: column;
   }
+
+  .wt-review-table-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wt-review-toolbar-actions {
+    justify-content: space-between;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1464,6 +1565,11 @@
 
   .wt-review-search {
     width: 100%;
+  }
+
+  .wt-review-toolbar-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .wt-review-selection-bar .mantine-Group-root:last-child,

@@ -62,6 +62,7 @@ export function ReviewPage() {
   const [checkDialogId, setCheckDialogId] = useState('');
   const [batchProgress, setBatchProgress] = useState(null);
   const [page, setPage] = useState(1);
+  const batchRunning = Boolean(batchProgress && !batchProgress.done);
 
   const visibleResponses = useMemo(() => filterReviewResponses({
     responses: selectedSummary?.responses || [],
@@ -80,6 +81,15 @@ export function ReviewPage() {
     : null;
   const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
   const documentCheckEnabled = deliverableUsesDocumentCheck(selectedDeliverable);
+  const uncheckedResponseIds = useMemo(() => documentCheckEnabled
+    ? (selectedSummary?.responses || [])
+      .filter((response) => (
+        response.reviewStatus !== 'Accepted'
+        && response.archiveStatus !== 'Archived'
+        && !isDocumentCheckCurrent(response)
+      ))
+      .map((response) => response.id)
+    : [], [documentCheckEnabled, selectedSummary]);
   const pageCount = Math.max(1, Math.ceil(visibleResponses.length / REVIEW_PAGE_SIZE));
   const activePage = Math.min(page, pageCount);
   const pageResponses = visibleResponses.slice((activePage - 1) * REVIEW_PAGE_SIZE, activePage * REVIEW_PAGE_SIZE);
@@ -135,15 +145,16 @@ export function ReviewPage() {
     if (checkDialogResponse) await runDocumentCheck(checkDialogResponse.id);
   }
 
-  function confirmDocumentCheckBatch(ids) {
+  function confirmDocumentCheckBatch(ids, { allUnchecked = false } = {}) {
     if (!ids.length) return;
     modals.openConfirmModal({
-      title: `Check ${ids.length} selected document${ids.length === 1 ? '' : 's'}?`,
+      title: allUnchecked
+        ? `Check all ${ids.length} unchecked document${ids.length === 1 ? '' : 's'}?`
+        : `Check ${ids.length} selected document${ids.length === 1 ? '' : 's'}?`,
       children: (
-        <Stack gap="xs">
-          <Text size="sm">WildTrack checks up to three PDFs at a time. A failed file will not stop the remaining checks.</Text>
-          <Text size="sm" fw={700}>This reads file metadata and PDF bytes temporarily; it does not archive the files.</Text>
-        </Stack>
+        <Text size="sm">
+          WildTrack will check every document in this batch and report progress here. One failed file will not stop the remaining checks.
+        </Text>
       ),
       labels: { confirm: 'Start Document Check', cancel: 'Cancel' },
       confirmProps: { color: 'wildtrackMaroon' },
@@ -267,9 +278,22 @@ export function ReviewPage() {
               leftSection={<MagnifyingGlass size={17} />}
               className="wt-review-search"
             />
-            <Text size="sm" fw={700} c="dimmed" className="wt-nowrap wt-tabular">
-              Showing {firstVisibleIndex}-{lastVisibleIndex} of {visibleResponses.length}
-            </Text>
+            <Group gap="sm" wrap="nowrap" className="wt-review-toolbar-actions">
+              {documentCheckEnabled && uncheckedResponseIds.length ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={batchRunning}
+                  leftSection={<Files size={17} />}
+                  onClick={() => confirmDocumentCheckBatch(uncheckedResponseIds, { allUnchecked: true })}
+                >
+                  Check all unchecked ({uncheckedResponseIds.length})
+                </Button>
+              ) : null}
+              <Text size="sm" fw={700} c="dimmed" className="wt-nowrap wt-tabular">
+                Showing {firstVisibleIndex}-{lastVisibleIndex} of {visibleResponses.length}
+              </Text>
+            </Group>
           </div>
 
           {selectedIds.size ? (
@@ -281,7 +305,7 @@ export function ReviewPage() {
               <Group gap="xs">
                 {documentCheckEnabled ? (
                   <>
-                    <Button variant="default" size="sm" leftSection={<Files size={17} />} onClick={() => confirmDocumentCheckBatch([...selectedIds])}>
+                    <Button variant="default" size="sm" disabled={batchRunning} leftSection={<Files size={17} />} onClick={() => confirmDocumentCheckBatch([...selectedIds])}>
                       Check selected
                     </Button>
                     <Button variant="default" size="sm" leftSection={<Sparkle size={17} />} onClick={() => requestAiReview([...selectedIds])}>
@@ -301,7 +325,7 @@ export function ReviewPage() {
               role="status"
               color={!batchProgress.done ? 'blue' : batchProgress.failed ? 'orange' : 'green'}
               variant="light"
-              title={batchProgress.done ? 'Document checks complete' : 'Checking selected documents'}
+              title={batchProgress.done ? 'Document checks complete' : 'Checking documents'}
               icon={<Files size={19} />}
               withCloseButton={batchProgress.done}
               onClose={() => setBatchProgress(null)}
@@ -313,11 +337,10 @@ export function ReviewPage() {
                   {batchProgress.failed ? ` | ${batchProgress.failed} could not be checked` : ''}
                 </Text>
                 {batchProgress.failures?.length ? (
-                  <Stack gap={2}>
-                    {batchProgress.failures.slice(0, 3).map((failure) => (
+                  <Stack gap={2} className="wt-review-batch-failures">
+                    {batchProgress.failures.map((failure) => (
                       <Text key={failure.id} size="xs"><strong>{failure.student}:</strong> {failure.error}</Text>
                     ))}
-                    {batchProgress.failures.length > 3 ? <Text size="xs">+{batchProgress.failures.length - 3} more failed checks</Text> : null}
                   </Stack>
                 ) : null}
                 <Progress value={(batchProgress.completed / Math.max(batchProgress.total, 1)) * 100} color="wildtrackMaroon" size="sm" />

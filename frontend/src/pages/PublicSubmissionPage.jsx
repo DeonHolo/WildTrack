@@ -95,7 +95,6 @@ export function PublicSubmissionPage() {
   );
   const [workspaceError, setWorkspaceError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [identityEditing, setIdentityEditing] = useState(false);
   const deliverable = getDeliverable(state, slug);
   const activeAccount = useMemo(
     () => state.studentAccounts.find((account) => account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()) || null,
@@ -105,6 +104,7 @@ export function PublicSubmissionPage() {
   const [identity, setIdentity] = useState({ studentNumber: '', studentName: '', teamCode: '' });
   const [values, setValues] = useState({});
   const [fieldErrors, setFieldErrors] = useState({});
+  const [identityErrors, setIdentityErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [result, setResult] = useState(null);
   const student = useMemo(() => findStudent(state.students, identity.studentNumber), [identity.studentNumber, state.students]);
@@ -119,7 +119,6 @@ export function PublicSubmissionPage() {
     return state.attempts.some((response) => normalizeStudentNumber(response.studentNumber) === normalizeStudentNumber(identity.studentNumber) && response.deliverableId === deliverable.id);
   }, [deliverable, identity.studentNumber, state.attempts]);
   const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
-  const returningIdentity = Boolean(activeAccount && student && !identityEditing);
   const requiresPdf = Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
 
   useEffect(() => {
@@ -173,12 +172,9 @@ export function PublicSubmissionPage() {
     setFieldErrors((current) => ({ ...current, [id]: '' }));
   }
 
-  function updateStudentNumber(value, selected) {
-    setIdentity({
-      studentNumber: value,
-      studentName: selected?.name || '',
-      teamCode: selected?.teamCode || ''
-    });
+  function updateIdentity(nextIdentity) {
+    setIdentity(nextIdentity);
+    setIdentityErrors({});
     setFormError('');
   }
 
@@ -186,7 +182,20 @@ export function PublicSubmissionPage() {
     event.preventDefault();
     setFormError('');
     setFieldErrors({});
+    const nextIdentityErrors = {
+      studentNumber: identity.studentNumber.trim() ? '' : 'Choose a Student Number.',
+      studentName: identity.studentName.trim() ? '' : 'Choose a Student Name.',
+      teamCode: identity.teamCode.trim() ? '' : 'Choose a Team Code.'
+    };
+    if (Object.values(nextIdentityErrors).some(Boolean)) {
+      setIdentityErrors(nextIdentityErrors);
+      setFormError(identity.studentNumber.trim()
+        ? 'Complete the required student details.'
+        : 'Choose a Student Number from this workspace\'s class record.');
+      return;
+    }
     if (!student) {
+      setIdentityErrors({ studentNumber: 'Choose a Student Number from this workspace.' });
       setFormError('Choose a Student Number from this workspace\'s class record.');
       return;
     }
@@ -248,27 +257,15 @@ export function PublicSubmissionPage() {
                   <Divider />
                   <StudentIdentityPanel
                     students={identityStudents}
-                    student={student}
-                    value={identity.studentNumber}
+                    identity={identity}
                     activeAccount={activeAccount}
-                    returning={returningIdentity}
-                    onChange={updateStudentNumber}
-                    onUseDifferent={() => {
-                      setIdentityEditing(true);
-                      setIdentity({ studentNumber: '', studentName: '', teamCode: '' });
-                    }}
+                    errors={identityErrors}
+                    mode="submission"
+                    onChange={updateIdentity}
                   />
 
                   <Divider />
-                  <Stack gap="md">
-                    <div>
-                      <Text component="h2" className="wt-section-title">{requiresPdf ? `${deliverable.shortTitle} file` : `${deliverable.shortTitle} links`}</Text>
-                      <Text c="dimmed" size="sm">
-                        {requiresPdf
-                          ? 'Share a Google Drive link that opens directly to the final PDF.'
-                          : 'Paste each requested submission link below.'}
-                      </Text>
-                    </div>
+                  <Stack gap="md" aria-label="Submission links">
                     {deliverable.fields.map((field) => field.type === 'textarea' ? (
                       <Textarea
                         key={field.id}
@@ -287,7 +284,7 @@ export function PublicSubmissionPage() {
                         required={field.required}
                         value={values[field.id] || ''}
                         error={fieldErrors[field.id]}
-                        description={field.pdfRequired ? 'Only a readable PDF Drive link is accepted.' : 'Paste the requested link.'}
+                        description={field.pdfRequired ? 'Share a Google Drive link that opens to the final PDF.' : undefined}
                         placeholder={field.pdfRequired ? 'https://drive.google.com/file/d/...' : 'https://'}
                         leftSection={field.pdfRequired ? <FilePdf size={18} aria-hidden="true" /> : null}
                         onChange={(event) => updateField(field.id, event.currentTarget.value)}

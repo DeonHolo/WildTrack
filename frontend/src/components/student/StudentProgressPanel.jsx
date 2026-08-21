@@ -1,16 +1,12 @@
-import { Group, Paper, Progress, Text, Title } from '@mantine/core';
+import { Paper, Text, Title } from '@mantine/core';
 
-export function StudentProgressPanel({ activeColumns, groupProgress, student }) {
-  const teamPercent = groupProgress.teamSize
-    ? Math.round((groupProgress.submittedMembers / groupProgress.teamSize) * 100)
-    : 0;
-
+export function StudentProgressPanel({ activeColumns, student }) {
   return (
     <Paper className="wt-student-progress" withBorder radius="sm">
       <div className="wt-student-section-head">
         <div>
           <Title order={2}>Progress</Title>
-          <Text size="sm" c="dimmed">Your class-record values and a concise team submission overview.</Text>
+          <Text size="sm" c="dimmed">Your current class-record tracker values.</Text>
         </div>
       </div>
 
@@ -29,19 +25,6 @@ export function StudentProgressPanel({ activeColumns, groupProgress, student }) 
           ) : (
             <Text size="sm" c="dimmed">Tracker columns have not been connected yet.</Text>
           )}
-        </section>
-
-        <section className="wt-team-progress" aria-labelledby="team-progress-heading">
-          <Group justify="space-between" align="baseline" gap="md">
-            <Text id="team-progress-heading" fw={750}>Team submissions</Text>
-            <Text size="sm" fw={750}>{groupProgress.submittedMembers}/{groupProgress.teamSize} members</Text>
-          </Group>
-          <Progress value={teamPercent} color="wildtrackMaroon.7" size="sm" mt="sm" aria-label={`${teamPercent}% of team members have submitted`} />
-          <Text size="sm" c="dimmed" mt="sm">
-            {groupProgress.names.length
-              ? `Members with a recorded response: ${groupProgress.names.join(', ')}.`
-              : 'No team member has a recorded response yet.'}
-          </Text>
         </section>
       </div>
     </Paper>

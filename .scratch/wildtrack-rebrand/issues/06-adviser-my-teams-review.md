@@ -2,7 +2,7 @@
 
 **What to build:** Migrate adviser review around assigned teams and group outputs rather than showing duplicate member submissions as independent adviser work. Retain individual records for grading and audit while giving advisers the shortest path to the team's usable deliverable.
 
-**Blocked by:** 02 - Role-specific application shells; 05 - Deliverable-first Review.
+**Blocked by:** 02 - Role-specific application shells; 05 - Deliverable-first Review; 05a - Submission identity and review feedback corrections.
 
 **Status:** ready-for-agent
 
@@ -16,4 +16,3 @@
 - [ ] Student-facing feedback becomes visible to the response owner without exposing adviser-only or admin-only information.
 - [ ] Empty assignments, unavailable files, conflicting member submissions, and no-feedback states are explicitly designed.
 - [ ] Tests verify adviser scoping, team grouping, feedback visibility, acceptance behavior, and AI permission boundaries.
-
