@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -41,6 +42,10 @@ export function ReviewPage() {
     revokeAcceptance,
     archiveAttempt
   } = useWorkflow();
+  const [searchParams] = useSearchParams();
+  const linkedResponseId = searchParams.get('response') || '';
+  const linkedResponse = state.attempts.find((response) => response.id === linkedResponseId) || null;
+  const linkedDeliverableId = linkedResponse?.deliverableId || searchParams.get('deliverable') || '';
   const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
   const orderedDeliverables = useMemo(() => sortDeliverables(state, state.deliverables), [state]);
   const summaries = useMemo(() => buildDeliverableReviewSummaries({
@@ -49,7 +54,11 @@ export function ReviewPage() {
     expectedStudents: identityStudents
   }), [identityStudents, orderedDeliverables, state.attempts]);
 
-  const [selectedDeliverableId, setSelectedDeliverableId] = useState(orderedDeliverables[0]?.id || '');
+  const [selectedDeliverableId, setSelectedDeliverableId] = useState(() => (
+    orderedDeliverables.some((deliverable) => deliverable.id === linkedDeliverableId)
+      ? linkedDeliverableId
+      : orderedDeliverables[0]?.id || ''
+  ));
   const activeDeliverableId = summaries.some((summary) => summary.deliverable.id === selectedDeliverableId)
     ? selectedDeliverableId
     : summaries[0]?.deliverable.id || '';
@@ -57,7 +66,7 @@ export function ReviewPage() {
   const selectedDeliverable = selectedSummary?.deliverable || null;
   const [filter, setFilter] = useState('Pending');
   const [query, setQuery] = useState('');
-  const [selectedResponseId, setSelectedResponseId] = useState('');
+  const [selectedResponseId, setSelectedResponseId] = useState(linkedResponse?.id || '');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [checkDialogId, setCheckDialogId] = useState('');
   const [batchProgress, setBatchProgress] = useState(null);

@@ -2,6 +2,7 @@ import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { wildTrackTheme } from '../app/theme.js';
 import { WorkspacePage } from './WorkspacePage.jsx';
 
@@ -59,10 +60,14 @@ function createState() {
   };
 }
 
-function renderPage() {
+function renderPage(initialEntry = '/workspace') {
   return render(
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
-      <ModalsProvider><WorkspacePage /></ModalsProvider>
+      <ModalsProvider>
+        <MemoryRouter initialEntries={[initialEntry]} future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+          <WorkspacePage />
+        </MemoryRouter>
+      </ModalsProvider>
     </MantineProvider>
   );
 }
@@ -175,5 +180,12 @@ describe('workspace operations', () => {
     fireEvent.change(within(dialog).getByLabelText('Type RESET to continue'), { target: { value: 'RESET' } });
     fireEvent.click(confirm);
     expect(workflow.reset).toHaveBeenCalledOnce();
+  });
+
+  it('highlights the exact source requested by an operational queue link', () => {
+    renderPage('/workspace?source=tracker');
+
+    const trackerRow = screen.getByText('Tracker').closest('tr');
+    expect(trackerRow).toHaveAttribute('aria-current', 'true');
   });
 });

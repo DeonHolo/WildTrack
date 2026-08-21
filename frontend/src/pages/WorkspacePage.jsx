@@ -16,6 +16,7 @@ import {
   Trash
 } from '@phosphor-icons/react';
 import { Collapse, Modal, Tabs } from '@mantine/core';
+import { useSearchParams } from 'react-router-dom';
 import { Button, ConfirmDialog, Field, PageHeader, StatusBadge } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/workflow.js';
@@ -79,6 +80,8 @@ const EMPTY_TEMPLATE = {
 };
 
 export function WorkspacePage() {
+  const [searchParams] = useSearchParams();
+  const linkedSource = searchParams.get('source') || '';
   const {
     state,
     workspaces,
@@ -305,7 +308,7 @@ export function WorkspacePage() {
             </thead>
             <tbody>
               {sourceStatuses.map((source) => (
-                <tr key={source.key}>
+                <tr key={source.key} className={linkedSource === source.key ? 'is-linked-source' : undefined} aria-current={linkedSource === source.key ? 'true' : undefined}>
                   <td>
                     <strong>{source.title}</strong>
                     <span>{source.responsibility}</span>

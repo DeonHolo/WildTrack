@@ -165,12 +165,12 @@ function createState() {
   };
 }
 
-function pageTree() {
+function pageTree(initialEntry = '/review') {
   return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
         <Notifications />
-        <MemoryRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+        <MemoryRouter initialEntries={[initialEntry]} future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
           <ReviewPage />
         </MemoryRouter>
       </ModalsProvider>
@@ -178,8 +178,8 @@ function pageTree() {
   );
 }
 
-function renderPage() {
-  return render(pageTree());
+function renderPage(initialEntry = '/review') {
+  return render(pageTree(initialEntry));
 }
 
 describe('deliverable-first submission review', () => {
@@ -442,5 +442,12 @@ describe('deliverable-first submission review', () => {
     expect(within(sourceRow).getAllByRole('cell')[5]).toHaveTextContent('0');
     fireEvent.click(within(sourceRow).getByRole('button', { name: 'Open SourceCode review' }));
     expect(within(screen.getByRole('table', { name: 'SourceCode submissions' })).getByText('Not applicable')).toBeInTheDocument();
+  });
+
+  it('opens an exact linked response in its deliverable context', () => {
+    renderPage('/review?deliverable=deliverable-srs&response=response-ron-srs');
+
+    expect(screen.getByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'SRS submissions' })).toBeInTheDocument();
   });
 });

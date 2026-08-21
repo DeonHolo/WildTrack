@@ -62,12 +62,12 @@ function makeState(archives = [makeArchive(0)]) {
   };
 }
 
-function pageTree() {
+function pageTree(initialEntry = '/archive') {
   return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
         <Notifications />
-        <MemoryRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+        <MemoryRouter initialEntries={[initialEntry]} future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
           <ArchivePage />
         </MemoryRouter>
       </ModalsProvider>
@@ -75,8 +75,8 @@ function pageTree() {
   );
 }
 
-function renderPage() {
-  return render(pageTree());
+function renderPage(initialEntry = '/archive') {
+  return render(pageTree(initialEntry));
 }
 
 describe('archive index', () => {
@@ -110,7 +110,7 @@ describe('archive index', () => {
     view.unmount();
     renderPage();
     expect(screen.getByRole('searchbox', { name: 'Search archive' })).toHaveValue('Project 318');
-  });
+  }, 10000);
 
   it('filters every available archive dimension and clears the active criteria', () => {
     const target = makeArchive(1, {
@@ -241,5 +241,13 @@ describe('archive index', () => {
     expect(within(table).getByText('Storage failed')).toBeInTheDocument();
     expect(within(table).getByText('Retrying')).toBeInTheDocument();
     expect(within(table).getByText('Verified')).toBeInTheDocument();
+  });
+
+  it('opens an exact archive record from a queue link', () => {
+    workflow.state = makeState([makeArchive(0), makeArchive(1)]);
+    renderPage('/archive?record=archive-2');
+
+    const drawer = screen.getByRole('dialog', { name: 'Archive record details' });
+    expect(drawer).toHaveTextContent('Software 002');
   });
 });

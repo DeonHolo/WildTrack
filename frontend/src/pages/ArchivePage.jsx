@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -45,6 +46,8 @@ const EMPTY_FILTERS = {
 
 export function ArchivePage() {
   const workflow = useWorkflow();
+  const [searchParams] = useSearchParams();
+  const linkedArchiveId = searchParams.get('record') || '';
   const {
     state,
     activeWorkspace,
@@ -56,7 +59,7 @@ export function ArchivePage() {
   } = workflow;
   const [filters, setFilters] = useState(loadArchiveFilters);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [selectedArchiveId, setSelectedArchiveId] = useState('');
+  const [selectedArchiveId, setSelectedArchiveId] = useState(linkedArchiveId);
   const [page, setPage] = useState(1);
   const [archiving, setArchiving] = useState(false);
 

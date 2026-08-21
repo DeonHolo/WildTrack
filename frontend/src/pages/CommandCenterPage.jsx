@@ -1,229 +1,465 @@
 import { useMemo, useState } from 'react';
-import { Archive, ArrowSquareOut, ClipboardText, FilePdf, Files, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
-import { Link } from 'react-router-dom';
-import { Button, ConfirmDialog, DataTable, EmptyState, PageHeader, StatusBadge } from '../components/ui.jsx';
-import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
 import {
-  findStudent,
+  Alert,
+  Button,
+  Pagination,
+  Paper,
+  Progress,
+  Stack,
+  Text,
+  TextInput,
+  Title
+} from '@mantine/core';
+import { modals } from '@mantine/modals';
+import { notifications } from '@mantine/notifications';
+import { CheckCircle, Files, MagnifyingGlass } from '@phosphor-icons/react';
+import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { WorkQueueTable } from '../components/command/WorkQueueTable.jsx';
+import {
   deliverableUsesDocumentCheck,
-  firstSubmissionLink,
-  formatDateTime,
+  findStudent,
   getDeliverable,
-  getIdentityStudents,
-  isDocumentCheckCurrent,
-  isDocumentCheckUnavailable,
-  makeDriveViewUrl
+  isDocumentCheckCurrent
 } from '../lib/workflow.js';
+
+const PAGE_SIZE = 50;
+const QUEUE_FILTERS = [
+  { value: 'all', label: 'All work' },
+  { value: 'document', label: 'Document Check' },
+  { value: 'review', label: 'Review' },
+  { value: 'identity', label: 'Identity' },
+  { value: 'workspace', label: 'Workspace' },
+  { value: 'archive', label: 'Archive' }
+];
 
 export function CommandCenterPage() {
   const { state, runDocumentCheck, runDocumentChecks, archiveAttempt } = useWorkflow();
-  const [checkDialogId, setCheckDialogId] = useState('');
-  const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
+  const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [runningIds, setRunningIds] = useState(new Set());
+  const [resolvedTaskIds, setResolvedTaskIds] = useState(new Set());
   const [batchProgress, setBatchProgress] = useState(null);
-  const identityStudents = getIdentityStudents(state.students);
-  const attention = buildAttentionQueue(state);
-  const accepted = state.attempts.filter((response) => response.reviewStatus === 'Accepted' && response.archiveStatus !== 'Archived');
-  const missing = Math.max(0, state.deliverables.filter((item) => item.status !== 'Unpublished').length * identityStudents.length - state.attempts.length);
-  const pendingChecks = useMemo(
-    () => attention
-      .filter((item) => deliverableUsesDocumentCheck(item.deliverable))
-      .map((item) => item.response)
-      .filter((response) => response.fileCheckStatus !== 'Checking' && !isDocumentCheckCurrent(response)),
-    [attention]
+
+  const allTasks = useMemo(() => buildWorkQueue(state), [state]);
+  const openTasks = useMemo(
+    () => allTasks.filter((task) => !resolvedTaskIds.has(task.id)),
+    [allTasks, resolvedTaskIds]
   );
-  const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
+  const visibleTasks = useMemo(
+    () => openTasks
+      .filter((task) => filter === 'all' || task.category === filter)
+      .filter((task) => taskMatchesQuery(task, query)),
+    [filter, openTasks, query]
+  );
+  const counts = useMemo(
+    () => QUEUE_FILTERS.reduce((result, item) => ({
+      ...result,
+      [item.value]: openTasks.filter((task) => item.value === 'all' || task.category === item.value).length
+    }), {}),
+    [openTasks]
+  );
+  const pendingDocumentTasks = useMemo(
+    () => openTasks.filter((task) => task.category === 'document'),
+    [openTasks]
+  );
+  const pageCount = Math.max(1, Math.ceil(visibleTasks.length / PAGE_SIZE));
+  const activePage = Math.min(page, pageCount);
+  const pageTasks = visibleTasks.slice((activePage - 1) * PAGE_SIZE, activePage * PAGE_SIZE);
+  const firstRow = visibleTasks.length ? (activePage - 1) * PAGE_SIZE + 1 : 0;
+  const lastRow = Math.min(activePage * PAGE_SIZE, visibleTasks.length);
+  const batchRunning = Boolean(batchProgress && !batchProgress.done);
 
-  async function openOrRunDocumentCheck(response) {
-    if (!isDocumentCheckCurrent(response)) await runDocumentCheck(response.id);
-    setCheckDialogId(response.id);
+  function chooseFilter(value) {
+    setFilter(value);
+    setPage(1);
   }
 
-  async function runPendingChecks() {
-    setBatchConfirmOpen(false);
-    setBatchProgress({ completed: 0, total: pendingChecks.length, failed: 0 });
-    const result = await runDocumentChecks(
-      pendingChecks.map((response) => response.id),
-      { onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total })) }
-    );
-    setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, done: true });
+  async function checkDocument(task) {
+    setRunningIds((current) => withId(current, task.response.id));
+    const result = await runDocumentCheck(task.response.id);
+    setRunningIds((current) => withoutId(current, task.response.id));
+    if (result?.ok) {
+      setResolvedTaskIds((current) => withId(current, task.id));
+      notifications.show({
+        color: 'green',
+        title: 'Document Check complete',
+        message: task.studentName + "'s " + task.deliverableCode + ' left the unchecked queue.'
+      });
+    } else {
+      notifications.show({
+        color: 'red',
+        title: 'Document Check could not finish',
+        message: result?.error || 'Try checking this response again.'
+      });
+    }
   }
+
+  function confirmCheckAll() {
+    if (!pendingDocumentTasks.length) return;
+    const count = pendingDocumentTasks.length;
+    modals.openConfirmModal({
+      title: 'Check ' + count + ' unchecked document' + (count === 1 ? '' : 's') + '?',
+      children: (
+        <Text size="sm">
+          WildTrack will process the complete unchecked queue. An individual failure will not stop the remaining checks.
+        </Text>
+      ),
+      labels: { confirm: 'Start Document Check', cancel: 'Cancel' },
+      confirmProps: { color: 'wildtrackMaroon' },
+      centered: true,
+      onConfirm: runAllDocumentChecks
+    });
+  }
+
+  async function runAllDocumentChecks() {
+    const tasks = pendingDocumentTasks;
+    const ids = tasks.map((task) => task.response.id);
+    setBatchProgress({ completed: 0, total: ids.length, failed: 0, done: false });
+    const result = await runDocumentChecks(ids, {
+      onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total }))
+    });
+    const successfulAttemptIds = new Set((result.results || []).filter((item) => item.ok).map((item) => item.attemptId));
+    if (!result.results?.length && result.failed === 0) ids.forEach((id) => successfulAttemptIds.add(id));
+    setResolvedTaskIds((current) => {
+      const next = new Set(current);
+      tasks.filter((task) => successfulAttemptIds.has(task.response.id)).forEach((task) => next.add(task.id));
+      return next;
+    });
+    setBatchProgress({
+      completed: result.completed,
+      total: result.total,
+      failed: result.failed,
+      done: true
+    });
+  }
+
+  function confirmArchive(task) {
+    modals.openConfirmModal({
+      title: 'Archive this accepted response?',
+      children: (
+        <Text size="sm">
+          WildTrack creates one archive metadata record and keeps the submitted Drive link as its source reference. Independent PDF storage is not connected yet.
+        </Text>
+      ),
+      labels: { confirm: 'Archive response', cancel: 'Cancel' },
+      confirmProps: { color: 'wildtrackMaroon' },
+      centered: true,
+      onConfirm: async () => {
+        setRunningIds((current) => withId(current, task.response.id));
+        const result = await archiveAttempt(task.response.id);
+        setRunningIds((current) => withoutId(current, task.response.id));
+        if (result?.ok) {
+          setResolvedTaskIds((current) => withId(current, task.id));
+          notifications.show({
+            color: 'green',
+            title: 'Archive record created',
+            message: "The accepted response left Today's work."
+          });
+        } else {
+          notifications.show({
+            color: 'red',
+            title: 'Archive failed',
+            message: result?.error || 'The archive record could not be created.'
+          });
+        }
+      }
+    });
+  }
+
+  const emptyTitle = filter === 'all' && !query
+    ? 'All clear for this workspace'
+    : 'No ' + (filter === 'all' ? 'matching' : QUEUE_FILTERS.find((item) => item.value === filter)?.label.toLowerCase()) + ' work';
 
   return (
-    <div className="page-stack">
-      <PageHeader
-        title="Today's Work"
-        description="Prioritized submission, file-check, tracker, and archive work for Sir Ralph."
-        actions={<Link className="btn btn-primary btn-md" to="/forms"><ClipboardText weight="regular" /><span>Publish form</span></Link>}
-      />
-
-      <section className="metric-grid">
-        <Metric icon={ClipboardText} label="Open forms" value={state.deliverables.filter((item) => item.status !== 'Unpublished').length} />
-        <Metric icon={FilePdf} label="Current responses" value={state.attempts.length} />
-        <Metric icon={WarningCircle} label="Needs action" value={attention.length} />
-        <Metric icon={Archive} label="Archive candidates" value={accepted.length} />
-      </section>
-
-      <section className="panel">
-        <div className="panel-header">
-          <div>
-            <h2>Action queue</h2>
-            <p>Rows are ordered by work that saves the most checking time first.</p>
-          </div>
-          <div className="panel-header-actions">
-            <Button size="sm" variant="secondary" icon={Files} disabled={!pendingChecks.length || Boolean(batchProgress && !batchProgress.done)} onClick={() => setBatchConfirmOpen(true)}>
-              Check pending documents
-            </Button>
-            <Link className="text-link" to="/review">Open full review</Link>
-          </div>
+    <Stack gap="lg" className="wt-command-page">
+      <header className="wt-staff-page-heading wt-command-heading">
+        <div>
+          <Text className="wt-eyebrow">Command center</Text>
+          <Title order={1}>Today&apos;s work</Title>
+          <Text c="dimmed">Resolve unchecked files, review decisions, conflicts, imports, and final records for this workspace.</Text>
         </div>
-        {batchProgress ? (
-          <div className={`batch-progress ${batchProgress.done ? batchProgress.failed ? 'warning' : 'success' : ''}`} role="status">
-            <div><strong>{batchProgress.done ? 'Document checks complete' : 'Checking documents'}</strong><span>{batchProgress.completed} of {batchProgress.total}{batchProgress.failed ? ` | ${batchProgress.failed} could not be checked` : ''}</span></div>
-            <progress value={batchProgress.completed} max={Math.max(batchProgress.total, 1)} />
-            {batchProgress.done ? <button type="button" onClick={() => setBatchProgress(null)}>Dismiss</button> : null}
-          </div>
+        {pendingDocumentTasks.length ? (
+          <Button
+            variant="default"
+            leftSection={<Files size={18} />}
+            disabled={batchRunning}
+            onClick={confirmCheckAll}
+          >
+            Check all unchecked ({pendingDocumentTasks.length})
+          </Button>
         ) : null}
-        {attention.length ? (
-          <DataTable columns={['Priority', 'Student', 'Deliverable', 'Issue', 'Updated', 'Actions']} minWidth={980} className="today-work-table">
-            {attention.slice(0, 12).map((item) => {
-              const fileLink = firstSubmissionLink(item.response.values);
-              return (
-                <tr key={item.response.id}>
-                  <td><StatusBadge status={item.priority} /></td>
-                  <td><strong>{item.student?.name || item.response.studentName}</strong><small>{item.student?.teamCode || item.response.teamCode}</small></td>
-                  <td>{item.deliverable?.shortTitle || 'Deliverable'}</td>
-                  <td className="summary-cell">{item.issue}</td>
-                  <td>{formatDateTime(item.response.updatedAt || item.response.submittedAt)}</td>
-                  <td>
-                    <div className="row-action-group">
-                      {fileLink ? <a className="btn btn-secondary btn-sm" href={makeDriveViewUrl(fileLink)} target="_blank" rel="noreferrer"><ArrowSquareOut weight="regular" /><span>Open file link</span></a> : null}
-                      {deliverableUsesDocumentCheck(item.deliverable) ? (
-                        <Button size="sm" variant="secondary" icon={MagnifyingGlass} loading={item.response.fileCheckStatus === 'Checking'} onClick={() => openOrRunDocumentCheck(item.response)}>
-                          {isDocumentCheckCurrent(item.response) ? 'View check' : 'Check document'}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </DataTable>
+      </header>
+
+      <Paper withBorder className="wt-command-workbench">
+        <div className="wt-command-workbench-head">
+          <div>
+            <Title order={2}>Work queue</Title>
+            <Text size="sm" c="dimmed">Only unresolved items with a direct next action appear here.</Text>
+          </div>
+          <Text className="wt-command-total wt-tabular" size="sm" fw={800}>{counts.all || 0} open</Text>
+        </div>
+
+        <div className="wt-command-filters" role="group" aria-label="Work queue filter">
+          {QUEUE_FILTERS.map((item) => (
+            <Button
+              key={item.value}
+              size="sm"
+              variant={filter === item.value ? 'filled' : 'subtle'}
+              color="wildtrackMaroon"
+              aria-label={item.label}
+              aria-pressed={filter === item.value}
+              onClick={() => chooseFilter(item.value)}
+            >
+              {item.label}
+              <span className="wt-command-filter-count wt-tabular">{counts[item.value] || 0}</span>
+            </Button>
+          ))}
+        </div>
+
+        <div className="wt-command-toolbar">
+          <TextInput
+            aria-label="Search work queue"
+            type="search"
+            placeholder="Search student, team, deliverable, or issue"
+            leftSection={<MagnifyingGlass size={17} />}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.currentTarget.value);
+              setPage(1);
+            }}
+          />
+          <Text size="sm" fw={700} c="dimmed" className="wt-nowrap wt-tabular">
+            Showing {firstRow}-{lastRow} of {visibleTasks.length}
+          </Text>
+        </div>
+
+        {batchProgress ? (
+          <Alert
+            role="status"
+            color={!batchProgress.done ? 'blue' : batchProgress.failed ? 'orange' : 'green'}
+            variant="light"
+            title={batchProgress.done ? 'Document checks complete' : 'Checking documents'}
+            icon={batchProgress.done && !batchProgress.failed ? <CheckCircle size={19} /> : <Files size={19} />}
+            withCloseButton={batchProgress.done}
+            onClose={() => setBatchProgress(null)}
+            className="wt-command-batch-progress"
+          >
+            <Stack gap="xs">
+              <Text size="sm">
+                {batchProgress.completed} of {batchProgress.total} completed
+                {batchProgress.failed ? ' | ' + batchProgress.failed + ' could not be checked' : ''}
+              </Text>
+              <Progress value={(batchProgress.completed / Math.max(batchProgress.total, 1)) * 100} color="wildtrackMaroon" size="sm" />
+            </Stack>
+          </Alert>
+        ) : null}
+
+        {visibleTasks.length ? (
+          <>
+            <WorkQueueTable
+              tasks={pageTasks}
+              runningIds={runningIds}
+              onCheck={checkDocument}
+              onArchive={confirmArchive}
+            />
+            {visibleTasks.length > PAGE_SIZE ? (
+              <div className="wt-command-pagination">
+                <Text size="sm" c="dimmed" className="wt-tabular">Page {activePage} of {pageCount}</Text>
+                <Pagination total={pageCount} value={activePage} onChange={setPage} color="wildtrackMaroon" size="sm" withEdges />
+              </div>
+            ) : null}
+          </>
         ) : (
-          <EmptyState title="No urgent work right now" description="Review is clear based on current responses and Document Check results." />
+          <div className="wt-command-empty">
+            <CheckCircle size={28} weight="duotone" aria-hidden="true" />
+            <div>
+              <Text fw={800}>{emptyTitle}</Text>
+              <Text size="sm" c="dimmed">
+                {filter === 'all' && !query
+                  ? 'New unresolved work will appear here as submissions and imports change.'
+                  : 'Try another work type or search term.'}
+              </Text>
+            </div>
+          </div>
         )}
-      </section>
-
-      <section className="split-grid">
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Archive candidates</h2>
-              <p>Accepted final PDFs waiting for a preserved copy.</p>
-            </div>
-            <Link className="text-link" to="/archive">Archive index</Link>
-          </div>
-          <div className="compact-row-list">
-            {accepted.length ? accepted.map((response) => {
-              const student = findStudent(state.students, response.studentNumber);
-              const deliverable = getDeliverable(state, response.deliverableId);
-              return (
-                <div className="compact-action-row" key={response.id}>
-                  <div><strong>{deliverable?.shortTitle}</strong><span>{student?.teamCode} | {student?.name || response.studentName}</span></div>
-                  <Button size="sm" variant="primary" icon={Archive} onClick={() => archiveAttempt(response.id)}>Archive final</Button>
-                </div>
-              );
-            }) : <p className="muted-copy">No accepted final responses are waiting for archive.</p>}
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Workspace signals</h2>
-              <p>Import and setup items that can affect form and tracker quality.</p>
-            </div>
-            <Link className="text-link" to="/workspace">Workspace setup</Link>
-          </div>
-          <div className="compact-row-list">
-            <div className="compact-action-row">
-              <div><strong>Missing responses</strong><span>{missing} based on open forms and Team Formation identities.</span></div>
-              <StatusBadge status={missing ? 'Needs Attention' : 'Ready'} />
-            </div>
-            <div className="compact-action-row">
-              <div><strong>Identity source</strong><span>{state.classRecord.sources?.teamFormation?.name || 'Team Formation'}</span></div>
-              <StatusBadge status={state.classRecord.sources?.teamFormation?.status || 'Not connected'} />
-            </div>
-            <div className="compact-action-row">
-              <div><strong>Project metadata</strong><span>{state.projectMetadata?.length || 0} groups loaded.</span></div>
-              <StatusBadge status={state.projectMetadata?.length ? 'Ready' : 'Needs Attention'} />
-            </div>
-          </div>
-        </section>
-      </section>
-
-      <DocumentCheckDialog
-        open={Boolean(checkDialogResponse)}
-        response={checkDialogResponse}
-        fileLink={firstSubmissionLink(checkDialogResponse?.values)}
-        rechecking={checkDialogResponse?.fileCheckStatus === 'Checking'}
-        onClose={() => setCheckDialogId('')}
-        onRecheck={() => runDocumentCheck(checkDialogResponse.id)}
-      />
-
-      <ConfirmDialog
-        open={batchConfirmOpen}
-        title={`Check ${pendingChecks.length} pending document${pendingChecks.length === 1 ? '' : 's'}?`}
-        description="WildTrack checks every selected PDF and continues if an individual document cannot be checked."
-        confirmLabel="Start Document Check"
-        onClose={() => setBatchConfirmOpen(false)}
-        onConfirm={runPendingChecks}
-      />
-    </div>
+      </Paper>
+    </Stack>
   );
 }
 
-function buildAttentionQueue(state) {
-  return state.attempts
-    .filter((response) => response.reviewStatus !== 'Accepted' && response.archiveStatus !== 'Archived')
-    .map((response) => {
-      const student = findStudent(state.students, response.studentNumber);
-      const deliverable = getDeliverable(state, response.deliverableId);
-      const flags = response.flags || [];
-      const currentCheck = isDocumentCheckCurrent(response);
-      const checkEligible = deliverableUsesDocumentCheck(deliverable);
-      const issue = flags.includes('Template-like')
-        ? 'Submission appears close to the provided template.'
-        : flags.includes('Too Short')
-          ? 'Extracted content appears too short.'
-          : checkEligible && !currentCheck
-            ? isDocumentCheckUnavailable(response)
-              ? 'This file was not checked because Google Drive API was not configured on that machine.'
-              : 'This submitted file has not been checked yet.'
-            : response.reviewStatus === 'Needs Review'
-              ? 'Document Check found items that need a staff decision.'
-              : 'Document Check is complete and this response is ready for a staff decision.';
-      if (!issue) return null;
-      return {
+function buildWorkQueue(state) {
+  const tasks = [];
+  const attempts = state.attempts || [];
+
+  attempts.forEach((response) => {
+    if (response.archiveStatus === 'Archived') return;
+    const student = findStudent(state.students, response.studentNumber);
+    const deliverable = getDeliverable(state, response.deliverableId);
+    const studentName = student?.name || response.studentName || response.studentNumber || 'Unmatched student';
+    const teamCode = student?.teamCode || response.teamCode || 'Unmatched team';
+    const deliverableCode = deliverable?.shortTitle || deliverable?.trackerColumn || 'Deliverable';
+    const updatedAt = response.updatedAt || response.submittedAt;
+
+    if (response.identityConflict) {
+      tasks.push({
+        id: 'identity:' + response.id,
+        category: 'identity',
+        type: 'Identity conflict',
+        title: studentName + ' used an identity already associated with another response',
+        detail: 'Confirm the submitted roster details before this response affects the tracker.',
+        studentName,
+        teamCode,
+        deliverableCode,
+        updatedAt,
         response,
-        student,
-        deliverable,
-        issue,
-        priority: flags.includes('Template-like') || flags.includes('Too Short') || response.reviewStatus === 'Needs Review'
-          ? 'Needs attention'
-          : checkEligible && !currentCheck ? 'Not checked' : 'Ready for review'
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => Number(isDocumentCheckCurrent(a.response)) - Number(isDocumentCheckCurrent(b.response)));
+        href: reviewHref(response),
+        actionLabel: 'Resolve conflict',
+        actionAriaLabel: 'Resolve ' + studentName + ' identity conflict'
+      });
+      return;
+    }
+
+    if (response.reviewStatus === 'Accepted') {
+      tasks.push({
+        id: 'archive:' + response.id,
+        category: 'archive',
+        type: 'Archive final',
+        title: studentName + ' | ' + deliverableCode,
+        detail: 'Accepted response is ready for a final archive record.',
+        studentName,
+        teamCode,
+        deliverableCode,
+        updatedAt: response.acceptance?.acceptedAt || updatedAt,
+        response,
+        action: 'archive',
+        actionLabel: 'Archive final',
+        actionAriaLabel: 'Archive ' + studentName + ' final'
+      });
+      return;
+    }
+
+    if (deliverableUsesDocumentCheck(deliverable) && !isDocumentCheckCurrent(response)) {
+      tasks.push({
+        id: 'document:' + response.id,
+        category: 'document',
+        type: 'Document Check',
+        title: studentName + ' | ' + deliverableCode,
+        detail: response.fileCheckStatus === 'Error'
+          ? response.fileCheckError || 'The previous Document Check could not finish.'
+          : 'Submitted PDF has not been checked against its current response.',
+        studentName,
+        teamCode,
+        deliverableCode,
+        updatedAt,
+        response,
+        action: 'check',
+        actionLabel: response.fileCheckStatus === 'Error' ? 'Check again' : 'Check document',
+        actionAriaLabel: 'Check ' + studentName + ' document'
+      });
+      return;
+    }
+
+    tasks.push({
+      id: 'review:' + response.id,
+      category: 'review',
+      type: 'Review decision',
+      title: studentName + ' | ' + deliverableCode,
+      detail: response.documentCheck?.summary || 'Document Check is complete and this response needs a staff decision.',
+      studentName,
+      teamCode,
+      deliverableCode,
+      updatedAt: response.documentCheck?.checkedAt || updatedAt,
+      response,
+      href: reviewHref(response),
+      actionLabel: 'Review response',
+      actionAriaLabel: 'Review ' + studentName + ' response'
+    });
+  });
+
+  importWarnings(state).forEach((warning, index) => {
+    const source = normalizeImportSource(state.classRecord?.importSummary?.sourceType);
+    tasks.push({
+      id: 'workspace:' + source + ':' + index + ':' + warning,
+      category: 'workspace',
+      type: 'Import warning',
+      title: sourceLabel(source) + ' import needs attention',
+      detail: warning,
+      teamCode: 'Workspace source',
+      deliverableCode: sourceLabel(source),
+      updatedAt: state.classRecord?.sources?.[source]?.connectedAt || '',
+      href: '/workspace?source=' + source,
+      actionLabel: 'Open import',
+      actionAriaLabel: 'Open ' + sourceLabel(source) + ' import warning'
+    });
+  });
+
+  (state.archives || [])
+    .filter((archive) => archive.storageStatus === 'Failed' || archive.integrityStatus === 'Verification failed')
+    .forEach((archive) => {
+      tasks.push({
+        id: 'archive-failed:' + archive.id,
+        category: 'archive',
+        type: archive.integrityStatus === 'Verification failed' ? 'Integrity check failed' : 'Archive storage failed',
+        title: (archive.teamCode || 'Unknown team') + ' | ' + (archive.deliverableTitle || 'Final document'),
+        detail: archive.failureReason || 'Open the archive record to inspect the failure and available retry action.',
+        teamCode: archive.teamCode || 'Archive record',
+        deliverableCode: archive.deliverableTitle || 'Final document',
+        updatedAt: archive.lastCheckedAt || archive.archivedAt,
+        href: '/archive?record=' + encodeURIComponent(archive.id),
+        actionLabel: 'Open record',
+        actionAriaLabel: 'Open failed archive record'
+      });
+    });
+
+  return tasks.sort((a, b) => priorityOf(a.category) - priorityOf(b.category) || dateValue(b.updatedAt) - dateValue(a.updatedAt));
 }
 
-function Metric({ icon: Icon, label, value }) {
-  return (
-    <div className="metric-card">
-      <Icon weight="regular" />
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
+function importWarnings(state) {
+  const summary = state.classRecord?.importSummary;
+  if (!summary || !String(summary.resultStatus || '').toLowerCase().includes('warning')) return [];
+  return [...new Set([...(summary.warnings || []), ...(state.classRecord?.importWarnings || [])].filter(Boolean))];
+}
+
+function reviewHref(response) {
+  return '/review?deliverable=' + encodeURIComponent(response.deliverableId) + '&response=' + encodeURIComponent(response.id);
+}
+
+function normalizeImportSource(value) {
+  const lower = String(value || '').toLowerCase();
+  if (lower.includes('team')) return 'teamFormation';
+  if (lower.includes('project')) return 'projectMonitor';
+  return 'tracker';
+}
+
+function sourceLabel(source) {
+  if (source === 'teamFormation') return 'Team Formation';
+  if (source === 'projectMonitor') return 'Software Project Monitor';
+  return 'Tracker';
+}
+
+function taskMatchesQuery(task, query) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return [task.type, task.title, task.detail, task.studentName, task.teamCode, task.deliverableCode]
+    .some((value) => String(value || '').toLowerCase().includes(needle));
+}
+
+function priorityOf(category) {
+  return { identity: 0, document: 1, review: 2, workspace: 3, archive: 4 }[category] ?? 5;
+}
+
+function dateValue(value) {
+  const parsed = new Date(value || 0).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function withId(values, id) {
+  return new Set([...values, id]);
+}
+
+function withoutId(values, id) {
+  const next = new Set(values);
+  next.delete(id);
+  return next;
 }
