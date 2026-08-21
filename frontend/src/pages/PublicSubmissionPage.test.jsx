@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -89,7 +89,7 @@ function selectStudent() {
   const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
   fireEvent.focus(studentNumber);
   fireEvent.change(studentNumber, { target: { value: '22-1001' } });
-  fireEvent.click(screen.getByRole('option', { name: /DELA CRUZ, JUAN CARLOS M\./i }));
+  fireEvent.click(screen.getByRole('option', { name: '22-1001-001' }));
 }
 
 function selectStudentByName(name = 'DELA CRUZ') {
@@ -137,6 +137,19 @@ describe('public submission form', () => {
     expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
     expect(screen.getByRole('combobox', { name: /Team Code/i })).toHaveValue('2526-sem2-it332-11');
     expect(screen.queryByText(/class-record entries available/i)).not.toBeInTheDocument();
+  });
+
+  it('shows each identity result as only the value belonging to that field', () => {
+    renderForm();
+
+    const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
+    fireEvent.focus(studentNumber);
+    fireEvent.change(studentNumber, { target: { value: '22-1001' } });
+
+    const numberListbox = screen.getByRole('listbox');
+    expect(within(numberListbox).getByRole('option', { name: '22-1001-001' })).toBeInTheDocument();
+    expect(within(numberListbox).queryByText('DELA CRUZ, JUAN CARLOS M.')).not.toBeInTheDocument();
+    expect(within(numberListbox).queryByText('2526-sem2-it332-11')).not.toBeInTheDocument();
   });
 
   it('autofills Student Number and Team Code when a Student Name is selected', () => {

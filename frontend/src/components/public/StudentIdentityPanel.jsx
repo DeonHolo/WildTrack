@@ -105,15 +105,9 @@ function teamOptions(students) {
 function StudentOption({ option, primary }) {
   const student = option.student;
   return (
-    <Group gap="md" wrap="nowrap" align="flex-start">
-      <Text ff={primary === 'number' ? 'monospace' : undefined} fw={650} size="sm" className="wt-nowrap">
-        {primary === 'number' ? student.studentNumber : student.name}
-      </Text>
-      <div>
-        <Text fw={650} size="sm">{primary === 'number' ? student.name : student.studentNumber}</Text>
-        <Text c="dimmed" size="xs">{student.teamCode}</Text>
-      </div>
-    </Group>
+    <Text ff={primary === 'number' ? 'monospace' : undefined} fw={650} size="sm" className="wt-nowrap">
+      {primary === 'number' ? student.studentNumber : student.name}
+    </Text>
   );
 }
 
@@ -186,7 +180,7 @@ function SubmissionIdentityFields({ students, identity, activeAccount, errors, o
         <Text component="h2" className="wt-section-title">Student details</Text>
         <Text c="dimmed" size="sm">Select your Student Number or name to fill the matching class-record details.</Text>
       </div>
-      <div className="wt-public-identity-grid">
+      <Stack gap="md" className="wt-public-identity-grid">
         <SearchableIdentityField
           label="Student Number"
           placeholder="Search Student Number"
@@ -220,7 +214,7 @@ function SubmissionIdentityFields({ students, identity, activeAccount, errors, o
           emptyLabel="No matching team code"
           error={errors?.teamCode}
         />
-      </div>
+      </Stack>
       {activeAccount?.email ? <AccountAttribution email={activeAccount.email} /> : null}
       {identity.studentNumber && !students.some((student) => student.studentNumber === identity.studentNumber) ? (
         <Alert color="orange" variant="light" icon={<IdentificationCard size={19} />}>

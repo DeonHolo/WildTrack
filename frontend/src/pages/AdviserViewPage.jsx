@@ -1,58 +1,100 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowSquareOut, CaretDown, CaretUp, ChatCenteredText, CheckCircle, Files, MagnifyingGlass } from '@phosphor-icons/react';
-import { Button, ConfirmDialog, DataTable, EmptyState, Field, PageHeader, SearchBox, StatusBadge } from '../components/ui.jsx';
-import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
 import {
-  firstSubmissionLink,
+  ActionIcon,
+  Alert,
+  Button,
+  Divider,
+  Group,
+  NativeSelect,
+  Paper,
+  Progress,
+  ScrollArea,
+  Select,
+  Stack,
+  Table,
+  Text,
+  Textarea,
+  TextInput,
+  ThemeIcon,
+  Tooltip,
+  Title
+} from '@mantine/core';
+import { modals } from '@mantine/modals';
+import {
+  ArrowSquareOut,
+  CaretRight,
+  CheckCircle,
+  Files,
+  FolderOpen,
+  MagnifyingGlass,
+  NotePencil,
+  UsersThree,
+  WarningCircle,
+  XCircle
+} from '@phosphor-icons/react';
+import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
+import { ReviewStatusBadge } from '../components/review/ReviewStatusBadge.jsx';
+import { APPLICATION_ROLES, useApplicationRole } from '../hooks/useApplicationRole.js';
+import { getStoredPreviewAdviser, setStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
+import {
   deliverableUsesDocumentCheck,
+  firstSubmissionLink,
   formatDate,
   formatDateTime,
-  DRIVE_CHECK_UNAVAILABLE_MESSAGE,
   getAdviserOptions,
   getProjectMetadata,
   getPublishedDeliverables,
   getTeamAdviser,
+  isAiReportCurrent,
   isDocumentCheckCurrent,
   makeDriveViewUrl,
   normalizeStudentNumber,
   sortDeliverables
 } from '../lib/workflow.js';
-import { getStoredPreviewAdviser, setStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
 
 export function AdviserViewPage() {
-  const { state, markAccepted, saveFeedback, runDocumentCheck, runDocumentChecks } = useWorkflow();
+  const {
+    state,
+    markAccepted,
+    revokeAcceptance,
+    saveFeedback,
+    runDocumentCheck,
+    runDocumentChecks
+  } = useWorkflow();
+  const role = useApplicationRole();
+  const isAdmin = role === APPLICATION_ROLES.ADMIN;
   const adviserOptions = useMemo(() => getAdviserOptions(state), [state]);
-  const [adviserName, setAdviserName] = useState(() => {
-    const stored = getStoredPreviewAdviser();
-    return adviserOptions.includes(stored) ? stored : adviserOptions[0] || 'Unassigned';
-  });
-  const [selectedTeamCode, setSelectedTeamCode] = useState('');
+  const [adviserName, setAdviserName] = useState(() => resolveInitialAdviser(adviserOptions));
   const [query, setQuery] = useState('');
+  const [selectedTeamCode, setSelectedTeamCode] = useState('');
   const [selectedDeliverableId, setSelectedDeliverableId] = useState('');
+  const [selectedOutputIds, setSelectedOutputIds] = useState({});
   const [feedback, setFeedback] = useState('');
-  const [acceptTarget, setAcceptTarget] = useState(null);
+  const [expandedFeedbackIds, setExpandedFeedbackIds] = useState([]);
   const [checkDialogId, setCheckDialogId] = useState('');
-  const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
   const [batchProgress, setBatchProgress] = useState(null);
 
-  const teams = useMemo(() => buildAdviserTeams(state, adviserName, query), [adviserName, query, state]);
+  const teams = useMemo(
+    () => buildAdviserTeams(state, adviserName, query),
+    [adviserName, query, state]
+  );
   const selectedTeam = teams.find((team) => team.teamCode === selectedTeamCode) || teams[0] || null;
-  const deliverableRows = useMemo(() => selectedTeam ? buildTeamDeliverableRows(state, selectedTeam) : [], [selectedTeam, state]);
+  const deliverableRows = useMemo(
+    () => selectedTeam ? buildTeamDeliverableRows(state, selectedTeam) : [],
+    [selectedTeam, state]
+  );
   const selectedRow = deliverableRows.find((row) => row.deliverable.id === selectedDeliverableId) || deliverableRows[0] || null;
-  const pendingSelectedChecks = deliverableUsesDocumentCheck(selectedRow?.deliverable)
-    ? (selectedRow?.responses || []).filter((response) =>
-        response.fileCheckStatus !== 'Checking' && !isDocumentCheckCurrent(response)
-      )
-    : [];
+  const selectedOutputId = selectedRow ? selectedOutputIds[selectedRow.deliverable.id] : '';
+  const selectedOutput = selectedRow?.outputs.find((output) => output.id === selectedOutputId) || selectedRow?.currentOutput || null;
+  const selectedResponse = selectedOutput?.latest || null;
   const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
 
   useEffect(() => {
-    if (!adviserOptions.includes(adviserName)) {
-      const nextAdviser = adviserOptions[0] || 'Unassigned';
-      setAdviserName(nextAdviser);
-      setStoredPreviewAdviser(nextAdviser);
-    }
+    if (adviserOptions.includes(adviserName)) return;
+    const nextAdviser = resolveInitialAdviser(adviserOptions);
+    setAdviserName(nextAdviser);
+    setStoredPreviewAdviser(nextAdviser);
   }, [adviserName, adviserOptions]);
 
   useEffect(() => {
@@ -64,171 +106,274 @@ export function AdviserViewPage() {
 
   useEffect(() => {
     setSelectedDeliverableId('');
+    setSelectedOutputIds({});
     setFeedback('');
+    setExpandedFeedbackIds([]);
+    setBatchProgress(null);
   }, [selectedTeamCode]);
+
+  useEffect(() => {
+    setFeedback('');
+    setExpandedFeedbackIds([]);
+    setBatchProgress(null);
+  }, [selectedResponse?.id]);
+
+  function changeAdviser(value) {
+    if (!value) return;
+    setAdviserName(value);
+    setStoredPreviewAdviser(value);
+    setSelectedTeamCode('');
+  }
+
+  function selectDeliverable(deliverableId) {
+    setSelectedDeliverableId(deliverableId);
+    setFeedback('');
+  }
+
+  function selectOutput(outputId) {
+    if (!selectedRow) return;
+    setSelectedOutputIds((current) => ({ ...current, [selectedRow.deliverable.id]: outputId }));
+  }
 
   function submitFeedback(event) {
     event.preventDefault();
-    if (!selectedRow?.latest || !feedback.trim()) return;
-    saveFeedback(selectedRow.latest.id, { note: feedback, author: adviserName || 'Adviser', visibility: 'Student' });
+    const note = feedback.trim();
+    if (!selectedResponse || !note) return;
+    saveFeedback(selectedResponse.id, {
+      note,
+      author: adviserName || 'Adviser',
+      visibility: 'Student'
+    });
     setFeedback('');
   }
 
-  async function runFileCheck(row) {
-    if (!row.latest) return;
-    setSelectedDeliverableId(row.deliverable.id);
-    if (!isDocumentCheckCurrent(row.latest)) await runDocumentCheck(row.latest.id);
-    setCheckDialogId(row.latest.id);
+  async function openDocumentCheck() {
+    if (!selectedResponse) return;
+    if (!isDocumentCheckCurrent(selectedResponse)) await runDocumentCheck(selectedResponse.id);
+    setCheckDialogId(selectedResponse.id);
   }
 
-  async function runPendingTeamChecks() {
-    setBatchConfirmOpen(false);
-    setBatchProgress({ completed: 0, total: pendingSelectedChecks.length, failed: 0 });
-    const result = await runDocumentChecks(
-      pendingSelectedChecks.map((response) => response.id),
-      { onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total })) }
-    );
+  async function checkPendingResponses() {
+    if (!selectedRow) return;
+    const candidates = selectedRow.responses.filter((response) => (
+      response.fileCheckStatus !== 'Checking' && !isDocumentCheckCurrent(response)
+    ));
+    if (!candidates.length) return;
+    setBatchProgress({ completed: 0, total: candidates.length, failed: 0, done: false });
+    const result = await runDocumentChecks(candidates.map((response) => response.id), {
+      onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total }))
+    });
     setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, done: true });
   }
 
-  function acceptGroupOutput() {
-    if (!acceptTarget?.latest) return;
-    markAccepted(acceptTarget.latest.id, {
-      name: adviserName || 'Adviser',
-      role: 'Adviser',
-      scope: 'Group output'
+  function confirmAccept() {
+    if (!selectedResponse) return;
+    modals.openConfirmModal({
+      title: 'Accept this group output?',
+      children: (
+        <Text size="sm">
+          This accepts the selected file for {selectedTeam.teamCode}. Individual member records remain available for grading and audit.
+        </Text>
+      ),
+      labels: { confirm: 'Confirm acceptance', cancel: 'Cancel' },
+      confirmProps: { color: 'wildtrackMaroon' },
+      onConfirm: () => markAccepted(selectedResponse.id, {
+        name: adviserName || 'Adviser',
+        role: 'Adviser',
+        scope: 'Group output'
+      })
     });
-    setAcceptTarget(null);
+  }
+
+  function confirmRevoke() {
+    if (!selectedResponse) return;
+    modals.openConfirmModal({
+      title: 'Revoke this acceptance?',
+      children: <Text size="sm">The selected group output returns to the review queue. Its member responses and feedback remain recorded.</Text>,
+      labels: { confirm: 'Confirm revoke', cancel: 'Keep accepted' },
+      confirmProps: { color: 'red' },
+      onConfirm: () => revokeAcceptance(selectedResponse.id)
+    });
   }
 
   return (
-    <div className="page-stack adviser-page">
-      <PageHeader
-        title="Team Review"
-        description="Select an adviser, choose a team, then review one group output per deliverable."
-        actions={<SearchBox value={query} onChange={setQuery} placeholder="Search team or project" />}
-      />
-
-      <section className="panel adviser-scope-panel">
-        <div className="adviser-scope-grid">
-          <Field label="Adviser">
-            <select value={adviserName} onChange={(event) => {
-              setAdviserName(event.target.value);
-              setStoredPreviewAdviser(event.target.value);
-              setSelectedTeamCode('');
-            }}>
-              {adviserOptions.map((name) => <option key={name} value={name}>{name}</option>)}
-            </select>
-          </Field>
-          <ScopeMetric label="Teams" value={teams.length} />
-          <ScopeMetric label="Students" value={teams.reduce((sum, team) => sum + team.members.length, 0)} />
-          <ScopeMetric label="Responses" value={teams.reduce((sum, team) => sum + team.responseCount, 0)} />
+    <Stack gap="lg" className="wt-adviser-page">
+      <Group justify="space-between" align="flex-end" gap="lg" wrap="wrap">
+        <div>
+          <Text className="wt-eyebrow">Assigned-team review</Text>
+          <Title order={1}>My advised teams</Title>
+          <Text c="dimmed">Review one usable group output per deliverable while WildTrack preserves every member response.</Text>
         </div>
-        {teams.length ? (
-          <div className="adviser-team-strip" role="list" aria-label="Assigned teams">
-            {teams.map((team) => (
-              <button
-                key={team.teamCode}
-                type="button"
-                className={`adviser-team-chip ${team.teamCode === selectedTeam?.teamCode ? 'active' : ''}`}
-                onClick={() => setSelectedTeamCode(team.teamCode)}
-              >
-                <strong>{team.teamCode}</strong>
-                <span>{team.project?.softwareName || team.project?.projectTitle || 'Project metadata not loaded'}</span>
-                <small>{team.members.length} members | {team.responseCount} responses</small>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <EmptyState title="No teams in this adviser scope" description="Import Software Project Monitor or choose another adviser." />
-        )}
-      </section>
+        <TextInput
+          aria-label="Search assigned teams"
+          placeholder="Search team or project"
+          leftSection={<MagnifyingGlass size={18} aria-hidden="true" />}
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          className="wt-adviser-search"
+        />
+      </Group>
 
-      {selectedTeam ? (
-        <section className="panel adviser-team-panel">
-          <div className="adviser-team-header">
-            <div>
-              <span>Selected team</span>
-              <h2>{selectedTeam.teamCode}</h2>
-              <p>{selectedTeam.project?.projectTitle || 'Project metadata not loaded yet.'}</p>
-              {selectedTeam.project?.demoComments ? <small>{selectedTeam.project.demoComments}</small> : null}
-            </div>
-            <div className="adviser-member-list">
-              {selectedTeam.members.map((member) => <span key={member.studentNumber}>{member.name}</span>)}
-            </div>
-          </div>
-
-          <DataTable columns={['Deliverable', 'Group response', 'Latest saved', 'Review', 'Actions']} minWidth={840} className="adviser-table">
-            {deliverableRows.map((row) => {
-              const fileLink = firstSubmissionLink(row.latest?.values);
-              return (
-                <tr
-                  key={row.deliverable.id}
-                  className={selectedRow?.deliverable.id === row.deliverable.id ? 'selected-row' : ''}
-                  onClick={() => setSelectedDeliverableId(row.deliverable.id)}
-                >
-                  <td><strong>{row.deliverable.shortTitle}</strong><small>Due {formatDate(row.deliverable.dueAt)}</small></td>
-                  <td><strong>{row.responses.length}/{selectedTeam.members.length} members</strong><small>{row.senderNames || 'No member has submitted yet.'}</small></td>
-                  <td>{row.latest ? formatDateTime(row.latest.updatedAt || row.latest.submittedAt) : 'No response'}</td>
-                  <td>
-                    <div className="review-status-summary">
-                      <div className="status-strip stable"><StatusBadge status={row.status} /></div>
-                      <p>{row.summary}</p>
-                      {row.latest?.acceptance ? <small>Accepted by {row.latest.acceptance.acceptedBy}</small> : null}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="row-action-group adviser-actions-compact">
-                      {fileLink ? (
-                        <a className="btn btn-secondary btn-sm" href={makeDriveViewUrl(fileLink)} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
-                          <ArrowSquareOut weight="regular" /><span>Open file</span>
-                        </a>
-                      ) : null}
-                      {deliverableUsesDocumentCheck(row.deliverable) ? (
-                        <Button size="sm" variant="secondary" icon={MagnifyingGlass} disabled={!row.latest} loading={row.latest?.fileCheckStatus === 'Checking'} onClick={(event) => { event.stopPropagation(); runFileCheck(row); }}>
-                          {row.latest && isDocumentCheckCurrent(row.latest) ? 'View check' : 'Check document'}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </DataTable>
-
-          <aside className="adviser-feedback-panel">
-            {selectedRow ? (
-              <SelectedFeedback
-                row={selectedRow}
-                teamCode={selectedTeam.teamCode}
-                feedback={feedback}
-                setFeedback={setFeedback}
-                onSubmit={submitFeedback}
-                onRequestAccept={() => setAcceptTarget(selectedRow)}
-                pendingCheckCount={pendingSelectedChecks.length}
-                batchProgress={batchProgress}
-                onRequestBatchCheck={() => setBatchConfirmOpen(true)}
-                onDismissBatch={() => setBatchProgress(null)}
+      <Paper withBorder radius="md" className="wt-adviser-workbench">
+        <aside className="wt-adviser-team-rail" aria-label="Assigned teams">
+          <div className="wt-adviser-scope-head">
+            {isAdmin ? (
+              <Select
+                label="Reviewing as adviser"
+                data={adviserOptions}
+                value={adviserName}
+                onChange={changeAdviser}
+                allowDeselect={false}
+                searchable={adviserOptions.length > 8}
               />
             ) : (
-              <EmptyState title="Select a deliverable" description="Feedback and file-check details appear here." />
+              <div>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={800}>Adviser</Text>
+                <Text fw={750}>{adviserName || 'No adviser identity selected'}</Text>
+              </div>
             )}
-          </aside>
-        </section>
-      ) : null}
+            <Text size="xs" c="dimmed">{teams.length} assigned team{teams.length === 1 ? '' : 's'}</Text>
+          </div>
 
-      <ConfirmDialog
-        open={Boolean(acceptTarget)}
-        title="Accept this group output?"
-        description="This marks the latest response as satisfactory for the selected team and makes it eligible for Sir/Admin to archive."
-        confirmLabel="Accept group output"
-        onClose={() => setAcceptTarget(null)}
-        onConfirm={acceptGroupOutput}
-      >
-        <strong>{acceptTarget?.deliverable?.title}</strong>
-        <span>{selectedTeam?.teamCode} | Latest response saved {acceptTarget?.latest ? formatDateTime(acceptTarget.latest.updatedAt || acceptTarget.latest.submittedAt) : ''}</span>
-        <span>{firstSubmissionLink(acceptTarget?.latest?.values) || 'No submitted link found'}</span>
-      </ConfirmDialog>
+          <ScrollArea className="wt-adviser-team-scroll" type="auto" offsetScrollbars>
+            <Stack gap={4} role="list">
+              {teams.map((team) => (
+                <button
+                  key={team.teamCode}
+                  type="button"
+                  className={`wt-adviser-team-button ${team.teamCode === selectedTeam?.teamCode ? 'is-selected' : ''}`}
+                  aria-current={team.teamCode === selectedTeam?.teamCode ? 'true' : undefined}
+                  onClick={() => setSelectedTeamCode(team.teamCode)}
+                >
+                  <span>
+                    <strong>{team.teamCode}</strong>
+                    <small>{team.project?.softwareName || team.project?.projectTitle || 'Project details unavailable'}</small>
+                  </span>
+                  <span className="wt-adviser-team-count">{team.responseCount}</span>
+                </button>
+              ))}
+            </Stack>
+          </ScrollArea>
+
+          {!teams.length ? (
+            <div className="wt-adviser-empty-rail">
+              <UsersThree size={28} aria-hidden="true" />
+              <Text fw={750}>No assigned teams</Text>
+              <Text size="xs" c="dimmed">This adviser has no team assignment in the active workspace.</Text>
+            </div>
+          ) : null}
+        </aside>
+
+        <main className="wt-adviser-team-main">
+          {selectedTeam ? (
+            <>
+              <header className="wt-adviser-team-header">
+                <div>
+                  <Group gap="xs" wrap="wrap">
+                    <Text component="span" className="wt-mono" fw={800}>{selectedTeam.teamCode}</Text>
+                    <Text size="sm" c="dimmed">{selectedTeam.members.length} member{selectedTeam.members.length === 1 ? '' : 's'}</Text>
+                  </Group>
+                  <Title order={2}>{selectedTeam.project?.softwareName || selectedTeam.project?.projectTitle || 'Project details unavailable'}</Title>
+                  {selectedTeam.project?.projectTitle && selectedTeam.project.projectTitle !== selectedTeam.project.softwareName ? (
+                    <Text size="sm" c="dimmed">{selectedTeam.project.projectTitle}</Text>
+                  ) : null}
+                </div>
+                <div className="wt-adviser-members">
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={800}>Members</Text>
+                  <Text size="sm">{selectedTeam.members.map((member) => member.name).join(', ')}</Text>
+                </div>
+              </header>
+
+              <ScrollArea type="auto" offsetScrollbars className="wt-adviser-deliverables-scroll">
+                <Table highlightOnHover verticalSpacing="sm" horizontalSpacing="md" miw={780} className="wt-adviser-deliverables-table">
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Deliverable</Table.Th>
+                      <Table.Th>Received</Table.Th>
+                      <Table.Th>Group file</Table.Th>
+                      <Table.Th className="wt-review-status-cell">Document Check</Table.Th>
+                      <Table.Th className="wt-review-status-cell">Decision</Table.Th>
+                      <Table.Th><span className="wt-sr-only">Open details</span></Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {deliverableRows.map((row) => (
+                      <Table.Tr
+                        key={row.deliverable.id}
+                        className={row.deliverable.id === selectedRow?.deliverable.id ? 'is-selected' : ''}
+                        onClick={() => selectDeliverable(row.deliverable.id)}
+                      >
+                        <Table.Td>
+                          <Text fw={800}>{row.deliverable.shortTitle}</Text>
+                          <Text size="xs" c="dimmed">Due {formatDate(row.deliverable.dueAt)}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text fw={750}>{row.receivedMemberCount} of {selectedTeam.members.length} members</Text>
+                          <Text size="xs" c="dimmed">{row.responseCount} individual record{row.responseCount === 1 ? '' : 's'}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text fw={750}>{groupFileLabel(row)}</Text>
+                          <Text size="xs" c={row.hasConflict ? 'red' : 'dimmed'}>{row.hasConflict ? 'Selection required' : outputOwnerLabel(row.currentOutput)}</Text>
+                        </Table.Td>
+                        <Table.Td className="wt-review-status-cell">
+                          <ReviewStatusBadge label={documentCheckLabel(row.currentOutput?.latest, row.deliverable)} />
+                        </Table.Td>
+                        <Table.Td className="wt-review-status-cell">
+                          <ReviewStatusBadge label={decisionLabel(row.currentOutput?.latest)} />
+                        </Table.Td>
+                        <Table.Td>
+                          <Tooltip label={`Open ${row.deliverable.shortTitle} details`}>
+                            <ActionIcon
+                              variant="subtle"
+                              color="wildtrackMaroon"
+                              aria-label={`Open ${row.deliverable.shortTitle} details`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                selectDeliverable(row.deliverable.id);
+                              }}
+                            >
+                              <CaretRight size={18} aria-hidden="true" />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </ScrollArea>
+
+              {selectedRow ? (
+                <SelectedGroupOutput
+                  row={selectedRow}
+                  team={selectedTeam}
+                  output={selectedOutput}
+                  response={selectedResponse}
+                  outputId={selectedOutput?.id || ''}
+                  feedback={feedback}
+                  expandedFeedbackIds={expandedFeedbackIds}
+                  batchProgress={batchProgress}
+                  onSelectOutput={selectOutput}
+                  onFeedbackChange={setFeedback}
+                  onSubmitFeedback={submitFeedback}
+                  onToggleFeedback={(feedbackId) => setExpandedFeedbackIds((current) => current.includes(feedbackId)
+                    ? current.filter((id) => id !== feedbackId)
+                    : [...current, feedbackId])}
+                  onOpenDocumentCheck={openDocumentCheck}
+                  onCheckPending={checkPendingResponses}
+                  onAccept={confirmAccept}
+                  onRevoke={confirmRevoke}
+                />
+              ) : null}
+            </>
+          ) : (
+            <div className="wt-adviser-empty-main">
+              <ThemeIcon size={52} radius="md" variant="light" color="wildtrackMaroon"><FolderOpen size={28} aria-hidden="true" /></ThemeIcon>
+              <Title order={2}>Choose an assigned team</Title>
+              <Text c="dimmed">Team deliverables and the current group output appear here.</Text>
+            </div>
+          )}
+        </main>
+      </Paper>
 
       <DocumentCheckDialog
         open={Boolean(checkDialogResponse)}
@@ -238,193 +383,277 @@ export function AdviserViewPage() {
         onClose={() => setCheckDialogId('')}
         onRecheck={() => runDocumentCheck(checkDialogResponse.id)}
       />
-
-      <ConfirmDialog
-        open={batchConfirmOpen}
-        title={`Check ${pendingSelectedChecks.length} pending document${pendingSelectedChecks.length === 1 ? '' : 's'}?`}
-        description="This checks pending member responses for the selected team and deliverable. Current results are skipped."
-        confirmLabel="Start Document Check"
-        onClose={() => setBatchConfirmOpen(false)}
-        onConfirm={runPendingTeamChecks}
-      >
-        <strong>{selectedTeam?.teamCode} | {selectedRow?.deliverable?.title}</strong>
-      </ConfirmDialog>
-    </div>
+    </Stack>
   );
 }
 
-function SelectedFeedback({
+function SelectedGroupOutput({
   row,
-  teamCode,
+  team,
+  output,
+  response,
+  outputId,
   feedback,
-  setFeedback,
-  onSubmit,
-  onRequestAccept,
-  pendingCheckCount,
+  expandedFeedbackIds,
   batchProgress,
-  onRequestBatchCheck,
-  onDismissBatch
+  onSelectOutput,
+  onFeedbackChange,
+  onSubmitFeedback,
+  onToggleFeedback,
+  onOpenDocumentCheck,
+  onCheckPending,
+  onAccept,
+  onRevoke
 }) {
-  const latest = row.latest;
-  const [showAllFeedback, setShowAllFeedback] = useState(false);
-  const [expandedFeedbackIds, setExpandedFeedbackIds] = useState([]);
-  const savedFeedback = latest?.feedback || [];
-  const visibleFeedback = showAllFeedback ? savedFeedback : savedFeedback.slice(0, 1);
-
-  useEffect(() => {
-    setShowAllFeedback(false);
-    setExpandedFeedbackIds([]);
-  }, [latest?.id]);
-
-  function toggleFeedback(feedbackId) {
-    setExpandedFeedbackIds((current) => current.includes(feedbackId)
-      ? current.filter((id) => id !== feedbackId)
-      : [...current, feedbackId]);
-  }
+  const link = output?.link || '';
+  const savedFeedback = (response?.feedback || []).filter((item) => item.visibility !== 'Staff');
+  const pendingChecks = row.responses.filter((item) => item.fileCheckStatus !== 'Checking' && !isDocumentCheckCurrent(item));
+  const aiReport = response?.aiReport;
+  const aiCurrent = isAiReportCurrent(response);
+  const accepted = response?.reviewStatus === 'Accepted';
 
   return (
-    <>
-      <div className="response-detail-head">
-        <span>Selected deliverable</span>
-        <h2>{row.deliverable.shortTitle}</h2>
-        <p>{latest ? `${row.responses.length} response${row.responses.length === 1 ? '' : 's'} recorded for this group.` : 'No current group response yet.'}</p>
-        <div className="selected-review-actions">
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={Files}
-            disabled={!pendingCheckCount || Boolean(batchProgress && !batchProgress.done)}
-            onClick={onRequestBatchCheck}
-          >
-            Check pending documents
-          </Button>
-          {latest?.reviewStatus === 'Accepted' ? (
-            <div className="acceptance-note">
-              <StatusBadge status="Accepted" />
-              <span>Accepted by {latest.acceptance?.acceptedBy || 'a reviewer'} on {formatDateTime(latest.acceptance?.acceptedAt || latest.updatedAt || latest.submittedAt)}</span>
-            </div>
+    <section className="wt-adviser-output-detail" aria-label={`${row.deliverable.shortTitle} group output details`}>
+      <div className="wt-adviser-output-head">
+        <div>
+          <Text className="wt-eyebrow">Selected group output</Text>
+          <Title order={3}>{row.deliverable.title}</Title>
+          <Text size="sm" c="dimmed">{team.teamCode} | {row.receivedMemberCount} of {team.members.length} members submitted</Text>
+        </div>
+        <Group gap="xs" wrap="wrap">
+          {link ? (
+            <Button component="a" href={makeDriveViewUrl(link)} target="_blank" rel="noreferrer" variant="default" leftSection={<ArrowSquareOut size={17} />}>
+              Open group file
+            </Button>
+          ) : null}
+          {deliverableUsesDocumentCheck(row.deliverable) && response ? (
+            <Button variant="default" leftSection={<MagnifyingGlass size={17} />} onClick={onOpenDocumentCheck}>
+              {isDocumentCheckCurrent(response) ? 'View Document Check' : 'Check document'}
+            </Button>
+          ) : null}
+          {accepted ? (
+            <Button color="red" variant="light" leftSection={<XCircle size={17} />} disabled={response.archiveStatus === 'Archived'} onClick={onRevoke}>Revoke acceptance</Button>
           ) : (
-            <Button size="sm" icon={CheckCircle} disabled={!latest} onClick={onRequestAccept}>Accept group output</Button>
+            <Button color="wildtrackMaroon" leftSection={<CheckCircle size={17} />} disabled={!response} onClick={onAccept}>Accept group output</Button>
           )}
-        </div>
+        </Group>
       </div>
-      {batchProgress ? (
-        <div className={`batch-progress ${batchProgress.done ? batchProgress.failed ? 'warning' : 'success' : ''}`} role="status">
-          <div><strong>{batchProgress.done ? 'Document checks complete' : 'Checking documents'}</strong><span>{batchProgress.completed} of {batchProgress.total}{batchProgress.failed ? ` | ${batchProgress.failed} could not be checked` : ''}</span></div>
-          <progress value={batchProgress.completed} max={Math.max(batchProgress.total, 1)} />
-          {batchProgress.done ? <button type="button" onClick={onDismissBatch}>Dismiss</button> : null}
-        </div>
+
+      {row.hasConflict ? (
+        <Alert color="orange" variant="light" icon={<WarningCircle size={20} />} title={`${row.outputs.length} different files were submitted`}>
+          Choose the file that represents the team's current output before leaving feedback or accepting it.
+        </Alert>
       ) : null}
-      <div className="detail-section">
-        <h3>Document Check status</h3>
-        <p>{deliverableUsesDocumentCheck(row.deliverable)
-          ? latest?.documentCheck?.summary || latest?.checkSummary || DRIVE_CHECK_UNAVAILABLE_MESSAGE
-          : 'Not required for this link-based deliverable.'}</p>
-      </div>
-      <form className="detail-section adviser-feedback-form" onSubmit={onSubmit}>
-        <Field label="Feedback for student">
-          <textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} rows={4} placeholder="Write concise feedback students can act on." />
-        </Field>
-        <div className="adviser-feedback-actions">
-          <Button size="sm" icon={ChatCenteredText} disabled={!latest}>Save feedback</Button>
-        </div>
-      </form>
-      {savedFeedback.length ? (
-        <div className="detail-section saved-feedback-list">
-          <div className="saved-feedback-header">
-            <h3>Saved feedback</h3>
-            {savedFeedback.length > 1 ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={showAllFeedback ? CaretUp : CaretDown}
-                onClick={() => setShowAllFeedback((current) => !current)}
-              >
-                {showAllFeedback ? 'Show latest only' : `Show all (${savedFeedback.length})`}
+
+      {row.outputs.length > 1 ? (
+        <NativeSelect
+          label="Current group output"
+          value={outputId}
+          onChange={(event) => onSelectOutput(event.currentTarget.value)}
+          data={row.outputs.map((item, index) => ({
+            value: item.id,
+            label: `File ${index + 1} | ${outputOwnerLabel(item)} | saved ${formatDateTime(item.latest.updatedAt || item.latest.submittedAt)}`
+          }))}
+        />
+      ) : null}
+
+      {!response ? (
+        <Alert color="gray" variant="light" icon={<Files size={20} />} title="No group output received">
+          No member of this team has submitted this deliverable yet.
+        </Alert>
+      ) : (
+        <div className="wt-adviser-detail-grid">
+          <section>
+            <div className="wt-adviser-detail-heading">
+              <Text fw={800}>Document Check</Text>
+              <ReviewStatusBadge label={documentCheckLabel(response, row.deliverable)} />
+            </div>
+            <Text size="sm">{response.documentCheck?.summary || response.checkSummary || 'No current Document Check is available for this file.'}</Text>
+            {pendingChecks.length ? (
+              <Button mt="md" variant="subtle" size="sm" leftSection={<Files size={16} />} onClick={onCheckPending} disabled={Boolean(batchProgress && !batchProgress.done)}>
+                Check {pendingChecks.length} unchecked member response{pendingChecks.length === 1 ? '' : 's'}
               </Button>
             ) : null}
-          </div>
-          <div className={showAllFeedback ? 'saved-feedback-entries expanded' : 'saved-feedback-entries'}>
-            {visibleFeedback.map((item) => {
-              const expanded = expandedFeedbackIds.includes(item.id);
-              return (
-                <article className="saved-feedback-entry" key={item.id}>
-                  <div>
-                    <strong>{item.author}</strong>
-                    <span>{formatDateTime(item.createdAt)} | {teamCode}</span>
-                  </div>
-                  <p className={expanded ? 'expanded' : ''}>{item.note}</p>
-                  {item.note.length > 180 ? (
-                    <button type="button" onClick={() => toggleFeedback(item.id)}>{expanded ? 'Read less' : 'Read more'}</button>
-                  ) : null}
-                </article>
-              );
-            })}
-          </div>
+            {batchProgress ? (
+              <div className="wt-adviser-batch-progress" role="status">
+                <Group justify="space-between" gap="sm">
+                  <Text size="xs" fw={750}>{batchProgress.done ? 'Checks complete' : 'Checking documents'}</Text>
+                  <Text size="xs" c="dimmed">{batchProgress.completed}/{batchProgress.total}{batchProgress.failed ? ` | ${batchProgress.failed} failed` : ''}</Text>
+                </Group>
+                <Progress value={(batchProgress.completed / Math.max(batchProgress.total, 1)) * 100} color="wildtrackMaroon" size="sm" mt={6} />
+              </div>
+            ) : null}
+          </section>
+
+          <section>
+            <div className="wt-adviser-detail-heading">
+              <Text fw={800}>AI Review</Text>
+              <ReviewStatusBadge label={aiCurrent ? 'Reviewed' : 'Not reviewed'} />
+            </div>
+            {aiCurrent ? (
+              <Stack gap="xs">
+                <Text size="sm">{aiReport.summary}</Text>
+                {aiReport.flags?.length ? <Text size="xs"><strong>Flags:</strong> {aiReport.flags.join(', ')}</Text> : null}
+                {aiReport.missingSections?.length ? <Text size="xs"><strong>Missing or weak:</strong> {aiReport.missingSections.join(', ')}</Text> : null}
+                {aiReport.suggestedAction ? <Text size="xs"><strong>Suggested action:</strong> {aiReport.suggestedAction}</Text> : null}
+              </Stack>
+            ) : (
+              <Text size="sm" c="dimmed">No current AI Review is available. AI Review is initiated by Sir/Admin.</Text>
+            )}
+          </section>
         </div>
-      ) : null}
-    </>
+      )}
+
+      <Divider />
+
+      <div className="wt-adviser-feedback-grid">
+        <form onSubmit={onSubmitFeedback}>
+          <Textarea
+            label="Feedback for student"
+            description="Visible only to the Google account that owns this response."
+            minRows={4}
+            autosize
+            maxRows={7}
+            value={feedback}
+            onChange={(event) => onFeedbackChange(event.currentTarget.value)}
+            disabled={!response}
+          />
+          <Button mt="md" type="submit" color="wildtrackMaroon" leftSection={<NotePencil size={17} />} disabled={!response || !feedback.trim()}>
+            Save feedback
+          </Button>
+        </form>
+
+        <section aria-label="Saved feedback">
+          <Text fw={800}>Saved feedback</Text>
+          {savedFeedback.length ? (
+            <Stack gap="sm" mt="sm">
+              {savedFeedback.map((item) => {
+                const expanded = expandedFeedbackIds.includes(item.id);
+                return (
+                  <article className="wt-adviser-feedback-entry" key={item.id}>
+                    <Group justify="space-between" gap="sm" align="flex-start">
+                      <Text size="sm" fw={750}>{item.author}</Text>
+                      <Text size="xs" c="dimmed">{formatDateTime(item.createdAt)}</Text>
+                    </Group>
+                    <Text size="sm" className={expanded ? '' : 'is-collapsed'}>{item.note}</Text>
+                    {item.note.length > 180 ? (
+                      <Button variant="subtle" size="compact-xs" onClick={() => onToggleFeedback(item.id)}>{expanded ? 'Show less' : 'Read full feedback'}</Button>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </Stack>
+          ) : (
+            <Text size="sm" c="dimmed" mt="sm">No feedback saved for this group output.</Text>
+          )}
+        </section>
+      </div>
+    </section>
   );
 }
 
-function ScopeMetric({ label, value }) {
-  return (
-    <div>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
+function resolveInitialAdviser(adviserOptions) {
+  const stored = getStoredPreviewAdviser();
+  return adviserOptions.includes(stored) ? stored : adviserOptions[0] || 'Unassigned';
 }
 
-function buildAdviserTeams(state, adviserName, query) {
+export function buildAdviserTeams(state, adviserName, query = '') {
   const needle = query.trim().toLowerCase();
-  const teamCodes = [...new Set(state.students.map((student) => student.teamCode).filter(Boolean))].sort();
+  const teamCodes = [...new Set(state.students.map((student) => student.teamCode).filter(Boolean))]
+    .sort((first, second) => first.localeCompare(second, undefined, { numeric: true }));
+
   return teamCodes
     .map((teamCode) => {
       const members = state.students.filter((student) => student.teamCode === teamCode);
       const project = getProjectMetadata(state, teamCode);
       const assignedAdviser = getTeamAdviser(state, teamCode);
-      const teamNumbers = new Set(members.map((member) => normalizeStudentNumber(member.studentNumber)));
-      const responseCount = state.attempts.filter((response) => teamNumbers.has(normalizeStudentNumber(response.studentNumber)) || response.teamCode === teamCode).length;
+      const memberNumbers = new Set(members.map((member) => normalizeStudentNumber(member.studentNumber)));
+      const responseCount = state.attempts.filter((response) => (
+        response.teamCode === teamCode || memberNumbers.has(normalizeStudentNumber(response.studentNumber))
+      )).length;
       return { teamCode, members, project, assignedAdviser, responseCount };
     })
     .filter((team) => team.assignedAdviser === adviserName)
-    .filter((team) => {
-      if (!needle) return true;
-      return `${team.teamCode} ${team.project?.projectTitle || ''} ${team.project?.softwareName || ''}`.toLowerCase().includes(needle);
-    });
+    .filter((team) => !needle || `${team.teamCode} ${team.project?.projectTitle || ''} ${team.project?.softwareName || ''}`.toLowerCase().includes(needle));
 }
 
-
-function buildTeamDeliverableRows(state, team) {
+export function buildTeamDeliverableRows(state, team) {
   const teamNumbers = new Set(team.members.map((member) => normalizeStudentNumber(member.studentNumber)));
   return sortDeliverables(state, getPublishedDeliverables(state)).map((deliverable) => {
     const responses = state.attempts
       .filter((response) => response.deliverableId === deliverable.id)
-      .filter((response) => teamNumbers.has(normalizeStudentNumber(response.studentNumber)) || response.teamCode === team.teamCode)
-      .sort((first, second) => new Date(second.updatedAt || second.submittedAt) - new Date(first.updatedAt || first.submittedAt));
-    const latest = responses[0] || null;
-    const status = deriveGroupStatus(responses, latest, deliverable);
-    const senderNames = responses
-      .map((response) => team.members.find((member) => normalizeStudentNumber(member.studentNumber) === normalizeStudentNumber(response.studentNumber))?.name || response.studentName)
-      .filter(Boolean)
-      .slice(0, 4)
-      .join(', ');
+      .filter((response) => response.teamCode === team.teamCode || teamNumbers.has(normalizeStudentNumber(response.studentNumber)))
+      .sort(sortResponsesNewestFirst);
+    const outputs = groupEquivalentResponses(responses, team.members);
+    const receivedMembers = new Set(responses.map((response) => normalizeStudentNumber(response.studentNumber)).filter(Boolean));
     return {
       deliverable,
       responses,
-      latest,
-      status,
-      senderNames,
-      summary: latest?.checkSummary || latest?.documentCheck?.summary || (latest ? 'A group response exists. Open the submitted file link to review it.' : 'No group member has submitted this deliverable yet.')
+      outputs,
+      currentOutput: outputs[0] || null,
+      hasConflict: outputs.filter((output) => output.link).length > 1,
+      receivedMemberCount: receivedMembers.size,
+      responseCount: responses.length
     };
   });
 }
 
-function deriveGroupStatus(responses, latest, deliverable) {
-  if (!responses.length) return 'Missing';
-  if (latest?.reviewStatus === 'Accepted') return 'Accepted';
-  if (responses.some((response) => response.reviewStatus === 'Needs Review' || (response.flags || []).some((flag) => ['Template-like', 'Too Short', 'Not PDF', 'Inaccessible'].includes(flag)))) return 'Needs Review';
-  if (deliverableUsesDocumentCheck(deliverable) && latest && !isDocumentCheckCurrent(latest)) return 'Not checked';
-  return 'Received';
+function groupEquivalentResponses(responses, members) {
+  const groups = new Map();
+  responses.forEach((response) => {
+    const link = firstSubmissionLink(response.values);
+    const signature = outputSignature(response.values) || `response:${response.id}`;
+    const current = groups.get(signature) || { id: signature, link, responses: [], latest: response, senderNames: [] };
+    current.responses.push(response);
+    if (sortResponsesNewestFirst(response, current.latest) < 0) current.latest = response;
+    const senderName = members.find((member) => normalizeStudentNumber(member.studentNumber) === normalizeStudentNumber(response.studentNumber))?.name || response.studentName;
+    if (senderName && !current.senderNames.includes(senderName)) current.senderNames.push(senderName);
+    groups.set(signature, current);
+  });
+  return [...groups.values()].sort((first, second) => sortResponsesNewestFirst(first.latest, second.latest));
+}
+
+function outputSignature(values = {}) {
+  return Object.values(values)
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .map(normalizeLinkForGrouping)
+    .sort()
+    .join('|');
+}
+
+function normalizeLinkForGrouping(value) {
+  const driveFileId = value.match(/\/file\/d\/([^/?#]+)/i)?.[1] || value.match(/[?&]id=([^&#]+)/i)?.[1];
+  if (driveFileId) return `drive:${driveFileId}`;
+  return value.toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
+}
+
+function sortResponsesNewestFirst(first, second) {
+  return new Date(second.updatedAt || second.submittedAt || 0) - new Date(first.updatedAt || first.submittedAt || 0);
+}
+
+function outputOwnerLabel(output) {
+  if (!output) return 'No file received';
+  if (output.senderNames.length === 1) return output.senderNames[0];
+  return `${output.senderNames.length} members submitted this file`;
+}
+
+function groupFileLabel(row) {
+  if (!row.outputs.length) return 'No file';
+  if (row.outputs.length === 1 && row.receivedMemberCount > 1) return '1 shared file';
+  if (row.outputs.length === 1) return '1 file';
+  return `${row.outputs.length} different files`;
+}
+
+function documentCheckLabel(response, deliverable) {
+  if (!response || !deliverableUsesDocumentCheck(deliverable)) return 'Not applicable';
+  if (response.fileCheckStatus === 'Checking') return 'Checking';
+  if (response.fileCheckStatus === 'Error' || response.documentCheck?.status === 'Error') return 'Could not check';
+  if (!isDocumentCheckCurrent(response)) return 'Not checked';
+  return response.documentCheck?.redFlags?.length || response.documentCheck?.missingSections?.length ? 'Needs attention' : 'Ready for review';
+}
+
+function decisionLabel(response) {
+  if (!response) return 'Not reviewed';
+  return response.reviewStatus === 'Accepted' ? 'Accepted' : 'Needs Review';
 }

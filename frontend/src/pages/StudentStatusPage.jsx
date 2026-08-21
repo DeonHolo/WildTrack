@@ -292,7 +292,7 @@ function buildStudentDeliverableRow(deliverable, response, recorded, teamProgres
     };
   }
 
-  const feedback = response.feedback?.[response.feedback.length - 1] || null;
+  const feedback = response.feedback?.find((item) => item.visibility !== 'Staff') || null;
   const accepted = response.primaryStatus === 'Accepted' || response.reviewStatus === 'Accepted';
   return {
     deliverable,

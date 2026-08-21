@@ -626,7 +626,7 @@ tbody tr.selected-row td {
   color: var(--danger);
 }
 
-input,
+input:not([type='checkbox']):not([type='radio']):not(.mantine-Input-input),
 select,
 textarea {
   width: 100%;
@@ -643,7 +643,7 @@ textarea {
   resize: vertical;
 }
 
-input:focus,
+input:not([type='checkbox']):not([type='radio']):not(.mantine-Input-input):focus,
 select:focus,
 textarea:focus {
   border-color: var(--primary);
