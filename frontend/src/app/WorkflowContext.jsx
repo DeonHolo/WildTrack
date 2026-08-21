@@ -801,7 +801,7 @@ export function WorkflowProvider({ children }) {
     }
 
     const archives = await Promise.all(
-      eligibleAttempts.map((attempt, index) => buildArchiveRecord(state, attempt, index))
+      eligibleAttempts.map((attempt, index) => buildArchiveRecord(state, attempt, index, activeWorkspace))
     );
     const archivedIds = new Set(archives.map((archive) => archive.attemptId));
     const archivedAt = new Date().toISOString();
@@ -829,7 +829,7 @@ export function WorkflowProvider({ children }) {
       ]
     }));
     return { ok: true, archived: archives.length };
-  }, [state]);
+  }, [activeWorkspace, state]);
 
   const archiveAttempt = useCallback((attemptId) => archiveAttempts([attemptId]), [archiveAttempts]);
 
@@ -970,7 +970,7 @@ export function useWorkflow() {
   return context;
 }
 
-async function buildArchiveRecord(state, attempt, index) {
+async function buildArchiveRecord(state, attempt, index, workspace) {
   const deliverable = getDeliverable(state, attempt.deliverableId);
   const student = findStudent(state.students, attempt.studentNumber);
   const teamCode = student?.teamCode || attempt.teamCode || 'No team';
@@ -980,17 +980,23 @@ async function buildArchiveRecord(state, attempt, index) {
   return {
     id: `arc-${Date.now()}-${index}`,
     attemptId: attempt.id,
+    workspaceId: workspace?.id || state.workspaceId || '',
+    workspaceName: workspace?.name || '',
     deliverableTitle: deliverable?.title || 'Unknown deliverable',
     teamCode,
     studentName: student?.name || attempt.studentName || attempt.studentNumber,
+    studentNumber: student?.studentNumber || attempt.studentNumber || '',
     projectTitle: project?.projectTitle || '',
     softwareName: project?.softwareName || '',
     adviserName: project?.adviserName || student?.adviser || '',
+    version: `v${Math.max(1, (attempt.history?.length || 0) + 1)}`,
     archivedAt,
-    storageKey: `archive/finals/${teamCode || 'unmatched'}/${deliverable?.shortTitle || 'file'}/${attempt.id}.pdf`,
     sourceLink: firstSubmissionLink(attempt.values),
+    metadataSha256: hash,
     sha256: hash,
-    verified: true
+    storageStatus: 'Metadata only',
+    integrityStatus: 'Unavailable',
+    verified: false
   };
 }
 

@@ -216,7 +216,7 @@ export function ReviewPage() {
   function confirmArchive(response) {
     modals.openConfirmModal({
       title: 'Archive this accepted response?',
-      children: <Text size="sm">WildTrack creates an archive record for this accepted response. The current local archive adapter is used until durable object storage is connected.</Text>,
+      children: <Text size="sm">WildTrack creates one archive metadata record and keeps the submitted Drive link as its source reference. Independent PDF storage is not connected yet.</Text>,
       labels: { confirm: 'Archive response', cancel: 'Cancel' },
       confirmProps: { color: 'wildtrackMaroon' },
       centered: true,
@@ -224,8 +224,8 @@ export function ReviewPage() {
         const result = await archiveAttempt(response.id);
         notifications.show({
           color: result?.ok ? 'green' : 'red',
-          title: result?.ok ? 'Response archived' : 'Archive failed',
-          message: result?.ok ? 'The archive record is available in Archive.' : result?.error || 'The response could not be archived.'
+          title: result?.ok ? 'Archive record created' : 'Archive failed',
+          message: result?.ok ? 'The metadata record is now available in Final archive.' : result?.error || 'The archive record could not be created.'
         });
       }
     });

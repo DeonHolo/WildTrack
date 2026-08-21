@@ -358,7 +358,7 @@ describe('deliverable-first submission review', () => {
     expect(screen.getByText('Page 1 of 7')).toBeInTheDocument();
   });
 
-  it('removes an accepted response from the active queue while retaining explicit accepted and archived filters', () => {
+  it('removes an accepted response from the active queue and confirms one archive record honestly', async () => {
     const view = renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Review Pacio, Muriel D. response' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).getByRole('button', { name: 'Accept response' }));
@@ -374,6 +374,12 @@ describe('deliverable-first submission review', () => {
     expect(within(screen.getByRole('table', { name: 'SRS submissions' })).queryByText('Pacio, Muriel D.')).not.toBeInTheDocument();
     expect(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).toBeInTheDocument();
     expect(within(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).getByRole('button', { name: 'Archive response' })).toBeEnabled();
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).getByRole('button', { name: 'Archive response' }));
+    const archiveConfirmation = await screen.findByRole('dialog', { name: 'Archive this accepted response?' });
+    expect(archiveConfirmation).toHaveTextContent('one archive metadata record');
+    expect(archiveConfirmation).toHaveTextContent('Independent PDF storage is not connected yet');
+    fireEvent.click(within(archiveConfirmation).getByRole('button', { name: 'Archive response' }));
+    await waitFor(() => expect(workflow.archiveAttempt).toHaveBeenCalledWith('response-muriel-srs'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Accepted' }));
     expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Pacio, Muriel D.')).toBeInTheDocument();
