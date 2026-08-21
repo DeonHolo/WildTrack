@@ -1912,6 +1912,13 @@
   text-align: left;
 }
 
+.wt-review-deliverable-chevron {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
 .wt-review-number {
   width: 94px;
   color: #3e3438;

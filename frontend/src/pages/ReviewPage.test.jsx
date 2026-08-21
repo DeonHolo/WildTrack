@@ -218,6 +218,18 @@ describe('deliverable-first submission review', () => {
     expect(within(submissions).queryByText('Barangan, Mark Lorenz L.')).not.toBeInTheDocument();
   });
 
+  it('keeps every deliverable chevron at one fixed size regardless of label length', () => {
+    renderPage();
+
+    const chevrons = document.querySelectorAll('.wt-review-deliverable-chevron');
+    expect(chevrons.length).toBeGreaterThan(1);
+    chevrons.forEach((chevron) => {
+      expect(chevron).toHaveClass('wt-review-deliverable-chevron');
+      expect(chevron).toHaveAttribute('width', '16');
+      expect(chevron).toHaveAttribute('height', '16');
+    });
+  });
+
   it('keeps long reports in a selected-response drawer and preserves selection while searching', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Review Taghoy, Ron Luigi F. response' }));

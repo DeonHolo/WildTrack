@@ -44,7 +44,7 @@ export function ReviewDeliverablesTable({ summaries, selectedId, onSelect }) {
                         <Group gap="sm" wrap="nowrap" className="wt-review-deliverable-label">
                           <Text component="span" fw={800} size="sm" className="wt-review-deliverable-code">{summary.deliverable.shortTitle}</Text>
                           <Text component="span" size="sm" c="dimmed" lineClamp={1} className="wt-review-deliverable-title">{summary.deliverable.title}</Text>
-                          <CaretRight size={15} aria-hidden="true" />
+                          <CaretRight className="wt-review-deliverable-chevron" size={16} aria-hidden="true" />
                         </Group>
                       </UnstyledButton>
                     </Table.Td>
