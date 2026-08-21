@@ -22,3 +22,5 @@ verification-screenshots/
 backend/target/
 frontend/dist/
 .capvault-local.pids.json
+.scratch
+docs/verification

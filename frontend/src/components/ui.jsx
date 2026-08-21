@@ -1,57 +1,81 @@
 import {
-  MagnifyingGlass,
-  WarningCircle
-} from '@phosphor-icons/react';
-import { useEffect, useId, useMemo, useState } from 'react';
+  Badge,
+  Button as MantineButton,
+  Group,
+  Input,
+  Modal,
+  Paper,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  ThemeIcon,
+  Title
+} from '@mantine/core';
+import { MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
+import { useId } from 'react';
 import { statusTone } from '../lib/workflow.js';
 
 export { DevelopmentRolePreview as GlobalDevPreview } from './layout/DevelopmentRolePreview.jsx';
 
-export function Button({ children, variant = 'primary', size = 'md', icon: Icon, loading = false, className = '', ...props }) {
+const BUTTON_VARIANTS = {
+  primary: { variant: 'filled', color: 'wildtrackMaroon' },
+  secondary: { variant: 'default', color: 'wildtrackMaroon' },
+  danger: { variant: 'filled', color: 'red' }
+};
+
+export function Button({ children, variant = 'primary', size = 'md', icon: Icon, loading = false, className = '', type = 'submit', ...props }) {
+  const appearance = BUTTON_VARIANTS[variant] || BUTTON_VARIANTS.primary;
   return (
-    <button className={`btn btn-${variant} btn-${size} ${className}`} disabled={loading || props.disabled} {...props}>
-      {Icon ? <Icon weight="regular" aria-hidden="true" /> : null}
-      <span>{loading ? 'Working...' : children}</span>
-    </button>
+    <MantineButton
+      {...appearance}
+      size={size === 'sm' ? 'sm' : 'md'}
+      leftSection={Icon ? <Icon size={18} weight="regular" aria-hidden="true" /> : undefined}
+      loading={loading}
+      className={className}
+      type={type}
+      {...props}
+    >
+      {children}
+    </MantineButton>
   );
 }
 
 export function Field({ label, helper, error, children, required = false }) {
   return (
-    <label className="field">
-      <span className="field-label">{label}{required ? <b> *</b> : null}</span>
+    <Input.Wrapper className="wt-field" label={label} description={helper} error={error} required={required}>
       {children}
-      {helper ? <span className="field-helper">{helper}</span> : null}
-      {error ? <span className="field-error" role="alert">{error}</span> : null}
-    </label>
+    </Input.Wrapper>
   );
 }
 
 export function StatusBadge({ status }) {
-  return <span className={`status status-${statusTone(status)}`}>{status}</span>;
+  const tone = statusTone(status);
+  const colors = { success: 'green', warning: 'orange', danger: 'red', info: 'wildtrackMaroon' };
+  return <Badge className="wt-status-badge" color={colors[tone] || 'gray'} variant="light" radius="sm">{status}</Badge>;
 }
 
 export function PageHeader({ title, description, actions }) {
   return (
-    <header className="page-header">
+    <Group component="header" className="wt-page-header" justify="space-between" align="flex-end" gap="lg" wrap="wrap">
       <div>
-        <h1>{title}</h1>
-        {description ? <p>{description}</p> : null}
+        <Title order={1}>{title}</Title>
+        {description ? <Text c="dimmed" mt={4}>{description}</Text> : null}
       </div>
-      {actions ? <div className="page-actions">{actions}</div> : null}
-    </header>
+      {actions ? <Group gap="sm">{actions}</Group> : null}
+    </Group>
   );
 }
 
 export function EmptyState({ title, description, icon: Icon = WarningCircle }) {
   return (
-    <div className="empty-state">
-      <Icon weight="regular" aria-hidden="true" />
+    <Group className="wt-empty-state" gap="md" align="flex-start" p="lg">
+      <ThemeIcon variant="light" color="wildtrackMaroon" size={40}><Icon size={22} aria-hidden="true" /></ThemeIcon>
       <div>
-        <h3>{title}</h3>
-        <p>{description}</p>
+        <Title order={3}>{title}</Title>
+        <Text c="dimmed" mt={4}>{description}</Text>
       </div>
-    </div>
+    </Group>
   );
 }
 
@@ -70,135 +94,72 @@ export function ConfirmDialog({
   loading = false,
   children
 }) {
-  const titleId = useId();
-  if (!open) return null;
+  const descriptionId = useId();
   const requiresText = Boolean(confirmText);
   const canConfirm = !requiresText || confirmationValue === confirmText;
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="modal-panel confirm-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <div className={`confirm-dialog-icon ${intent === 'danger' ? 'danger' : ''}`}>
-          <WarningCircle weight="regular" aria-hidden="true" />
-        </div>
-        <div className="confirm-dialog-copy">
-          <h2 id={titleId}>{title}</h2>
-          {description ? <p>{description}</p> : null}
-        </div>
-        {children ? <div className="confirm-dialog-details">{children}</div> : null}
+    <Modal
+      opened={open}
+      onClose={onClose}
+      title={title}
+      centered
+      closeOnClickOutside={!loading}
+      closeOnEscape={!loading}
+      withCloseButton={!loading}
+      transitionProps={{ duration: 0 }}
+      aria-describedby={description ? descriptionId : undefined}
+    >
+      <Stack gap="md">
+        {description ? <Text id={descriptionId} size="sm" c="dimmed">{description}</Text> : null}
+        {children ? <Paper withBorder p="sm" radius="sm">{children}</Paper> : null}
         {requiresText ? (
-          <div className="confirm-text-block">
-            <p>Type the confirmation word below to continue:</p>
-            <strong>{confirmText}</strong>
-          </div>
+          <TextInput
+            autoFocus
+            label="Confirmation"
+            description={<>Type <Text component="strong" inherit>{confirmText}</Text> to continue.</>}
+            value={confirmationValue}
+            onChange={(event) => onConfirmationValueChange?.(event.currentTarget.value)}
+            autoComplete="off"
+            placeholder={`Type ${confirmText}`}
+            aria-label={`Type ${confirmText} to continue`}
+          />
         ) : null}
-        {requiresText ? (
-          <Field label="Confirmation">
-            <input
-              autoFocus
-              value={confirmationValue}
-              onChange={(event) => onConfirmationValueChange?.(event.target.value)}
-              autoComplete="off"
-              placeholder={`Type ${confirmText}`}
-              aria-label={`Type ${confirmText} to continue`}
-            />
-          </Field>
-        ) : null}
-        <div className="button-row confirm-dialog-actions">
-          <Button variant="secondary" onClick={onClose} disabled={loading}>{cancelLabel}</Button>
-          <Button variant={intent === 'danger' ? 'danger' : 'primary'} loading={loading} disabled={!canConfirm || loading} onClick={onConfirm}>
+        <Group justify="flex-end" gap="sm">
+          <MantineButton variant="default" onClick={onClose} disabled={loading}>{cancelLabel}</MantineButton>
+          <MantineButton
+            color={intent === 'danger' ? 'red' : 'wildtrackMaroon'}
+            loading={loading}
+            disabled={!canConfirm || loading}
+            onClick={onConfirm}
+          >
             {confirmLabel}
-          </Button>
-        </div>
-      </section>
-    </div>
+          </MantineButton>
+        </Group>
+      </Stack>
+    </Modal>
   );
 }
 
 export function DataTable({ columns, children, minWidth = 780, className = '' }) {
   return (
-    <div className={`table-wrap ${className}`} style={{ '--table-min': `${minWidth}px` }}>
-      <table>
-        <thead>
-          <tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  );
-}
-
-export function SearchableSelect({ id, value, onChange, options, placeholder = 'Search', getValue = (item) => item.value, getLabel = (item) => item.label, disabledOptions = () => false }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState(value || '');
-  const matches = useMemo(() => {
-    const needle = String(query || value || '').toLowerCase().trim();
-    return options
-      .filter((item) => {
-        const haystack = `${getValue(item)} ${getLabel(item)}`.toLowerCase();
-        return !needle || haystack.includes(needle);
-      });
-  }, [getLabel, getValue, options, query, value]);
-  const filtered = matches.slice(0, 24);
-
-  function choose(item) {
-    if (disabledOptions(item)) return;
-    const nextValue = getValue(item);
-    onChange(nextValue, item);
-    setQuery(nextValue);
-    setOpen(false);
-  }
-
-  return (
-    <div className="combo">
-      <input
-        id={id}
-        value={open ? query : value}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          onChange(event.target.value, null);
-          setOpen(true);
-        }}
-        onFocus={() => {
-          setQuery(value || '');
-          setOpen(true);
-        }}
-        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
-        placeholder={placeholder}
-        role="combobox"
-        aria-expanded={open}
-        aria-autocomplete="list"
-      />
-      {open ? (
-        <div className="combo-menu" role="listbox">
-          {filtered.length ? filtered.map((item) => (
-            <button
-              type="button"
-              key={getValue(item)}
-              className="combo-option"
-              disabled={disabledOptions(item)}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => choose(item)}
-            >
-              <strong>{getValue(item)}</strong>
-              <span>{getLabel(item)}</span>
-              {disabledOptions(item) ? <em>Claimed</em> : null}
-            </button>
-          )) : <div className="combo-empty">No matching class record entry.</div>}
-          {matches.length > filtered.length ? (
-            <div className="combo-count">Showing 24 of {matches.length} matches. Type a Student Number or name to narrow the list.</div>
-          ) : null}
-        </div>
-      ) : null}
+    <div className={`table-wrap ${className}`}>
+      <Table miw={minWidth}>
+        <Table.Thead><Table.Tr>{columns.map((column) => <Table.Th key={column}>{column}</Table.Th>)}</Table.Tr></Table.Thead>
+        <Table.Tbody>{children}</Table.Tbody>
+      </Table>
     </div>
   );
 }
 
 export function SearchBox({ value, onChange, placeholder = 'Search' }) {
   return (
-    <label className="search-box">
-      <MagnifyingGlass weight="regular" aria-hidden="true" />
-      <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
-    </label>
+    <TextInput
+      value={value}
+      onChange={(event) => onChange(event.currentTarget.value)}
+      placeholder={placeholder}
+      aria-label={placeholder}
+      leftSection={<MagnifyingGlass size={18} aria-hidden="true" />}
+    />
   );
 }

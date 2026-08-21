@@ -15,9 +15,9 @@ import {
   Table,
   Trash
 } from '@phosphor-icons/react';
-import { Collapse, Modal, Tabs } from '@mantine/core';
+import { Checkbox, Collapse, Input, Modal, NativeSelect, Tabs, TextInput } from '@mantine/core';
 import { useSearchParams } from 'react-router-dom';
-import { Button, ConfirmDialog, Field, PageHeader, StatusBadge } from '../components/ui.jsx';
+import { Button, ConfirmDialog, PageHeader, StatusBadge } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/workflow.js';
 import { setStoredPreviewRole } from '../hooks/usePreviewRole.js';
@@ -269,11 +269,12 @@ export function WorkspacePage() {
 
       <section className="panel wt-workspace-switcher">
         <div className="workspace-selector-row">
-          <Field label="Current workspace">
-            <select value={activeWorkspaceId} onChange={(event) => switchWorkspace(event.target.value)}>
-              {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
-            </select>
-          </Field>
+          <NativeSelect
+            label="Current workspace"
+            value={activeWorkspaceId}
+            onChange={(event) => switchWorkspace(event.currentTarget.value)}
+            data={workspaces.map((workspace) => ({ value: workspace.id, label: workspace.name }))}
+          />
           <div className="workspace-identity">
             <Buildings aria-hidden="true" />
             <div>
@@ -298,9 +299,13 @@ export function WorkspacePage() {
             <p>Each Sheet has one responsibility. Import results are reviewed before further setup.</p>
           </div>
         </div>
-        <Field label="Tracker tab label" helper="Use the tab name shown at the bottom of the Tracker Sheet." required>
-          <input value={trackerSheet} onChange={(event) => setTrackerSheet(event.target.value)} />
-        </Field>
+        <TextInput
+          label="Tracker tab label"
+          description="Use the tab name shown at the bottom of the Tracker Sheet."
+          required
+          value={trackerSheet}
+          onChange={(event) => setTrackerSheet(event.currentTarget.value)}
+        />
         <div className="table-wrap wt-source-table-wrap">
           <table aria-label="Workspace source sheets" className="wt-source-table">
             <thead>
@@ -315,15 +320,15 @@ export function WorkspacePage() {
                     <small>{source.description}</small>
                   </td>
                   <td>
-                    <label className="wt-source-link-field">
-                      <span className="sr-only">{source.title} published Google Sheet link</span>
-                      <input
+                    <div className="wt-source-link-field">
+                      <TextInput
+                        aria-label={`${source.title} published Google Sheet link`}
                         value={sources[source.key]}
-                        onChange={(event) => setSources((current) => ({ ...current, [source.key]: event.target.value }))}
+                        onChange={(event) => setSources((current) => ({ ...current, [source.key]: event.currentTarget.value }))}
                         placeholder="https://docs.google.com/spreadsheets/d/..."
                       />
                       <small>Sheet ID: {extractSheetId(sources[source.key]) || 'Not entered'}</small>
-                    </label>
+                    </div>
                   </td>
                   <td><StatusBadge status={source.status || 'Not connected'} /></td>
                   <td>
@@ -378,33 +383,25 @@ export function WorkspacePage() {
             <div className="wt-column-list">
               {state.trackerColumns.map((column) => (
                 <div className="wt-column-row" key={column.id}>
-                  <Field label="Display name">
-                    <input
-                      aria-label={`${column.label} display name`}
-                      value={column.label}
-                      onChange={(event) => updateTrackerColumn(column.id, { label: event.target.value })}
-                    />
-                  </Field>
-                  <Field label="Source column">
-                    <input
-                      aria-label={`${column.label} source column`}
-                      value={column.sourceColumn}
-                      onChange={(event) => updateTrackerColumn(column.id, { sourceColumn: event.target.value })}
-                    />
-                  </Field>
-                  <label className="toggle-line">
-                    <input type="checkbox" checked={column.active !== false} onChange={(event) => updateTrackerColumn(column.id, { active: event.target.checked })} />
-                    <span>Active</span>
-                  </label>
-                  <label className="toggle-line">
-                    <input type="checkbox" checked={Boolean(column.pdfRequired)} onChange={(event) => updateTrackerColumn(column.id, { pdfRequired: event.target.checked })} />
-                    <span>PDF</span>
-                  </label>
+                  <TextInput
+                    label="Display name"
+                    aria-label={`${column.label} display name`}
+                    value={column.label}
+                    onChange={(event) => updateTrackerColumn(column.id, { label: event.currentTarget.value })}
+                  />
+                  <TextInput
+                    label="Source column"
+                    aria-label={`${column.label} source column`}
+                    value={column.sourceColumn}
+                    onChange={(event) => updateTrackerColumn(column.id, { sourceColumn: event.currentTarget.value })}
+                  />
+                  <Checkbox label="Active" checked={column.active !== false} onChange={(event) => updateTrackerColumn(column.id, { active: event.currentTarget.checked })} />
+                  <Checkbox label="PDF" checked={Boolean(column.pdfRequired)} onChange={(event) => updateTrackerColumn(column.id, { pdfRequired: event.currentTarget.checked })} />
                 </div>
               ))}
             </div>
             <form className="inline-form" onSubmit={submitColumn}>
-              <input aria-label="New Tracker column" value={newColumn} onChange={(event) => setNewColumn(event.target.value)} placeholder="Add a Tracker column" />
+              <TextInput aria-label="New Tracker column" value={newColumn} onChange={(event) => setNewColumn(event.currentTarget.value)} placeholder="Add a Tracker column" />
               <Button size="sm" icon={PlusCircle}>Add column</Button>
             </form>
           </div>
@@ -432,9 +429,9 @@ export function WorkspacePage() {
                   <td>
                     <div className="wt-row-actions">
                       {item.originalFilename || item.fileUrl ? (
-                        <a className="btn btn-secondary btn-sm" href={item.fileUrl || getDocumentTemplateFileUrl(activeWorkspaceId, item.id)} target="_blank" rel="noreferrer">
-                          <ArrowSquareOut aria-hidden="true" /><span>Open</span>
-                        </a>
+                        <Button component="a" type="button" size="sm" variant="secondary" icon={ArrowSquareOut} href={item.fileUrl || getDocumentTemplateFileUrl(activeWorkspaceId, item.id)} target="_blank" rel="noreferrer">
+                          Open
+                        </Button>
                       ) : null}
                       <Button type="button" size="sm" variant="secondary" icon={PencilSimple} onClick={() => openTemplateModal(item)}>Replace</Button>
                       <Button type="button" size="sm" variant="secondary" icon={Trash} onClick={() => setTemplateToRemove(item)}>Remove</Button>
@@ -476,14 +473,24 @@ export function WorkspacePage() {
       <Modal opened={templateModalOpen} onClose={() => setTemplateModalOpen(false)} title={template.replacing ? 'Replace official template' : 'Add official template'} centered size="lg">
         <form className="wt-template-dialog" onSubmit={submitTemplate} aria-label={template.replacing ? 'Replace official template' : 'Add official template'}>
           <div className="two-col">
-            <Field label="Deliverable" required>
-              <select aria-label="Template deliverable" value={template.deliverable} disabled={Boolean(template.replacing)} onChange={(event) => setTemplate({ ...template, deliverable: event.target.value })}>
-                {activeColumns.map((column) => <option key={column.id} value={column.label}>{column.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Template name" helper={template.sourceType === 'drive' ? 'Optional; the Drive filename is used when blank.' : 'Defaults to the uploaded filename.'} required={template.sourceType === 'upload'}>
-              <input aria-label="Template name" value={template.name} onChange={(event) => setTemplate({ ...template, name: event.target.value })} placeholder="Official SRS template" />
-            </Field>
+            <NativeSelect
+              label="Deliverable"
+              required
+              aria-label="Template deliverable"
+              value={template.deliverable}
+              disabled={Boolean(template.replacing)}
+              onChange={(event) => setTemplate({ ...template, deliverable: event.currentTarget.value })}
+              data={activeColumns.map((column) => ({ value: column.label, label: column.label }))}
+            />
+            <TextInput
+              label="Template name"
+              description={template.sourceType === 'drive' ? 'Optional; the Drive filename is used when blank.' : 'Defaults to the uploaded filename.'}
+              required={template.sourceType === 'upload'}
+              aria-label="Template name"
+              value={template.name}
+              onChange={(event) => setTemplate({ ...template, name: event.currentTarget.value })}
+              placeholder="Official SRS template"
+            />
           </div>
           <Tabs value={template.sourceType} onChange={(value) => setTemplate({ ...template, sourceType: value })}>
             <Tabs.List>
@@ -491,14 +498,26 @@ export function WorkspacePage() {
               <Tabs.Tab value="drive" leftSection={<LinkSimple aria-hidden="true" />}>Google Drive link</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="upload" pt="md">
-              <Field label="Template file" helper="DOCX or PDF, up to 15 MB" required>
-                <input aria-label="Template file" type="file" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => selectTemplateFile(event.target.files?.[0] || null)} />
-              </Field>
+              <Input.Wrapper label="Template file" description="DOCX or PDF, up to 15 MB" required>
+                <input
+                  className="wt-file-input"
+                  aria-label="Template file"
+                  type="file"
+                  accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={(event) => selectTemplateFile(event.currentTarget.files?.[0] || null)}
+                />
+              </Input.Wrapper>
             </Tabs.Panel>
             <Tabs.Panel value="drive" pt="md">
-              <Field label="Google Drive link" helper="The file must be shared as Anyone with the link - Viewer and allow downloads." required>
-                <input aria-label="Google Drive link" value={template.driveUrl} onChange={(event) => setTemplate({ ...template, driveUrl: event.target.value })} placeholder="https://drive.google.com/file/d/..." />
-              </Field>
+              <TextInput
+                label="Google Drive link"
+                description="The file must be shared as Anyone with the link - Viewer and allow downloads."
+                required
+                aria-label="Google Drive link"
+                value={template.driveUrl}
+                onChange={(event) => setTemplate({ ...template, driveUrl: event.currentTarget.value })}
+                placeholder="https://drive.google.com/file/d/..."
+              />
             </Tabs.Panel>
           </Tabs>
           <div className="button-row">
@@ -511,14 +530,14 @@ export function WorkspacePage() {
       <Modal opened={workspaceEditorOpen} onClose={() => setWorkspaceEditorOpen(false)} title="Create academic workspace" centered size="lg">
         <form className="form-grid workspace-modal" onSubmit={submitWorkspace} aria-label="Create academic workspace">
           <p className="muted-copy">Use one workspace for each program, course, semester, and academic year.</p>
-          <Field label="Workspace name" required><input value={workspaceForm.name} onChange={(event) => setWorkspaceForm({ ...workspaceForm, name: event.target.value })} /></Field>
+          <TextInput label="Workspace name" required value={workspaceForm.name} onChange={(event) => setWorkspaceForm({ ...workspaceForm, name: event.currentTarget.value })} />
           <div className="two-col">
-            <Field label="Program" required><input value={workspaceForm.program} onChange={(event) => setWorkspaceForm({ ...workspaceForm, program: event.target.value })} /></Field>
-            <Field label="Course or section" required><input value={workspaceForm.courseCode} onChange={(event) => setWorkspaceForm({ ...workspaceForm, courseCode: event.target.value })} /></Field>
+            <TextInput label="Program" required value={workspaceForm.program} onChange={(event) => setWorkspaceForm({ ...workspaceForm, program: event.currentTarget.value })} />
+            <TextInput label="Course or section" required value={workspaceForm.courseCode} onChange={(event) => setWorkspaceForm({ ...workspaceForm, courseCode: event.currentTarget.value })} />
           </div>
           <div className="two-col">
-            <Field label="Semester" required><input value={workspaceForm.semester} onChange={(event) => setWorkspaceForm({ ...workspaceForm, semester: event.target.value })} /></Field>
-            <Field label="Academic year" required><input value={workspaceForm.academicYear} onChange={(event) => setWorkspaceForm({ ...workspaceForm, academicYear: event.target.value })} /></Field>
+            <TextInput label="Semester" required value={workspaceForm.semester} onChange={(event) => setWorkspaceForm({ ...workspaceForm, semester: event.currentTarget.value })} />
+            <TextInput label="Academic year" required value={workspaceForm.academicYear} onChange={(event) => setWorkspaceForm({ ...workspaceForm, academicYear: event.currentTarget.value })} />
           </div>
           <div className="button-row"><Button icon={PlusCircle}>Create workspace</Button><Button type="button" variant="secondary" onClick={() => setWorkspaceEditorOpen(false)}>Cancel</Button></div>
         </form>
@@ -593,16 +612,17 @@ function ImportSummaryDialog({ summary, mappingDraft, onMappingChange, onApplyMa
             <p>These are suggestions from the detected headers. Change a source column, then apply the mapping to re-import.</p>
             <div className="wt-mapping-grid">
               {summary.mappings.map((item) => (
-                <Field key={item.key} label={`${item.label}${item.required ? ' (required)' : ''}`}>
-                  <select
-                    aria-label={`${item.label} source column`}
-                    value={mappingDraft[item.key] || ''}
-                    onChange={(event) => onMappingChange(item.key, event.target.value)}
-                  >
-                    <option value="">Not mapped</option>
-                    {(summary.headers || []).map((header) => <option key={header} value={header}>{header}</option>)}
-                  </select>
-                </Field>
+                <NativeSelect
+                  key={item.key}
+                  label={`${item.label}${item.required ? ' (required)' : ''}`}
+                  aria-label={`${item.label} source column`}
+                  value={mappingDraft[item.key] || ''}
+                  onChange={(event) => onMappingChange(item.key, event.currentTarget.value)}
+                  data={[
+                    { value: '', label: 'Not mapped' },
+                    ...(summary.headers || []).map((header) => ({ value: header, label: header }))
+                  ]}
+                />
               ))}
             </div>
           </section>
