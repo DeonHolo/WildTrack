@@ -117,6 +117,39 @@ class SheetImportControllerTest {
     }
 
     @Test
+    void appliesSavedColumnMappingsForUnusualTeamFormationHeaders() throws Exception {
+        when(sheetCsvClient.fetchCsv(anyString())).thenReturn("""
+            Imported roster
+            School Key,Learner,Group Key,Seat
+            24-0001-111,"DOE, JANE A.",2526-sem2-it332-99,2
+            """);
+
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "sheetUrl": "https://docs.google.com/spreadsheets/d/custom-roster/edit",
+                      "displayName": "Custom roster",
+                      "mappingOverrides": {
+                        "studentNumber": "School Key",
+                        "studentName": "Learner",
+                        "teamCode": "Group Key",
+                        "memberNumber": "Seat"
+                      }
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.studentsFound").value(1))
+            .andExpect(jsonPath("$.officialIdsFound").value(1));
+
+        mockMvc.perform(get("/api/students"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].studentNumber").value("24-0001-111"))
+            .andExpect(jsonPath("$[0].studentName").value("DOE, JANE A."))
+            .andExpect(jsonPath("$[0].teamCode").value("2526-sem2-it332-99"))
+            .andExpect(jsonPath("$[0].memberNumber").value("2"));
+    }
+    @Test
     void importsTrackerRowsDeadlineSuggestionsAndWritesLocalTrackerValue() throws Exception {
         when(sheetCsvClient.fetchCsv(anyString())).thenReturn(TEAM_FORMATION_CSV, TRACKER_CSV);
 

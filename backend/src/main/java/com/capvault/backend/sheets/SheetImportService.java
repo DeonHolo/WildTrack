@@ -102,10 +102,13 @@ public class SheetImportService {
                 throw new IllegalArgumentException("The Sheet did not contain a recognizable header row and data rows.");
             }
 
+            Map<String, String> mappingOverrides = request == null || request.mappingOverrides() == null
+                ? Map.of()
+                : request.mappingOverrides();
             ImportResult result = switch (sourceType) {
-                case TEAM_FORMATION -> importTeamFormation(workspaceId, rows);
-                case TRACKER -> importTracker(workspaceId, rows);
-                case PROJECT_MONITOR -> importProjectMonitor(workspaceId, rows);
+                case TEAM_FORMATION -> importTeamFormation(workspaceId, rows, mappingOverrides);
+                case TRACKER -> importTracker(workspaceId, rows, mappingOverrides);
+                case PROJECT_MONITOR -> importProjectMonitor(workspaceId, rows, mappingOverrides);
             };
 
             source.setStatus(WorkspaceSourceStatus.IMPORTED);
@@ -195,9 +198,13 @@ public class SheetImportService {
         return source;
     }
 
-    private ImportResult importTeamFormation(UUID workspaceId, List<List<String>> rows) {
-        HeaderRow headerRow = findBestHeaderRow(rows, SheetImportService::inferIdentityColumns, SheetImportService::scoreTeamFormationHeader);
-        IdentityColumns identity = inferIdentityColumns(headerRow.headers());
+    private ImportResult importTeamFormation(UUID workspaceId, List<List<String>> rows, Map<String, String> mappingOverrides) {
+        HeaderRow headerRow = findBestHeaderRow(
+            rows,
+            headers -> applyIdentityOverrides(headers, inferIdentityColumns(headers), mappingOverrides),
+            SheetImportService::scoreTeamFormationHeader
+        );
+        IdentityColumns identity = applyIdentityOverrides(headerRow.headers(), inferIdentityColumns(headerRow.headers()), mappingOverrides);
         List<String> warnings = new ArrayList<>();
         int skippedRows = 0;
         int studentsFound = 0;
@@ -299,9 +306,13 @@ public class SheetImportService {
         );
     }
 
-    private ImportResult importTracker(UUID workspaceId, List<List<String>> rows) {
-        HeaderRow headerRow = findBestHeaderRow(rows, SheetImportService::inferIdentityColumns, SheetImportService::scoreTrackerHeader);
-        IdentityColumns identity = inferIdentityColumns(headerRow.headers());
+    private ImportResult importTracker(UUID workspaceId, List<List<String>> rows, Map<String, String> mappingOverrides) {
+        HeaderRow headerRow = findBestHeaderRow(
+            rows,
+            headers -> applyIdentityOverrides(headers, inferIdentityColumns(headers), mappingOverrides),
+            SheetImportService::scoreTrackerHeader
+        );
+        IdentityColumns identity = applyIdentityOverrides(headerRow.headers(), inferIdentityColumns(headerRow.headers()), mappingOverrides);
         Set<Integer> identityIndexes = identity.indexes();
         List<TrackerColumn> trackerColumns = upsertTrackerColumns(workspaceId, headerRow.headers(), identityIndexes);
         List<String> warnings = new ArrayList<>();
@@ -419,9 +430,13 @@ public class SheetImportService {
         );
     }
 
-    private ImportResult importProjectMonitor(UUID workspaceId, List<List<String>> rows) {
-        HeaderRow headerRow = findBestHeaderRow(rows, SheetImportService::inferProjectColumns, SheetImportService::scoreProjectHeader);
-        ProjectColumns columns = inferProjectColumns(headerRow.headers());
+    private ImportResult importProjectMonitor(UUID workspaceId, List<List<String>> rows, Map<String, String> mappingOverrides) {
+        HeaderRow headerRow = findBestHeaderRow(
+            rows,
+            headers -> applyProjectOverrides(headers, inferProjectColumns(headers), mappingOverrides),
+            SheetImportService::scoreProjectHeader
+        );
+        ProjectColumns columns = applyProjectOverrides(headerRow.headers(), inferProjectColumns(headerRow.headers()), mappingOverrides);
         List<String> warnings = new ArrayList<>();
         int groupsFound = 0;
         int skippedRows = 0;
@@ -663,6 +678,62 @@ public class SheetImportService {
             findHeader(normalized, "statusadviser", "adviser", "advisor", "status"),
             findHeader(normalized, "category")
         );
+    }
+
+    private static IdentityColumns applyIdentityOverrides(
+        List<String> headers,
+        IdentityColumns inferred,
+        Map<String, String> overrides
+    ) {
+        return new IdentityColumns(
+            overrideIndex(headers, overrides, "studentNumber", inferred.studentNumber()),
+            overrideIndex(headers, overrides, "studentName", inferred.studentName()),
+            overrideIndex(headers, overrides, "lastName", inferred.lastName()),
+            overrideIndex(headers, overrides, "firstName", inferred.firstName()),
+            overrideIndex(headers, overrides, "teamCode", inferred.teamCode()),
+            overrideIndex(headers, overrides, "memberNumber", inferred.memberNumber()),
+            overrideIndex(headers, overrides, "section", inferred.section()),
+            overrideIndex(headers, overrides, "adviser", inferred.adviser()),
+            overrideIndex(headers, overrides, "email", inferred.email())
+        );
+    }
+
+    private static ProjectColumns applyProjectOverrides(
+        List<String> headers,
+        ProjectColumns inferred,
+        Map<String, String> overrides
+    ) {
+        return new ProjectColumns(
+            overrideIndex(headers, overrides, "groupCode", inferred.groupCode()),
+            overrideIndex(headers, overrides, "projectTitle", inferred.projectTitle()),
+            overrideIndex(headers, overrides, "softwareName", inferred.softwareName()),
+            overrideIndex(headers, overrides, "description", inferred.description()),
+            overrideIndex(headers, overrides, "proposalRemarks", inferred.proposalRemarks()),
+            overrideIndex(headers, overrides, "demoComments", inferred.demoComments()),
+            overrideIndex(headers, overrides, "statusAdviser", inferred.statusAdviser()),
+            overrideIndex(headers, overrides, "category", inferred.category())
+        );
+    }
+
+    private static int overrideIndex(
+        List<String> headers,
+        Map<String, String> overrides,
+        String key,
+        int inferredIndex
+    ) {
+        if (overrides == null || !overrides.containsKey(key)) {
+            return inferredIndex;
+        }
+        String requestedHeader = normalizeNullable(overrides.get(key));
+        if (requestedHeader == null) {
+            return -1;
+        }
+        for (int index = 0; index < headers.size(); index += 1) {
+            if (headers.get(index).trim().equalsIgnoreCase(requestedHeader)) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private static int scoreTeamFormationHeader(Object inferred, List<String> headers) {

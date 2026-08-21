@@ -1,13 +1,18 @@
 package com.capvault.backend.template;
 
 import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.io.ByteArrayOutputStream;
+import java.time.OffsetDateTime;
 
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,10 +20,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+
+import com.capvault.backend.drive.DriveFileMetadata;
+import com.capvault.backend.drive.DriveFileReference;
+import com.capvault.backend.drive.GoogleDriveGateway;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -32,15 +44,18 @@ class DocumentTemplateControllerTest {
     @Autowired
     private DocumentTemplateRepository repository;
 
+    @MockBean
+    private GoogleDriveGateway driveGateway;
+
     @BeforeEach
     void clearTemplates() {
         repository.deleteAll();
     }
 
     @Test
-    void uploadsReplacesListsAndDeletesTemplate() throws Exception {
+    void uploadsReplacesListsOpensAndDeletesTemplate() throws Exception {
         String firstId = upload("SRS template", "Initial official SRS template instructions").replaceAll(
-            ".*\\\"id\\\":\\\"([^\\\"]+)\\\".*",
+            ".*\"id\":\"([^\"]+)\".*",
             "$1"
         );
 
@@ -52,12 +67,58 @@ class DocumentTemplateControllerTest {
             .andExpect(jsonPath("$[0].displayName").value("Updated SRS template"))
             .andExpect(jsonPath("$[0].originalFilename").value("template.docx"));
 
+        mockMvc.perform(get("/api/templates/" + firstId + "/file"))
+            .andExpect(status().isOk())
+            .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"template.docx\""))
+            .andExpect(content().contentType(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ));
+
         mockMvc.perform(delete("/api/templates/" + firstId))
             .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/templates"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
+    void downloadsAndStoresDriveLinkedTemplate() throws Exception {
+        byte[] bytes = docx("Official Drive template instructions and expected SRS sections");
+        DriveFileReference reference = new DriveFileReference("drive-template-id", null);
+        when(driveGateway.isConfigured()).thenReturn(true);
+        when(driveGateway.getMetadata(reference)).thenReturn(new DriveFileMetadata(
+            "drive-template-id",
+            "Official SRS Template.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            (long) bytes.length,
+            null,
+            OffsetDateTime.now(),
+            true,
+            "https://drive.google.com/file/d/drive-template-id/view"
+        ));
+        when(driveGateway.download(reference)).thenReturn(bytes);
+
+        String response = mockMvc.perform(post("/api/templates/from-drive")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "deliverableKey": "SRS",
+                      "driveUrl": "https://drive.google.com/file/d/drive-template-id/view"
+                    }
+                    """))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.deliverableKey").value("SRS"))
+            .andExpect(jsonPath("$.displayName").value("Official SRS Template"))
+            .andExpect(jsonPath("$.originalFilename").value("Official SRS Template.docx"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        String templateId = response.replaceAll(".*\"id\":\"([^\"]+)\".*", "$1");
+        mockMvc.perform(get("/api/templates/" + templateId + "/file"))
+            .andExpect(status().isOk())
+            .andExpect(content().bytes(bytes));
     }
 
     private String upload(String displayName, String text) throws Exception {

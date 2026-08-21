@@ -42,6 +42,7 @@ import {
   importSheetSource as importBackendSheetSource,
   runDocumentCheck as requestDocumentCheck,
   uploadDocumentTemplate,
+  uploadDriveDocumentTemplate,
   writeTrackerValue
 } from '../lib/api.js';
 
@@ -211,13 +212,21 @@ export function WorkflowProvider({ children }) {
   }, []);
 
   const connectSheetSource = useCallback(async (sourceType, payload) => {
+    const workspaceId = activeWorkspaceRef.current;
+    const workspaceState = state;
+    const previewPromise = importPublicSheetSource(sourceType, payload, workspaceState).catch(() => null);
+
     try {
       const backendImport = await importBackendSheetSource(sourceType, {
         ...payload,
         displayName: sourceType === 'tracker' ? payload.trackerSheet : payload.name
-      }, activeWorkspaceRef.current);
-      const snapshot = await getBackendSnapshot(activeWorkspaceRef.current);
-      const imported = buildBackendImportResult(sourceType, backendImport, snapshot);
+      }, workspaceId);
+      const snapshot = await getBackendSnapshot(workspaceId);
+      const preview = await previewPromise;
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before the Sheet import finished.' };
+      }
+      const imported = buildBackendImportResult(sourceType, backendImport, snapshot, preview);
       setState((current) => {
         const next = applyClassRecordImport(current, { ...payload, sourceType }, imported);
         return applyBackendSnapshot(next, snapshot, {
@@ -227,7 +236,10 @@ export function WorkflowProvider({ children }) {
       });
       return imported;
     } catch (backendError) {
-      const imported = await importPublicSheetSource(sourceType, payload, state);
+      const imported = await previewPromise || await importPublicSheetSource(sourceType, payload, workspaceState);
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before the Sheet import finished.' };
+      }
       const fallbackImport = {
         ...imported,
         backendError: backendError.message
@@ -248,7 +260,6 @@ export function WorkflowProvider({ children }) {
       return fallbackImport;
     }
   }, [state]);
-
   const connectClassRecord = useCallback(async (payload) => {
     return connectSheetSource('tracker', payload);
   }, [connectSheetSource]);
@@ -853,12 +864,22 @@ export function WorkflowProvider({ children }) {
   }, []);
 
   const saveTemplate = useCallback(async (payload) => {
+    const workspaceId = activeWorkspaceRef.current;
     try {
-      const saved = await uploadDocumentTemplate(activeWorkspaceRef.current, {
-        deliverableKey: payload.deliverable,
-        displayName: payload.name,
-        file: payload.file
-      });
+      const saved = payload.sourceType === 'drive'
+        ? await uploadDriveDocumentTemplate(workspaceId, {
+            deliverableKey: payload.deliverable,
+            displayName: payload.name,
+            driveUrl: payload.driveUrl
+          })
+        : await uploadDocumentTemplate(workspaceId, {
+            deliverableKey: payload.deliverable,
+            displayName: payload.name,
+            file: payload.file
+          });
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before the template was saved.' };
+      }
       const template = mapBackendTemplate(saved);
       setState((current) => ({
         ...current,
@@ -876,8 +897,12 @@ export function WorkflowProvider({ children }) {
   }, []);
 
   const removeTemplate = useCallback(async (templateId) => {
+    const workspaceId = activeWorkspaceRef.current;
     try {
-      await deleteDocumentTemplate(activeWorkspaceRef.current, templateId);
+      await deleteDocumentTemplate(workspaceId, templateId);
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before the template was removed.' };
+      }
       setState((current) => ({
         ...current,
         templates: current.templates.filter((item) => item.id !== templateId)
@@ -988,7 +1013,7 @@ function applyBackendSnapshot(current, snapshot, options = {}) {
   };
 }
 
-function buildBackendImportResult(sourceType, backendImport, snapshot) {
+function buildBackendImportResult(sourceType, backendImport, snapshot, preview = null) {
   const mapped = mapBackendSnapshot(snapshot);
   const suggestedForms = (backendImport.deadlineSuggestions || []).map((item) => ({
     trackerColumn: item.trackerColumnKey,
@@ -1000,7 +1025,9 @@ function buildBackendImportResult(sourceType, backendImport, snapshot) {
     sourceRowNumber: item.sourceRowNumber
   }));
   const details = backendImport.details || {};
+  const previewSummary = preview?.importSummary || {};
   const commonSummary = {
+    ...previewSummary,
     sourceType: sourceType === 'teamFormation'
       ? 'Team Formation'
       : sourceType === 'projectMonitor'
@@ -1008,10 +1035,10 @@ function buildBackendImportResult(sourceType, backendImport, snapshot) {
         : 'Tracker',
     resultStatus: (backendImport.warnings || []).length ? 'Imported with warnings' : 'Imported',
     headerRow: details.headerRow,
-    detectedFields: details.detectedFields || [],
-    missingFields: details.missingFields || [],
-    metrics: details.metrics || {},
-    deadlineRows: details.deadlineRows || 0,
+    detectedFields: previewSummary.detectedFields || details.detectedFields || [],
+    missingFields: previewSummary.missingFields || details.missingFields || [],
+    metrics: { ...(previewSummary.metrics || {}), ...(details.metrics || {}) },
+    deadlineRows: previewSummary.deadlineRows || details.deadlineRows || [],
     suggestedForms,
     warnings: backendImport.warnings || []
   };
@@ -1036,8 +1063,8 @@ function buildBackendImportResult(sourceType, backendImport, snapshot) {
   return {
     ok: true,
     sourceType,
-    headers: [],
-    csvUrl: '',
+    headers: preview?.headers || previewSummary.headers || [],
+    csvUrl: preview?.csvUrl || '',
     warnings: backendImport.warnings || [],
     suggestedForms,
     importSummary,

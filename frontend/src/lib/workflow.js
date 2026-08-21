@@ -523,9 +523,9 @@ export async function importPublicSheetSource(sourceType, payload, current) {
     };
   }
 
-  if (sourceType === 'teamFormation') return normalizeTeamFormationRows(usableRows, current, csvUrl);
-  if (sourceType === 'projectMonitor') return normalizeProjectMonitorRows(usableRows, current, csvUrl);
-  return normalizeTrackerRows(usableRows, current, csvUrl);
+  if (sourceType === 'teamFormation') return normalizeTeamFormationRows(usableRows, current, csvUrl, payload.mappingOverrides);
+  if (sourceType === 'projectMonitor') return normalizeProjectMonitorRows(usableRows, current, csvUrl, payload.mappingOverrides);
+  return normalizeTrackerRows(usableRows, current, csvUrl, payload.mappingOverrides);
 }
 
 function parseCsv(csvText) {
@@ -571,10 +571,10 @@ function parseCsv(csvText) {
   return rows.map((items) => items.map((item) => String(item || '').trim()));
 }
 
-function normalizeTeamFormationRows(rows, current, csvUrl) {
+function normalizeTeamFormationRows(rows, current, csvUrl, mappingOverrides = null) {
   const headerInfo = findBestHeaderRow(rows, inferIdentityColumns, scoreTeamFormationHeader);
   const headers = headerInfo.headers;
-  const identity = inferIdentityColumns(headers);
+  const identity = applyColumnOverrides(headers, inferIdentityColumns(headers), mappingOverrides);
   const warnings = [];
   const existingByNumber = new Map((current.students || []).map((student) => [normalizeStudentNumber(student.studentNumber), student]));
   const existingByTeamMember = new Map((current.students || []).map((student) => [makeTeamMemberKey(student.teamCode, student.memberNumber), student]));
@@ -591,6 +591,20 @@ function normalizeTeamFormationRows(rows, current, csvUrl) {
     identity.studentName < 0 && identity.lastName < 0 && identity.firstName < 0 ? 'Student Name' : '',
     identity.teamCode < 0 ? 'Team Code' : ''
   ].filter(Boolean);
+  const mappings = mappingSuggestions(headers, identity, [
+    { key: 'studentNumber', label: 'Student number', required: true },
+    { key: 'studentName', label: 'Student name' },
+    { key: 'lastName', label: 'Last name' },
+    { key: 'firstName', label: 'First name' },
+    { key: 'teamCode', label: 'Team code', required: true },
+    { key: 'memberNumber', label: 'Member number' },
+    { key: 'email', label: 'Institutional email' }
+  ]);
+  const optionalFields = [
+    identity.memberNumber < 0 ? 'Member Number' : '',
+    identity.email < 0 ? 'Institutional Email' : ''
+  ].filter(Boolean);
+  const unrecognizedFields = unrecognizedHeaders(headers, identity);
   if (missingFields.length) {
     return {
       ok: false,
@@ -601,8 +615,13 @@ function normalizeTeamFormationRows(rows, current, csvUrl) {
         sourceType: 'Team Formation',
         resultStatus: 'Import blocked',
         headerRow: headerInfo.index + 1,
+        headers,
+        mappings,
         detectedFields,
         missingFields,
+        optionalFields,
+        unrecognizedFields,
+        skippedRows: [],
         metrics: {},
         warnings: []
       }
@@ -610,6 +629,7 @@ function normalizeTeamFormationRows(rows, current, csvUrl) {
   }
 
   let skippedRows = 0;
+  const skippedRowDetails = [];
   const students = rows.slice(headerInfo.index + 1).map((row, rowIndex) => {
     const studentNumber = getCell(row, identity.studentNumber);
     const name = getStudentNameFromIdentity(row, identity);
@@ -617,6 +637,7 @@ function normalizeTeamFormationRows(rows, current, csvUrl) {
     const memberNumber = getCell(row, identity.memberNumber);
     if (!studentNumber || !name || !teamCode) {
       skippedRows += 1;
+      skippedRowDetails.push({ rowNumber: headerInfo.index + rowIndex + 2, reason: 'Missing Student Number, name, or team code' });
       return null;
     }
     const existing = existingByNumber.get(normalizeStudentNumber(studentNumber)) || existingByTeamMember.get(makeTeamMemberKey(teamCode, memberNumber)) || {};
@@ -664,18 +685,23 @@ function normalizeTeamFormationRows(rows, current, csvUrl) {
       officialIdsFound: students.filter((student) => student.studentNumber).length,
       columnsFound: headers.length,
       headerRow: headerInfo.index + 1,
+      headers,
+      mappings,
       detectedFields,
       missingFields: [],
+      optionalFields,
+      unrecognizedFields,
+      skippedRows: skippedRowDetails,
       metrics,
       warnings
     }
   };
 }
 
-function normalizeTrackerRows(rows, current, csvUrl) {
+function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
   const headerInfo = findBestHeaderRow(rows, inferIdentityColumns, scoreTrackerHeader);
   const headers = headerInfo.headers;
-  const identity = inferIdentityColumns(headers);
+  const identity = applyColumnOverrides(headers, inferIdentityColumns(headers), mappingOverrides);
   const identityIndexes = new Set(Object.values(identity).filter((index) => index >= 0));
   const trackerColumns = headers
     .map((header, index) => ({ header, index }))
@@ -699,6 +725,20 @@ function normalizeTrackerRows(rows, current, csvUrl) {
     identity.teamCode < 0 ? 'Team Code' : '',
     trackerColumns.length === 0 ? 'Deliverable columns' : ''
   ].filter(Boolean);
+  const mappings = mappingSuggestions(headers, identity, [
+    { key: 'studentName', label: 'Student name', required: true },
+    { key: 'lastName', label: 'Last name' },
+    { key: 'firstName', label: 'First name' },
+    { key: 'teamCode', label: 'Team code', required: true },
+    { key: 'memberNumber', label: 'Member number' },
+    { key: 'studentNumber', label: 'Student number' }
+  ]);
+  const optionalFields = [
+    identity.studentNumber < 0 ? 'Student Number' : '',
+    identity.memberNumber < 0 ? 'Member Number' : ''
+  ].filter(Boolean);
+  // Every remaining Tracker header is a deliverable/progress column by design.
+  const unrecognizedFields = [];
   if (missingFields.length) {
     return {
       ok: false,
@@ -709,10 +749,15 @@ function normalizeTrackerRows(rows, current, csvUrl) {
         sourceType: 'Tracker',
         resultStatus: 'Import blocked',
         headerRow: headerInfo.index + 1,
+        headers,
+        mappings,
         detectedFields,
         missingFields,
+        optionalFields,
+        unrecognizedFields,
+        skippedRows: [],
         metrics: {},
-        deadlineRows: 0,
+        deadlineRows: [],
         suggestedForms: [],
         warnings: []
       }
@@ -735,6 +780,7 @@ function normalizeTrackerRows(rows, current, csvUrl) {
   }
 
   let skippedRows = 0;
+  const skippedRowDetails = [];
   const deadlineRows = [];
   const trackerRows = rows.slice(headerInfo.index + 1).map((row, rowIndex) => {
     const name = getStudentNameFromIdentity(row, identity);
@@ -746,6 +792,12 @@ function normalizeTrackerRows(rows, current, csvUrl) {
         deadlineRows.push({ rowNumber: headerInfo.index + rowIndex + 2, suggestions });
       }
       skippedRows += 1;
+      skippedRowDetails.push({
+        rowNumber: headerInfo.index + rowIndex + 2,
+        reason: suggestions.length
+          ? `Deadline row with ${suggestions.length} detected value${suggestions.length === 1 ? '' : 's'}`
+          : 'Missing student name or team code'
+      });
       return null;
     }
     const matchedExisting = existingByTeamMember.get(makeTeamMemberKey(teamCode, memberNumber)) || existingByNameTeamMember.get(makeStudentMatchKey(name, teamCode, memberNumber)) || null;
@@ -823,20 +875,25 @@ function normalizeTrackerRows(rows, current, csvUrl) {
       officialIdsFound: students.filter((student) => student.studentNumber).length,
       columnsFound: trackerColumns.length,
       headerRow: headerInfo.index + 1,
+      headers,
+      mappings,
       detectedFields,
       missingFields: [],
+      optionalFields,
+      unrecognizedFields,
+      skippedRows: skippedRowDetails,
       metrics,
-      deadlineRows: deadlineRows.length,
+      deadlineRows,
       suggestedForms,
       warnings
     }
   };
 }
 
-function normalizeProjectMonitorRows(rows, current, csvUrl) {
+function normalizeProjectMonitorRows(rows, current, csvUrl, mappingOverrides = null) {
   const headerInfo = findBestHeaderRow(rows, inferProjectMonitorColumns, scoreProjectMonitorHeader);
   const headers = headerInfo.headers;
-  const indexes = inferProjectMonitorColumns(headers);
+  const indexes = applyColumnOverrides(headers, inferProjectMonitorColumns(headers), mappingOverrides);
   const warnings = [];
   const detectedFields = [
     indexes.groupCode >= 0 ? 'Group Code' : '',
@@ -852,6 +909,25 @@ function normalizeProjectMonitorRows(rows, current, csvUrl) {
     indexes.groupCode < 0 ? 'Group Code' : '',
     indexes.projectTitle < 0 ? 'Project Title' : ''
   ].filter(Boolean);
+  const mappings = mappingSuggestions(headers, indexes, [
+    { key: 'groupCode', label: 'Group code', required: true },
+    { key: 'projectTitle', label: 'Project title', required: true },
+    { key: 'softwareName', label: 'Software name' },
+    { key: 'description', label: 'Description' },
+    { key: 'proposalRemarks', label: 'Proposal remarks' },
+    { key: 'demoComments', label: 'Demo comments' },
+    { key: 'statusAdviser', label: 'Status / adviser' },
+    { key: 'category', label: 'Category' }
+  ]);
+  const optionalFields = [
+    indexes.softwareName < 0 ? 'Software Name' : '',
+    indexes.description < 0 ? 'Description' : '',
+    indexes.proposalRemarks < 0 ? 'Proposal Remarks' : '',
+    indexes.demoComments < 0 ? 'Demo Comments' : '',
+    indexes.statusAdviser < 0 ? 'Status / Adviser' : '',
+    indexes.category < 0 ? 'Category' : ''
+  ].filter(Boolean);
+  const unrecognizedFields = unrecognizedHeaders(headers, indexes);
   if (missingFields.length) {
     return {
       ok: false,
@@ -862,18 +938,25 @@ function normalizeProjectMonitorRows(rows, current, csvUrl) {
         sourceType: 'Software Project Monitor',
         resultStatus: 'Import blocked',
         headerRow: headerInfo.index + 1,
+        headers,
+        mappings,
         detectedFields,
         missingFields,
+        optionalFields,
+        unrecognizedFields,
+        skippedRows: [],
         metrics: {},
         warnings: []
       }
     };
   }
   let skippedRows = 0;
-  const projectMetadata = rows.slice(headerInfo.index + 1).map((row) => {
+  const skippedRowDetails = [];
+  const projectMetadata = rows.slice(headerInfo.index + 1).map((row, rowIndex) => {
     const groupCode = getCell(row, indexes.groupCode);
     if (!groupCode) {
       skippedRows += 1;
+      skippedRowDetails.push({ rowNumber: headerInfo.index + rowIndex + 2, reason: 'Missing group code' });
       return null;
     }
     const statusAdviser = getCell(row, indexes.statusAdviser);
@@ -916,8 +999,13 @@ function normalizeProjectMonitorRows(rows, current, csvUrl) {
       groupsFound: projectMetadata.length,
       columnsFound: headers.length,
       headerRow: headerInfo.index + 1,
+      headers,
+      mappings,
       detectedFields,
       missingFields: [],
+      optionalFields,
+      unrecognizedFields,
+      skippedRows: skippedRowDetails,
       metrics,
       warnings
     }
@@ -937,6 +1025,29 @@ function inferIdentityColumns(headers) {
     adviser: findExactHeader(normalized, ['adviser', 'advisor', 'advisername', 'advisorname', 'facultyadviser', 'capstoneadviser', 'teacher', 'instructor']),
     email: findHeader(normalized, ['email', 'gmail', 'googleaccount', 'citeduaccount', 'institutionalemail', 'citaccount'])
   };
+}
+
+function applyColumnOverrides(headers, inferred, overrides) {
+  if (!overrides) return inferred;
+  return Object.fromEntries(Object.entries(inferred).map(([key, currentIndex]) => {
+    if (!Object.prototype.hasOwnProperty.call(overrides, key)) return [key, currentIndex];
+    const requested = String(overrides[key] || '').trim();
+    return [key, requested ? headers.findIndex((header) => header === requested) : -1];
+  }));
+}
+
+function mappingSuggestions(headers, indexes, definitions) {
+  return definitions.map(({ key, label, required = false }) => ({
+    key,
+    label,
+    required,
+    sourceColumn: indexes[key] >= 0 ? headers[indexes[key]] : ''
+  }));
+}
+
+function unrecognizedHeaders(headers, indexes) {
+  const recognized = new Set(Object.values(indexes).filter((index) => index >= 0));
+  return headers.filter((header, index) => header && !recognized.has(index));
 }
 
 function findBestHeaderRow(rows, inferColumns, scoreHeader) {

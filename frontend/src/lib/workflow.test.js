@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   findOwnedResponse,
   getResponseOwnerKey,
   hasResponseConflict,
+  importPublicSheetSource,
+  loadWorkflowState,
+  resetWorkflowState,
+  saveWorkflowState,
   upsertDeliverable
 } from './workflow.js';
 
@@ -99,5 +103,106 @@ describe('published form identity', () => {
       slug: 'week-9-srs',
       title: 'Updated SRS'
     });
+  });
+});
+
+describe('workspace Sheet imports', () => {
+  const current = { students: [], projectMetadata: [], groups: [] };
+  const sheetUrl = 'https://docs.google.com/spreadsheets/d/sheet-id/edit';
+
+  it('uses editable field mappings instead of fixed column positions', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => [
+        'Identifier,Person,Squad,Order,Email Address',
+        '23-1000-001,DOE JANE,IT-01,1,jane@cit.edu'
+      ].join('\n')
+    }));
+
+    const result = await importPublicSheetSource('teamFormation', {
+      sheetUrl,
+      mappingOverrides: {
+        studentNumber: 'Identifier',
+        studentName: 'Person',
+        teamCode: 'Squad',
+        memberNumber: 'Order',
+        email: 'Email Address'
+      }
+    }, current);
+
+    expect(result.ok).toBe(true);
+    expect(result.students[0]).toMatchObject({
+      studentNumber: '23-1000-001',
+      name: 'DOE JANE',
+      teamCode: 'IT-01',
+      memberNumber: 1
+    });
+    expect(result.importSummary.mappings.find((item) => item.key === 'teamCode')?.sourceColumn).toBe('Squad');
+  });
+
+  it('blocks a source when required fields are still unmapped', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => [
+        'Unrelated,Columns',
+        'Value,Another'
+      ].join('\n')
+    }));
+
+    const result = await importPublicSheetSource('teamFormation', { sheetUrl }, current);
+
+    expect(result.ok).toBe(false);
+    expect(result.importSummary.resultStatus).toBe('Import blocked');
+    expect(result.importSummary.missingFields).toEqual(expect.arrayContaining([
+      'Student Number',
+      'Student Name',
+      'Team Code'
+    ]));
+  });
+  it('reports skipped tracker deadline rows and chronological form suggestions', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => [
+        'NAME OF STUDENT,TEAM FORMATION,MEMBER#,SRS,SDD',
+        'DOE JANE,IT-01,1,0,2',
+        ',,,4/18/2026 23:59:59,4/25/2026 23:59:59'
+      ].join('\n')
+    }));
+
+    const result = await importPublicSheetSource('tracker', { sheetUrl }, current);
+
+    expect(result.ok).toBe(true);
+    expect(result.importSummary.deadlineRows).toHaveLength(1);
+    expect(result.importSummary.skippedRows[0].reason).toMatch(/Deadline row/);
+    expect(result.suggestedForms.map((item) => item.trackerColumn)).toEqual(['SRS', 'SDD']);
+    expect(Date.parse(result.suggestedForms[0].dueAt)).toBeLessThan(Date.parse(result.suggestedForms[1].dueAt));
+  });
+});
+
+describe('workspace data isolation', () => {
+  it('resets only the selected workspace and preserves another workspace state', () => {
+    localStorage.clear();
+    saveWorkflowState({ workspaceId: 'workspace-it-test', marker: 'IT imported data' }, 'workspace-it-test');
+    saveWorkflowState({ workspaceId: 'workspace-cs-test', marker: 'CS imported data' }, 'workspace-cs-test');
+
+    resetWorkflowState('workspace-it-test', {
+      id: 'workspace-it-test',
+      name: 'IT Test',
+      program: 'IT',
+      courseCode: 'IT332'
+    });
+
+    expect(loadWorkflowState('workspace-cs-test', {
+      id: 'workspace-cs-test',
+      name: 'CS Test',
+      program: 'CS',
+      courseCode: 'CS342'
+    }).marker).toBe('CS imported data');
+    expect(loadWorkflowState('workspace-it-test', {
+      id: 'workspace-it-test',
+      name: 'IT Test',
+      program: 'IT',
+      courseCode: 'IT332'
+    }).marker).toBeUndefined();
   });
 });
