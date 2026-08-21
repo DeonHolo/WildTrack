@@ -1474,7 +1474,11 @@
   bottom: 0;
   z-index: -1;
   width: 42%;
-  background: var(--wt-maroon);
+  background-color: var(--wt-maroon);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 28px 28px;
   clip-path: polygon(30% 0, 100% 0, 100% 100%, 0 100%);
   content: '';
 }
@@ -1515,19 +1519,19 @@
 
 .wt-student-welcome-art {
   position: absolute;
-  right: 8px;
-  bottom: 0;
+  right: 4px;
+  bottom: -10px;
   display: grid;
-  width: 230px;
-  height: 156px;
-  place-items: center;
+  width: 270px;
+  height: 176px;
+  place-items: end center;
   pointer-events: none;
 }
 
 .wt-student-welcome-art img {
   display: block;
-  width: 230px;
-  height: auto;
+  width: auto;
+  height: 170px;
   object-fit: contain;
 }
 
@@ -1935,15 +1939,15 @@
   }
 
   .wt-student-welcome-art {
-    right: -10px;
-    bottom: 0;
-    width: 150px;
-    height: 148px;
+    right: -8px;
+    bottom: -8px;
+    width: 176px;
+    height: 158px;
   }
 
   .wt-student-welcome-art img {
-    width: 142px;
-    height: auto;
+    width: auto;
+    height: 156px;
   }
 }
 

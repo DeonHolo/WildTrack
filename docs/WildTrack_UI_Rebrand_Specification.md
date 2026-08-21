@@ -119,6 +119,7 @@ The first vertical slice will establish the theme and rebuild the public submiss
 - Each deliverable may show a concise team count such as `3 of 5 submitted` and an optional member breakdown. Teammate Drive links, submitted values, and other private response content are never exposed.
 - The connected Student Dashboard includes one compact welcome strip below the page heading. It pairs a replaceable student-facing mascot asset with the student's first name, current submitted-deliverable count, and next missing deliverable; it must not push the core dashboard workflow below a large decorative hero.
 - The welcome artwork reserves stable desktop and mobile dimensions so replacing the temporary image with commissioned mascot artwork does not shift or overlap dashboard content.
+- Student-facing banner grids continue across both maroon color fields; the official mascot is enlarged and visually anchored to the lower edge instead of floating inside the banner.
 
 ### Form artwork
 
