@@ -1,20 +1,26 @@
 import { Box, Text } from '@mantine/core';
-import { FilePdf, ListChecks } from '@phosphor-icons/react';
+import { STUDENT_ARTWORK } from '../../lib/studentArtwork.js';
 
-export function FormArtwork({ label = 'WildTrack submission form header', success = false }) {
+export function FormArtwork({ success = false }) {
+  const artwork = success
+    ? STUDENT_ARTWORK.submissionSuccess
+    : STUDENT_ARTWORK.submissionForm;
+
   return (
-    <Box className={`wt-form-artwork${success ? ' is-success' : ''}`} role="img" aria-label={label}>
-      <div className="wt-artwork-copy" aria-hidden="true">
+    <Box className={`wt-form-artwork${success ? ' is-success' : ''}`}>
+      <div className="wt-artwork-copy">
         <Text component="span" className="wt-artwork-kicker">WildTrack academic workflow</Text>
         <Text component="strong">{success ? 'Submission recorded' : 'Submit with a clear trail'}</Text>
       </div>
-      <div className="wt-artwork-sheet" aria-hidden="true">
-        <FilePdf weight="duotone" />
-        <span />
-        <span />
-        <span />
-      </div>
-      <div className="wt-artwork-check" aria-hidden="true"><ListChecks weight="duotone" /></div>
+      <div
+        className="wt-artwork-mascot"
+        role="img"
+        aria-label={artwork.alt}
+        style={{
+          backgroundImage: `url("${artwork.src}")`,
+          backgroundPosition: artwork.position
+        }}
+      />
     </Box>
   );
 }

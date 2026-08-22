@@ -11,7 +11,7 @@ export function SubmissionResult({ result, identity, onEdit }) {
 
   return (
     <Stack gap="lg">
-      <FormArtwork success label="WildTrack submission success header" />
+      <FormArtwork success />
       <Paper className="wt-form-surface wt-success-surface" radius="md" p={{ base: 'lg', sm: 'xl' }}>
         <Stack gap="lg">
           <Group gap="md" align="flex-start" wrap="nowrap">

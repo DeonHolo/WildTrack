@@ -1,13 +1,17 @@
 import { Text, Title } from '@mantine/core';
-import studentPlaceholder from '../../assets/wildtrack-student-placeholder.webp';
+import { STUDENT_ARTWORK } from '../../lib/studentArtwork.js';
 
 export function StudentWelcomeBanner({ student, rows }) {
   const submittedCount = rows.filter((row) => row.status !== 'Not submitted').length;
+  const allSubmitted = rows.length > 0 && submittedCount === rows.length;
   const nextDeliverable = rows.find((row) => row.status === 'Not submitted')?.deliverable;
   const firstName = getFirstName(student.name);
+  const artwork = allSubmitted
+    ? STUDENT_ARTWORK.dashboardComplete
+    : STUDENT_ARTWORK.dashboardWelcome;
 
   return (
-    <section className="wt-student-welcome" aria-label="Student dashboard welcome">
+    <section className={`wt-student-welcome${allSubmitted ? ' is-complete' : ''}`} aria-label="Student dashboard welcome">
       <div className="wt-student-welcome-copy">
         <Text className="wt-student-welcome-kicker">Your capstone workspace</Text>
         <Title order={2}>Welcome back, {firstName}</Title>
@@ -21,15 +25,15 @@ export function StudentWelcomeBanner({ student, rows }) {
         </Text>
       </div>
 
-      <div className="wt-student-welcome-art">
-        <img
-          src={studentPlaceholder}
-          alt="WildTrack mascot finding quest nodes"
-          width="6196"
-          height="4000"
-          decoding="async"
-        />
-      </div>
+      <div
+        className="wt-student-welcome-art"
+        role="img"
+        aria-label={artwork.alt}
+        style={{
+          backgroundImage: `url("${artwork.src}")`,
+          backgroundPosition: artwork.position
+        }}
+      />
     </section>
   );
 }

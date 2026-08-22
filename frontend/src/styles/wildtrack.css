@@ -300,18 +300,21 @@
 .wt-form-artwork {
   position: relative;
   display: grid;
-  min-height: 176px;
-  grid-template-columns: minmax(0, 1fr) 190px;
+  min-height: 196px;
+  grid-template-columns: minmax(0, 1fr) 230px;
   align-items: center;
   overflow: hidden;
   border: 1px solid var(--wt-maroon-deep);
   border-radius: 8px;
-  background:
-    radial-gradient(circle at 78% 20%, rgba(255, 214, 86, 0.22), transparent 26%),
+  background-color: var(--wt-maroon-deep);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
     linear-gradient(125deg, var(--wt-maroon-deep) 0 57%, var(--wt-maroon) 57% 100%);
+  background-size: 28px 28px, 28px 28px, 100% 100%;
   color: #fffdf9;
   isolation: isolate;
-  padding: 28px 34px;
+  padding: 24px 34px 0;
 }
 
 .wt-form-surface {
@@ -1265,25 +1268,22 @@
   }
 }
 
-.wt-form-artwork::before {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image: linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
-  background-size: 28px 28px;
-  content: '';
-}
 
 .wt-form-artwork.is-success {
-  background:
-    radial-gradient(circle at 78% 20%, rgba(255, 214, 86, 0.28), transparent 26%),
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
     linear-gradient(125deg, var(--wt-maroon-deep) 0 50%, var(--wt-maroon) 50% 100%);
 }
 
 .wt-artwork-copy {
+  position: relative;
+  z-index: 1;
   display: grid;
+  align-self: center;
   gap: 8px;
   max-width: 380px;
+  padding-bottom: 24px;
 }
 
 .wt-artwork-copy .wt-artwork-kicker {
@@ -1295,60 +1295,20 @@
 
 .wt-artwork-copy strong {
   max-width: 12ch;
-  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  font-size: 2.4rem;
   line-height: 1.05;
   text-wrap: balance;
 }
 
-.wt-artwork-sheet {
+.wt-artwork-mascot {
   position: relative;
-  display: grid;
-  width: 132px;
-  min-height: 148px;
-  justify-self: center;
-  align-content: start;
-  gap: 11px;
-  border: 3px solid var(--wt-text);
-  border-radius: 4px;
-  background: #fffdf9;
-  box-shadow: 12px 12px 0 var(--wt-gold);
-  color: var(--wt-maroon);
-  padding: 18px;
-  transform: rotate(2deg);
-}
-
-.wt-artwork-sheet svg {
-  width: 34px;
-  height: 34px;
-}
-
-.wt-artwork-sheet span {
-  display: block;
-  height: 5px;
-  background: #ded5d8;
-}
-
-.wt-artwork-sheet span:nth-of-type(2) {
-  width: 72%;
-}
-
-.wt-artwork-check {
-  position: absolute;
-  right: 31px;
-  bottom: 22px;
-  display: grid;
-  width: 52px;
-  height: 52px;
-  place-items: center;
-  border: 3px solid var(--wt-text);
-  border-radius: 50%;
-  background: var(--mantine-color-wildtrackGold-2);
-  color: var(--wt-maroon-deep);
-}
-
-.wt-artwork-check svg {
-  width: 28px;
-  height: 28px;
+  z-index: 1;
+  min-width: 0;
+  height: 100%;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-size: contain;
+  pointer-events: none;
 }
 
 @media (max-width: 640px) {
@@ -1373,9 +1333,9 @@
   }
 
   .wt-form-artwork {
-    min-height: 142px;
-    grid-template-columns: minmax(0, 1fr) 100px;
-    padding: 22px;
+    min-height: 150px;
+    grid-template-columns: minmax(0, 1fr) 132px;
+    padding: 18px 20px 0;
   }
 
   .wt-form-title {
@@ -1395,27 +1355,10 @@
     font-size: 1.6rem;
   }
 
-  .wt-artwork-sheet {
-    width: 82px;
-    min-height: 96px;
-    gap: 7px;
-    border-width: 2px;
-    box-shadow: 7px 7px 0 var(--wt-gold);
-    padding: 11px;
+  .wt-artwork-copy {
+    padding-bottom: 18px;
   }
 
-  .wt-artwork-sheet svg {
-    width: 24px;
-    height: 24px;
-  }
-
-  .wt-artwork-check {
-    right: 12px;
-    bottom: 12px;
-    width: 38px;
-    height: 38px;
-    border-width: 2px;
-  }
 }
 
 .wt-student-dashboard-page {
@@ -1451,29 +1394,23 @@
   overflow: hidden;
   border: 1px solid var(--wt-maroon-deep);
   border-radius: 8px;
-  background: var(--wt-maroon-deep);
+  background-color: var(--wt-maroon-deep);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 28px 28px;
   color: #fffdf9;
   isolation: isolate;
   padding: 22px 30px;
 }
 
-.wt-student-welcome::before {
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
-  background-size: 28px 28px;
-  content: '';
-}
 
 .wt-student-welcome::after {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: -1;
+  z-index: 0;
   width: 42%;
   background-color: var(--wt-maroon);
   background-image:
@@ -1485,6 +1422,8 @@
 }
 
 .wt-student-welcome-copy {
+  position: relative;
+  z-index: 1;
   display: grid;
   min-width: 0;
   gap: 5px;
@@ -1520,20 +1459,20 @@
 
 .wt-student-welcome-art {
   position: absolute;
-  right: 4px;
-  bottom: -10px;
-  display: grid;
-  width: 270px;
-  height: 176px;
-  place-items: end center;
+  z-index: 1;
+  right: 0;
+  bottom: 0;
+  width: 286px;
+  height: 100%;
+  background-position: right bottom;
+  background-repeat: no-repeat;
+  background-size: contain;
   pointer-events: none;
 }
 
-.wt-student-welcome-art img {
-  display: block;
-  width: auto;
-  height: 170px;
-  object-fit: contain;
+.wt-student-welcome.is-complete .wt-student-welcome-art {
+  width: 240px;
+  height: 158px;
 }
 
 .wt-student-access-state,
@@ -1940,15 +1879,15 @@
   }
 
   .wt-student-welcome-art {
-    right: -8px;
-    bottom: -8px;
-    width: 176px;
-    height: 158px;
+    right: -6px;
+    bottom: 0;
+    width: 188px;
+    height: 100%;
   }
 
-  .wt-student-welcome-art img {
-    width: auto;
-    height: 156px;
+  .wt-student-welcome.is-complete .wt-student-welcome-art {
+    width: 170px;
+    height: 128px;
   }
 }
 
@@ -2403,7 +2342,6 @@
     min-height: 44px;
   }
 }
-
 
 /* Ticket 09: final archive index */
 .wt-archive-page {

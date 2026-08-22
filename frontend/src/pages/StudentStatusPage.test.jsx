@@ -250,7 +250,30 @@ describe('student dashboard', () => {
     expect(within(welcome).getByRole('heading', { name: 'Welcome back, Juan' })).toBeInTheDocument();
     expect(welcome).toHaveTextContent('2 of 3 deliverables submitted');
     expect(welcome).toHaveTextContent('Next to submit: Source Code');
-    expect(within(welcome).getByRole('img', { name: 'WildTrack mascot finding quest nodes' })).toBeInTheDocument();
+    const welcomeArtwork = within(welcome).getByRole('img', { name: 'WildTrack mascot waving' });
+    expect(welcomeArtwork).toHaveStyle('background-image: url("/assets/Waving.webp")');
+  });
+
+  it('celebrates when every current deliverable has a recorded response', () => {
+    associateAccount();
+    workflow.state.attempts.push({
+      id: 'owned-source',
+      deliverableId: 'deliv-code',
+      studentNumber: '22-1001-001',
+      googleSubject: 'google-juan',
+      googleEmailSnapshot: 'juan.student@gmail.com',
+      submittedAt: '2026-05-30T20:30:00+08:00',
+      values: { repository: 'https://github.com/example/project' },
+      primaryStatus: 'Received',
+      reviewStatus: 'Received'
+    });
+    renderDashboard();
+
+    const welcome = screen.getByRole('region', { name: 'Student dashboard welcome' });
+    expect(welcome).toHaveTextContent('3 of 3 deliverables submitted');
+    expect(welcome).toHaveTextContent('All current deliverables have a response.');
+    const completionArtwork = within(welcome).getByRole('img', { name: 'WildTrack mascot holding a trophy' });
+    expect(completionArtwork).toHaveStyle('background-image: url("/assets/Earn%20Your%20Badges.webp")');
   });
 
   it('shows only response details owned by the active Google account', () => {
