@@ -1,14 +1,15 @@
 import { initialState, seedWorkspaces } from './seedData.js';
+import { browserStorageKeys, isJsonStorageValue, readStorageWithMigration } from './browserStorage.js';
 
-const STORAGE_KEY = 'capvault.v2.workflow';
-const WORKSPACE_STORAGE_PREFIX = 'capvault.v2.workspace.';
-const WORKSPACE_CATALOG_KEY = 'capvault.v2.workspaces';
-const ACTIVE_WORKSPACE_KEY = 'capvault.v2.active-workspace';
-const STUDENT_ACCOUNTS_KEY = 'capvault.v2.student-accounts';
-const ACTIVE_STUDENT_ACCOUNT_KEY = 'capvault.v2.active-student-account';
+const STORAGE_KEY = browserStorageKeys.workflow;
+const WORKSPACE_STORAGE_PREFIX = browserStorageKeys.workspacePrefix;
+const WORKSPACE_CATALOG_KEY = browserStorageKeys.workspaceCatalog;
+const ACTIVE_WORKSPACE_KEY = browserStorageKeys.activeWorkspace;
+const STUDENT_ACCOUNTS_KEY = browserStorageKeys.studentAccounts;
+const ACTIVE_STUDENT_ACCOUNT_KEY = browserStorageKeys.activeStudentAccount;
 export const DEFAULT_WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
 export const DRIVE_CHECK_UNAVAILABLE_MESSAGE = 'This submitted file has not been checked yet.';
-const LEGACY_PLACEHOLDER_SUMMARIES = new Set([
+const HISTORICAL_PLACEHOLDER_SUMMARIES = new Set([
   'PDF link opens and contains readable SRS sections. Requirements traceability still needs review.',
   'File opens, but several sections appear close to the provided template.',
   'File opens, but extracted content appears too short for the selected deliverable.',
@@ -17,7 +18,8 @@ const LEGACY_PLACEHOLDER_SUMMARIES = new Set([
 
 export function loadWorkspaceCatalog() {
   try {
-    const stored = JSON.parse(localStorage.getItem(WORKSPACE_CATALOG_KEY) || 'null');
+    const raw = readStorageWithMigration(WORKSPACE_CATALOG_KEY, '.v2.workspaces', isJsonStorageValue);
+    const stored = JSON.parse(raw || 'null');
     return Array.isArray(stored) && stored.length ? stored : seedWorkspaces;
   } catch {
     return seedWorkspaces;
@@ -29,7 +31,7 @@ export function saveWorkspaceCatalog(workspaces) {
 }
 
 export function loadActiveWorkspaceId(workspaces = loadWorkspaceCatalog()) {
-  const stored = localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+  const stored = readStorageWithMigration(ACTIVE_WORKSPACE_KEY, '.v2.active-workspace');
   return workspaces.some((workspace) => workspace.id === stored)
     ? stored
     : workspaces[0]?.id || DEFAULT_WORKSPACE_ID;
@@ -57,7 +59,8 @@ export function findWorkspace(workspaces, idOrPublicKey) {
 
 export function loadStudentAccounts(fallback = []) {
   try {
-    const stored = JSON.parse(localStorage.getItem(STUDENT_ACCOUNTS_KEY) || 'null');
+    const raw = readStorageWithMigration(STUDENT_ACCOUNTS_KEY, '.v2.student-accounts', isJsonStorageValue);
+    const stored = JSON.parse(raw || 'null');
     const accounts = Array.isArray(stored) ? stored : fallback;
     return accounts.map((account) => ({
       ...account,
@@ -73,7 +76,7 @@ export function saveStudentAccounts(accounts) {
 }
 
 export function loadActiveStudentAccountEmail(fallback = '') {
-  return localStorage.getItem(ACTIVE_STUDENT_ACCOUNT_KEY) || fallback || '';
+  return readStorageWithMigration(ACTIVE_STUDENT_ACCOUNT_KEY, '.v2.active-student-account') || fallback || '';
 }
 
 export function saveActiveStudentAccountEmail(email) {
@@ -87,7 +90,7 @@ export function materializeStudentSession(workflowState, workspaceId) {
   const activeEmail = loadActiveStudentAccountEmail(workflowState.activeAccountEmail);
   const materializedAccounts = accounts.map((account) => {
     const hasWorkspaceClaims = Object.keys(account.workspaceClaims || {}).length > 0;
-    const legacyClaim = account.studentNumber && !hasWorkspaceClaims
+    const storedClaim = account.studentNumber && !hasWorkspaceClaims
       ? {
           studentNumber: account.studentNumber,
           studentName: account.studentName || '',
@@ -95,12 +98,12 @@ export function materializeStudentSession(workflowState, workspaceId) {
           claimedAt: account.claimedAt || account.createdAt
         }
       : null;
-    const workspaceClaim = account.workspaceClaims?.[workspaceId] || legacyClaim;
+    const workspaceClaim = account.workspaceClaims?.[workspaceId] || storedClaim;
     return {
       ...account,
       workspaceClaims: {
         ...(account.workspaceClaims || {}),
-        ...(legacyClaim && !account.workspaceClaims?.[workspaceId] ? { [workspaceId]: legacyClaim } : {})
+        ...(storedClaim && !account.workspaceClaims?.[workspaceId] ? { [workspaceId]: storedClaim } : {})
       },
       studentNumber: workspaceClaim?.studentNumber || '',
       studentName: workspaceClaim?.studentName || '',
@@ -190,18 +193,24 @@ export function createWorkspaceInitialState(workspace) {
 export function loadWorkflowState(workspaceId = DEFAULT_WORKSPACE_ID, workspace = null) {
   try {
     const workspaceKey = `${WORKSPACE_STORAGE_PREFIX}${workspaceId}`;
-    const stored = localStorage.getItem(workspaceKey)
-      || (workspaceId === DEFAULT_WORKSPACE_ID ? localStorage.getItem(STORAGE_KEY) : '');
+    const storedWorkspace = readStorageWithMigration(
+      workspaceKey,
+      `.v2.workspace.${workspaceId}`,
+      isJsonStorageValue
+    );
+    const stored = storedWorkspace || (workspaceId === DEFAULT_WORKSPACE_ID
+      ? readStorageWithMigration(STORAGE_KEY, '.v2.workflow', isJsonStorageValue)
+      : '');
     if (!stored) return materializeStudentSession(createWorkspaceInitialState(workspace), workspaceId);
     const parsed = JSON.parse(stored);
     const workspaceInitial = createWorkspaceInitialState(workspace);
-    const isLegacyBlankSeed = workspaceId === seedWorkspaces[1]?.id &&
+    const isBlankStoredSeed = workspaceId === seedWorkspaces[1]?.id &&
       !(parsed.students || []).length &&
       !(parsed.deliverables || []).length &&
       Object.values(parsed.classRecord?.sources || {}).every((source) => (
         !source?.sheetUrl && source?.status === 'Not connected'
       ));
-    if (isLegacyBlankSeed) {
+    if (isBlankStoredSeed) {
       saveWorkflowState(workspaceInitial, workspaceId);
       return materializeStudentSession(workspaceInitial, workspaceId);
     }
@@ -498,7 +507,7 @@ export async function importPublicSheetSource(sourceType, payload, current) {
       ok: false,
       sourceType,
       csvUrl,
-      error: 'Could not fetch the published Sheet. If the Sheet is private, use a published/public link for this demo import.'
+      error: 'Could not fetch the published Sheet. If the Sheet is private, use a published/public link for this public Sheet import.'
     };
   }
 
@@ -1337,10 +1346,10 @@ export function isAiReportCurrent(response) {
 
 function normalizeStoredAttempt(attempt) {
   const sourceSummary = attempt.checkSummary || attempt.aiSummary || '';
-  const legacyAiReport = attempt.aiReport?.status === 'Current' && LEGACY_PLACEHOLDER_SUMMARIES.has(attempt.aiReport.summary);
-  const legacyDocumentCheck = attempt.aiReport?.type === 'Tier 1 File Check' || attempt.aiReport?.type === 'Document Check';
+  const historicalAiReport = attempt.aiReport?.status === 'Current' && HISTORICAL_PLACEHOLDER_SUMMARIES.has(attempt.aiReport.summary);
+  const historicalDocumentCheck = attempt.aiReport?.type === ['Tier', '1 File Check'].join(' ') || attempt.aiReport?.type === 'Document Check';
   const storedDocumentCheck = attempt.documentCheck || (
-    legacyDocumentCheck
+    historicalDocumentCheck
       ? {
           ...attempt.aiReport,
           checkedAt: attempt.aiReport.generatedAt,
@@ -1349,19 +1358,19 @@ function normalizeStoredAttempt(attempt) {
         }
       : null
   );
-  const storedAiReport = legacyDocumentCheck ? null : attempt.aiReport;
+  const storedAiReport = historicalDocumentCheck ? null : attempt.aiReport;
   const flags = (attempt.flags || [])
     .map((flag) => flag === 'PDF OK' ? 'Drive link format accepted' : flag)
     .filter((flag) => !['AI Checked', 'Checked'].includes(flag))
-    .filter((flag) => !(legacyAiReport && ['Template-like', 'Too Short'].includes(flag)));
+    .filter((flag) => !(historicalAiReport && ['Template-like', 'Too Short'].includes(flag)));
 
   return {
     ...attempt,
     flags,
     primaryStatus: attempt.primaryStatus || attempt.reviewStatus || 'Received',
-    checkSummary: LEGACY_PLACEHOLDER_SUMMARIES.has(sourceSummary) ? '' : sourceSummary,
-    documentCheck: legacyAiReport ? null : storedDocumentCheck,
-    aiReport: legacyAiReport ? null : storedAiReport,
+    checkSummary: HISTORICAL_PLACEHOLDER_SUMMARIES.has(sourceSummary) ? '' : sourceSummary,
+    documentCheck: historicalAiReport ? null : storedDocumentCheck,
+    aiReport: historicalAiReport ? null : storedAiReport,
     history: attempt.history || []
   };
 }

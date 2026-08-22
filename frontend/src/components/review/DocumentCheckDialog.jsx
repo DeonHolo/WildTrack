@@ -109,7 +109,7 @@ export function compactMissingSections(sections, visibleCount = 3) {
   if (!values.length) return '';
   const visible = values.slice(0, visibleCount).join(', ');
   const remaining = values.length - visibleCount;
-  return remaining > 0 ? `${visible}... and ${remaining} more` : visible;
+  return remaining > 0 ? `${visible}… and ${remaining} more` : visible;
 }
 
 export function documentCheckStatus(response) {

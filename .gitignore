@@ -16,11 +16,13 @@ frontend/.vite/
 *.log
 *.out.log
 *.err.log
-.capvault-local.pids.json
+.wildtrack-local.pids.json
 .chrome-*/
 verification-screenshots/
 backend/target/
 frontend/dist/
-.capvault-local.pids.json
+.wildtrack-local.pids.json
 .scratch
 docs/verification
+frontend/test-results/
+frontend/playwright-report/

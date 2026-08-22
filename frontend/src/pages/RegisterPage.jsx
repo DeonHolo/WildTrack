@@ -93,7 +93,7 @@ export function RegisterPage() {
                   onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
                   placeholder="Create a password"
                 />
-                {message ? <Alert color={registrationSucceeded ? 'green' : 'orange'} icon={<WarningCircle aria-hidden="true" />}>{message}</Alert> : null}
+                {message ? <Alert role={registrationSucceeded ? 'status' : 'alert'} aria-live={registrationSucceeded ? 'polite' : 'assertive'} color={registrationSucceeded ? 'green' : 'orange'} icon={<WarningCircle aria-hidden="true" />}>{message}</Alert> : null}
                 <Button icon={Key}>Create account</Button>
                 <Text size="sm" c="dimmed">After registration, connect your Student Number from the dashboard to load your official name, team, submissions, and tracker data.</Text>
               </Stack>
@@ -117,7 +117,7 @@ export function RegisterPage() {
                   onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
                   placeholder="Password"
                 />
-                {message ? <Alert color="orange" icon={<WarningCircle aria-hidden="true" />}>{message}</Alert> : null}
+                {message ? <Alert role="alert" aria-live="assertive" color="orange" icon={<WarningCircle aria-hidden="true" />}>{message}</Alert> : null}
                 <Button icon={Key}>Sign in</Button>
               </Stack>
             </form>

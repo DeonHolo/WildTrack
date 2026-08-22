@@ -211,5 +211,5 @@ function CheckFact({ label, value }) {
 function truncateText(value, limit) {
   const text = String(value || '').trim();
   if (text.length <= limit) return text;
-  return `${text.slice(0, limit).trimEnd()}...`;
+  return `${text.slice(0, limit).trimEnd()}…`;
 }

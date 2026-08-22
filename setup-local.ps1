@@ -4,7 +4,7 @@ param()
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
-Write-Host "CapVault local Google Drive setup" -ForegroundColor Cyan
+Write-Host "WildTrack local Google Drive setup" -ForegroundColor Cyan
 Write-Host "The API key is stored in your Windows user environment, not in this repository."
 Write-Host ""
 
@@ -33,4 +33,4 @@ if (-not $apiKey.StartsWith("AIza")) {
 
 Write-Host ""
 Write-Host "Google Drive API configuration saved for this Windows user." -ForegroundColor Green
-Write-Host "Run .\run-local.ps1 to start CapVault."
+Write-Host "Run .\run-local.ps1 to start WildTrack."

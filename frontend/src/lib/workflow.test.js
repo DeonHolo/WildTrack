@@ -180,6 +180,25 @@ describe('workspace Sheet imports', () => {
 });
 
 describe('workspace data isolation', () => {
+  it('migrates workspace data from the retired browser-storage namespace', () => {
+    localStorage.clear();
+    const workspaceId = 'workspace-it-test';
+    const previousBrand = ['cap', 'vault'].join('');
+    const previousKey = `${previousBrand}.v2.workspace.${workspaceId}`;
+    localStorage.setItem(previousKey, JSON.stringify({ workspaceId, marker: 'Imported records' }));
+
+    const loaded = loadWorkflowState(workspaceId, {
+      id: workspaceId,
+      name: 'IT Test',
+      program: 'IT',
+      courseCode: 'IT332'
+    });
+
+    expect(loaded.marker).toBe('Imported records');
+    expect(localStorage.getItem(`wildtrack.v2.workspace.${workspaceId}`)).toContain('Imported records');
+    expect(localStorage.getItem(previousKey)).toBeNull();
+  });
+
   it('resets only the selected workspace and preserves another workspace state', () => {
     localStorage.clear();
     saveWorkflowState({ workspaceId: 'workspace-it-test', marker: 'IT imported data' }, 'workspace-it-test');

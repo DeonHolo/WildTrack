@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
+import { browserStorageKeys, readStorageWithMigration } from '../lib/browserStorage.js';
 
-const ROLE_KEY = 'capvault.v2.preview-role';
-const ADVISER_KEY = 'capvault.v2.preview-adviser';
-const ROLE_EVENT = 'capvault:preview-role-change';
+const ROLE_KEY = browserStorageKeys.previewRole;
+const ADVISER_KEY = browserStorageKeys.previewAdviser;
+const ROLE_EVENT = 'wildtrack:preview-role-change';
 
 export function getStoredPreviewRole() {
-  const role = localStorage.getItem(ROLE_KEY);
+  const role = readStorageWithMigration(ROLE_KEY, '.v2.preview-role');
   return ['admin', 'adviser', 'student'].includes(role) ? role : 'admin';
 }
 
@@ -35,7 +36,7 @@ export function usePreviewRole() {
 }
 
 export function getStoredPreviewAdviser() {
-  return localStorage.getItem(ADVISER_KEY) || '';
+  return readStorageWithMigration(ADVISER_KEY, '.v2.preview-adviser') || '';
 }
 
 export function setStoredPreviewAdviser(adviserName) {

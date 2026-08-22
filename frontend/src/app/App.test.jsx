@@ -60,7 +60,7 @@ vi.mock('../pages/TrackerPage.jsx', () => ({ TrackerPage: () => <h1>Tracker page
 vi.mock('../pages/WorkspacePage.jsx', () => ({ WorkspacePage: () => <h1>Workspace page</h1> }));
 
 function setRole(role) {
-  localStorage.setItem('capvault.v2.preview-role', role);
+  localStorage.setItem('wildtrack.v2.preview-role', role);
 }
 
 function renderApp(path) {

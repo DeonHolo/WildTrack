@@ -4,15 +4,16 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkflow } from '../../app/WorkflowContext.jsx';
 import { getWorkspacePublicKey } from '../../lib/workflow.js';
+import { browserStorageKeys, readStorageWithMigration } from '../../lib/browserStorage.js';
 import { setStoredPreviewRole, usePreviewRole } from '../../hooks/usePreviewRole.js';
 
-const OPEN_KEY = 'capvault.v2.dev-preview-open';
+const OPEN_KEY = browserStorageKeys.developmentPreviewOpen;
 
 export function DevelopmentRolePreview({ enabled = import.meta.env.DEV }) {
   const navigate = useNavigate();
   const role = usePreviewRole();
   const { activeWorkspace } = useWorkflow();
-  const [open, setOpen] = useState(() => enabled && localStorage.getItem(OPEN_KEY) === 'true');
+  const [open, setOpen] = useState(() => enabled && readStorageWithMigration(OPEN_KEY, '.v2.dev-preview-open') === 'true');
 
   useEffect(() => {
     if (enabled) localStorage.setItem(OPEN_KEY, String(open));

@@ -1,32 +1,26 @@
-# CapVault
+# WildTrack
 
-CapVault supports Sir Ralph Laviste's capstone workflow through public student submission forms, connected class records, tracker visibility, teacher/adviser review, and final archive preparation.
+WildTrack supports Sir Ralph Laviste's capstone workflow through public student submission forms, connected class records, tracker visibility, teacher/adviser review, and final archive preparation.
 
 Current state: the UI is React/Vite and the backend is Spring Boot. Academic workspaces, Sheet imports, students, tracker data, project metadata, deliverables, official templates, tracker writeback attempts, and Document Check reports are backend-backed. Public responses, review notes, and archive actions still use browser storage while their backend modules are completed.
 
-For the exact production boundary, identity design, and current demonstration limitations, read:
-
-- `docs/CapVaultV2_Production_Readiness_And_Identity_Design.md`
-
 ## Read This First
 
-Before changing behavior, read these documents:
+Before changing current behavior, read:
 
-- `docs/SRS (2526-sem2-it332-41) (CapVault V2 - Google-first Pivot).md`
-- `docs/SDD (2526-sem2-it332-41) (CapVault V2 - Google-first Pivot).md`
-- `docs/CapVaultV2_Workflow_Pivot_Notes.md`
-- `docs/CapVaultV2_UIUX_Scale_And_Live_Sheet_Concerns.md`
-- `docs/CapVaultV2_Current_Batch_Actionable_Change_Instructions.md`
-- `design-system/MASTER.md`
+- `docs/WildTrack_UI_Rebrand_Specification.md`
+- `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md`
+
+The older planning documents remain in `docs/` as decision history. The current application and README use the WildTrack name.
 
 The current direction is not the old login-first vault. The main workflow is:
 
 1. Sir selects or creates an academic workspace for a program, course/section, and term.
 2. Sir connects public Google Sheets for Team Formation, Tracker, and Software Project Monitoring.
-3. CapVault validates each source by its expected columns and summarizes what was found or missing.
+3. WildTrack validates each source by its expected columns and summarizes what was found or missing.
 4. Tracker deadline rows can generate suggested deliverable forms after Sir confirms them.
 5. Sir publishes one form link per deliverable.
-6. Students submit Google Drive PDF links through a public CapVault form.
+6. Students submit Google Drive PDF links through a public WildTrack form.
 7. Student Number comes from Team Formation and auto-fills name/team when selected.
 8. The tracker stores lateness values and submission state.
 9. New and materially changed responses run Document Check for Drive access, PDF integrity, readable text, and template similarity when the local Drive API key is configured. Staff can also check pending documents in batches.
@@ -34,13 +28,13 @@ The current direction is not the old login-first vault. The main workflow is:
 
 ## Repository Layout
 
-- `frontend/` - Current CapVault React + Vite app.
+- `frontend/` - Current WildTrack React + Vite app.
 - `backend/` - Spring Boot backend foundation for secure Google/API work.
 - `docs/` - SRS, SDD, transcript notes, pivot notes, and current UX/action docs.
 - `design-system/` - UI/UX rules for the app.
-- `legacy/` - Old CapVault implementation kept for reference only.
+- `legacy/` - Old WildTrack implementation kept for reference only.
 
-Do not build current CapVault work inside `legacy/`.
+Do not build current WildTrack work inside `legacy/`.
 
 ## Requirements
 
@@ -56,9 +50,9 @@ PostgreSQL is not required for the default local backend profile. The backend us
 
 ## First-Time Google Drive Setup
 
-CapVault uses a restricted Google Drive API key only in the Spring Boot backend. Never place the key in the frontend, a tracked `.env` file, a screenshot, or chat.
+WildTrack uses a restricted Google Drive API key only in the Spring Boot backend. Never place the key in the frontend, a tracked `.env` file, a screenshot, or chat.
 
-On each laptop that will run CapVault:
+On each laptop that will run WildTrack:
 
 1. Clone or pull the repository.
 2. Open PowerShell in the repository root.
@@ -129,16 +123,7 @@ mvn test
 
 ## Run Backend With PostgreSQL
 
-Create a PostgreSQL database first, then run:
-
-```powershell
-cd backend
-$env:SPRING_PROFILES_ACTIVE='postgres'
-$env:CAPVAULT_DB_URL='jdbc:postgresql://localhost:5432/capvault'
-$env:CAPVAULT_DB_USERNAME='capvault'
-$env:CAPVAULT_DB_PASSWORD='capvault'
-mvn spring-boot:run
-```
+Create a PostgreSQL database, set the `postgres` profile and the connection variables expected by `backend/src/main/resources/application-postgres.yml`, then run `mvn spring-boot:run` from `backend/`. Existing backend environment-variable names are compatibility contracts and are intentionally not renamed during this frontend rebrand.
 
 The same Flyway migrations run in both local and PostgreSQL profiles.
 
@@ -153,6 +138,16 @@ npm run preview
 ```
 
 Preview opens on the Vite preview URL printed in the terminal.
+
+Run the automated checks from `frontend/`:
+
+```powershell
+npm test
+npm run test:browser
+npm run build
+```
+
+On a laptop running browser tests for the first time, install the local Chromium test browser once with `npx playwright install chromium`.
 
 ## Important Routes
 
@@ -200,7 +195,7 @@ Useful testing controls:
 The app stores browser-side workflow state under workspace-specific keys derived from:
 
 ```text
-capvault.v2.workflow
+wildtrack.v2.workflow
 ```
 
 This means:
@@ -302,11 +297,11 @@ Not fully connected yet:
 - Real account/session handling for students/advisers/admins.
 - Cloudflare R2 or another S3-compatible archive connection, independent PDF copies, and byte-level SHA-256 verification.
 
-Document Check is not generative AI. It performs deterministic Drive, PDF, readable-text, and official-template checks. If a laptop has not run `setup-local.ps1`, CapVault reports **Not checked** rather than inventing findings. Gemini-based summaries and instruction-level evaluation remain a separate Admin-only AI Review capability.
+Document Check is not generative AI. It performs deterministic Drive, PDF, readable-text, and official-template checks. If a laptop has not run `setup-local.ps1`, WildTrack reports **Not checked** rather than inventing findings. Gemini-based summaries and instruction-level evaluation remain a separate Admin-only AI Review capability.
 
 ## Demo Readiness And Known Limitations
 
-CapVault has a real backend database, but production persistence is only partially complete.
+WildTrack has a real backend database, but production persistence is only partially complete.
 
 ### What the database currently preserves
 
@@ -317,11 +312,7 @@ CapVault has a real backend database, but production persistence is only partial
 - Software Project Monitoring metadata
 - Deliverables
 
-The default local profile stores these records in the ignored H2 file:
-
-```text
-backend/data/capvault-local.mv.db
-```
+The default local profile stores these records in an ignored H2 file under `backend/data/`.
 
 PostgreSQL is configured as the production target but is not required for the current local demonstration.
 
@@ -354,15 +345,15 @@ Public submission remains account-optional. In production, a successful submissi
 
 ## Public Form Links When Hosted
 
-CapVault does not need to store a hardcoded production domain. Form links are built from the website origin currently serving the app, a readable workspace key, and the stable deliverable form slug.
+WildTrack does not need to store a hardcoded production domain. Form links are built from the website origin currently serving the app, a readable workspace key, and the stable deliverable form slug.
 
 For example:
 
 ```text
-https://capvault.example.edu/w/it-it332-2025-26-semester-2/submit/week-9-srs
+https://wildtrack.example.edu/w/it-it332-2025-26-semester-2/submit/week-9-srs
 ```
 
-- `https://capvault.example.edu` comes from the deployed website.
+- `https://wildtrack.example.edu` comes from the deployed website.
 - `it-it332-2025-26-semester-2` identifies the academic workspace.
 - `week-9-srs` identifies the published deliverable form.
 
@@ -380,17 +371,7 @@ Safe frontend env:
 $env:VITE_API_BASE_URL='http://127.0.0.1:8080/api'
 ```
 
-Backend env used now:
-
-```powershell
-$env:CAPVAULT_GOOGLE_DRIVE_ENABLED='true'
-$env:CAPVAULT_GOOGLE_DRIVE_API_KEY='set-this-with-setup-local.ps1'
-$env:CAPVAULT_GOOGLE_SHEETS_ENABLED='true'
-$env:CAPVAULT_GOOGLE_SERVICE_ACCOUNT_JSON='D:\path\to\service-account.json'
-$env:CAPVAULT_GOOGLE_APPLICATION_NAME='CapVault'
-```
-
-Prefer `.\setup-local.ps1` over typing the Drive key into a visible command. Gemini is not wired yet. When added, the Gemini key should be read only by the backend, not by Vite.
+Run `.\setup-local.ps1` instead of typing the Drive key into a visible command. The script writes the backend's existing compatibility environment variables for the current user. Gemini is not wired yet. When added, the Gemini key should be read only by the backend, not by Vite.
 
 ## Document Check Behavior
 
@@ -421,14 +402,7 @@ For local testing with a service account:
 2. Enable the Google Sheets API.
 3. Create a service account and download its JSON key.
 4. Share Sir's target Google Sheet with the service account email.
-5. Run the backend with:
-
-```powershell
-cd backend
-$env:CAPVAULT_GOOGLE_SHEETS_ENABLED='true'
-$env:CAPVAULT_GOOGLE_SERVICE_ACCOUNT_JSON='D:\path\to\service-account.json'
-mvn spring-boot:run
-```
+5. Configure the service-account path using the environment variables expected by the backend Google Sheets configuration, then run `mvn spring-boot:run` from `backend/`.
 
 Do not commit the service account JSON file.
 
@@ -458,7 +432,7 @@ npm run dev
 If the page shows stale data:
 
 - Use **Restore starter data** in Workspace, or
-- Clear browser `localStorage` key `capvault.v2.workflow`.
+- Clear browser `localStorage` key `wildtrack.v2.workflow`.
 
 If Student Numbers do not appear:
 
@@ -489,4 +463,4 @@ If `mvn spring-boot:run` fails:
 
 ## Legacy
 
-The original CapVault implementation is preserved under `legacy/`. Use it only for reference when recovering useful UX patterns or old behavior.
+The original WildTrack implementation is preserved under `legacy/`. Use it only for reference when recovering useful UX patterns or old behavior.

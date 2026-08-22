@@ -92,8 +92,8 @@ function createState({ conflicting = false, accepted = false } = {}) {
 }
 
 function renderPage(role = 'adviser') {
-  localStorage.setItem('capvault.v2.preview-role', role);
-  localStorage.setItem('capvault.v2.preview-adviser', 'Dr. Elena Mercado');
+  localStorage.setItem('wildtrack.v2.preview-role', role);
+  localStorage.setItem('wildtrack.v2.preview-adviser', 'Dr. Elena Mercado');
   return render(
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>

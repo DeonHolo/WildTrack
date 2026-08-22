@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$pidFile = Join-Path $root ".capvault-local.pids.json"
+$pidFile = Join-Path $root ".wildtrack-local.pids.json"
 $logsDirectory = Join-Path $root "logs"
 
 # Some terminals expose both Path and PATH. Start-Process treats those as duplicate keys.
@@ -142,7 +142,7 @@ Wait-ForUrl "http://127.0.0.1:$BackendPort/api/health" "Backend"
 Wait-ForUrl "http://127.0.0.1:$FrontendPort/" "Frontend"
 
 Write-Host ""
-Write-Host "CapVault is ready." -ForegroundColor Green
+Write-Host "WildTrack is ready." -ForegroundColor Green
 Write-Host "Frontend: http://127.0.0.1:$FrontendPort/"
 Write-Host "Backend:  http://127.0.0.1:$BackendPort/api/health"
 Write-Host "Logs:     $logsDirectory"
