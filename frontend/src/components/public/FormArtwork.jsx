@@ -18,7 +18,8 @@ export function FormArtwork({ success = false }) {
         aria-label={artwork.alt}
         style={{
           backgroundImage: `url("${artwork.src}")`,
-          backgroundPosition: artwork.position
+          backgroundPosition: artwork.position,
+          backgroundSize: artwork.size
         }}
       />
     </Box>

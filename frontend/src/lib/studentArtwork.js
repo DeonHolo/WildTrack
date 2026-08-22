@@ -1,5 +1,5 @@
-function artwork(src, alt, position) {
-  return Object.freeze({ src, alt, position });
+function artwork(src, alt, position, size = 'contain') {
+  return Object.freeze({ src, alt, position, size });
 }
 
 export const STUDENT_ARTWORK = Object.freeze({
@@ -16,11 +16,13 @@ export const STUDENT_ARTWORK = Object.freeze({
   submissionForm: artwork(
     '/assets/Showing%20PDF.webp',
     'WildTrack mascot presenting a PDF',
-    'center bottom'
+    'center bottom',
+    'auto 118%'
   ),
   submissionSuccess: artwork(
     '/assets/Good%20Job.webp',
     'WildTrack mascot celebrating a recorded submission',
-    'center bottom'
+    'center bottom',
+    'auto 118%'
   )
 });

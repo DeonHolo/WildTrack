@@ -301,7 +301,7 @@
   position: relative;
   display: grid;
   min-height: 196px;
-  grid-template-columns: minmax(0, 1fr) 230px;
+  grid-template-columns: minmax(0, 1fr) clamp(250px, 36%, 286px);
   align-items: center;
   overflow: hidden;
   border: 1px solid var(--wt-maroon-deep);
@@ -1269,13 +1269,6 @@
 }
 
 
-.wt-form-artwork.is-success {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(125deg, var(--wt-maroon-deep) 0 50%, var(--wt-maroon) 50% 100%);
-}
-
 .wt-artwork-copy {
   position: relative;
   z-index: 1;
@@ -1334,7 +1327,7 @@
 
   .wt-form-artwork {
     min-height: 150px;
-    grid-template-columns: minmax(0, 1fr) 132px;
+    grid-template-columns: minmax(0, 1fr) 152px;
     padding: 18px 20px 0;
   }
 
@@ -1389,7 +1382,7 @@
   position: relative;
   display: grid;
   min-height: 156px;
-  grid-template-columns: minmax(0, 1fr) 230px;
+  grid-template-columns: minmax(0, 1fr) clamp(250px, 36%, 286px);
   align-items: center;
   overflow: hidden;
   border: 1px solid var(--wt-maroon-deep);
