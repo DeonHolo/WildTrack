@@ -68,6 +68,34 @@ test('approved student artwork assets are served from the root public directory'
   }
 });
 
+test('submission success stays aligned and shows the submitted Student Number', async ({ page }) => {
+  await page.setViewportSize({ width: 690, height: 912 });
+  await page.goto('/w/cs-cs-capstone-2025-26-semester-2/submit/week-9-srs');
+
+  const studentNumber = page.getByLabel('Student Number');
+  await studentNumber.click();
+  await page.getByRole('option').first().click();
+  const selectedStudentNumber = await studentNumber.inputValue();
+  await page.getByLabel('PDF Drive Link').fill('https://drive.google.com/file/d/1WildTrackBrowserCheck/view');
+  await page.getByRole('button', { name: 'Submit response' }).click();
+  await expect(page.getByRole('heading', { name: 'Response received' })).toBeVisible();
+
+  await expectRenderedArtwork(
+    page.getByRole('img', { name: 'WildTrack mascot celebrating a recorded submission' }),
+    'Good Job.webp'
+  );
+  await expect(page.getByText('Student Number', { exact: true })).toBeVisible();
+  await expect(page.getByText(selectedStudentNumber, { exact: true })).toBeVisible();
+
+  const banner = await page.locator('.wt-form-artwork').boundingBox();
+  const surface = await page.locator('.wt-form-surface').first().boundingBox();
+  expect(Math.abs(banner.width - surface.width)).toBeLessThanOrEqual(1);
+  expect(surface.y - (banner.y + banner.height)).toBe(16);
+  expect(await page.locator('.wt-success-surface').evaluate((element) => (
+    getComputedStyle(element).borderTopColor
+  ))).not.toBe('rgb(47, 125, 91)');
+  await expectNoPageOverflow(page);
+});
 test('admin review opens in the staff shell without page-level clipping', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await openAs(page, 'admin', '/review');

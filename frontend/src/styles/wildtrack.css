@@ -255,6 +255,10 @@
   box-shadow: inset 3px 0 0 var(--wt-maroon);
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 .wt-public-root {
   min-height: 100dvh;
   background: var(--wt-bg);
@@ -314,7 +318,7 @@
   background-size: 28px 28px, 28px 28px, 100% 100%;
   color: #fffdf9;
   isolation: isolate;
-  padding: 24px 34px 0;
+  padding: 0 34px;
 }
 
 .wt-form-surface {
@@ -383,9 +387,6 @@
   white-space: nowrap;
 }
 
-.wt-success-surface {
-  border-top: 4px solid #2f7d5b;
-}
 
 .wt-public-root .mantine-Button-root {
   min-height: 44px;
@@ -1276,7 +1277,7 @@
   align-self: center;
   gap: 8px;
   max-width: 380px;
-  padding-bottom: 24px;
+  padding-block: 24px;
 }
 
 .wt-artwork-copy .wt-artwork-kicker {
@@ -1328,7 +1329,7 @@
   .wt-form-artwork {
     min-height: 150px;
     grid-template-columns: minmax(0, 1fr) 152px;
-    padding: 18px 20px 0;
+    padding: 0 20px;
   }
 
   .wt-form-title {
@@ -1349,7 +1350,7 @@
   }
 
   .wt-artwork-copy {
-    padding-bottom: 18px;
+    padding-block: 18px;
   }
 
 }

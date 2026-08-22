@@ -10,7 +10,7 @@ export function SubmissionResult({ result, identity, onEdit }) {
     : `${result.deliverable.title} is recorded for the class tracker.`;
 
   return (
-    <Stack gap="lg">
+    <Stack gap="md">
       <FormArtwork success />
       <Paper className="wt-form-surface wt-success-surface" radius="md" p={{ base: 'lg', sm: 'xl' }}>
         <Stack gap="lg">
@@ -26,6 +26,7 @@ export function SubmissionResult({ result, identity, onEdit }) {
 
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             <div><Text className="wt-meta-label">Student</Text><Text fw={700}>{result.student?.name || identity.studentName}</Text></div>
+            <div><Text className="wt-meta-label">Student Number</Text><Text ff="monospace" fw={600}>{result.student?.studentNumber || identity.studentNumber}</Text></div>
             <div><Text className="wt-meta-label">Team</Text><Text ff="monospace" fw={600}>{result.student?.teamCode || identity.teamCode}</Text></div>
             <div><Text className="wt-meta-label">Deliverable</Text><Text fw={700}>{result.deliverable.shortTitle}</Text></div>
             <div><Text className="wt-meta-label">Status</Text><Text fw={700}>{result.attempt.primaryStatus || result.attempt.reviewStatus}</Text></div>

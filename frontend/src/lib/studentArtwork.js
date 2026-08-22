@@ -17,12 +17,12 @@ export const STUDENT_ARTWORK = Object.freeze({
     '/assets/Showing%20PDF.webp',
     'WildTrack mascot presenting a PDF',
     'center bottom',
-    'auto 118%'
+    'auto 100%'
   ),
   submissionSuccess: artwork(
     '/assets/Good%20Job.webp',
     'WildTrack mascot celebrating a recorded submission',
     'center bottom',
-    'auto 118%'
+    'auto 100%'
   )
 });

@@ -125,7 +125,7 @@ describe('public submission form', () => {
     expect(screen.getByRole('link', { name: /WildTrack/i })).toBeInTheDocument();
     const formArtwork = screen.getByRole('img', { name: /WildTrack mascot presenting a PDF/i });
     expect(formArtwork).toHaveStyle('background-image: url("/assets/Showing%20PDF.webp")');
-    expect(formArtwork).toHaveStyle('background-size: auto 118%');
+    expect(formArtwork).toHaveStyle('background-size: auto 100%');
     expect(screen.getByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /next/i })).not.toBeInTheDocument();
   });
@@ -302,7 +302,9 @@ describe('public submission form', () => {
     expect(await screen.findByRole('heading', { name: expectedTitle })).toBeInTheDocument();
     const successArtwork = screen.getByRole('img', { name: /WildTrack mascot celebrating a recorded submission/i });
     expect(successArtwork).toHaveStyle('background-image: url("/assets/Good%20Job.webp")');
-    expect(successArtwork).toHaveStyle('background-size: auto 118%');
+    expect(successArtwork).toHaveStyle('background-size: auto 100%');
+    expect(screen.getByText('Student Number')).toBeInTheDocument();
+    expect(screen.getByText('22-1001-001')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open student dashboard/i })).toBeInTheDocument();
   });
 
