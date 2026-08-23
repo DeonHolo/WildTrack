@@ -226,3 +226,26 @@ async function requestForm(path, options = {}) {
   if (response.status === 204) return null;
   return response.json();
 }
+
+export async function getMyAssociation(workspaceId) {
+  return request(`/workspace/students/me?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function getRosterOptions(workspaceId) {
+  return request(`/workspace/students/options?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function confirmStudentAssociation(workspaceId, studentNumber) {
+  await ensureCsrfToken();
+  return request(`/workspace/students/associate?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    body: { studentNumber }
+  });
+}
+
+export async function disconnectStudentAssociation(workspaceId) {
+  await ensureCsrfToken();
+  return request(`/workspace/students/associate?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'DELETE'
+  });
+}

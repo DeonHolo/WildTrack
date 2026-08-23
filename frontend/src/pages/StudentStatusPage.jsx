@@ -1,7 +1,7 @@
 import { Alert, Button, Container, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { ArrowClockwise, WarningCircle } from '@phosphor-icons/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 import { StudentIdentityPanel } from '../components/public/StudentIdentityPanel.jsx';
 import { StudentDeliverableList } from '../components/student/StudentDeliverableList.jsx';
@@ -22,6 +22,7 @@ import {
   isUsableAdviserName,
   normalizeStudentNumber
 } from '../lib/workflow.js';
+import { getMyAssociation, disconnectStudentAssociation } from '../lib/api.js';
 
 export function StudentStatusPage() {
   const {
@@ -35,6 +36,16 @@ export function StudentStatusPage() {
   const [selectedNumber, setSelectedNumber] = useState('');
   const [connectionError, setConnectionError] = useState('');
   const [signInError, setSignInError] = useState('');
+  const [backendAssociation, setBackendAssociation] = useState(null);
+  // Ticket 03: the dashboard identity section is composed from the backend association.
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeWorkspace?.id || !state.activeAccountEmail) { setBackendAssociation(null); return undefined; }
+    getMyAssociation(activeWorkspace.id)
+      .then((association) => { if (!cancelled) setBackendAssociation(association || null); })
+      .catch(() => { if (!cancelled) setBackendAssociation(null); });
+    return () => { cancelled = true; };
+  }, [activeWorkspace?.id, state.activeAccountEmail]);
   const activeAccount = useMemo(() => state.studentAccounts.find(
     (account) => account.googleSubject && String(account.email || '').toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
   ) || null, [state.activeAccountEmail, state.studentAccounts]);
@@ -42,7 +53,7 @@ export function StudentStatusPage() {
   const connectionOptions = useMemo(() => getStudentOptions(identityStudents, state.studentAccounts)
     .filter((student) => !student.claimed), [identityStudents, state.studentAccounts]);
   const selectedStudent = useMemo(() => findStudent(identityStudents, selectedNumber), [identityStudents, selectedNumber]);
-  const studentNumber = activeAccount?.studentNumber || '';
+  const studentNumber = backendAssociation?.studentNumber || activeAccount?.studentNumber || '';
   const student = useMemo(() => findStudent(state.students, studentNumber), [state.students, studentNumber]);
   const project = useMemo(() => student ? getProjectMetadata(state, student.teamCode) : null, [state, student]);
   const adviserLabel = isUsableAdviserName(project?.adviserName)

@@ -33,6 +33,7 @@ import {
   getWorkspacePublicKey,
   normalizeStudentNumber
 } from '../lib/workflow.js';
+import { getMyAssociation } from '../lib/api.js';
 
 function FormUnavailable({ deliverable }) {
   return (
@@ -171,6 +172,23 @@ export function PublicSubmissionPage() {
       teamCode: matched?.teamCode || activeAccount?.teamCode || ''
     });
   }, [activeAccount, identityStudents, queryStudent, state.activeStudentNumber]);
+
+  // Ticket 03: restore the workspace-scoped association for returning sessions.
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeWorkspaceId || !activeAccount?.email) return undefined;
+    getMyAssociation(activeWorkspaceId)
+      .then((association) => {
+        if (cancelled || !association || !association.studentNumber) return;
+        setIdentity({
+          studentNumber: association.studentNumber,
+          studentName: association.studentName || '',
+          teamCode: association.teamCode || ''
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeWorkspaceId, activeAccount?.email]);
 
   useEffect(() => {
     setValues(ownedResponse?.values ? { ...ownedResponse.values } : {});
