@@ -36,6 +36,9 @@ capvault:
     maximum-added-content-ratio: ${CAPVAULT_FILE_CHECK_MAX_ADDED_RATIO:0.25}
 
 wildtrack:
+  staff:
+    bootstrap:
+      assignments: ${WILDTRACK_STAFF_BOOTSTRAP_ASSIGNMENTS:}
   google:
     identity:
       enabled: ${WILDTRACK_GOOGLE_IDENTITY_ENABLED:false}

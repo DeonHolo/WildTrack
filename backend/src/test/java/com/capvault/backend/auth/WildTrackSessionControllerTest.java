@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.capvault.backend.config.ApiExceptionHandler;
 import com.capvault.backend.config.TimeConfig;
+import com.capvault.backend.staff.StaffAccessResolver;
 import com.capvault.backend.config.WildTrackSessionProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,9 @@ class WildTrackSessionControllerTest {
 
     @MockBean
     private WildTrackSessionProperties properties;
+
+    @MockBean
+    private StaffAccessResolver staffAccessResolver;
 
     private static final Instant NOW = Instant.parse("2026-08-24T00:00:00Z");
     private static final Instant EXPIRY = Instant.parse("2026-08-24T12:00:00Z");

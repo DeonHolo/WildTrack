@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 import com.capvault.backend.config.WildTrackSessionProperties;
+import com.capvault.backend.staff.StaffAccessResolver;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -28,17 +29,20 @@ public class WildTrackSessionController {
     private final WildTrackSessionService sessionService;
     private final Clock clock;
     private final WildTrackSessionProperties properties;
+    private final StaffAccessResolver staffAccessResolver;
 
     WildTrackSessionController(
         GoogleIdentityService googleIdentityService,
         WildTrackSessionService sessionService,
         Clock clock,
-        WildTrackSessionProperties properties
+        WildTrackSessionProperties properties,
+        StaffAccessResolver staffAccessResolver
     ) {
         this.googleIdentityService = googleIdentityService;
         this.sessionService = sessionService;
         this.clock = clock;
         this.properties = properties;
+        this.staffAccessResolver = staffAccessResolver;
     }
 
     public record SessionExchangeRequest(@NotBlank String credential) {
@@ -61,6 +65,7 @@ public class WildTrackSessionController {
         HttpServletResponse response
     ) {
         GoogleIdentity identity = googleIdentityService.authenticate(request.credential());
+        staffAccessResolver.onBindLogin(identity.subject(), identity.email());
         Duration ttl = properties.ttl();
         WildTrackSession created = sessionService.create(identity);
         Cookie cookie = new Cookie(SESSION_COOKIE, created.rawToken());
