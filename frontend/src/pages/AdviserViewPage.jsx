@@ -71,7 +71,6 @@ export function AdviserViewPage() {
   const [selectedDeliverableId, setSelectedDeliverableId] = useState('');
   const [selectedOutputIds, setSelectedOutputIds] = useState({});
   const [feedback, setFeedback] = useState('');
-  const [expandedFeedbackIds, setExpandedFeedbackIds] = useState([]);
   const [checkDialogId, setCheckDialogId] = useState('');
   const [batchProgress, setBatchProgress] = useState(null);
 
@@ -88,6 +87,7 @@ export function AdviserViewPage() {
   const selectedOutputId = selectedRow ? selectedOutputIds[selectedRow.deliverable.id] : '';
   const selectedOutput = selectedRow?.outputs.find((output) => output.id === selectedOutputId) || selectedRow?.currentOutput || null;
   const selectedResponse = selectedOutput?.latest || null;
+  const currentFeedback = selectedResponse?.feedback?.find((item) => item.visibility !== 'Staff') || null;
   const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
 
   useEffect(() => {
@@ -108,15 +108,13 @@ export function AdviserViewPage() {
     setSelectedDeliverableId('');
     setSelectedOutputIds({});
     setFeedback('');
-    setExpandedFeedbackIds([]);
     setBatchProgress(null);
   }, [selectedTeamCode]);
 
   useEffect(() => {
-    setFeedback('');
-    setExpandedFeedbackIds([]);
+    setFeedback(currentFeedback?.note || '');
     setBatchProgress(null);
-  }, [selectedResponse?.id]);
+  }, [currentFeedback?.note, selectedResponse?.id]);
 
   function changeAdviser(value) {
     if (!value) return;
@@ -144,7 +142,6 @@ export function AdviserViewPage() {
       author: adviserName || 'Adviser',
       visibility: 'Student'
     });
-    setFeedback('');
   }
 
   async function openDocumentCheck() {
@@ -350,14 +347,10 @@ export function AdviserViewPage() {
                   response={selectedResponse}
                   outputId={selectedOutput?.id || ''}
                   feedback={feedback}
-                  expandedFeedbackIds={expandedFeedbackIds}
                   batchProgress={batchProgress}
                   onSelectOutput={selectOutput}
                   onFeedbackChange={setFeedback}
                   onSubmitFeedback={submitFeedback}
-                  onToggleFeedback={(feedbackId) => setExpandedFeedbackIds((current) => current.includes(feedbackId)
-                    ? current.filter((id) => id !== feedbackId)
-                    : [...current, feedbackId])}
                   onOpenDocumentCheck={openDocumentCheck}
                   onCheckPending={checkPendingResponses}
                   onAccept={confirmAccept}
@@ -394,19 +387,17 @@ function SelectedGroupOutput({
   response,
   outputId,
   feedback,
-  expandedFeedbackIds,
   batchProgress,
   onSelectOutput,
   onFeedbackChange,
   onSubmitFeedback,
-  onToggleFeedback,
   onOpenDocumentCheck,
   onCheckPending,
   onAccept,
   onRevoke
 }) {
   const link = output?.link || '';
-  const savedFeedback = (response?.feedback || []).filter((item) => item.visibility !== 'Staff');
+  const currentFeedback = response?.feedback?.find((item) => item.visibility !== 'Staff') || null;
   const pendingChecks = row.responses.filter((item) => item.fileCheckStatus !== 'Checking' && !isDocumentCheckCurrent(item));
   const aiReport = response?.aiReport;
   const aiCurrent = isAiReportCurrent(response);
@@ -506,11 +497,11 @@ function SelectedGroupOutput({
 
       <Divider />
 
-      <div className="wt-adviser-feedback-grid">
+      <div className="wt-adviser-feedback-editor">
         <form onSubmit={onSubmitFeedback}>
           <Textarea
             label="Feedback for student"
-            description="Visible only to the Google account that owns this response."
+            description="Students can read this note from their deliverable details."
             minRows={4}
             autosize
             maxRows={7}
@@ -518,35 +509,21 @@ function SelectedGroupOutput({
             onChange={(event) => onFeedbackChange(event.currentTarget.value)}
             disabled={!response}
           />
-          <Button mt="md" type="submit" color="wildtrackMaroon" leftSection={<NotePencil size={17} />} disabled={!response || !feedback.trim()}>
-            Save feedback
+          {currentFeedback ? (
+            <Text size="xs" c="dimmed" mt="sm">
+              Last updated {formatDateTime(currentFeedback.updatedAt || currentFeedback.createdAt)} by {currentFeedback.author}.
+            </Text>
+          ) : null}
+          <Button
+            mt="md"
+            type="submit"
+            color="wildtrackMaroon"
+            leftSection={<NotePencil size={17} />}
+            disabled={!response || !feedback.trim() || feedback.trim() === currentFeedback?.note}
+          >
+            {currentFeedback ? 'Update feedback' : 'Save feedback'}
           </Button>
         </form>
-
-        <section aria-label="Saved feedback">
-          <Text fw={800}>Saved feedback</Text>
-          {savedFeedback.length ? (
-            <Stack gap="sm" mt="sm">
-              {savedFeedback.map((item) => {
-                const expanded = expandedFeedbackIds.includes(item.id);
-                return (
-                  <article className="wt-adviser-feedback-entry" key={item.id}>
-                    <Group justify="space-between" gap="sm" align="flex-start">
-                      <Text size="sm" fw={750}>{item.author}</Text>
-                      <Text size="xs" c="dimmed">{formatDateTime(item.createdAt)}</Text>
-                    </Group>
-                    <Text size="sm" className={expanded ? '' : 'is-collapsed'}>{item.note}</Text>
-                    {item.note.length > 180 ? (
-                      <Button variant="subtle" size="compact-xs" onClick={() => onToggleFeedback(item.id)}>{expanded ? 'Show less' : 'Read full feedback'}</Button>
-                    ) : null}
-                  </article>
-                );
-              })}
-            </Stack>
-          ) : (
-            <Text size="sm" c="dimmed" mt="sm">No feedback saved for this group output.</Text>
-          )}
-        </section>
       </div>
     </section>
   );

@@ -48,12 +48,11 @@ Install these first:
 
 PostgreSQL is not required for the default local backend profile. The backend uses a local H2 database by default so teammates can run it immediately.
 
-## First-Time Google Drive Setup
+## First-Time Google Setup
 
-WildTrack uses a restricted Google Drive API key only in the Spring Boot backend. Never place the key in the frontend, a tracked `.env` file, a screenshot, or chat.
+WildTrack uses Google Identity Services for student sign-in and a restricted Google Drive API key for Document Check. The OAuth client ID is public browser configuration; the Drive API key stays in the Spring Boot backend. Never commit the Drive key or an OAuth client secret.
 
 On each laptop that will run WildTrack:
-
 1. Clone or pull the repository.
 2. Open PowerShell in the repository root.
 3. Run:
@@ -63,13 +62,14 @@ On each laptop that will run WildTrack:
 ```
 
 4. Paste that laptop's restricted Google Drive API key into the hidden prompt.
-5. Start both services:
+5. The script configures the shared WildTrack OAuth client ID for the frontend and backend. It does not need or store the OAuth client secret.
+6. Start both services:
 
 ```powershell
 .\run-local.ps1
 ```
 
-The setup script stores the key in the current Windows user's environment. It is not copied into the repository, so each teammate's laptop must run the one-time setup. The same restricted key can be entered on the presentation laptop for local testing, but it must never be committed.
+The setup script stores the Drive key and Google identity settings in the current Windows user's environment. They are not copied into the repository, so each teammate's laptop must run the one-time setup. The same restricted key can be entered on the presentation laptop for local testing, but it must never be committed.
 
 Stop both services with:
 
@@ -289,7 +289,7 @@ Working now:
 
 Not fully connected yet:
 
-- Real Google OAuth.
+- Durable backend sessions and server-enforced student/adviser/admin authorization after Google sign-in.
 - Google Sheets API writeback to Sir's actual Sheet, unless service-account credentials are configured.
 - Google Docs API report creation.
 - Real Gemini AI evaluation.
@@ -320,12 +320,12 @@ PostgreSQL is configured as the production target but is not required for the cu
 
 | Feature | Current behavior | Reason |
 |---|---|---|
-| Student registration/login | Stored in the current browser | Secure password hashing, OAuth, and server sessions have not been implemented |
-| Student Number claim | Browser-local and unverified | OTP or institutional Microsoft login is required before a claim can safely unlock private data |
+| Student Google sign-in | Google ID tokens are verified by the backend; the active account is remembered in the current browser | Durable server sessions, revocation, and cross-device account persistence are not implemented |
+| Student Number connection | Browser-local and separate from Google identity | The current testing flow trusts the selected class-record identity; stronger institutional verification can be added later if Sir requires it |
 | Admin/adviser permissions | Role-specific UI preview | Server-enforced RBAC and authenticated staff accounts are not implemented |
 | Public responses and history | Stored in browser workflow state | The team validated the public submission UX before committing the final backend response model |
 | Existing response links | Never prefilled on a public form | Selecting a Student Number alone must not reveal another student's Drive link |
-| Response ownership | Demo updates are matched by workspace, deliverable, and Student Number | Production needs a private edit-response link so a fresh visitor cannot overwrite an existing response |
+| Response ownership | Private response details are matched by verified Google subject, workspace, deliverable, and Student Number | Durable ownership still requires backend response persistence and server sessions |
 | Adviser feedback and review | Stored in browser workflow state | These require authenticated staff identity and backend response records |
 | Google Drive Document Check | Working locally after `setup-local.ps1` | Requires a restricted Drive API key on each machine and public viewer access to each submitted file |
 | Google Sheet writeback | Local/backend update with pending remote status | Actual Sheet changes require service-account credentials and Sheet permission |
@@ -333,18 +333,17 @@ PostgreSQL is configured as the production target but is not required for the cu
 | Final archive | Metadata record only | Independent PDF storage, byte-level SHA-256, and verification require Cloudflare R2 or another S3-compatible store |
 | Notifications | Not connected | Durable in-app or email notifications depend on backend accounts, events, and delivery jobs |
 
-### Production student identity
+### Student identity flow
 
-In production, Student Number lookup must search all active Team Formation records and infer the correct academic workspace. Students must never use the staff workspace switcher.
+Students do not create a separate WildTrack username or password. They continue with a Google account, and the Spring Boot backend verifies the Google ID token against WildTrack's OAuth client ID.
 
-The matched record determines program, course/section, term, name, team, member number, and adviser. Before private dashboard data is shown, the claim must be verified using the imported `cit.edu` address or institutional Microsoft login. OTP is intentionally deferred from the current demonstration.
+Google identity and class-record identity remain separate audit facts. After Google sign-in, the student chooses a Student Number from the active workspace's Team Formation data. WildTrack fills the matching name and team details, but the Google account remains the private owner used for dashboard data and response editing.
 
-The current Student Dashboard includes a self-service **Disconnect** action so a student can remove an incorrect browser-local claim without asking Sir to manage a routine correction.
+The Student Dashboard includes a self-service **Disconnect** action so a student can correct an accidental class-record connection without asking Sir to handle routine account cleanup. OTP and institutional Microsoft verification remain optional hardening measures if Sir requests them later.
 
-Public submission remains account-optional. In production, a successful submission should return an unguessable edit-response link. Only that link or a verified optional account should reopen and update the saved response. OTP or institutional Microsoft sign-in is needed only when a student claims private dashboard access or recovers a lost edit link.
+Public submission forms require verified Google identity before class-record and Drive-link fields are shown. Selecting someone else's Student Number does not reveal that person's submitted link or private dashboard data.
 
 ## Public Form Links When Hosted
-
 WildTrack does not need to store a hardcoded production domain. Form links are built from the website origin currently serving the app, a readable workspace key, and the stable deliverable form slug.
 
 For example:
@@ -363,18 +362,13 @@ The Copy Link control automatically uses the current origin, so local links use 
 
 Do not put Google API keys, OAuth client secrets, Gemini keys, or service account credentials in the Vite frontend.
 
-When we add real Google/Gemini integration, it should go through a backend or secure proxy. Frontend `.env` values are still visible to users after build, so they are not safe for secrets.
+The Google OAuth client ID is public and is the only Google identity value exposed to Vite. The browser sends Google's signed ID credential to the Spring Boot backend, which validates it before WildTrack accepts the account.
 
-Safe frontend env:
+Safe frontend environment values include VITE_API_BASE_URL and VITE_GOOGLE_CLIENT_ID. The OAuth client secret is not used by this browser flow.
 
-```powershell
-$env:VITE_API_BASE_URL='http://127.0.0.1:8080/api'
-```
-
-Run `.\setup-local.ps1` instead of typing the Drive key into a visible command. The script writes the backend's existing compatibility environment variables for the current user. Gemini is not wired yet. When added, the Gemini key should be read only by the backend, not by Vite.
+Run setup-local.ps1 instead of typing the Drive key into a visible command. The script configures the existing Drive compatibility variables plus Google identity for the current Windows user. Gemini is not wired yet; its key must remain backend-only when added.
 
 ## Document Check Behavior
-
 Document Check runs after a new or materially changed response and can also be started manually for pending or outdated responses. Batch checks use limited concurrency and skip current results.
 
 Only fields configured as PDF Drive submissions use Document Check. Repository and other link-only fields are not sent through PDF validation. Because public responses are still browser-backed in this phase, closing the page during an automatic check can interrupt that request; the staff batch action can recover unchecked responses. Backend response persistence and a durable job queue are still required for production reliability.

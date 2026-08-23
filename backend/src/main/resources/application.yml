@@ -34,3 +34,9 @@ capvault:
     minimum-readable-characters: ${CAPVAULT_FILE_CHECK_MINIMUM_CHARACTERS:300}
     template-coverage-threshold: ${CAPVAULT_FILE_CHECK_TEMPLATE_COVERAGE:0.75}
     maximum-added-content-ratio: ${CAPVAULT_FILE_CHECK_MAX_ADDED_RATIO:0.25}
+
+wildtrack:
+  google:
+    identity:
+      enabled: ${WILDTRACK_GOOGLE_IDENTITY_ENABLED:false}
+      client-id: ${WILDTRACK_GOOGLE_CLIENT_ID:}

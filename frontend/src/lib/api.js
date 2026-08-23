@@ -18,6 +18,13 @@ export function getApiBaseUrl() {
   return API_BASE_URL;
 }
 
+export async function authenticateGoogle(credential) {
+  return request('/auth/google', {
+    method: 'POST',
+    body: { credential }
+  });
+}
+
 export async function getWorkspaces() {
   return request('/workspaces');
 }

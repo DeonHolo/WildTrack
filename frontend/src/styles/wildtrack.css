@@ -352,7 +352,6 @@ html {
 }
 
 .wt-form-meta {
-  border-block: 1px solid var(--wt-border);
   color: var(--wt-text);
   padding-block: 12px;
 }
@@ -2964,5 +2963,143 @@ html {
   .wt-command-table th:nth-child(4),
   .wt-command-table td:nth-child(4) {
     display: none;
+  }
+}
+
+/* Google identity access */
+.wt-student-access-page {
+  min-height: calc(100dvh - 68px);
+  background: var(--wt-bg);
+  padding: clamp(40px, 8vh, 88px) 20px 72px;
+}
+
+.wt-student-access-container {
+  width: 100%;
+}
+
+.wt-google-access {
+  display: grid;
+  justify-items: center;
+  width: min(100%, 620px);
+  margin-inline: auto;
+  gap: 18px;
+  border: 1px solid var(--wt-border);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgba(72, 16, 32, 0.07);
+  padding: clamp(30px, 5vw, 42px);
+  text-align: center;
+}
+
+.wt-google-access.is-embedded {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  gap: 14px;
+  padding: 22px 0 0;
+}
+
+.wt-google-access-intro {
+  display: grid;
+  justify-items: center;
+  width: 100%;
+  gap: 5px;
+}
+
+.wt-google-access h1,
+.wt-google-access h2 {
+  color: var(--wt-text);
+  font-size: clamp(1.4rem, 3vw, 1.75rem);
+  letter-spacing: 0;
+  line-height: 1.18;
+  text-wrap: balance;
+}
+
+.wt-google-access.is-embedded h2 {
+  font-size: 1.1rem;
+  line-height: 1.3;
+}
+
+.wt-google-access-description {
+  max-width: 54ch;
+  margin-inline: auto;
+  color: var(--wt-muted);
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.wt-google-access.is-embedded .wt-google-access-description {
+  max-width: 48ch;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.wt-google-access-action {
+  display: grid;
+  width: min(100%, 360px);
+  min-width: 0;
+  margin-inline: auto;
+  align-content: center;
+}
+
+.wt-google-sign-in,
+.wt-google-sign-in-button {
+  width: 100%;
+  min-width: 0;
+}
+
+.wt-google-sign-in-button {
+  min-height: 44px;
+  overflow: hidden;
+}
+
+.wt-google-sign-in-button > div,
+.wt-google-sign-in-button iframe {
+  max-width: 100% !important;
+}
+
+.wt-google-access-error {
+  width: min(100%, 520px);
+  text-align: left;
+}
+
+.wt-google-access-return {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 7px;
+  color: var(--wt-maroon);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.wt-google-access-return:hover {
+  text-decoration: underline;
+}
+
+.wt-student-dashboard-link {
+  min-width: 104px;
+}
+@media (max-width: 720px) {
+  .wt-student-access-page {
+    padding: 28px 16px 56px;
+  }
+
+  .wt-google-access {
+    width: 100%;
+    gap: 18px;
+    padding: 28px 20px 30px;
+  }
+
+  .wt-google-access.is-embedded {
+    gap: 14px;
+    padding: 20px 0 0;
+  }
+
+  .wt-google-access-action {
+    width: min(100%, 360px);
   }
 }

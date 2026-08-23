@@ -37,9 +37,22 @@ async function expectRenderedArtwork(locator, expectedFile) {
   expect(result.hasSize).toBe(true);
 }
 
+async function useVerifiedGoogleIdentity(page) {
+  await page.addInitScript(() => {
+    const email = 'student.browser-test@gmail.com';
+    localStorage.setItem('wildtrack.v2.student-accounts', JSON.stringify([{
+      email,
+      googleSubject: 'browser-test-google-subject',
+      displayName: 'Browser Test Student',
+      workspaceClaims: {}
+    }]));
+    localStorage.setItem('wildtrack.v2.active-student-account', email);
+  });
+}
 for (const viewport of artworkViewports) {
   test('public submission form renders approved artwork on ' + viewport.label, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await useVerifiedGoogleIdentity(page);
     await page.goto('/w/it-it332-2025-26-semester-2/submit/week-9-srs');
 
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Software Requirements Specification');
@@ -70,6 +83,7 @@ test('approved student artwork assets are served from the root public directory'
 
 test('submission success stays aligned and shows the submitted Student Number', async ({ page }) => {
   await page.setViewportSize({ width: 690, height: 912 });
+  await useVerifiedGoogleIdentity(page);
   await page.goto('/w/cs-cs-capstone-2025-26-semester-2/submit/week-9-srs');
 
   const studentNumber = page.getByLabel('Student Number');
@@ -95,6 +109,14 @@ test('submission success stays aligned and shows the submitted Student Number', 
     getComputedStyle(element).borderTopColor
   ))).not.toBe('rgb(47, 125, 91)');
   await expectNoPageOverflow(page);
+});
+test('signed-out public submission requires Google verification before showing response fields', async ({ page }) => {
+  await page.goto('/w/it-it332-2025-26-semester-2/submit/week-9-srs');
+
+  await expect(page.getByText('Use your Google account before entering your student and submission details.')).toBeVisible();
+  await expect(page.getByText(/No separate WildTrack password/i)).toHaveCount(0);
+  await expect(page.getByLabel('Student Number')).toHaveCount(0);
+  await expect(page.getByLabel('PDF Drive Link')).toHaveCount(0);
 });
 test('admin review opens in the staff shell without page-level clipping', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });

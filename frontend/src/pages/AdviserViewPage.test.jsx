@@ -157,6 +157,30 @@ describe('adviser My advised teams review', () => {
     });
   });
 
+  it('edits the current student feedback instead of rendering a message history', () => {
+    workflow.state = createState();
+    workflow.state.attempts.find((response) => response.id === 'response-a2').feedback = [{
+      id: 'feedback-existing',
+      note: 'Clarify the original acceptance criteria.',
+      author: 'Dr. Elena Mercado',
+      visibility: 'Student',
+      createdAt: '2026-04-17T11:00:00+08:00'
+    }];
+    renderPage();
+
+    const editor = screen.getByRole('textbox', { name: 'Feedback for student' });
+    expect(editor).toHaveValue('Clarify the original acceptance criteria.');
+    expect(screen.queryByRole('region', { name: 'Saved feedback' })).not.toBeInTheDocument();
+
+    fireEvent.change(editor, { target: { value: 'Clarify the revised acceptance criteria.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update feedback' }));
+    expect(workflow.saveFeedback).toHaveBeenCalledWith('response-a2', {
+      note: 'Clarify the revised acceptance criteria.',
+      author: 'Dr. Elena Mercado',
+      visibility: 'Student'
+    });
+  });
+
   it('accepts and revokes the selected group output without changing duplicate member records', async () => {
     const { unmount } = renderPage();
 

@@ -7,7 +7,6 @@ const FILTERS = [
   { label: 'All', value: 'all' },
   { label: 'To submit', value: 'missing' },
   { label: 'Submitted', value: 'submitted' },
-  { label: 'Feedback', value: 'feedback' }
 ];
 
 export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
@@ -17,11 +16,9 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
   const filteredRows = useMemo(() => rows.filter((row) => {
     if (filter === 'missing') return row.status === 'Not submitted';
     if (filter === 'submitted') return row.status !== 'Not submitted';
-    if (filter === 'feedback') return Boolean(row.feedback);
     return true;
   }), [filter, rows]);
   const submittedCount = rows.filter((row) => row.status !== 'Not submitted').length;
-  const feedbackCount = rows.filter((row) => row.feedback).length;
 
   return (
     <Paper className="wt-student-deliverables" withBorder radius="sm">
@@ -29,7 +26,7 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
         <div>
           <Title order={2}>Deliverables</Title>
           <Text size="sm" c="dimmed">
-            {submittedCount} of {rows.length} submitted{feedbackCount ? ` | ${feedbackCount} with adviser feedback` : ''}
+            {submittedCount} of {rows.length} submitted
           </Text>
         </div>
         <SegmentedControl
@@ -59,7 +56,7 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
                 <StatusBadge status={row.status} />
                 {row.savedAt ? <Text size="xs" c="dimmed">Saved {formatDateTime(row.savedAt)}</Text> : null}
                 <Text size="xs" c="dimmed" className="wt-nowrap wt-tabular">
-                  Team {row.teamProgress.submitted}/{row.teamProgress.expected} submitted
+                  {formatTeamProgress(row.teamProgress)}
                 </Text>
               </div>
 
@@ -83,11 +80,6 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
                         </Button>
                       ) : null}
                     </Group>
-                    {row.feedback ? (
-                      <Text className="wt-feedback-preview" size="xs" c="dimmed">
-                        {truncateText(row.feedback.note, 150)}
-                      </Text>
-                    ) : null}
                   </>
                 ) : row.recorded ? (
                   <Text size="sm" c="dimmed">A response is recorded for this Student Number. Its private details belong to the Google account that submitted it.</Text>
@@ -208,8 +200,12 @@ function CheckFact({ label, value }) {
   );
 }
 
-function truncateText(value, limit) {
-  const text = String(value || '').trim();
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit).trimEnd()}…`;
+function formatTeamProgress(progress) {
+  const submitted = Number(progress?.submitted) || 0;
+  const expected = Number(progress?.expected) || 0;
+  if (!submitted) return 'No team members submitted';
+  if (expected > 0 && submitted >= expected) {
+    return `All ${expected} team member${expected === 1 ? '' : 's'} submitted`;
+  }
+  return `${submitted} of ${expected} team member${expected === 1 ? '' : 's'} submitted`;
 }

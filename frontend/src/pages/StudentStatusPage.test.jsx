@@ -187,11 +187,10 @@ describe('student dashboard', () => {
   it('keeps student records and response links private while signed out', () => {
     renderDashboard();
 
-    expect(screen.getByRole('heading', { name: 'Sign in to see your dashboard' })).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: 'Sign in or register' })).toHaveLength(2);
-    screen.getAllByRole('link', { name: 'Sign in or register' }).forEach((link) => {
-      expect(link).toHaveAttribute('href', '/login');
-    });
+    expect(screen.getByRole('heading', { name: 'Continue with Google' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Continue with Google' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Continue with Google' })).toHaveAttribute('href', '/login');
+    expect(within(screen.getByRole('region', { name: 'Continue with Google' })).getByLabelText('Continue with Google')).toBeInTheDocument();
     expect(screen.queryByText('DELA CRUZ, JUAN CARLOS M.')).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('owned-response');
     expect(screen.queryByRole('combobox', { name: /Student Number/i })).not.toBeInTheDocument();
@@ -235,9 +234,9 @@ describe('student dashboard', () => {
     const sdd = within(deliverables).getByText('SDD').closest('article');
     const source = within(deliverables).getByText('Source Code', { selector: '.wt-student-deliverable-title *' }).closest('article');
 
-    expect(srs).toHaveTextContent('Team 2/2 submitted');
-    expect(sdd).toHaveTextContent('Team 1/2 submitted');
-    expect(source).toHaveTextContent('Team 0/2 submitted');
+    expect(srs).toHaveTextContent('All 2 team members submitted');
+    expect(sdd).toHaveTextContent('1 of 2 team members submitted');
+    expect(source).toHaveTextContent('No team members submitted');
     expect(screen.queryByText(/Members with a recorded response/i)).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('teammate-private-response');
   });
@@ -309,6 +308,14 @@ describe('student dashboard', () => {
     expect(dialog).toHaveTextContent('Sir Roberto Villanueva');
   });
 
+  it('keeps feedback inside deliverable details instead of duplicating it as a filter', () => {
+    associateAccount();
+    renderDashboard();
+
+    expect(screen.queryByRole('radio', { name: 'Feedback' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Read feedback' })).toBeInTheDocument();
+  });
+
   it('shows student-safe Document Check results without staff AI output', async () => {
     associateAccount();
     renderDashboard();
@@ -336,7 +343,7 @@ describe('student dashboard', () => {
 
   it('renders a stable loading state while workspace data is being fetched', () => {
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
-    workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', studentNumber: '' }];
+    workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
     workflow.state.backendSync.status = 'Loading workspace data.';
     renderDashboard();
 
@@ -346,7 +353,7 @@ describe('student dashboard', () => {
 
   it('explains roster load failures and lets the student retry', () => {
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
-    workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', studentNumber: '' }];
+    workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
     workflow.state.students = [];
     workflow.state.backendSync.lastError = 'The roster service is unavailable.';
     renderDashboard();

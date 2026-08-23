@@ -8,8 +8,9 @@ export function StudentApplicationShell({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { state, logoutStudentAccount } = useWorkflow();
+  const isAccessRoute = ['/login', '/register'].includes(location.pathname);
   const activeAccount = state.studentAccounts.find(
-    (account) => account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
+    (account) => account.googleSubject && account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
   );
 
   function logout() {
@@ -24,22 +25,24 @@ export function StudentApplicationShell({ children }) {
         <Container size="xl" h="100%" className="wt-student-header-inner">
           <WildTrackBrand compact to="/student" />
           <Group component="nav" aria-label="Student navigation" gap="xs" wrap="nowrap">
-            <Button
-              component={Link}
-              to="/student"
-              variant={location.pathname === '/student' ? 'light' : 'subtle'}
-              color="wildtrackMaroon"
-              aria-current={location.pathname === '/student' ? 'page' : undefined}
-            >
-              Dashboard
-            </Button>
+            {!(activeAccount && location.pathname === '/student') ? (
+              <Button
+                className="wt-student-dashboard-link"
+                component={Link}
+                to="/student"
+                variant="default"
+                aria-current={location.pathname === '/student' ? 'page' : undefined}
+              >
+                Student dashboard
+              </Button>
+            ) : null}
             {activeAccount ? (
               <>
                 <Text className="wt-student-email" size="xs" c="dimmed">{activeAccount.email}</Text>
                 <Button variant="default" leftSection={<SignOut size={17} />} onClick={logout}>Log out</Button>
               </>
-            ) : (
-              <Button component={Link} to="/login" variant="default">Sign in or register</Button>
+            ) : isAccessRoute ? null : (
+              <Button component={Link} to="/login" variant="default">Continue with Google</Button>
             )}
           </Group>
         </Container>

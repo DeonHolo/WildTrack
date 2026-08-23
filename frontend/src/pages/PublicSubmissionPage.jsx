@@ -18,6 +18,7 @@ import {
 import { CalendarBlank, Clock, FilePdf, LinkSimple, PaperPlaneTilt, WarningCircle } from '@phosphor-icons/react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 import { FormArtwork } from '../components/public/FormArtwork.jsx';
 import { StudentIdentityPanel } from '../components/public/StudentIdentityPanel.jsx';
 import { SubmissionResult } from '../components/public/SubmissionResult.jsx';
@@ -88,7 +89,14 @@ function WorkspaceError({ message }) {
 export function PublicSubmissionPage() {
   const { slug, workspaceKey } = useParams();
   const [searchParams] = useSearchParams();
-  const { state, activeWorkspace, activeWorkspaceId, switchWorkspace, submitPublicForm } = useWorkflow();
+  const {
+    state,
+    activeWorkspace,
+    activeWorkspaceId,
+    authenticateGoogleAccount,
+    switchWorkspace,
+    submitPublicForm
+  } = useWorkflow();
   const activeWorkspaceKey = getWorkspacePublicKey(activeWorkspace);
   const [workspaceStatus, setWorkspaceStatus] = useState(
     !workspaceKey || workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey ? 'ready' : 'loading'
@@ -97,7 +105,9 @@ export function PublicSubmissionPage() {
   const [submitting, setSubmitting] = useState(false);
   const deliverable = getDeliverable(state, slug);
   const activeAccount = useMemo(
-    () => state.studentAccounts.find((account) => account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()) || null,
+    () => state.studentAccounts.find((account) => (
+      account.googleSubject && account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
+    )) || null,
     [state.activeAccountEmail, state.studentAccounts]
   );
   const queryStudent = searchParams.get('student') || '';
@@ -178,10 +188,19 @@ export function PublicSubmissionPage() {
     setFormError('');
   }
 
+  function finishGoogleSignIn(googleIdentity) {
+    const response = authenticateGoogleAccount(googleIdentity);
+    if (!response.ok) setFormError(response.error);
+  }
+
   async function submit(event) {
     event.preventDefault();
     setFormError('');
     setFieldErrors({});
+    if (!activeAccount) {
+      setFormError('Continue with Google before submitting this form.');
+      return;
+    }
     const nextIdentityErrors = {
       studentNumber: identity.studentNumber.trim() ? '' : 'Choose a Student Number.',
       studentName: identity.studentName.trim() ? '' : 'Choose a Student Name.',
@@ -243,63 +262,78 @@ export function PublicSubmissionPage() {
                         <Text size="sm">{requiresPdf ? 'PDF Drive link required' : 'Submission links required'}</Text>
                       </Group>
                     </Group>
-                    {ownedResponse ? (
+                    {activeAccount && ownedResponse ? (
                       <Alert color="blue" variant="light">
                         Your previous response is ready to edit. Saving material changes records a new response-history event.
                       </Alert>
-                    ) : sameStudentResponseExists ? (
+                    ) : activeAccount && sameStudentResponseExists ? (
                       <Alert color="blue" variant="light">
                         A response already exists for this Student Number. Existing submitted links stay private and are not filled into this form.
                       </Alert>
                     ) : null}
                   </Stack>
 
-                  <Divider />
-                  <StudentIdentityPanel
-                    students={identityStudents}
-                    identity={identity}
-                    activeAccount={activeAccount}
-                    errors={identityErrors}
-                    mode="submission"
-                    onChange={updateIdentity}
-                  />
-
-                  <Divider />
-                  <Stack gap="md" aria-label="Submission links">
-                    {deliverable.fields.map((field) => field.type === 'textarea' ? (
-                      <Textarea
-                        key={field.id}
-                        label={field.label}
-                        required={field.required}
-                        value={values[field.id] || ''}
-                        error={fieldErrors[field.id]}
-                        minRows={4}
-                        autosize
-                        onChange={(event) => updateField(field.id, event.currentTarget.value)}
+                  {!activeAccount ? (
+                    <>
+                      <Divider />
+                      <GoogleIdentityAccess
+                        embedded
+                        title="Continue with Google"
+                        description="Use your Google account before entering your student and submission details."
+                        error={formError}
+                        onAuthenticated={finishGoogleSignIn}
                       />
-                    ) : (
-                      <TextInput
-                        key={field.id}
-                        label={field.label}
-                        required={field.required}
-                        value={values[field.id] || ''}
-                        error={fieldErrors[field.id]}
-                        description={field.pdfRequired ? 'Share a Google Drive link that opens to the final PDF.' : undefined}
-                        placeholder={field.pdfRequired ? 'https://drive.google.com/file/d/...' : 'https://'}
-                        leftSection={field.pdfRequired ? <FilePdf size={18} aria-hidden="true" /> : null}
-                        onChange={(event) => updateField(field.id, event.currentTarget.value)}
+                    </>
+                  ) : (
+                    <>
+                      <Divider />
+                      <StudentIdentityPanel
+                        students={identityStudents}
+                        identity={identity}
+                        activeAccount={activeAccount}
+                        errors={identityErrors}
+                        mode="submission"
+                        onChange={updateIdentity}
                       />
-                    ))}
-                    {formError ? <Alert color="red" variant="light" icon={<WarningCircle size={20} />} role="alert">{formError}</Alert> : null}
-                  </Stack>
 
-                  <Divider />
-                  <Group justify="space-between" gap="md" wrap="wrap">
-                    <Text c="dimmed" size="xs" maw={460}>Submitting records the selected class identity and response time.</Text>
-                    <Button type="submit" size="md" loading={submitting} leftSection={<PaperPlaneTilt size={19} weight="bold" />}>
-                      {ownedResponse ? 'Save response changes' : 'Submit response'}
-                    </Button>
-                  </Group>
+                      <Divider />
+                      <Stack gap="md" aria-label="Submission links">
+                        {deliverable.fields.map((field) => field.type === 'textarea' ? (
+                          <Textarea
+                            key={field.id}
+                            label={field.label}
+                            required={field.required}
+                            value={values[field.id] || ''}
+                            error={fieldErrors[field.id]}
+                            minRows={4}
+                            autosize
+                            onChange={(event) => updateField(field.id, event.currentTarget.value)}
+                          />
+                        ) : (
+                          <TextInput
+                            key={field.id}
+                            label={field.label}
+                            required={field.required}
+                            value={values[field.id] || ''}
+                            error={fieldErrors[field.id]}
+                            description={field.pdfRequired ? 'Share a Google Drive link that opens to the final PDF.' : undefined}
+                            placeholder={field.pdfRequired ? 'https://drive.google.com/file/d/...' : 'https://'}
+                            leftSection={field.pdfRequired ? <FilePdf size={18} aria-hidden="true" /> : null}
+                            onChange={(event) => updateField(field.id, event.currentTarget.value)}
+                          />
+                        ))}
+                        {formError ? <Alert color="red" variant="light" icon={<WarningCircle size={20} />} role="alert">{formError}</Alert> : null}
+                      </Stack>
+
+                      <Divider />
+                      <Group justify="space-between" gap="md" wrap="wrap">
+                        <Text c="dimmed" size="xs" maw={460}>Submitting records your Google account, selected class identity, and response time.</Text>
+                        <Button type="submit" size="md" loading={submitting} leftSection={<PaperPlaneTilt size={19} weight="bold" />}>
+                          {ownedResponse ? 'Save response changes' : 'Submit response'}
+                        </Button>
+                      </Group>
+                    </>
+                  )}
                 </Stack>
               </form>
             </Paper>

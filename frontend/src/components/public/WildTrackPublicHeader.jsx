@@ -7,7 +7,7 @@ export function WildTrackPublicHeader({ subtitle }) {
   const navigate = useNavigate();
   const { state, logoutStudentAccount } = useWorkflow();
   const activeAccount = state.studentAccounts.find(
-    (account) => account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
+    (account) => account.googleSubject && account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
   );
 
   function logout() {
@@ -35,7 +35,9 @@ export function WildTrackPublicHeader({ subtitle }) {
               <Text className="wt-account-email" c="dimmed" size="xs">{activeAccount.email}</Text>
               <Button variant="default" size="sm" leftSection={<SignOut size={17} />} onClick={logout}>Log out</Button>
             </>
-          ) : null}
+          ) : (
+            <Button component={Link} to="/login" variant="default" size="sm">Continue with Google</Button>
+          )}
         </Group>
       </Container>
     </header>

@@ -45,6 +45,10 @@ $driveKey = Get-ConfiguredValue "CAPVAULT_GOOGLE_DRIVE_API_KEY"
 if ([string]::IsNullOrWhiteSpace($driveKey)) {
     throw "Google Drive API key is not configured. Run .\setup-local.ps1 first."
 }
+$googleClientId = Get-ConfiguredValue "WILDTRACK_GOOGLE_CLIENT_ID"
+if ([string]::IsNullOrWhiteSpace($googleClientId)) {
+    throw "Google sign-in is not configured. Run .\setup-local.ps1 first."
+}
 
 Assert-Command "java" "Install Java 21 or newer."
 Assert-Command "mvn.cmd" "Install Maven and add it to PATH."
@@ -93,8 +97,11 @@ if (-not (Test-Path -LiteralPath $backendJar)) {
 
 $env:CAPVAULT_GOOGLE_DRIVE_API_KEY = $driveKey
 $env:CAPVAULT_GOOGLE_DRIVE_ENABLED = "true"
+$env:WILDTRACK_GOOGLE_CLIENT_ID = $googleClientId
+$env:WILDTRACK_GOOGLE_IDENTITY_ENABLED = "true"
 $env:CAPVAULT_CORS_ALLOWED_ORIGINS = "http://127.0.0.1:$FrontendPort,http://localhost:$FrontendPort"
 $env:VITE_API_BASE_URL = "http://127.0.0.1:$BackendPort/api"
+$env:VITE_GOOGLE_CLIENT_ID = $googleClientId
 
 $backendOut = Join-Path $logsDirectory "backend.out.log"
 $backendErr = Join-Path $logsDirectory "backend.err.log"

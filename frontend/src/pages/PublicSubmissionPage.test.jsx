@@ -27,8 +27,14 @@ const createState = () => ({
       adviser: 'Prof. Ana Reyes'
     }
   ],
-  studentAccounts: [],
-  activeAccountEmail: '',
+  studentAccounts: [{
+    email: 'form.student@gmail.com',
+    googleSubject: 'google-form-student',
+    studentNumber: '',
+    studentName: '',
+    teamCode: ''
+  }],
+  activeAccountEmail: 'form.student@gmail.com',
   activeStudentNumber: '',
   attempts: [],
   deliverables: [
@@ -60,6 +66,7 @@ const workflow = vi.hoisted(() => ({
   activeWorkspaceId: 'workspace-it',
   state: null,
   switchWorkspace: vi.fn(),
+  authenticateGoogleAccount: vi.fn(),
   submitPublicForm: vi.fn()
 }));
 
@@ -116,7 +123,22 @@ describe('public submission form', () => {
     workflow.state = createState();
     workflow.switchWorkspace.mockReset();
     workflow.switchWorkspace.mockResolvedValue({ ok: true });
+    workflow.authenticateGoogleAccount.mockReset();
     workflow.submitPublicForm.mockReset();
+  });
+
+  it('requires verified Google identity before class-record and submission fields are shown', () => {
+    workflow.state.studentAccounts = [];
+    workflow.state.activeAccountEmail = '';
+    renderForm();
+
+    expect(screen.getAllByText('Continue with Google').length).toBeGreaterThan(0);
+    expect(screen.getByText('Use your Google account before entering your student and submission details.')).toBeInTheDocument();
+    expect(screen.queryByText(/A response already exists for this Student Number/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No separate WildTrack password/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /Student Number/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /PDF Drive Link/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Submit response/i })).not.toBeInTheDocument();
   });
 
   it('opens as one WildTrack form with accessible header artwork', () => {
@@ -182,6 +204,7 @@ describe('public submission form', () => {
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{
       email: 'juan.student@gmail.com',
+      googleSubject: 'google-juan',
       studentNumber: '22-1001-001',
       studentName: 'DELA CRUZ, JUAN CARLOS M.',
       teamCode: '2526-sem2-it332-11'
@@ -199,6 +222,7 @@ describe('public submission form', () => {
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{
       email: 'juan.student@gmail.com',
+      googleSubject: 'google-juan',
       studentNumber: '22-1001-001',
       studentName: 'DELA CRUZ, JUAN CARLOS M.',
       teamCode: '2526-sem2-it332-11'
@@ -214,6 +238,7 @@ describe('public submission form', () => {
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{
       email: 'juan.student@gmail.com',
+      googleSubject: 'google-juan',
       studentNumber: '22-1001-001',
       studentName: 'DELA CRUZ, JUAN CARLOS M.',
       teamCode: '2526-sem2-it332-11'
@@ -222,6 +247,7 @@ describe('public submission form', () => {
       id: 'resp-owned',
       deliverableId: 'deliv-srs',
       studentNumber: '22-1001-001',
+      googleSubject: 'google-juan',
       googleEmailSnapshot: 'juan.student@gmail.com',
       values: { documentPdf: 'https://drive.google.com/file/d/owned-response' }
     }];
@@ -235,6 +261,7 @@ describe('public submission form', () => {
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{
       email: 'juan.student@gmail.com',
+      googleSubject: 'google-juan',
       studentNumber: '22-1001-001',
       studentName: 'DELA CRUZ, JUAN CARLOS M.',
       teamCode: '2526-sem2-it332-11'
@@ -243,6 +270,7 @@ describe('public submission form', () => {
       id: 'resp-owned',
       deliverableId: 'deliv-srs',
       studentNumber: '22-1001-001',
+      googleSubject: 'google-juan',
       googleEmailSnapshot: 'juan.student@gmail.com',
       values: { documentPdf: 'https://drive.google.com/file/d/owned-response' }
     }];

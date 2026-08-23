@@ -1,8 +1,8 @@
 import { Alert, Button, Container, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { modals } from '@mantine/modals';
-import { ArrowClockwise, SignIn, Student, WarningCircle } from '@phosphor-icons/react';
+import { ArrowClockwise, WarningCircle } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 import { StudentIdentityPanel } from '../components/public/StudentIdentityPanel.jsx';
 import { StudentDeliverableList } from '../components/student/StudentDeliverableList.jsx';
 import { StudentProfileSummary } from '../components/student/StudentProfileSummary.jsx';
@@ -29,12 +29,14 @@ export function StudentStatusPage() {
     activeWorkspace,
     claimStudentNumber,
     disconnectStudentNumber,
+    authenticateGoogleAccount,
     refreshBackendData
   } = useWorkflow();
   const [selectedNumber, setSelectedNumber] = useState('');
   const [connectionError, setConnectionError] = useState('');
+  const [signInError, setSignInError] = useState('');
   const activeAccount = useMemo(() => state.studentAccounts.find(
-    (account) => String(account.email || '').toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
+    (account) => account.googleSubject && String(account.email || '').toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
   ) || null, [state.activeAccountEmail, state.studentAccounts]);
   const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
   const connectionOptions = useMemo(() => getStudentOptions(identityStudents, state.studentAccounts)
@@ -129,7 +131,18 @@ export function StudentStatusPage() {
     });
   }
 
-  if (!activeAccount) return <SignedOutDashboard />;
+  if (!activeAccount) {
+    return (
+      <SignedOutDashboard
+        error={signInError}
+        onAuthenticated={(identity) => {
+          setSignInError('');
+          const response = authenticateGoogleAccount(identity);
+          if (!response.ok) setSignInError(response.error);
+        }}
+      />
+    );
+  }
   if (isLoading) return <LoadingDashboard />;
 
   if (!activeAccount.studentNumber) {
@@ -218,21 +231,14 @@ function DashboardContainer({ children }) {
   );
 }
 
-function SignedOutDashboard() {
+function SignedOutDashboard({ error, onAuthenticated }) {
   return (
     <DashboardContainer>
-      <Paper className="wt-student-access-state" withBorder radius="sm" p="xl">
-        <ThemeIcon color="wildtrackGold.5" radius="sm" size={48}>
-          <Student size={26} weight="duotone" aria-hidden="true" />
-        </ThemeIcon>
-        <div>
-          <Title order={1}>Sign in to see your dashboard</Title>
-          <Text c="dimmed">Your submissions, tracker values, and adviser feedback are private to your Google account.</Text>
-        </div>
-        <Button component={Link} to="/login" color="wildtrackMaroon" leftSection={<SignIn size={18} />}>
-          Sign in or register
-        </Button>
-      </Paper>
+      <GoogleIdentityAccess
+        description="Open your WildTrack dashboard to check submissions, tracker progress, and adviser feedback."
+        error={error}
+        onAuthenticated={onAuthenticated}
+      />
     </DashboardContainer>
   );
 }

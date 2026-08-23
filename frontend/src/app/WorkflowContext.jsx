@@ -33,6 +33,7 @@ import {
   validateSubmission,
   valuesChanged
 } from '../lib/workflow.js';
+import { disableGoogleAutoSelect } from '../lib/googleIdentitySession.js';
 import {
   createWorkspace as createBackendWorkspace,
   deleteDocumentTemplate,
@@ -365,8 +366,55 @@ export function WorkflowProvider({ children }) {
     }, activeWorkspaceRef.current));
     return { ok: true, account };
   }, [state.studentAccounts]);
+  const authenticateGoogleAccount = useCallback((identity) => {
+    const email = String(identity.email || '').trim().toLowerCase();
+    const googleSubject = String(identity.subject || '').trim();
+    if (!email || !googleSubject) {
+      return { ok: false, error: 'Google sign-in did not return a usable identity.' };
+    }
+
+    const accounts = loadStudentAccounts(state.studentAccounts);
+    const existing = accounts.find((account) =>
+      account.googleSubject === googleSubject || account.email.toLowerCase() === email
+    );
+    const authenticatedAt = new Date().toISOString();
+    const account = {
+      ...(existing || {}),
+      id: existing?.id || `acct-google-${googleSubject}`,
+      email,
+      displayName: identity.name || existing?.displayName || '',
+      pictureUrl: identity.pictureUrl || existing?.pictureUrl || '',
+      googleSubject,
+      authMethod: 'Google',
+      workspaceClaims: existing?.workspaceClaims || {},
+      createdAt: existing?.createdAt || authenticatedAt,
+      lastAuthenticatedAt: authenticatedAt
+    };
+    const nextAccounts = [
+      account,
+      ...accounts.filter((item) => item.id !== account.id && item.googleSubject !== googleSubject && item.email.toLowerCase() !== email)
+    ];
+    const claim = account.workspaceClaims?.[activeWorkspaceRef.current];
+
+    saveStudentAccounts(nextAccounts);
+    saveActiveStudentAccountEmail(account.email);
+    setState((current) => materializeStudentSession({
+      ...current,
+      studentAccounts: nextAccounts,
+      activeAccountEmail: account.email,
+      activeStudentNumber: claim?.studentNumber || '',
+      activity: [{
+        id: `act-${Date.now()}`,
+        at: authenticatedAt,
+        text: `${account.email} signed in with Google.`
+      }, ...current.activity]
+    }, activeWorkspaceRef.current));
+
+    return { ok: true, account };
+  }, [state.studentAccounts]);
 
   const logoutStudentAccount = useCallback(() => {
+    disableGoogleAutoSelect();
     saveActiveStudentAccountEmail('');
     setState((current) => ({
       ...current,
@@ -377,11 +425,9 @@ export function WorkflowProvider({ children }) {
 
   const claimStudentNumber = useCallback((studentNumber) => {
     const email = state.activeAccountEmail;
-    if (!email) return { ok: false, error: 'Sign in or register before claiming a Student Number.' };
+    if (!email) return { ok: false, error: 'Continue with Google before connecting a Student Number.' };
     const student = findStudent(state.students, studentNumber);
     if (!student) return { ok: false, error: 'Choose a Student Number from the connected class record.' };
-    const existingOwner = state.studentAccounts.find((account) => normalizeStudentNumber(account.studentNumber) === normalizeStudentNumber(student.studentNumber) && account.email.toLowerCase() !== email.toLowerCase());
-    if (existingOwner) return { ok: false, error: 'This Student Number is already connected to another account.' };
 
     const claimedAt = new Date().toISOString();
     const globalAccounts = loadStudentAccounts(state.studentAccounts);
@@ -723,22 +769,31 @@ export function WorkflowProvider({ children }) {
   const saveFeedback = useCallback((attemptId, payload) => {
     const note = String(payload.note || '').trim();
     if (!note) return;
-    setState((current) => ({
-      ...current,
-      attempts: current.attempts.map((attempt) => attempt.id === attemptId ? {
-        ...attempt,
-        feedback: [
-          {
-            id: `fb-${Date.now()}`,
-            note,
-            author: payload.author || 'Sir/adviser',
-            visibility: payload.visibility || 'Student',
-            createdAt: new Date().toISOString()
-          },
-          ...(attempt.feedback || [])
-        ]
-      } : attempt)
-    }));
+    setState((current) => {
+      const now = new Date().toISOString();
+      return {
+        ...current,
+        attempts: current.attempts.map((attempt) => {
+          if (attempt.id !== attemptId) return attempt;
+          const existing = (attempt.feedback || []).find((item) => item.visibility !== 'Staff');
+          const staffFeedback = (attempt.feedback || []).filter((item) => item.visibility === 'Staff');
+          return {
+            ...attempt,
+            feedback: [
+              {
+                id: existing?.id || `fb-${Date.now()}`,
+                note,
+                author: payload.author || 'Sir/adviser',
+                visibility: payload.visibility || 'Student',
+                createdAt: existing?.createdAt || now,
+                updatedAt: now
+              },
+              ...staffFeedback
+            ]
+          };
+        })
+      };
+    });
   }, []);
 
   const markAccepted = useCallback((attemptId, reviewer = {}) => {
@@ -938,6 +993,7 @@ export function WorkflowProvider({ children }) {
     connectSheetSource,
     claimStudentNumber,
     disconnectStudentNumber,
+    authenticateGoogleAccount,
     generateFormsFromSuggestions,
     loginStudentAccount,
     logoutStudentAccount,
@@ -959,7 +1015,7 @@ export function WorkflowProvider({ children }) {
     archiveAttempt,
     archiveAttempts,
     reset
-  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStudentAccount, markAccepted, publishDeliverable, refreshBackendData, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
+  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, authenticateGoogleAccount, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStudentAccount, markAccepted, publishDeliverable, refreshBackendData, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>;
 }

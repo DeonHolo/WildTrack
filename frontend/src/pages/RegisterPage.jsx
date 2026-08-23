@@ -1,133 +1,41 @@
-import { Alert, Divider, Paper, PasswordInput, SegmentedControl, Stack, Text, TextInput, Title } from '@mantine/core';
-import { GoogleLogo, Key, WarningCircle } from '@phosphor-icons/react';
+import { Anchor, Container, Stack } from '@mantine/core';
+import { ArrowLeft } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
-import { Button } from '../components/ui.jsx';
+import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 
 export function RegisterPage() {
-  const { registerStudentAccount, loginStudentAccount } = useWorkflow();
+  const { authenticateGoogleAccount } = useWorkflow();
   const navigate = useNavigate();
   const location = useLocation();
-  const [mode, setMode] = useState(() => location.pathname === '/login' ? 'login' : 'register');
-  const [form, setForm] = useState({ email: '', password: '' });
-  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
-  function register(authMethod = 'Email') {
-    setMessage('');
-    if (authMethod === 'Google') {
-      setMessage('Google sign-in is currently unavailable. Use email registration.');
-      return;
-    }
-    if (!form.email || !form.password) {
-      setMessage('Enter your email and password.');
-      return;
-    }
-    const response = registerStudentAccount({ email: form.email, authMethod });
+  function finishGoogleSignIn(identity) {
+    setError('');
+    const response = authenticateGoogleAccount(identity);
     if (!response.ok) {
-      setMessage(response.error);
+      setError(response.error);
       return;
     }
-    setMessage('Account registered. Connect your Student Number in the dashboard.');
-    window.setTimeout(() => navigate('/student'), 500);
+    navigate(location.state?.from || '/student', { replace: true });
   }
-
-  function login(event) {
-    event.preventDefault();
-    setMessage('');
-    if (!form.email) {
-      setMessage('Enter the email used for registration.');
-      return;
-    }
-    const response = loginStudentAccount({ email: form.email });
-    if (!response.ok) {
-      setMessage(response.error);
-      return;
-    }
-    navigate('/student');
-  }
-
-  const registrationSucceeded = message.startsWith('Account registered');
 
   return (
-    <main className="public-page auth-page">
-      <Paper component="section" className="auth-card auth-card-focused" withBorder shadow="sm">
-        <Stack className="auth-panel" gap="lg">
-          <header className="auth-heading">
-            <Title order={1}>{mode === 'register' ? 'Create your account' : 'Sign in to WildTrack'}</Title>
-            <Text c="dimmed" mt="xs">{mode === 'register'
-              ? 'Create an optional account to view your submissions, tracker status, and adviser feedback.'
-              : 'Use the account connected to your student dashboard.'}</Text>
-          </header>
-
-          <SegmentedControl
-            fullWidth
-            value={mode}
-            onChange={(value) => { setMode(value); setMessage(''); }}
-            aria-label="Access mode"
-            data={[
-              { value: 'register', label: 'Register' },
-              { value: 'login', label: 'Sign in' }
-            ]}
+    <main className="wt-student-access-page">
+      <Container size="md" className="wt-student-access-container">
+        <Stack gap="lg">
+          <GoogleIdentityAccess
+            description="Open your WildTrack dashboard to check submissions, tracker progress, and adviser feedback."
+            error={error}
+            onAuthenticated={finishGoogleSignIn}
           />
-
-          {mode === 'register' ? (
-            <form onSubmit={(event) => { event.preventDefault(); register('Email'); }}>
-              <Stack gap="md">
-                <Button type="button" variant="secondary" icon={GoogleLogo} onClick={() => register('Google')}>Continue with Google</Button>
-                <Divider label="or use email" labelPosition="center" />
-                <TextInput
-                  label="Email"
-                  required
-                  type="email"
-                  autoComplete="email"
-                  value={form.email}
-                  onChange={(event) => setForm({ ...form, email: event.currentTarget.value })}
-                  placeholder="student@gmail.com"
-                />
-                <PasswordInput
-                  label="Password"
-                  required
-                  autoComplete="new-password"
-                  value={form.password}
-                  onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
-                  placeholder="Create a password"
-                />
-                {message ? <Alert role={registrationSucceeded ? 'status' : 'alert'} aria-live={registrationSucceeded ? 'polite' : 'assertive'} color={registrationSucceeded ? 'green' : 'orange'} icon={<WarningCircle aria-hidden="true" />}>{message}</Alert> : null}
-                <Button icon={Key}>Create account</Button>
-                <Text size="sm" c="dimmed">After registration, connect your Student Number from the dashboard to load your official name, team, submissions, and tracker data.</Text>
-              </Stack>
-            </form>
-          ) : (
-            <form onSubmit={login}>
-              <Stack gap="md">
-                <TextInput
-                  label="Email"
-                  required
-                  type="email"
-                  autoComplete="email"
-                  value={form.email}
-                  onChange={(event) => setForm({ ...form, email: event.currentTarget.value })}
-                  placeholder="student@gmail.com"
-                />
-                <PasswordInput
-                  label="Password"
-                  autoComplete="current-password"
-                  value={form.password}
-                  onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
-                  placeholder="Password"
-                />
-                {message ? <Alert role="alert" aria-live="assertive" color="orange" icon={<WarningCircle aria-hidden="true" />}>{message}</Alert> : null}
-                <Button icon={Key}>Sign in</Button>
-              </Stack>
-            </form>
-          )}
-
-          <Divider />
-          <Text size="sm" c="dimmed">An account is not required to answer a public deliverable form.</Text>
-          <Button component={Link} to="/student" variant="secondary">Return to dashboard</Button>
+          <Anchor component={Link} to="/student" className="wt-google-access-return">
+            <ArrowLeft size={16} aria-hidden="true" />
+            Return to student dashboard
+          </Anchor>
         </Stack>
-      </Paper>
+      </Container>
     </main>
   );
 }

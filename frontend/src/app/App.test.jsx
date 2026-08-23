@@ -129,20 +129,21 @@ describe('role-specific application shells', () => {
     expect(await screen.findByRole('heading', { name: 'Student dashboard page' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Staff navigation' })).not.toBeInTheDocument();
     const navigation = screen.getByRole('navigation', { name: 'Student navigation' });
-    expect(within(navigation).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('aria-current', 'page');
-    expect(within(navigation).getByRole('link', { name: 'Sign in or register' })).toBeInTheDocument();
+    expect(within(navigation).getByRole('link', { name: 'Student dashboard' })).toHaveAttribute('aria-current', 'page');
+    expect(within(navigation).getByRole('link', { name: 'Continue with Google' })).toBeInTheDocument();
   });
 
   it('makes the signed-in student account and sign-out action clear', async () => {
     setRole('student');
     workflow.state = {
-      studentAccounts: [{ email: 'student@gmail.com' }],
+      studentAccounts: [{ email: 'student@gmail.com', googleSubject: 'google-student' }],
       activeAccountEmail: 'student@gmail.com',
       activeStudentNumber: '22-1001-001'
     };
     renderApp('/student');
 
     expect(screen.getByText('student@gmail.com')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Student dashboard' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
 
     expect(workflow.logoutStudentAccount).toHaveBeenCalledOnce();
