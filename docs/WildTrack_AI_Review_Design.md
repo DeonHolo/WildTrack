@@ -34,7 +34,7 @@ Google's official references:
 - [Gemini Batch API](https://ai.google.dev/gemini-api/docs/batch-api)
 - [Gemini structured outputs](https://ai.google.dev/gemini-api/docs/structured-output)
 
-Real student documents must use a paid API project and a backend-protected key. The key must never be exposed through Vite, browser code, a repository file, or a public form response.
+The current capstone implementation and testing phase uses the Gemini API free tier. Enabling paid billing is deferred and must not block AI Review development or testing. The API key must still remain backend-protected and must never be exposed through Vite, browser code, a repository file, or a public form response.
 
 ## 3. Evaluation Basis
 
@@ -137,11 +137,12 @@ If the PDF, checklist, prompt, or selected model changes, WildTrack preserves th
 
 Opening a report, refreshing a page, importing a Sheet, or rerunning deterministic Document Check must not create another Gemini request when the AI Review cache remains current.
 
-## 8. Cost Controls
+## 8. Free-Tier and Cost Controls
 
 - AI Review never runs automatically after submission.
 - Draft autosave never calls Gemini.
 - Document Check remains the automatic first layer.
+- The current capstone phase uses free-tier Gemini API quota.
 - Current reports are reused.
 - One canonical PDF is reviewed per active response.
 - Deliverable-wide work uses Batch API.
@@ -150,6 +151,8 @@ Opening a report, refreshing a page, importing a Sheet, or rerunning determinist
 - Sir/Admin can see estimated and actual batch usage.
 - No automatic stronger-model escalation exists in the pilot.
 
+
+- Paid billing is a later deployment decision, not a requirement for the capstone implementation.
 ## 9. Error Handling
 
 - Invalid files are rejected from AI Review before an API request is created.
