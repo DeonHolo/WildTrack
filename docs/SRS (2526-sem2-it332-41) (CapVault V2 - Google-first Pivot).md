@@ -83,7 +83,7 @@ A student with an optional account can view their own submissions, submission fl
 
 ### 4.3 Adviser
 
-An adviser can view assigned teams, submissions, Document Check findings, attempt history, feedback, and archive status for advised teams. Advisers cannot trigger or view privileged AI Review controls or reports.
+An adviser can view assigned teams, submissions, Document Check findings, existing AI Review reports, attempt history, feedback, and archive status for advised teams. Advisers cannot trigger or rerun AI Review.
 
 ### 4.4 Teacher/Admin
 
@@ -135,7 +135,7 @@ The system shall:
 
 ### 5.2.2 AI Review Permissions
 
-The system shall expose individual and batch AI Review only to Admin/Sir and only from Admin Review. AI Review shall not run automatically. Advisers shall use Document Check results but shall not invoke AI Review.
+The system shall expose individual and batch AI Review triggers only to Admin/Sir and only from Admin Review. AI Review shall not run automatically. Advisers may view existing AI Review reports for assigned teams but shall not invoke or rerun AI Review.
 
 ### 5.3 Google Docs API
 
@@ -290,7 +290,7 @@ Acceptance criteria:
 
 - Advisers can see assigned teams and deliverables.
 - Advisers can see submission attempts, Document Check findings, and feedback history for assigned teams.
-- Advisers cannot trigger or view Admin-only AI Review controls or reports.
+- Advisers cannot trigger or rerun AI Review, but they can view existing AI Review reports for assigned teams.
 - Advisers can mark review statuses where permitted by Teacher/Admin.
 
 ### FR-012 Teacher/Admin Attention Dashboard

@@ -73,7 +73,7 @@ The association is workspace-scoped because one installation can contain separat
 5. If the Google identity has no student-record association, the dashboard shows the same first-time Student Number connection flow used by the public form.
 6. The dashboard provides `Switch Google account` and `Sign out` actions.
 7. A self-declared Student Number connection exposes only the matched roster identity and records owned by the same Google identity.
-8. Google-identity-owned records include that account's submissions, response history, Document Check results, permitted AI Review results, and adviser feedback attached to those submissions.
+8. Google-identity-owned records include that account's submissions, response history, permitted Document Check results, and adviser feedback attached to those submissions. AI Review remains staff-only as defined in Section 9.
 9. A self-declared connection does not unlock imported private tracker history, submissions, Drive links, feedback, or review results belonging to another Google identity, even when those records use the same Student Number.
 
 ## 7. Draft Autosave
