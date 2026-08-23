@@ -2,6 +2,7 @@ package com.capvault.backend.workspace;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -34,7 +35,7 @@ class WorkspaceSourceControllerTest {
         sheetImportRunRepository.deleteAll();
         repository.deleteAll();
 
-        mockMvc.perform(put("/api/workspace/sources/TEAM_FORMATION")
+        mockMvc.perform(put("/api/workspace/sources/TEAM_FORMATION").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -57,7 +58,7 @@ class WorkspaceSourceControllerTest {
 
     @Test
     void upsertSourceRejectsBlankUrl() throws Exception {
-        mockMvc.perform(put("/api/workspace/sources/TRACKER")
+        mockMvc.perform(put("/api/workspace/sources/TRACKER").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -68,3 +69,5 @@ class WorkspaceSourceControllerTest {
             .andExpect(jsonPath("$.fieldErrors.sheetUrl").value("Sheet URL is required"));
     }
 }
+
+

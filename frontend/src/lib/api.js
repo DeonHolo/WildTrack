@@ -6,6 +6,9 @@ const SOURCE_TYPE_TO_API = {
   projectMonitor: 'PROJECT_MONITOR'
 };
 
+const CSRF_COOKIE = 'XSRF-TOKEN';
+const CSRF_HEADER = 'X-XSRF-TOKEN';
+
 export class ApiError extends Error {
   constructor(message, status = 0) {
     super(message);
@@ -18,11 +21,39 @@ export function getApiBaseUrl() {
   return API_BASE_URL;
 }
 
+function readCookie(name) {
+  const match = document.cookie.split('; ').find((row) => row.startsWith(name + '='));
+  return match ? decodeURIComponent(match.substring(name.length + 1)) : null;
+}
+
+function csrfHeader() {
+  const token = readCookie(CSRF_COOKIE);
+  return token ? { [CSRF_HEADER]: token } : {};
+}
+
+function ensureCsrfToken() {
+  if (!readCookie(CSRF_COOKIE)) {
+    // Trigger the backend to set the CSRF cookie via a lightweight GET.
+    return fetch(API_BASE_URL + '/auth/session', { credentials: 'include' }).catch(() => {});
+  }
+  return Promise.resolve();
+}
+
 export async function authenticateGoogle(credential) {
-  return request('/auth/google', {
+  await ensureCsrfToken();
+  return request('/auth/google/session', {
     method: 'POST',
-    body: { credential }
+    body: { credential },
+    skipCsrfPrecheck: true
   });
+}
+
+export async function getCurrentSession() {
+  return request('/auth/session');
+}
+
+export async function logout() {
+  return request('/auth/logout', { method: 'POST' });
 }
 
 export async function getWorkspaces() {
@@ -133,13 +164,19 @@ function withWorkspace(path, workspaceId) {
 }
 
 export async function request(path, options = {}) {
+  const mutating = options.method && options.method !== 'GET';
+  const headers = {
+    Accept: 'application/json',
+    ...(mutating && !options.skipCsrfPrecheck ? csrfHeader() : {}),
+    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(options.headers || {})
+  };
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method || 'GET',
-    headers: {
-      Accept: 'application/json',
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(options.headers || {})
-    },
+    credentials: 'include',
+    mode: 'cors',
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
 
@@ -165,8 +202,11 @@ export async function request(path, options = {}) {
 async function requestForm(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method || 'GET',
+    credentials: 'include',
+    mode: 'cors',
     headers: {
       Accept: 'application/json',
+      ...(options.method !== 'GET' ? csrfHeader() : {}),
       ...(options.headers || {})
     },
     body: options.body

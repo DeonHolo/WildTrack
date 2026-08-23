@@ -2,6 +2,7 @@ package com.capvault.backend.deliverable;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -30,7 +31,7 @@ class DeliverableControllerTest {
     void createUpdateAndListDeliverables() throws Exception {
         repository.deleteAll();
 
-        String createdJson = mockMvc.perform(post("/api/deliverables")
+        String createdJson = mockMvc.perform(post("/api/deliverables").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -53,7 +54,7 @@ class DeliverableControllerTest {
 
         String id = createdJson.replaceAll(".*\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
 
-        mockMvc.perform(put("/api/deliverables/" + id)
+        mockMvc.perform(put("/api/deliverables/" + id).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -78,7 +79,7 @@ class DeliverableControllerTest {
 
     @Test
     void createDeliverableRejectsMissingRequiredFields() throws Exception {
-        mockMvc.perform(post("/api/deliverables")
+        mockMvc.perform(post("/api/deliverables").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -92,3 +93,5 @@ class DeliverableControllerTest {
             .andExpect(jsonPath("$.fieldErrors.dueAt").value("Due date is required"));
     }
 }
+
+

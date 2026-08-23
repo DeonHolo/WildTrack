@@ -3,6 +3,7 @@ package com.capvault.backend.template;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -74,7 +75,7 @@ class DocumentTemplateControllerTest {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ));
 
-        mockMvc.perform(delete("/api/templates/" + firstId))
+        mockMvc.perform(delete("/api/templates/" + firstId).with(csrf()))
             .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/templates"))
@@ -99,7 +100,7 @@ class DocumentTemplateControllerTest {
         ));
         when(driveGateway.download(reference)).thenReturn(bytes);
 
-        String response = mockMvc.perform(post("/api/templates/from-drive")
+        String response = mockMvc.perform(post("/api/templates/from-drive").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -131,7 +132,7 @@ class DocumentTemplateControllerTest {
         return mockMvc.perform(multipart("/api/templates")
                 .file(file)
                 .param("deliverableKey", "SRS")
-                .param("displayName", displayName))
+                .param("displayName", displayName).with(csrf()))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.deliverableKey").value("SRS"))
             .andReturn()
@@ -148,3 +149,5 @@ class DocumentTemplateControllerTest {
         }
     }
 }
+
+

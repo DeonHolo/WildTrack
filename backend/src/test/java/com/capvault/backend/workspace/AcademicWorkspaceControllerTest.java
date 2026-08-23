@@ -2,6 +2,7 @@ package com.capvault.backend.workspace;
 
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -29,7 +30,7 @@ class AcademicWorkspaceControllerTest {
             .andExpect(jsonPath("$.length()", greaterThanOrEqualTo(2)))
             .andExpect(jsonPath("$[?(@.courseCode == 'IT332')]").exists());
 
-        mockMvc.perform(post("/api/workspaces")
+        mockMvc.perform(post("/api/workspaces").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -46,3 +47,5 @@ class AcademicWorkspaceControllerTest {
             .andExpect(jsonPath("$.courseCode").value("IS401"));
     }
 }
+
+
