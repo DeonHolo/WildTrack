@@ -249,3 +249,38 @@ export async function disconnectStudentAssociation(workspaceId) {
     method: 'DELETE'
   });
 }
+
+export async function getMyResponse(workspaceId, deliverableId) {
+  return request(`/workspace/responses/mine?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`);
+}
+
+export async function submitResponse(workspaceId, deliverableId, values) {
+  await ensureCsrfToken();
+  const response = await fetch(`${API_BASE_URL}/workspace/responses/submit?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    credentials: 'include',
+    mode: 'cors',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...csrfHeader()
+    },
+    body: JSON.stringify({ deliverableId, valuesJson: JSON.stringify(values) })
+  });
+  if (response.status === 409) {
+    return { conflict: true };
+  }
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`;
+    try {
+      const error = await response.json();
+      message = error.error || error.message || message;
+    } catch {}
+    throw new ApiError(message, response.status);
+  }
+  return response.json();
+}
+
+export async function getResponseHistory(workspaceId, deliverableId) {
+  return request(`/workspace/responses/${encodeURIComponent(deliverableId)}/history?workspaceId=${encodeURIComponent(workspaceId)}`);
+}

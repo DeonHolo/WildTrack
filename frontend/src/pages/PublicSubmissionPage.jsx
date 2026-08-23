@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+
   Alert,
   Button,
   Center,
@@ -33,7 +34,7 @@ import {
   getWorkspacePublicKey,
   normalizeStudentNumber
 } from '../lib/workflow.js';
-import { getMyAssociation } from '../lib/api.js';
+import { ApiError, getMyAssociation, submitResponse } from '../lib/api.js';
 
 function FormUnavailable({ deliverable }) {
   return (
@@ -237,6 +238,30 @@ export function PublicSubmissionPage() {
       return;
     }
     setSubmitting(true);
+    // Ticket 04: signed-in submissions persist server-side keyed by Google subject.
+    if (activeWorkspaceId && activeAccount?.googleSubject) {
+      try {
+        const saved = await submitResponse(activeWorkspaceId, deliverable.id, values);
+        setSubmitting(false);
+        if (saved.conflict) {
+          setFormError('A newer version was saved from another session. Reload the form to continue editing.');
+          return;
+        }
+        setResult({
+          ok: true,
+          updated: saved.changed && saved.revision > 1,
+          unchanged: !saved.changed,
+          attempt: { values, primaryStatus: 'Submitted', reviewStatus: 'PENDING_REVIEW' },
+          student: { name: identity.studentName, studentNumber: identity.studentNumber, teamCode: identity.teamCode },
+          deliverable: { title: deliverable.title || '', shortTitle: deliverable.title || '' },
+          trackerSync: null,
+        });
+        return;
+      } catch (backendError) {
+        // Backend unreachable or not configured: local persistence keeps dev flows working.
+        // Backend unreachable: fall through to local persistence (dev mode).
+      }
+    }
     const response = await submitPublicForm(deliverable.slug, {
       ...identity,
       googleSubject: activeAccount?.googleSubject || '',
