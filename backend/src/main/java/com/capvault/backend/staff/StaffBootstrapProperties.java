@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * WILDTRACK_STAFF_BOOTSTRAP_ASSIGNMENTS so no personal emails are hardcoded.
  *
  * Format: ROLE:identifier;ROLE:identifier  e.g.
- * ADMIN:some.one@gmail.com;TEACHER:sub_123,other@school.edu;ADVISER:adviser@school.edu
+ * ADMIN:sir.ralph@gmail.com;ADVISER:adviser@school.edu
  */
 @Component
 public class StaffBootstrapProperties {

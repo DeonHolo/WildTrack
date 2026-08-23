@@ -7,7 +7,7 @@ CREATE TABLE staff_role_assignments (
     created_at     TIMESTAMP     NOT NULL,
     updated_at     TIMESTAMP     NOT NULL,
     CONSTRAINT uq_staff_subject_role UNIQUE (google_subject, role),
-    CONSTRAINT chk_staff_role CHECK (role IN ('ADMIN','TEACHER','ADVISER'))
+    CONSTRAINT chk_staff_role CHECK (role IN ('ADMIN','ADVISER'))
 );
 
 CREATE INDEX idx_staff_assignments_email ON staff_role_assignments(google_email);
