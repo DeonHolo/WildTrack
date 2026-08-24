@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$pidFile = Join-Path $root ".capvault-local.pids.json"
+$pidFile = Join-Path $root ".wildtrack-local.pids.json"
 $logsDirectory = Join-Path $root "logs"
 
 # Some terminals expose both Path and PATH. Start-Process treats those as duplicate keys.
@@ -44,6 +44,10 @@ function Assert-PortAvailable([int]$port, [string]$service) {
 $driveKey = Get-ConfiguredValue "CAPVAULT_GOOGLE_DRIVE_API_KEY"
 if ([string]::IsNullOrWhiteSpace($driveKey)) {
     throw "Google Drive API key is not configured. Run .\setup-local.ps1 first."
+}
+$googleClientId = Get-ConfiguredValue "WILDTRACK_GOOGLE_CLIENT_ID"
+if ([string]::IsNullOrWhiteSpace($googleClientId)) {
+    throw "Google sign-in is not configured. Run .\setup-local.ps1 first."
 }
 
 Assert-Command "java" "Install Java 21 or newer."
@@ -93,8 +97,11 @@ if (-not (Test-Path -LiteralPath $backendJar)) {
 
 $env:CAPVAULT_GOOGLE_DRIVE_API_KEY = $driveKey
 $env:CAPVAULT_GOOGLE_DRIVE_ENABLED = "true"
+$env:WILDTRACK_GOOGLE_CLIENT_ID = $googleClientId
+$env:WILDTRACK_GOOGLE_IDENTITY_ENABLED = "true"
 $env:CAPVAULT_CORS_ALLOWED_ORIGINS = "http://127.0.0.1:$FrontendPort,http://localhost:$FrontendPort"
 $env:VITE_API_BASE_URL = "http://127.0.0.1:$BackendPort/api"
+$env:VITE_GOOGLE_CLIENT_ID = $googleClientId
 
 $backendOut = Join-Path $logsDirectory "backend.out.log"
 $backendErr = Join-Path $logsDirectory "backend.err.log"
@@ -142,7 +149,7 @@ Wait-ForUrl "http://127.0.0.1:$BackendPort/api/health" "Backend"
 Wait-ForUrl "http://127.0.0.1:$FrontendPort/" "Frontend"
 
 Write-Host ""
-Write-Host "CapVault is ready." -ForegroundColor Green
+Write-Host "WildTrack is ready." -ForegroundColor Green
 Write-Host "Frontend: http://127.0.0.1:$FrontendPort/"
 Write-Host "Backend:  http://127.0.0.1:$BackendPort/api/health"
 Write-Host "Logs:     $logsDirectory"

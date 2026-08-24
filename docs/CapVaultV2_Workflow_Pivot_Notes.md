@@ -2,6 +2,8 @@
 
 Status: working brainstorm notes, not final implementation spec.
 
+Identity supersession notice: anonymous submission, optional password accounts, and email-confirmation proposals in this historical brainstorm are superseded by `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md`.
+
 ## Why This Pivot Exists
 
 Sir Ralph Laviste's feedback changes the center of the product. The system should not feel like a generic portal where students, advisers, and admins manage accounts first. It should feel like an assistant for the existing capstone workflow: Google Sheets, Google Drive, Google Docs, and simple submission links.

@@ -1,6 +1,10 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { AppShell, GlobalDevPreview } from '../components/ui.jsx';
+import { DevelopmentRolePreview } from '../components/layout/DevelopmentRolePreview.jsx';
+import { StaffApplicationShell } from '../components/layout/StaffApplicationShell.jsx';
+import { StudentApplicationShell } from '../components/layout/StudentApplicationShell.jsx';
+import { APPLICATION_ROLES, getRoleHome, useApplicationRole } from '../hooks/useApplicationRole.js';
 import { WorkflowProvider } from './WorkflowContext.jsx';
+import { RoleBoundary } from './RoleBoundary.jsx';
 import { ArchivePage } from '../pages/ArchivePage.jsx';
 import { AdviserViewPage } from '../pages/AdviserViewPage.jsx';
 import { CommandCenterPage } from '../pages/CommandCenterPage.jsx';
@@ -18,19 +22,56 @@ export default function App() {
       <Routes>
         <Route path="/w/:workspaceKey/submit/:slug" element={<PublicSubmissionPage />} />
         <Route path="/submit/:slug" element={<PublicSubmissionPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/login" element={<RegisterPage />} />
-        <Route path="/student" element={<StudentStatusPage />} />
-        <Route path="/" element={<AppShell><CommandCenterPage /></AppShell>} />
-        <Route path="/forms" element={<AppShell><FormsPage /></AppShell>} />
-        <Route path="/tracker" element={<AppShell><TrackerPage /></AppShell>} />
-        <Route path="/review" element={<AppShell><ReviewPage /></AppShell>} />
-        <Route path="/adviser" element={<AppShell><AdviserViewPage /></AppShell>} />
-        <Route path="/archive" element={<AppShell><ArchivePage /></AppShell>} />
-        <Route path="/workspace" element={<AppShell><WorkspacePage /></AppShell>} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/register" element={<StudentApplicationShell><RegisterPage /></StudentApplicationShell>} />
+        <Route path="/login" element={<StudentApplicationShell><RegisterPage /></StudentApplicationShell>} />
+        <Route path="/student" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.STUDENT]}>
+            <StudentApplicationShell><StudentStatusPage /></StudentApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+            <StaffApplicationShell><CommandCenterPage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/forms" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+            <StaffApplicationShell><FormsPage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/tracker" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN, APPLICATION_ROLES.ADVISER]}>
+            <StaffApplicationShell><TrackerPage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/review" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+            <StaffApplicationShell><ReviewPage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/adviser" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN, APPLICATION_ROLES.ADVISER]}>
+            <StaffApplicationShell><AdviserViewPage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/archive" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+            <StaffApplicationShell><ArchivePage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/workspace" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+            <StaffApplicationShell><WorkspacePage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="*" element={<RoleHomeRedirect />} />
       </Routes>
-      <GlobalDevPreview />
+      <DevelopmentRolePreview enabled={import.meta.env.DEV} />
     </WorkflowProvider>
   );
+}
+
+function RoleHomeRedirect() {
+  const role = useApplicationRole();
+  return <Navigate to={getRoleHome(role)} replace />;
 }

@@ -1,59 +1,168 @@
 import { useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  Button,
+  Center,
+  Container,
+  Divider,
+  Group,
+  Loader,
+  Paper,
+  Stack,
+  Text,
+  TextInput,
+  Textarea,
+  ThemeIcon,
+  Title
+} from '@mantine/core';
+import { CalendarBlank, Clock, FilePdf, LinkSimple, PaperPlaneTilt, WarningCircle } from '@phosphor-icons/react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { CheckCircle, FilePdf, WarningCircle } from '@phosphor-icons/react';
-import { Button, Field, PublicHeader, SearchableSelect } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
-import { findStudent, findStudentByName, formatDate, formatTime, getDeliverable, getIdentityStudents, getWorkspacePublicKey, isUsableAdviserName, normalizeStudentNumber } from '../lib/workflow.js';
+import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
+import { FormArtwork } from '../components/public/FormArtwork.jsx';
+import { StudentIdentityPanel } from '../components/public/StudentIdentityPanel.jsx';
+import { SubmissionResult } from '../components/public/SubmissionResult.jsx';
+import { WildTrackPublicHeader } from '../components/public/WildTrackPublicHeader.jsx';
+import {
+  findStudent,
+  findOwnedResponse,
+  formatDate,
+  formatTime,
+  getDeliverable,
+  getIdentityStudents,
+  getWorkspacePublicKey,
+  normalizeStudentNumber
+} from '../lib/workflow.js';
+
+function FormUnavailable({ deliverable }) {
+  return (
+    <Paper className="wt-form-surface" radius="md" p={{ base: 'lg', sm: 'xl' }}>
+      <Center mih={300}>
+        <Stack align="center" gap="md" maw={500} ta="center">
+          <ThemeIcon color="orange" variant="light" size={48} radius="sm">
+            <WarningCircle size={28} weight="duotone" aria-hidden="true" />
+          </ThemeIcon>
+          <Title order={1} size="h2">{deliverable ? 'Submission form unavailable' : 'Submission form not found'}</Title>
+          <Text c="dimmed">
+            {deliverable
+              ? 'This deliverable is not accepting new responses right now. Previous responses remain recorded.'
+              : 'This link does not match a published deliverable in the selected workspace.'}
+          </Text>
+          <Button component={Link} to="/student" variant="default">Open student dashboard</Button>
+        </Stack>
+      </Center>
+    </Paper>
+  );
+}
+
+function FormLoading() {
+  return (
+    <Paper className="wt-form-surface" radius="md" p="xl">
+      <Center mih={280}>
+        <Stack align="center" gap="md">
+          <Loader color="wildtrackMaroon" size="md" />
+          <Title order={1} size="h3">Opening submission form</Title>
+          <Text c="dimmed">Loading the academic workspace connected to this link.</Text>
+        </Stack>
+      </Center>
+    </Paper>
+  );
+}
+
+function WorkspaceError({ message }) {
+  return (
+    <Paper className="wt-form-surface" radius="md" p={{ base: 'lg', sm: 'xl' }}>
+      <Center mih={300}>
+        <Stack align="center" gap="md" maw={520} ta="center">
+          <ThemeIcon color="red" variant="light" size={48} radius="sm">
+            <WarningCircle size={28} weight="duotone" aria-hidden="true" />
+          </ThemeIcon>
+          <Title order={1} size="h2">Unable to open submission form</Title>
+          <Alert color="red" variant="light" role="alert">{message}</Alert>
+          <Button component={Link} to="/" variant="default">Return to WildTrack</Button>
+        </Stack>
+      </Center>
+    </Paper>
+  );
+}
 
 export function PublicSubmissionPage() {
   const { slug, workspaceKey } = useParams();
   const [searchParams] = useSearchParams();
-  const { state, activeWorkspace, activeWorkspaceId, switchWorkspace, submitPublicForm } = useWorkflow();
+  const {
+    state,
+    activeWorkspace,
+    activeWorkspaceId,
+    authenticateGoogleAccount,
+    switchWorkspace,
+    submitPublicForm
+  } = useWorkflow();
   const activeWorkspaceKey = getWorkspacePublicKey(activeWorkspace);
-  const [workspaceReady, setWorkspaceReady] = useState(!workspaceKey || workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey);
+  const [workspaceStatus, setWorkspaceStatus] = useState(
+    !workspaceKey || workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey ? 'ready' : 'loading'
+  );
+  const [workspaceError, setWorkspaceError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const deliverable = getDeliverable(state, slug);
   const activeAccount = useMemo(
-    () => state.studentAccounts.find((account) => account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()) || null,
+    () => state.studentAccounts.find((account) => (
+      account.googleSubject && account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
+    )) || null,
     [state.activeAccountEmail, state.studentAccounts]
   );
   const queryStudent = searchParams.get('student') || '';
   const [identity, setIdentity] = useState({ studentNumber: '', studentName: '', teamCode: '' });
   const [values, setValues] = useState({});
   const [fieldErrors, setFieldErrors] = useState({});
+  const [identityErrors, setIdentityErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [result, setResult] = useState(null);
   const student = useMemo(() => findStudent(state.students, identity.studentNumber), [identity.studentNumber, state.students]);
-  const existingResponse = useMemo(() => {
-    if (!deliverable || !identity.studentNumber) return null;
-    return state.attempts.find((response) => normalizeStudentNumber(response.studentNumber) === normalizeStudentNumber(identity.studentNumber) && response.deliverableId === deliverable.id) || null;
+  const ownedResponse = useMemo(() => findOwnedResponse(state.attempts, {
+    deliverableId: deliverable?.id,
+    studentNumber: identity.studentNumber,
+    googleSubject: activeAccount?.googleSubject,
+    googleEmail: activeAccount?.email
+  }), [activeAccount?.email, activeAccount?.googleSubject, deliverable?.id, identity.studentNumber, state.attempts]);
+  const sameStudentResponseExists = useMemo(() => {
+    if (!deliverable || !identity.studentNumber) return false;
+    return state.attempts.some((response) => normalizeStudentNumber(response.studentNumber) === normalizeStudentNumber(identity.studentNumber) && response.deliverableId === deliverable.id);
   }, [deliverable, identity.studentNumber, state.attempts]);
   const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
-  const teamCodes = useMemo(() => [...new Set(identityStudents.map((item) => item.teamCode))], [identityStudents]);
-  const studentNumberHelper = identityStudents.length
-    ? `${identityStudents.length} Student Numbers loaded from Team Formation. Search by ID or name.`
-    : 'Student Numbers appear after Sir imports the Team Formation sheet in Workspace.';
+  const requiresPdf = Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
 
   useEffect(() => {
     let active = true;
     if (!workspaceKey || workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey) {
-      setWorkspaceReady(true);
+      setWorkspaceStatus('ready');
+      setWorkspaceError('');
       return () => { active = false; };
     }
-    setWorkspaceReady(false);
-    switchWorkspace(workspaceKey).then((response) => {
-      if (!active) return;
-      setWorkspaceReady(Boolean(response?.ok));
-      if (!response?.ok) setFormError(response?.error || 'This academic workspace could not be opened.');
-    });
+    setWorkspaceStatus('loading');
+    setWorkspaceError('');
+    switchWorkspace(workspaceKey)
+      .then((response) => {
+        if (!active) return;
+        if (response?.ok) {
+          setWorkspaceStatus('ready');
+          return;
+        }
+        setWorkspaceStatus('error');
+        setWorkspaceError(response?.error || 'This academic workspace could not be opened.');
+      })
+      .catch((error) => {
+        if (!active) return;
+        setWorkspaceStatus('error');
+        setWorkspaceError(error?.message || 'This academic workspace could not be opened.');
+      });
     return () => { active = false; };
   }, [activeWorkspaceId, activeWorkspaceKey, switchWorkspace, workspaceKey]);
 
   useEffect(() => {
-    const matched = queryStudent
-      ? findStudent(identityStudents, queryStudent)
-      : activeAccount
-        ? findStudent(identityStudents, activeAccount.studentNumber)
+    const matched = activeAccount
+      ? findStudent(identityStudents, activeAccount.studentNumber)
+      : queryStudent
+        ? findStudent(identityStudents, queryStudent)
         : findStudent(identityStudents, state.activeStudentNumber);
     if (!matched && !activeAccount) return;
     setIdentity({
@@ -64,202 +173,173 @@ export function PublicSubmissionPage() {
   }, [activeAccount, identityStudents, queryStudent, state.activeStudentNumber]);
 
   useEffect(() => {
-    setValues({});
+    setValues(ownedResponse?.values ? { ...ownedResponse.values } : {});
     setFieldErrors({});
-  }, [deliverable?.id, identity.studentNumber]);
-
-  if (!workspaceReady) {
-    return (
-      <main className="public-page">
-        <PublicHeader />
-        <section className="form-card">
-          <div className="success-panel">
-            <FilePdf weight="regular" />
-            <h1>Opening submission form</h1>
-            <p>Loading the academic workspace connected to this link.</p>
-          </div>
-        </section>
-      </main>
-    );
-  }
-
-  if (!deliverable || deliverable.status === 'Unpublished') {
-    return (
-      <main className="public-page">
-        <PublicHeader />
-        <section className="form-card">
-          <div className="success-panel">
-            <WarningCircle weight="regular" />
-            <h1>{deliverable ? 'Submission form closed' : 'Submission form not found'}</h1>
-            <p>{deliverable ? 'This deliverable is not currently accepting responses. Previous responses remain recorded.' : 'This link does not match a published deliverable.'}</p>
-            <Link className="text-link" to="/">Return to command center</Link>
-          </div>
-        </section>
-      </main>
-    );
-  }
+  }, [deliverable?.id, identity.studentNumber, ownedResponse?.id]);
 
   function updateField(id, value) {
     setValues((current) => ({ ...current, [id]: value }));
     setFieldErrors((current) => ({ ...current, [id]: '' }));
   }
 
-  function updateStudentNumber(value, selected) {
-    const matched = selected || findStudent(identityStudents, value);
-    setIdentity((current) => ({
-      ...current,
-      studentNumber: value,
-      studentName: matched?.name || current.studentName,
-      teamCode: matched?.teamCode || current.teamCode
-    }));
+  function updateIdentity(nextIdentity) {
+    setIdentity(nextIdentity);
+    setIdentityErrors({});
     setFormError('');
   }
 
-  function updateStudentName(value) {
-    const matched = findStudentByName(identityStudents, value);
-    setIdentity((current) => ({
-      ...current,
-      studentName: value,
-      studentNumber: matched?.studentNumber || current.studentNumber,
-      teamCode: matched?.teamCode || current.teamCode
-    }));
+  function finishGoogleSignIn(googleIdentity) {
+    const response = authenticateGoogleAccount(googleIdentity);
+    if (!response.ok) setFormError(response.error);
   }
 
   async function submit(event) {
     event.preventDefault();
     setFormError('');
     setFieldErrors({});
-    if (!identity.studentNumber.trim() || !identity.studentName.trim() || !identity.teamCode.trim()) {
-      setFormError('Complete the Student Number, Student Name, and Team Code fields.');
+    if (!activeAccount) {
+      setFormError('Continue with Google before submitting this form.');
+      return;
+    }
+    const nextIdentityErrors = {
+      studentNumber: identity.studentNumber.trim() ? '' : 'Choose a Student Number.',
+      studentName: identity.studentName.trim() ? '' : 'Choose a Student Name.',
+      teamCode: identity.teamCode.trim() ? '' : 'Choose a Team Code.'
+    };
+    if (Object.values(nextIdentityErrors).some(Boolean)) {
+      setIdentityErrors(nextIdentityErrors);
+      setFormError(identity.studentNumber.trim()
+        ? 'Complete the required student details.'
+        : 'Choose a Student Number from this workspace\'s class record.');
       return;
     }
     if (!student) {
-      setFormError('Choose a Student Number from the connected class record.');
+      setIdentityErrors({ studentNumber: 'Choose a Student Number from this workspace.' });
+      setFormError('Choose a Student Number from this workspace\'s class record.');
       return;
     }
     setSubmitting(true);
-    const response = await submitPublicForm(deliverable.slug, { ...identity, values });
+    const response = await submitPublicForm(deliverable.slug, {
+      ...identity,
+      googleSubject: activeAccount?.googleSubject || '',
+      googleEmail: activeAccount?.email || '',
+      values
+    });
     setSubmitting(false);
     if (!response.ok) {
       setFieldErrors(response.fieldErrors || {});
-      setFormError(response.formError || '');
+      setFormError(response.formError || 'The response could not be saved. Review the form and try again.');
       return;
     }
     setResult(response);
   }
 
   return (
-    <main className="public-page">
-      <PublicHeader subtitle={state.classRecord.name} />
-      <section className="form-card">
-        <div className="form-banner">
-          <div className="brand-mark"><FilePdf weight="regular" /></div>
-          <div>
-            <strong>{deliverable.shortTitle} Submission</strong>
-            <span>{state.classRecord.trackerSheet}</span>
-          </div>
-        </div>
-        {result ? (
-          <div className="success-panel">
-            <CheckCircle weight="regular" />
-            <h1>{result.unchanged ? 'No changes saved' : result.updated ? 'Response updated' : 'Response received'}</h1>
-            <p>{result.unchanged ? 'The response is already recorded with the same details.' : `${result.deliverable.title} was recorded for the class tracker.`}</p>
-            <div className="result-grid">
-              <div><span>Student</span><strong>{result.student?.name || identity.studentName}</strong></div>
-              <div><span>Team</span><strong>{result.student?.teamCode || identity.teamCode}</strong></div>
-              <div><span>Deliverable</span><strong>{result.deliverable.shortTitle}</strong></div>
-              <div><span>Status</span><strong>{result.attempt.primaryStatus || result.attempt.reviewStatus}</strong></div>
-            </div>
-            {result.trackerSync ? (
-              <div className={`inline-alert ${result.trackerSync.status === 'SHEET_WRITTEN' || result.trackerSync.status === 'LOCAL_UPDATED' ? 'success' : 'warning'}`}>
-                {result.trackerSync.message}
-              </div>
-            ) : null}
-            {result.documentCheckStarted ? (
-              <div className="inline-alert info">
-                Response saved. Document Check is now verifying the Drive link and PDF in the background; it does not delay submission.
-              </div>
-            ) : null}
-            <div className="button-row">
-              <Button variant="secondary" onClick={() => setResult(null)}>Edit response</Button>
-              <Link className="btn btn-primary btn-md" to="/student"><span>Open student dashboard</span></Link>
-            </div>
-          </div>
+    <main className="wt-public-root">
+      <WildTrackPublicHeader subtitle={state.classRecord.name} />
+      <Container component="section" size="sm" py={{ base: 'lg', sm: 'xl' }}>
+        {workspaceStatus === 'loading' ? <FormLoading /> : workspaceStatus === 'error' ? (
+          <WorkspaceError message={workspaceError} />
+        ) : !deliverable || deliverable.status === 'Unpublished' ? (
+          <FormUnavailable deliverable={deliverable} />
+        ) : result ? (
+          <SubmissionResult result={result} identity={identity} onEdit={() => setResult(null)} />
         ) : (
-          <form onSubmit={submit} noValidate>
-            <div className="form-title">
-              <h1>{deliverable.title}</h1>
-              <p>{deliverable.instructions}</p>
-              <dl>
-                <div><dt>Due date</dt><dd>{formatDate(deliverable.dueAt)} | {formatTime(deliverable.dueAt)}</dd></div>
-                <div><dt>Deliverable</dt><dd>{deliverable.trackerColumn}</dd></div>
-              </dl>
-              {existingResponse ? (
-                <div className="inline-alert info">
-                  A response is already recorded for this Student Number. Existing submitted links are kept private and are not shown here. Submitting this form will update the recorded response. Create an optional account to track your progress, submissions, and feedback.
-                </div>
-              ) : null}
-            </div>
+          <Stack gap="md">
+            <FormArtwork />
+            <Paper className="wt-form-surface" radius="md" p={{ base: 'lg', sm: 'xl' }}>
+              <form onSubmit={submit} noValidate>
+                <Stack gap="xl">
+                  <Stack gap="md">
+                    <Text className="wt-form-eyebrow">{deliverable.shortTitle} submission</Text>
+                    <Title order={1} className="wt-form-title">{deliverable.title}</Title>
+                    <Text className="wt-form-instructions">{deliverable.instructions}</Text>
+                    <Group className="wt-form-meta" gap="lg" wrap="wrap">
+                      <Group gap={7} wrap="nowrap"><CalendarBlank size={18} aria-hidden="true" /><Text size="sm"><Text component="span" fw={700}>Due </Text>{formatDate(deliverable.dueAt)}</Text></Group>
+                      <Group gap={7} wrap="nowrap"><Clock size={18} aria-hidden="true" /><Text size="sm" ff="monospace">{formatTime(deliverable.dueAt)}</Text></Group>
+                      <Group gap={7} wrap="nowrap">
+                        {requiresPdf ? <FilePdf size={18} aria-hidden="true" /> : <LinkSimple size={18} aria-hidden="true" />}
+                        <Text size="sm">{requiresPdf ? 'PDF Drive link required' : 'Submission links required'}</Text>
+                      </Group>
+                    </Group>
+                    {activeAccount && ownedResponse ? (
+                      <Alert color="blue" variant="light">
+                        Your previous response is ready to edit. Saving material changes records a new response-history event.
+                      </Alert>
+                    ) : activeAccount && sameStudentResponseExists ? (
+                      <Alert color="blue" variant="light">
+                        A response already exists for this Student Number. Existing submitted links stay private and are not filled into this form.
+                      </Alert>
+                    ) : null}
+                  </Stack>
 
-            <section className="form-section">
-              <h2>Student and group details</h2>
-              <Field label="Student Number" helper={studentNumberHelper} required>
-                <SearchableSelect
-                  value={identity.studentNumber}
-                  onChange={updateStudentNumber}
-                  options={identityStudents}
-                  placeholder="Search Student Number"
-                  getValue={(item) => item.studentNumber}
-                  getLabel={(item) => `${item.name} | ${item.teamCode}`}
-                />
-              </Field>
-              <div className="two-col">
-                <Field label="Student Name" required>
-                  <input list="student-name-options" value={identity.studentName} onChange={(event) => updateStudentName(event.target.value)} placeholder="Surname, First Name" />
-                </Field>
-                <Field label="Team Code" required>
-                  <input list="team-code-options" value={identity.teamCode} onChange={(event) => setIdentity((current) => ({ ...current, teamCode: event.target.value }))} placeholder="2526-sem2-it332-41" />
-                </Field>
-              </div>
-              <datalist id="student-name-options">
-                {identityStudents.map((item) => <option key={item.studentNumber} value={item.name}>{item.studentNumber}</option>)}
-              </datalist>
-              <datalist id="team-code-options">
-                {teamCodes.map((teamCode) => <option key={teamCode} value={teamCode} />)}
-              </datalist>
-              {identity.studentNumber && student ? (
-                <div className="identity-card matched">
-                  <CheckCircle weight="regular" />
-                  <div><span>Matched class record</span><strong>{student.name}</strong><small>{student.studentNumber} | {student.teamCode} | Member {student.memberNumber} | {isUsableAdviserName(student.adviser) ? student.adviser : 'Unassigned'}</small></div>
-                </div>
-              ) : identity.studentNumber ? (
-                <div className="identity-card warning">
-                  <WarningCircle weight="regular" />
-                  <div><span>No class record match</span><strong>Choose from the Student Number list</strong><small>The list is loaded after Sir connects the class record.</small></div>
-                </div>
-              ) : null}
-            </section>
-
-            <section className="form-section">
-              <h2>{deliverable.shortTitle} file</h2>
-              {deliverable.fields.map((field) => (
-                <Field key={field.id} label={field.label} required={field.required} error={fieldErrors[field.id]} helper={field.pdfRequired ? 'This deliverable requires a PDF Drive link.' : 'Paste the required link.'}>
-                  {field.type === 'textarea' ? (
-                    <textarea value={values[field.id] || ''} onChange={(event) => updateField(field.id, event.target.value)} rows={4} />
+                  {!activeAccount ? (
+                    <>
+                      <Divider />
+                      <GoogleIdentityAccess
+                        embedded
+                        title="Continue with Google"
+                        description="Use your Google account before entering your student and submission details."
+                        error={formError}
+                        onAuthenticated={finishGoogleSignIn}
+                      />
+                    </>
                   ) : (
-                    <input value={values[field.id] || ''} onChange={(event) => updateField(field.id, event.target.value)} placeholder={field.pdfRequired ? 'https://drive.google.com/file/d/...' : 'https://'} />
-                  )}
-                </Field>
-              ))}
-              {formError ? <div className="inline-alert danger">{formError}</div> : null}
-            </section>
+                    <>
+                      <Divider />
+                      <StudentIdentityPanel
+                        students={identityStudents}
+                        identity={identity}
+                        activeAccount={activeAccount}
+                        errors={identityErrors}
+                        mode="submission"
+                        onChange={updateIdentity}
+                      />
 
-            <div className="form-footer">
-              <Button icon={CheckCircle} loading={submitting}>{existingResponse ? 'Save response changes' : 'Submit response'}</Button>
-            </div>
-          </form>
+                      <Divider />
+                      <Stack gap="md" aria-label="Submission links">
+                        {deliverable.fields.map((field) => field.type === 'textarea' ? (
+                          <Textarea
+                            key={field.id}
+                            label={field.label}
+                            required={field.required}
+                            value={values[field.id] || ''}
+                            error={fieldErrors[field.id]}
+                            minRows={4}
+                            autosize
+                            onChange={(event) => updateField(field.id, event.currentTarget.value)}
+                          />
+                        ) : (
+                          <TextInput
+                            key={field.id}
+                            label={field.label}
+                            required={field.required}
+                            value={values[field.id] || ''}
+                            error={fieldErrors[field.id]}
+                            description={field.pdfRequired ? 'Share a Google Drive link that opens to the final PDF.' : undefined}
+                            placeholder={field.pdfRequired ? 'https://drive.google.com/file/d/...' : 'https://'}
+                            leftSection={field.pdfRequired ? <FilePdf size={18} aria-hidden="true" /> : null}
+                            onChange={(event) => updateField(field.id, event.currentTarget.value)}
+                          />
+                        ))}
+                        {formError ? <Alert color="red" variant="light" icon={<WarningCircle size={20} />} role="alert">{formError}</Alert> : null}
+                      </Stack>
+
+                      <Divider />
+                      <Group justify="space-between" gap="md" wrap="wrap">
+                        <Text c="dimmed" size="xs" maw={460}>Submitting records your Google account, selected class identity, and response time.</Text>
+                        <Button type="submit" size="md" loading={submitting} leftSection={<PaperPlaneTilt size={19} weight="bold" />}>
+                          {ownedResponse ? 'Save response changes' : 'Submit response'}
+                        </Button>
+                      </Group>
+                    </>
+                  )}
+                </Stack>
+              </form>
+            </Paper>
+          </Stack>
         )}
-      </section>
+      </Container>
     </main>
   );
 }

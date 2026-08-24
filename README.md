@@ -1,32 +1,26 @@
-# CapVault
+# WildTrack
 
-CapVault supports Sir Ralph Laviste's capstone workflow through public student submission forms, connected class records, tracker visibility, teacher/adviser review, and final archive preparation.
+WildTrack supports Sir Ralph Laviste's capstone workflow through public student submission forms, connected class records, tracker visibility, teacher/adviser review, and final archive preparation.
 
 Current state: the UI is React/Vite and the backend is Spring Boot. Academic workspaces, Sheet imports, students, tracker data, project metadata, deliverables, official templates, tracker writeback attempts, and Document Check reports are backend-backed. Public responses, review notes, and archive actions still use browser storage while their backend modules are completed.
 
-For the exact production boundary, identity design, and current demonstration limitations, read:
-
-- `docs/CapVaultV2_Production_Readiness_And_Identity_Design.md`
-
 ## Read This First
 
-Before changing behavior, read these documents:
+Before changing current behavior, read:
 
-- `docs/SRS (2526-sem2-it332-41) (CapVault V2 - Google-first Pivot).md`
-- `docs/SDD (2526-sem2-it332-41) (CapVault V2 - Google-first Pivot).md`
-- `docs/CapVaultV2_Workflow_Pivot_Notes.md`
-- `docs/CapVaultV2_UIUX_Scale_And_Live_Sheet_Concerns.md`
-- `docs/CapVaultV2_Current_Batch_Actionable_Change_Instructions.md`
-- `design-system/MASTER.md`
+- `docs/WildTrack_UI_Rebrand_Specification.md`
+- `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md`
+
+The older planning documents remain in `docs/` as decision history. The current application and README use the WildTrack name.
 
 The current direction is not the old login-first vault. The main workflow is:
 
 1. Sir selects or creates an academic workspace for a program, course/section, and term.
 2. Sir connects public Google Sheets for Team Formation, Tracker, and Software Project Monitoring.
-3. CapVault validates each source by its expected columns and summarizes what was found or missing.
+3. WildTrack validates each source by its expected columns and summarizes what was found or missing.
 4. Tracker deadline rows can generate suggested deliverable forms after Sir confirms them.
 5. Sir publishes one form link per deliverable.
-6. Students submit Google Drive PDF links through a public CapVault form.
+6. Students submit Google Drive PDF links through a public WildTrack form.
 7. Student Number comes from Team Formation and auto-fills name/team when selected.
 8. The tracker stores lateness values and submission state.
 9. New and materially changed responses run Document Check for Drive access, PDF integrity, readable text, and template similarity when the local Drive API key is configured. Staff can also check pending documents in batches.
@@ -34,13 +28,13 @@ The current direction is not the old login-first vault. The main workflow is:
 
 ## Repository Layout
 
-- `frontend/` - Current CapVault React + Vite app.
+- `frontend/` - Current WildTrack React + Vite app.
 - `backend/` - Spring Boot backend foundation for secure Google/API work.
 - `docs/` - SRS, SDD, transcript notes, pivot notes, and current UX/action docs.
 - `design-system/` - UI/UX rules for the app.
-- `legacy/` - Old CapVault implementation kept for reference only.
+- `legacy/` - Old WildTrack implementation kept for reference only.
 
-Do not build current CapVault work inside `legacy/`.
+Do not build current WildTrack work inside `legacy/`.
 
 ## Requirements
 
@@ -54,12 +48,11 @@ Install these first:
 
 PostgreSQL is not required for the default local backend profile. The backend uses a local H2 database by default so teammates can run it immediately.
 
-## First-Time Google Drive Setup
+## First-Time Google Setup
 
-CapVault uses a restricted Google Drive API key only in the Spring Boot backend. Never place the key in the frontend, a tracked `.env` file, a screenshot, or chat.
+WildTrack uses Google Identity Services for student sign-in and a restricted Google Drive API key for Document Check. The OAuth client ID is public browser configuration; the Drive API key stays in the Spring Boot backend. Never commit the Drive key or an OAuth client secret.
 
-On each laptop that will run CapVault:
-
+On each laptop that will run WildTrack:
 1. Clone or pull the repository.
 2. Open PowerShell in the repository root.
 3. Run:
@@ -69,13 +62,14 @@ On each laptop that will run CapVault:
 ```
 
 4. Paste that laptop's restricted Google Drive API key into the hidden prompt.
-5. Start both services:
+5. The script configures the shared WildTrack OAuth client ID for the frontend and backend. It does not need or store the OAuth client secret.
+6. Start both services:
 
 ```powershell
 .\run-local.ps1
 ```
 
-The setup script stores the key in the current Windows user's environment. It is not copied into the repository, so each teammate's laptop must run the one-time setup. The same restricted key can be entered on the presentation laptop for local testing, but it must never be committed.
+The setup script stores the Drive key and Google identity settings in the current Windows user's environment. They are not copied into the repository, so each teammate's laptop must run the one-time setup. The same restricted key can be entered on the presentation laptop for local testing, but it must never be committed.
 
 Stop both services with:
 
@@ -129,16 +123,7 @@ mvn test
 
 ## Run Backend With PostgreSQL
 
-Create a PostgreSQL database first, then run:
-
-```powershell
-cd backend
-$env:SPRING_PROFILES_ACTIVE='postgres'
-$env:CAPVAULT_DB_URL='jdbc:postgresql://localhost:5432/capvault'
-$env:CAPVAULT_DB_USERNAME='capvault'
-$env:CAPVAULT_DB_PASSWORD='capvault'
-mvn spring-boot:run
-```
+Create a PostgreSQL database, set the `postgres` profile and the connection variables expected by `backend/src/main/resources/application-postgres.yml`, then run `mvn spring-boot:run` from `backend/`. Existing backend environment-variable names are compatibility contracts and are intentionally not renamed during this frontend rebrand.
 
 The same Flyway migrations run in both local and PostgreSQL profiles.
 
@@ -153,6 +138,16 @@ npm run preview
 ```
 
 Preview opens on the Vite preview URL printed in the terminal.
+
+Run the automated checks from `frontend/`:
+
+```powershell
+npm test
+npm run test:browser
+npm run build
+```
+
+On a laptop running browser tests for the first time, install the local Chromium test browser once with `npx playwright install chromium`.
 
 ## Important Routes
 
@@ -200,7 +195,7 @@ Useful testing controls:
 The app stores browser-side workflow state under workspace-specific keys derived from:
 
 ```text
-capvault.v2.workflow
+wildtrack.v2.workflow
 ```
 
 This means:
@@ -294,7 +289,7 @@ Working now:
 
 Not fully connected yet:
 
-- Real Google OAuth.
+- Durable backend sessions and server-enforced student/adviser/admin authorization after Google sign-in.
 - Google Sheets API writeback to Sir's actual Sheet, unless service-account credentials are configured.
 - Google Docs API report creation.
 - Real Gemini AI evaluation.
@@ -302,11 +297,11 @@ Not fully connected yet:
 - Real account/session handling for students/advisers/admins.
 - Cloudflare R2 or another S3-compatible archive connection, independent PDF copies, and byte-level SHA-256 verification.
 
-Document Check is not generative AI. It performs deterministic Drive, PDF, readable-text, and official-template checks. If a laptop has not run `setup-local.ps1`, CapVault reports **Not checked** rather than inventing findings. Gemini-based summaries and instruction-level evaluation remain a separate Admin-only AI Review capability.
+Document Check is not generative AI. It performs deterministic Drive, PDF, readable-text, and official-template checks. If a laptop has not run `setup-local.ps1`, WildTrack reports **Not checked** rather than inventing findings. Gemini-based summaries and instruction-level evaluation remain a separate Admin-only AI Review capability.
 
 ## Demo Readiness And Known Limitations
 
-CapVault has a real backend database, but production persistence is only partially complete.
+WildTrack has a real backend database, but production persistence is only partially complete.
 
 ### What the database currently preserves
 
@@ -317,11 +312,7 @@ CapVault has a real backend database, but production persistence is only partial
 - Software Project Monitoring metadata
 - Deliverables
 
-The default local profile stores these records in the ignored H2 file:
-
-```text
-backend/data/capvault-local.mv.db
-```
+The default local profile stores these records in an ignored H2 file under `backend/data/`.
 
 PostgreSQL is configured as the production target but is not required for the current local demonstration.
 
@@ -329,12 +320,12 @@ PostgreSQL is configured as the production target but is not required for the cu
 
 | Feature | Current behavior | Reason |
 |---|---|---|
-| Student registration/login | Stored in the current browser | Secure password hashing, OAuth, and server sessions have not been implemented |
-| Student Number claim | Browser-local and unverified | OTP or institutional Microsoft login is required before a claim can safely unlock private data |
+| Student Google sign-in | Google ID tokens are verified by the backend; the active account is remembered in the current browser | Durable server sessions, revocation, and cross-device account persistence are not implemented |
+| Student Number connection | Browser-local and separate from Google identity | The current testing flow trusts the selected class-record identity; stronger institutional verification can be added later if Sir requires it |
 | Admin/adviser permissions | Role-specific UI preview | Server-enforced RBAC and authenticated staff accounts are not implemented |
 | Public responses and history | Stored in browser workflow state | The team validated the public submission UX before committing the final backend response model |
 | Existing response links | Never prefilled on a public form | Selecting a Student Number alone must not reveal another student's Drive link |
-| Response ownership | Demo updates are matched by workspace, deliverable, and Student Number | Production needs a private edit-response link so a fresh visitor cannot overwrite an existing response |
+| Response ownership | Private response details are matched by verified Google subject, workspace, deliverable, and Student Number | Durable ownership still requires backend response persistence and server sessions |
 | Adviser feedback and review | Stored in browser workflow state | These require authenticated staff identity and backend response records |
 | Google Drive Document Check | Working locally after `setup-local.ps1` | Requires a restricted Drive API key on each machine and public viewer access to each submitted file |
 | Google Sheet writeback | Local/backend update with pending remote status | Actual Sheet changes require service-account credentials and Sheet permission |
@@ -342,27 +333,26 @@ PostgreSQL is configured as the production target but is not required for the cu
 | Final archive | Metadata record only | Independent PDF storage, byte-level SHA-256, and verification require Cloudflare R2 or another S3-compatible store |
 | Notifications | Not connected | Durable in-app or email notifications depend on backend accounts, events, and delivery jobs |
 
-### Production student identity
+### Student identity flow
 
-In production, Student Number lookup must search all active Team Formation records and infer the correct academic workspace. Students must never use the staff workspace switcher.
+Students do not create a separate WildTrack username or password. They continue with a Google account, and the Spring Boot backend verifies the Google ID token against WildTrack's OAuth client ID.
 
-The matched record determines program, course/section, term, name, team, member number, and adviser. Before private dashboard data is shown, the claim must be verified using the imported `cit.edu` address or institutional Microsoft login. OTP is intentionally deferred from the current demonstration.
+Google identity and class-record identity remain separate audit facts. After Google sign-in, the student chooses a Student Number from the active workspace's Team Formation data. WildTrack fills the matching name and team details, but the Google account remains the private owner used for dashboard data and response editing.
 
-The current Student Dashboard includes a self-service **Disconnect** action so a student can remove an incorrect browser-local claim without asking Sir to manage a routine correction.
+The Student Dashboard includes a self-service **Disconnect** action so a student can correct an accidental class-record connection without asking Sir to handle routine account cleanup. OTP and institutional Microsoft verification remain optional hardening measures if Sir requests them later.
 
-Public submission remains account-optional. In production, a successful submission should return an unguessable edit-response link. Only that link or a verified optional account should reopen and update the saved response. OTP or institutional Microsoft sign-in is needed only when a student claims private dashboard access or recovers a lost edit link.
+Public submission forms require verified Google identity before class-record and Drive-link fields are shown. Selecting someone else's Student Number does not reveal that person's submitted link or private dashboard data.
 
 ## Public Form Links When Hosted
-
-CapVault does not need to store a hardcoded production domain. Form links are built from the website origin currently serving the app, a readable workspace key, and the stable deliverable form slug.
+WildTrack does not need to store a hardcoded production domain. Form links are built from the website origin currently serving the app, a readable workspace key, and the stable deliverable form slug.
 
 For example:
 
 ```text
-https://capvault.example.edu/w/it-it332-2025-26-semester-2/submit/week-9-srs
+https://wildtrack.example.edu/w/it-it332-2025-26-semester-2/submit/week-9-srs
 ```
 
-- `https://capvault.example.edu` comes from the deployed website.
+- `https://wildtrack.example.edu` comes from the deployed website.
 - `it-it332-2025-26-semester-2` identifies the academic workspace.
 - `week-9-srs` identifies the published deliverable form.
 
@@ -372,28 +362,13 @@ The Copy Link control automatically uses the current origin, so local links use 
 
 Do not put Google API keys, OAuth client secrets, Gemini keys, or service account credentials in the Vite frontend.
 
-When we add real Google/Gemini integration, it should go through a backend or secure proxy. Frontend `.env` values are still visible to users after build, so they are not safe for secrets.
+The Google OAuth client ID is public and is the only Google identity value exposed to Vite. The browser sends Google's signed ID credential to the Spring Boot backend, which validates it before WildTrack accepts the account.
 
-Safe frontend env:
+Safe frontend environment values include VITE_API_BASE_URL and VITE_GOOGLE_CLIENT_ID. The OAuth client secret is not used by this browser flow.
 
-```powershell
-$env:VITE_API_BASE_URL='http://127.0.0.1:8080/api'
-```
-
-Backend env used now:
-
-```powershell
-$env:CAPVAULT_GOOGLE_DRIVE_ENABLED='true'
-$env:CAPVAULT_GOOGLE_DRIVE_API_KEY='set-this-with-setup-local.ps1'
-$env:CAPVAULT_GOOGLE_SHEETS_ENABLED='true'
-$env:CAPVAULT_GOOGLE_SERVICE_ACCOUNT_JSON='D:\path\to\service-account.json'
-$env:CAPVAULT_GOOGLE_APPLICATION_NAME='CapVault'
-```
-
-Prefer `.\setup-local.ps1` over typing the Drive key into a visible command. Gemini is not wired yet. When added, the Gemini key should be read only by the backend, not by Vite.
+Run setup-local.ps1 instead of typing the Drive key into a visible command. The script configures the existing Drive compatibility variables plus Google identity for the current Windows user. Gemini is not wired yet; its key must remain backend-only when added.
 
 ## Document Check Behavior
-
 Document Check runs after a new or materially changed response and can also be started manually for pending or outdated responses. Batch checks use limited concurrency and skip current results.
 
 Only fields configured as PDF Drive submissions use Document Check. Repository and other link-only fields are not sent through PDF validation. Because public responses are still browser-backed in this phase, closing the page during an automatic check can interrupt that request; the staff batch action can recover unchecked responses. Backend response persistence and a durable job queue are still required for production reliability.
@@ -421,14 +396,7 @@ For local testing with a service account:
 2. Enable the Google Sheets API.
 3. Create a service account and download its JSON key.
 4. Share Sir's target Google Sheet with the service account email.
-5. Run the backend with:
-
-```powershell
-cd backend
-$env:CAPVAULT_GOOGLE_SHEETS_ENABLED='true'
-$env:CAPVAULT_GOOGLE_SERVICE_ACCOUNT_JSON='D:\path\to\service-account.json'
-mvn spring-boot:run
-```
+5. Configure the service-account path using the environment variables expected by the backend Google Sheets configuration, then run `mvn spring-boot:run` from `backend/`.
 
 Do not commit the service account JSON file.
 
@@ -458,7 +426,7 @@ npm run dev
 If the page shows stale data:
 
 - Use **Restore starter data** in Workspace, or
-- Clear browser `localStorage` key `capvault.v2.workflow`.
+- Clear browser `localStorage` key `wildtrack.v2.workflow`.
 
 If Student Numbers do not appear:
 
@@ -489,4 +457,4 @@ If `mvn spring-boot:run` fails:
 
 ## Legacy
 
-The original CapVault implementation is preserved under `legacy/`. Use it only for reference when recovering useful UX patterns or old behavior.
+The original WildTrack implementation is preserved under `legacy/`. Use it only for reference when recovering useful UX patterns or old behavior.

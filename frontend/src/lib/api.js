@@ -18,6 +18,13 @@ export function getApiBaseUrl() {
   return API_BASE_URL;
 }
 
+export async function authenticateGoogle(credential) {
+  return request('/auth/google', {
+    method: 'POST',
+    body: { credential }
+  });
+}
+
 export async function getWorkspaces() {
   return request('/workspaces');
 }
@@ -42,7 +49,8 @@ export async function importSheetSource(sourceType, payload, workspaceId) {
     method: 'POST',
     body: {
       sheetUrl: payload.sheetUrl,
-      displayName: payload.displayName || payload.trackerSheet || payload.name || ''
+      displayName: payload.displayName || payload.trackerSheet || payload.name || '',
+      mappingOverrides: payload.mappingOverrides || {}
     }
   });
 }
@@ -88,6 +96,21 @@ export async function uploadDocumentTemplate(workspaceId, payload) {
     method: 'POST',
     body: formData
   });
+}
+
+export async function uploadDriveDocumentTemplate(workspaceId, payload) {
+  return request(withWorkspace('/templates/from-drive', workspaceId), {
+    method: 'POST',
+    body: {
+      deliverableKey: payload.deliverableKey,
+      displayName: payload.displayName,
+      driveUrl: payload.driveUrl
+    }
+  });
+}
+
+export function getDocumentTemplateFileUrl(workspaceId, templateId) {
+  return `${API_BASE_URL}${withWorkspace(`/templates/${templateId}/file`, workspaceId)}`;
 }
 
 export async function deleteDocumentTemplate(workspaceId, templateId) {

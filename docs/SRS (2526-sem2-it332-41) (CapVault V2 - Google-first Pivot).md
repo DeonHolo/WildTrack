@@ -7,6 +7,14 @@ Date: 2026-06-18
 Primary user: Sir Ralph Laviste  
 Working product name: CapVault, pending rename discussion
 
+Identity amendment, 2026-08-19: `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md` supersedes this draft's anonymous-submission, optional student account, password registration, OTP, and pre-matched Gmail assumptions. Until this SRS is fully revised, use the amendment for all student identity, dashboard access, response ownership, and draft behavior.
+
+Sheet-mapping amendment, 2026-08-19: fixed assumptions such as `first three columns are labels and every later column is a deliverable` are superseded. Use source-specific required keys, header/value-based suggestions, dynamic milestone and deadline detection, explicit import diagnostics, and user-correctable mappings. The confirmed details are recorded in `docs/CapVaultV2_Post_Demo_Debrief_And_Completion_Roadmap.md`.
+
+Submission-lifecycle amendment, 2026-08-19: due dates determine tracker lateness but do not automatically close or unpublish forms. A response that passes identity, required-field, accessibility, downloadability, and PDF preflight remains a submitted attempt even when later Document Check flags blank, short, incomplete, or template-like content. See `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md` Sections 8 and 14.
+
+File-snapshot amendment, 2026-08-19: an unchanged Drive URL is not treated as immutable content. Accepted PDFs receive immutable metadata and SHA-256 snapshots. Changed bytes under the same Drive file ID create version events, invalidate stale checks/reviews, and recalculate canonical tracker lateness from the later material-save/Drive-modified time. See `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md` Section 14.3.
+
 ## 1. Purpose
 
 CapVault V2 shall support the existing capstone class workflow used by Sir Ralph Laviste. The system shall reduce manual checking, copying, and review work while keeping Google Sheets, Google Drive, and Google Docs as the visible operating environment.
@@ -75,7 +83,7 @@ A student with an optional account can view their own submissions, submission fl
 
 ### 4.3 Adviser
 
-An adviser can view assigned teams, submissions, Document Check findings, attempt history, feedback, and archive status for advised teams. Advisers cannot trigger or view privileged AI Review controls or reports.
+An adviser can view assigned teams, submissions, Document Check findings, existing AI Review reports, attempt history, feedback, and archive status for advised teams. Advisers cannot trigger or rerun AI Review.
 
 ### 4.4 Teacher/Admin
 
@@ -127,7 +135,7 @@ The system shall:
 
 ### 5.2.2 AI Review Permissions
 
-The system shall expose individual and batch AI Review only to Admin/Sir and only from Admin Review. AI Review shall not run automatically. Advisers shall use Document Check results but shall not invoke AI Review.
+The system shall expose individual and batch AI Review triggers only to Admin/Sir and only from Admin Review. AI Review shall not run automatically. Advisers may view existing AI Review reports for assigned teams but shall not invoke or rerun AI Review.
 
 ### 5.3 Google Docs API
 
@@ -282,7 +290,7 @@ Acceptance criteria:
 
 - Advisers can see assigned teams and deliverables.
 - Advisers can see submission attempts, Document Check findings, and feedback history for assigned teams.
-- Advisers cannot trigger or view Admin-only AI Review controls or reports.
+- Advisers cannot trigger or rerun AI Review, but they can view existing AI Review reports for assigned teams.
 - Advisers can mark review statuses where permitted by Teacher/Admin.
 
 ### FR-012 Teacher/Admin Attention Dashboard

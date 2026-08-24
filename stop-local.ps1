@@ -2,10 +2,10 @@
 param()
 
 $ErrorActionPreference = "Stop"
-$pidFile = Join-Path $PSScriptRoot ".capvault-local.pids.json"
+$pidFile = Join-Path $PSScriptRoot ".wildtrack-local.pids.json"
 
 if (-not (Test-Path -LiteralPath $pidFile)) {
-    Write-Host "No CapVault local process file was found."
+    Write-Host "No WildTrack local process file was found."
     exit 0
 }
 
@@ -22,4 +22,4 @@ foreach ($processId in @($processes.backendPid, $processes.frontendPid, $process
 }
 
 Remove-Item -LiteralPath $pidFile
-Write-Host "CapVault local services stopped." -ForegroundColor Green
+Write-Host "WildTrack local services stopped." -ForegroundColor Green

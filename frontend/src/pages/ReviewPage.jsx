@@ -1,35 +1,36 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
-  Archive,
-  ArrowCounterClockwise,
-  ArrowSquareOut,
-  CheckCircle,
-  Files,
-  MagnifyingGlass,
-  Sparkle
-} from '@phosphor-icons/react';
-import { Button, ConfirmDialog, DataTable, EmptyState, PageHeader, SearchBox, StatusBadge } from '../components/ui.jsx';
-import {
-  compactMissingSections,
-  DocumentCheckDialog,
-  documentCheckStatus
-} from '../components/review/DocumentCheckDialog.jsx';
+  Alert,
+  Button,
+  Group,
+  Pagination,
+  Paper,
+  Progress,
+  Stack,
+  Text,
+  TextInput,
+  Title
+} from '@mantine/core';
+import { modals } from '@mantine/modals';
+import { notifications } from '@mantine/notifications';
+import { CheckCircle, Files, MagnifyingGlass, Sparkle, X } from '@phosphor-icons/react';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
+import { ReviewDeliverablesTable } from '../components/review/ReviewDeliverablesTable.jsx';
+import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
+import { ReviewSubmissionsTable } from '../components/review/ReviewSubmissionsTable.jsx';
+import { buildDeliverableReviewSummaries, filterReviewResponses, REVIEW_FILTERS } from '../lib/review.js';
 import {
-  findStudent,
   deliverableUsesDocumentCheck,
+  findStudent,
   firstSubmissionLink,
-  formatDate,
-  formatDateTime,
   getIdentityStudents,
-  getProjectMetadata,
-  isAiReportCurrent,
   isDocumentCheckCurrent,
-  makeDriveViewUrl,
   sortDeliverables
 } from '../lib/workflow.js';
 
-const reviewFilters = ['Pending', 'Flagged', 'All', 'Accepted'];
+const REVIEW_PAGE_SIZE = 50;
 
 export function ReviewPage() {
   const {
@@ -41,223 +42,368 @@ export function ReviewPage() {
     revokeAcceptance,
     archiveAttempt
   } = useWorkflow();
+  const [searchParams] = useSearchParams();
+  const linkedResponseId = searchParams.get('response') || '';
+  const linkedResponse = state.attempts.find((response) => response.id === linkedResponseId) || null;
+  const linkedDeliverableId = linkedResponse?.deliverableId || searchParams.get('deliverable') || '';
   const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
   const orderedDeliverables = useMemo(() => sortDeliverables(state, state.deliverables), [state]);
-  const [selectedDeliverableId, setSelectedDeliverableId] = useState(orderedDeliverables[0]?.id || '');
-  const [expandedResponseId, setExpandedResponseId] = useState('');
-  const [checkDialogId, setCheckDialogId] = useState('');
+  const summaries = useMemo(() => buildDeliverableReviewSummaries({
+    deliverables: orderedDeliverables,
+    attempts: state.attempts,
+    expectedStudents: identityStudents
+  }), [identityStudents, orderedDeliverables, state.attempts]);
+
+  const [selectedDeliverableId, setSelectedDeliverableId] = useState(() => (
+    orderedDeliverables.some((deliverable) => deliverable.id === linkedDeliverableId)
+      ? linkedDeliverableId
+      : orderedDeliverables[0]?.id || ''
+  ));
+  const activeDeliverableId = summaries.some((summary) => summary.deliverable.id === selectedDeliverableId)
+    ? selectedDeliverableId
+    : summaries[0]?.deliverable.id || '';
+  const selectedSummary = summaries.find((summary) => summary.deliverable.id === activeDeliverableId) || null;
+  const selectedDeliverable = selectedSummary?.deliverable || null;
   const [filter, setFilter] = useState('Pending');
   const [query, setQuery] = useState('');
-  const [actionTarget, setActionTarget] = useState(null);
-  const [actionBusy, setActionBusy] = useState(false);
-  const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
+  const [selectedResponseId, setSelectedResponseId] = useState(linkedResponse?.id || '');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [checkDialogId, setCheckDialogId] = useState('');
   const [batchProgress, setBatchProgress] = useState(null);
-  const [aiTarget, setAiTarget] = useState(null);
+  const [page, setPage] = useState(1);
+  const batchRunning = Boolean(batchProgress && !batchProgress.done);
 
-  const deliverableSummaries = useMemo(() => orderedDeliverables.map((deliverable) => {
-    const responses = state.attempts.filter((response) => response.deliverableId === deliverable.id);
-    const usesDocumentCheck = deliverableUsesDocumentCheck(deliverable);
-    const accepted = responses.filter((response) => response.reviewStatus === 'Accepted').length;
-    const flagged = responses.filter(isFlaggedResponse).length;
-    const notChecked = usesDocumentCheck
-      ? responses.filter((response) => response.reviewStatus !== 'Accepted' && !isDocumentCheckCurrent(response)).length
-      : 0;
-    const needsCheck = responses.filter(needsReviewAction).length;
-    const missing = Math.max(0, identityStudents.length - responses.length);
-    return { deliverable, responses, expected: identityStudents.length, received: responses.length, accepted, flagged, notChecked, needsCheck, missing, usesDocumentCheck };
-  }), [identityStudents.length, orderedDeliverables, state.attempts]);
-
-  const selectedSummary = deliverableSummaries.find((item) => item.deliverable.id === selectedDeliverableId) || deliverableSummaries[0];
-  const selectedDeliverable = selectedSummary?.deliverable || null;
-  const pendingDocumentChecks = useMemo(
-    () => selectedSummary?.usesDocumentCheck ? (selectedSummary.responses || []).filter((response) =>
-      response.reviewStatus !== 'Accepted' &&
-      response.fileCheckStatus !== 'Checking' &&
-      !isDocumentCheckCurrent(response)
-    ) : [],
-    [selectedSummary]
-  );
-  const pendingAiReviews = useMemo(
-    () => (selectedSummary?.responses || []).filter((response) =>
-      response.reviewStatus !== 'Accepted' &&
-      isDocumentCheckCurrent(response) &&
-      !isAiReportCurrent(response)
-    ),
-    [selectedSummary]
-  );
-
-  const selectedResponses = useMemo(() => {
-    if (!selectedDeliverable) return [];
-    const needle = query.trim().toLowerCase();
-    let rows = state.attempts.filter((response) => response.deliverableId === selectedDeliverable.id);
-    if (filter === 'Accepted') rows = rows.filter((response) => response.reviewStatus === 'Accepted');
-    if (filter === 'Pending') rows = rows.filter((response) => response.reviewStatus !== 'Accepted');
-    if (filter === 'Flagged') rows = rows.filter(isFlaggedResponse);
-    if (needle) {
-      rows = rows.filter((response) => {
-        const student = findStudent(state.students, response.studentNumber);
-        return `${student?.name || response.studentName} ${student?.teamCode || response.teamCode} ${response.studentNumber}`.toLowerCase().includes(needle);
-      });
+  const visibleResponses = useMemo(() => filterReviewResponses({
+    responses: selectedSummary?.responses || [],
+    students: state.students,
+    deliverable: selectedDeliverable,
+    filter,
+    query
+  }), [filter, query, selectedDeliverable, selectedSummary, state.students]);
+  const selectedResponse = state.attempts.find((response) => response.id === selectedResponseId) || null;
+  const selectedStudent = selectedResponse
+    ? findStudent(state.students, selectedResponse.studentNumber) || {
+      studentNumber: selectedResponse.studentNumber,
+      name: selectedResponse.studentName || selectedResponse.studentNumber || 'Unmatched student',
+      teamCode: selectedResponse.teamCode || 'Unmatched team'
     }
-    return rows.sort((first, second) => new Date(second.updatedAt || second.submittedAt) - new Date(first.updatedAt || first.submittedAt));
-  }, [filter, query, selectedDeliverable, state.attempts, state.students]);
-
+    : null;
   const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
+  const documentCheckEnabled = deliverableUsesDocumentCheck(selectedDeliverable);
+  const uncheckedResponseIds = useMemo(() => documentCheckEnabled
+    ? (selectedSummary?.responses || [])
+      .filter((response) => (
+        response.reviewStatus !== 'Accepted'
+        && response.archiveStatus !== 'Archived'
+        && !isDocumentCheckCurrent(response)
+      ))
+      .map((response) => response.id)
+    : [], [documentCheckEnabled, selectedSummary]);
+  const pageCount = Math.max(1, Math.ceil(visibleResponses.length / REVIEW_PAGE_SIZE));
+  const activePage = Math.min(page, pageCount);
+  const pageResponses = visibleResponses.slice((activePage - 1) * REVIEW_PAGE_SIZE, activePage * REVIEW_PAGE_SIZE);
+  const firstVisibleIndex = visibleResponses.length ? (activePage - 1) * REVIEW_PAGE_SIZE + 1 : 0;
+  const lastVisibleIndex = Math.min(activePage * REVIEW_PAGE_SIZE, visibleResponses.length);
+
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const visibleIds = new Set(visibleResponses.map((response) => response.id));
+      const next = new Set([...current].filter((id) => visibleIds.has(id)));
+      return sameSet(current, next) ? current : next;
+    });
+  }, [visibleResponses]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeDeliverableId, filter, query]);
 
   function chooseDeliverable(id) {
     setSelectedDeliverableId(id);
-    setExpandedResponseId('');
+    setSelectedResponseId('');
+    setSelectedIds(new Set());
     setCheckDialogId('');
+    setBatchProgress(null);
+  }
+
+  function toggleSelected(id, checked) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisible(checked) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      pageResponses.forEach((response) => {
+        if (checked) next.add(response.id);
+        else next.delete(response.id);
+      });
+      return next;
+    });
   }
 
   async function openOrRunDocumentCheck(response) {
-    if (!isDocumentCheckCurrent(response)) {
-      await runDocumentCheck(response.id);
-    }
+    if (!isDocumentCheckCurrent(response)) await runDocumentCheck(response.id);
     setCheckDialogId(response.id);
   }
 
   async function recheckFromDialog() {
-    if (!checkDialogResponse) return;
-    await runDocumentCheck(checkDialogResponse.id);
+    if (checkDialogResponse) await runDocumentCheck(checkDialogResponse.id);
   }
 
-  async function runPendingDocumentChecks() {
-    setBatchConfirmOpen(false);
-    if (!pendingDocumentChecks.length) return;
-    setBatchProgress({ completed: 0, total: pendingDocumentChecks.length, failed: 0 });
-    const result = await runDocumentChecks(
-      pendingDocumentChecks.map((response) => response.id),
-      { onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total })) }
-    );
-    setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, done: true });
+  function confirmDocumentCheckBatch(ids, { allUnchecked = false } = {}) {
+    if (!ids.length) return;
+    modals.openConfirmModal({
+      title: allUnchecked
+        ? `Check all ${ids.length} unchecked document${ids.length === 1 ? '' : 's'}?`
+        : `Check ${ids.length} selected document${ids.length === 1 ? '' : 's'}?`,
+      children: (
+        <Text size="sm">
+          WildTrack will check every document in this batch and report progress here. One failed file will not stop the remaining checks.
+        </Text>
+      ),
+      labels: { confirm: 'Start Document Check', cancel: 'Cancel' },
+      confirmProps: { color: 'wildtrackMaroon' },
+      centered: true,
+      onConfirm: () => runDocumentCheckBatch(ids)
+    });
   }
 
-  async function confirmTargetAction() {
-    if (!actionTarget?.response) return;
-    setActionBusy(true);
-    if (actionTarget.type === 'archive') await archiveAttempt(actionTarget.response.id);
-    else revokeAcceptance(actionTarget.response.id);
-    setActionBusy(false);
-    setActionTarget(null);
+  async function runDocumentCheckBatch(ids) {
+    setBatchProgress({ completed: 0, total: ids.length, failed: 0, done: false });
+    const result = await runDocumentChecks(ids, {
+      onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total }))
+    });
+    const failures = (result.results || [])
+      .filter((item) => !item.ok)
+      .map((item) => {
+        const response = state.attempts.find((attempt) => attempt.id === item.attemptId);
+        const student = response ? findStudent(state.students, response.studentNumber) : null;
+        return {
+          id: item.attemptId,
+          student: student?.name || response?.studentName || response?.studentNumber || 'Unknown response',
+          error: item.error || 'Document Check could not finish.'
+        };
+      });
+    setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, failures, done: true });
   }
 
-  async function acknowledgeAiUnavailable() {
-    await runAiReview(aiTarget?.response?.id);
-    setAiTarget(null);
+  async function requestAiReview(ids) {
+    const result = await runAiReview(ids);
+    if (result?.unavailable || result?.ok === false) {
+      notifications.show({
+        color: 'wildtrackMaroon',
+        title: 'AI Review is not connected yet',
+        message: 'Document Check remains available while Gemini integration is configured.'
+      });
+    }
+  }
+
+  function acceptResponse(response) {
+    markAccepted(response.id, { name: 'Sir Ralph Laviste', role: 'Teacher/Admin', scope: 'Individual response' });
+    setSelectedIds((current) => withoutId(current, response.id));
+    notifications.show({ color: 'green', title: 'Response accepted', message: 'The response left the Pending queue. You can archive it from the open details.' });
+  }
+
+  function confirmRevoke(response) {
+    modals.openConfirmModal({
+      title: 'Revoke this acceptance?',
+      children: <Text size="sm">The response returns to Pending and must be accepted again before it can be archived.</Text>,
+      labels: { confirm: 'Revoke acceptance', cancel: 'Keep accepted' },
+      confirmProps: { color: 'red' },
+      centered: true,
+      onConfirm: () => {
+        revokeAcceptance(response.id);
+        setSelectedResponseId('');
+      }
+    });
+  }
+
+  function confirmArchive(response) {
+    modals.openConfirmModal({
+      title: 'Archive this accepted response?',
+      children: <Text size="sm">WildTrack creates one archive metadata record and keeps the submitted Drive link as its source reference. Independent PDF storage is not connected yet.</Text>,
+      labels: { confirm: 'Archive response', cancel: 'Cancel' },
+      confirmProps: { color: 'wildtrackMaroon' },
+      centered: true,
+      onConfirm: async () => {
+        const result = await archiveAttempt(response.id);
+        notifications.show({
+          color: result?.ok ? 'green' : 'red',
+          title: result?.ok ? 'Archive record created' : 'Archive failed',
+          message: result?.ok ? 'The metadata record is now available in Final archive.' : result?.error || 'The archive record could not be created.'
+        });
+      }
+    });
   }
 
   return (
-    <div className="page-stack review-page">
-      <PageHeader
-        title="Submission Review"
-        description="Review by deliverable first, scan compact response rows, and expand only the records that need attention."
-      />
-
-      <section className="panel review-deliverable-panel">
-        <div className="panel-header">
-          <div>
-            <h2>Deliverables</h2>
-            <p>Each row shows how much work is waiting before Sir opens the submissions table.</p>
-          </div>
+    <Stack gap="lg" className="wt-review-page">
+      <header className="wt-staff-page-heading">
+        <div>
+          <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">Academic review</Text>
+          <Title order={1}>Submission review</Title>
+          <Text c="dimmed">Start with a deliverable, work through its pending responses, and open details only when needed.</Text>
         </div>
-        <div className="review-deliverable-strip" role="list" aria-label="Deliverable review queue">
-          {deliverableSummaries.map((item) => (
-            <button
-              className={`review-deliverable-chip ${item.deliverable.id === selectedSummary?.deliverable.id ? 'active' : ''}`}
-              key={item.deliverable.id}
-              type="button"
-              onClick={() => chooseDeliverable(item.deliverable.id)}
-            >
-              <span>{item.deliverable.shortTitle}</span>
-              <strong>{item.received}/{item.expected}</strong>
-              <small>{item.missing} missing</small>
-              <em>{item.needsCheck} pending</em>
-            </button>
-          ))}
-        </div>
-      </section>
+      </header>
 
-      <section className="panel review-main-panel">
-        {selectedDeliverable ? (
-          <>
-            <div className="review-main-header">
-              <div>
-                <span>{selectedDeliverable.trackerColumn}</span>
-                <h2>{selectedDeliverable.title}</h2>
-                <p>{selectedSummary.received} received out of {selectedSummary.expected} expected. Due {formatDate(selectedDeliverable.dueAt)}.</p>
-              </div>
-              <div className="review-count-grid" aria-label="Selected deliverable counts">
-                <Count label="Missing" value={selectedSummary.missing} />
-                <Count label="Not checked" value={selectedSummary.notChecked} />
-                <Count label="Flagged" value={selectedSummary.flagged} />
-                <Count label="Accepted" value={selectedSummary.accepted} />
-              </div>
-              <div className="review-batch-actions">
+      <ReviewDeliverablesTable summaries={summaries} selectedId={activeDeliverableId} onSelect={chooseDeliverable} />
+
+      {selectedDeliverable ? (
+        <Paper withBorder className="wt-review-workbench" radius="md">
+          <div className="wt-review-workbench-head">
+            <div>
+              <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">{selectedDeliverable.trackerColumn}</Text>
+              <Title order={2} size="h3">{selectedDeliverable.title}</Title>
+              <Text size="sm" c="dimmed">
+                {selectedSummary.received} received of {selectedSummary.expected} expected | {selectedSummary.needsAction} need action
+              </Text>
+            </div>
+            <Group gap="xs" className="wt-review-filter-group" role="group" aria-label="Review filter">
+              {REVIEW_FILTERS.map((item) => (
                 <Button
+                  key={item}
+                  aria-pressed={filter === item}
+                  variant={filter === item ? 'filled' : 'default'}
+                  color="wildtrackMaroon"
                   size="sm"
-                  variant="secondary"
-                  icon={Files}
-                  disabled={!pendingDocumentChecks.length || Boolean(batchProgress && !batchProgress.done)}
-                  onClick={() => setBatchConfirmOpen(true)}
+                  onClick={() => setFilter(item)}
                 >
-                  Check pending documents
+                  {item}
                 </Button>
-                <Button size="sm" variant="secondary" icon={Sparkle} onClick={() => setAiTarget({ type: 'batch', count: pendingAiReviews.length })}>
-                  Run AI reviews
-                </Button>
-              </div>
-            </div>
-
-            {batchProgress ? (
-              <div className={`batch-progress ${batchProgress.done ? batchProgress.failed ? 'warning' : 'success' : ''}`} role="status">
-                <div>
-                  <strong>{batchProgress.done ? 'Document checks complete' : 'Checking documents'}</strong>
-                  <span>{batchProgress.completed} of {batchProgress.total}{batchProgress.failed ? ` | ${batchProgress.failed} could not be checked` : ''}</span>
-                </div>
-                <progress value={batchProgress.completed} max={Math.max(batchProgress.total, 1)} />
-                {batchProgress.done ? <button type="button" onClick={() => setBatchProgress(null)}>Dismiss</button> : null}
-              </div>
-            ) : null}
-
-            <div className="review-toolbar">
-              <div className="review-filter-row" role="tablist" aria-label="Review filter">
-                {reviewFilters.map((item) => (
-                  <button key={item} type="button" className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>
-                    {item}
-                  </button>
-                ))}
-              </div>
-              <SearchBox value={query} onChange={setQuery} placeholder="Search student or team" />
-            </div>
-
-            <DataTable columns={['Student', 'Team', 'Submitted', 'Review', 'Actions']} minWidth={900} className="review-wide-table">
-              {selectedResponses.map((response) => (
-                <ReviewTableRows
-                  key={response.id}
-                  response={response}
-                  state={state}
-                  expanded={expandedResponseId === response.id}
-                  onToggle={() => setExpandedResponseId((current) => current === response.id ? '' : response.id)}
-                  onDocumentCheck={() => openOrRunDocumentCheck(response)}
-                  documentCheckEnabled={selectedSummary.usesDocumentCheck}
-                  onAiReview={() => setAiTarget({ type: 'individual', response })}
-                  onAccept={() => markAccepted(response.id, { name: 'Sir Ralph Laviste', role: 'Teacher/Admin', scope: 'Individual response' })}
-                  onRevoke={() => setActionTarget({ type: 'revoke', response })}
-                  onArchive={() => setActionTarget({ type: 'archive', response })}
-                />
               ))}
-            </DataTable>
+            </Group>
+          </div>
 
-            {!selectedResponses.length ? (
-              <EmptyState
-                title="No responses in this filter"
-                description={filter === 'Pending' ? 'No current responses are pending for this deliverable.' : 'Try another filter or select another deliverable.'}
-              />
-            ) : null}
-          </>
-        ) : <EmptyState title="No deliverables published" description="Publish a form before reviewing student responses." />}
-      </section>
+          <div className="wt-review-table-toolbar">
+            <TextInput
+              aria-label="Search submissions"
+              placeholder="Search student, ID, or team"
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              leftSection={<MagnifyingGlass size={17} />}
+              className="wt-review-search"
+            />
+            <Group gap="sm" wrap="nowrap" className="wt-review-toolbar-actions">
+              {documentCheckEnabled && uncheckedResponseIds.length ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={batchRunning}
+                  leftSection={<Files size={17} />}
+                  onClick={() => confirmDocumentCheckBatch(uncheckedResponseIds, { allUnchecked: true })}
+                >
+                  Check all unchecked ({uncheckedResponseIds.length})
+                </Button>
+              ) : null}
+              <Text size="sm" fw={700} c="dimmed" className="wt-nowrap wt-tabular">
+                Showing {firstVisibleIndex}-{lastVisibleIndex} of {visibleResponses.length}
+              </Text>
+            </Group>
+          </div>
+
+          {selectedIds.size ? (
+            <div className="wt-review-selection-bar" role="region" aria-label="Selected response actions">
+              <Group gap="sm">
+                <CheckCircle size={19} aria-hidden="true" />
+                <Text fw={750} size="sm">{selectedIds.size} response{selectedIds.size === 1 ? '' : 's'} selected</Text>
+              </Group>
+              <Group gap="xs">
+                {documentCheckEnabled ? (
+                  <>
+                    <Button variant="default" size="sm" disabled={batchRunning} leftSection={<Files size={17} />} onClick={() => confirmDocumentCheckBatch([...selectedIds])}>
+                      Check selected
+                    </Button>
+                    <Button variant="default" size="sm" leftSection={<Sparkle size={17} />} onClick={() => requestAiReview([...selectedIds])}>
+                      AI review selected
+                    </Button>
+                  </>
+                ) : null}
+                <Button variant="subtle" color="gray" size="sm" leftSection={<X size={16} />} onClick={() => setSelectedIds(new Set())}>
+                  Clear
+                </Button>
+              </Group>
+            </div>
+          ) : null}
+
+          {batchProgress ? (
+            <Alert
+              role="status"
+              color={!batchProgress.done ? 'blue' : batchProgress.failed ? 'orange' : 'green'}
+              variant="light"
+              title={batchProgress.done ? 'Document checks complete' : 'Checking documents'}
+              icon={<Files size={19} />}
+              withCloseButton={batchProgress.done}
+              onClose={() => setBatchProgress(null)}
+              className="wt-review-batch-progress"
+            >
+              <Stack gap="xs">
+                <Text size="sm">
+                  {batchProgress.completed} of {batchProgress.total} completed
+                  {batchProgress.failed ? ` | ${batchProgress.failed} could not be checked` : ''}
+                </Text>
+                {batchProgress.failures?.length ? (
+                  <Stack gap={2} className="wt-review-batch-failures">
+                    {batchProgress.failures.map((failure) => (
+                      <Text key={failure.id} size="xs"><strong>{failure.student}:</strong> {failure.error}</Text>
+                    ))}
+                  </Stack>
+                ) : null}
+                <Progress value={(batchProgress.completed / Math.max(batchProgress.total, 1)) * 100} color="wildtrackMaroon" size="sm" />
+              </Stack>
+            </Alert>
+          ) : null}
+
+          <ReviewSubmissionsTable
+            responses={pageResponses}
+            state={state}
+            deliverable={selectedDeliverable}
+            documentCheckEnabled={documentCheckEnabled}
+            selectedResponseId={selectedResponseId}
+            selectedIds={selectedIds}
+            onOpen={setSelectedResponseId}
+            onToggle={toggleSelected}
+            onToggleAll={toggleAllVisible}
+          />
+
+          {!visibleResponses.length ? (
+            <div className="wt-review-empty">
+              <Text fw={750}>{filter === 'Pending' ? 'Pending queue is clear' : `No ${filter.toLowerCase()} responses`}</Text>
+              <Text size="sm" c="dimmed">Try another filter, search term, or deliverable.</Text>
+            </div>
+          ) : null}
+
+          {visibleResponses.length > REVIEW_PAGE_SIZE ? (
+            <div className="wt-review-pagination">
+              <Text size="sm" c="dimmed" className="wt-tabular">Page {activePage} of {pageCount}</Text>
+              <Pagination total={pageCount} value={activePage} onChange={setPage} color="wildtrackMaroon" size="sm" withEdges />
+            </div>
+          ) : null}
+        </Paper>
+      ) : (
+        <Paper withBorder className="wt-review-empty" radius="md">
+          <Text fw={750}>No deliverables published</Text>
+          <Text size="sm" c="dimmed">Publish a mapped form before reviewing responses.</Text>
+        </Paper>
+      )}
+
+      <ReviewResponseDrawer
+        opened={Boolean(selectedResponse && selectedStudent)}
+        response={selectedResponse}
+        student={selectedStudent}
+        state={state}
+        deliverable={selectedDeliverable}
+        documentCheckEnabled={documentCheckEnabled}
+        onClose={() => setSelectedResponseId('')}
+        onDocumentCheck={() => openOrRunDocumentCheck(selectedResponse)}
+        onAiReview={() => requestAiReview([selectedResponse.id])}
+        onAccept={() => acceptResponse(selectedResponse)}
+        onRevoke={() => confirmRevoke(selectedResponse)}
+        onArchive={() => confirmArchive(selectedResponse)}
+      />
 
       <DocumentCheckDialog
         open={Boolean(checkDialogResponse)}
@@ -267,160 +413,16 @@ export function ReviewPage() {
         onClose={() => setCheckDialogId('')}
         onRecheck={recheckFromDialog}
       />
-
-      <ConfirmDialog
-        open={batchConfirmOpen}
-        title={`Check ${pendingDocumentChecks.length} pending document${pendingDocumentChecks.length === 1 ? '' : 's'}?`}
-        description="CapVault will process up to three PDFs at a time. Current checks are skipped and one failure will not stop the remaining documents."
-        confirmLabel="Start Document Check"
-        loading={false}
-        onClose={() => setBatchConfirmOpen(false)}
-        onConfirm={runPendingDocumentChecks}
-      >
-        <strong>{selectedDeliverable?.title}</strong>
-        <span>Google Drive metadata and PDF bytes will be read temporarily. Submission files are not archived by this action.</span>
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={Boolean(aiTarget)}
-        title="AI Review is not connected yet"
-        description="Gemini AI Review will be available only to Admin/Sir from this Review page. Document Check is already available and does not make generative claims."
-        confirmLabel="Understood"
-        cancelLabel="Close"
-        onClose={() => setAiTarget(null)}
-        onConfirm={acknowledgeAiUnavailable}
-      >
-        <strong>{aiTarget?.type === 'batch' ? `${selectedDeliverable?.title}: ${aiTarget.count} eligible response${aiTarget.count === 1 ? '' : 's'}` : findStudent(state.students, aiTarget?.response?.studentNumber)?.name || 'Selected response'}</strong>
-        <span>When Gemini is connected, this action will summarize content, compare instructions, identify weak or missing sections, and suggest the next review action.</span>
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={Boolean(actionTarget)}
-        title={actionTarget?.type === 'archive' ? 'Archive this accepted response?' : 'Revoke this acceptance?'}
-        description={actionTarget?.type === 'archive'
-          ? 'This creates a local archive record and locks acceptance from being revoked in this workflow.'
-          : 'The response returns to Pending and must be accepted again before it can be archived.'}
-        confirmLabel={actionTarget?.type === 'archive' ? 'Archive response' : 'Revoke acceptance'}
-        intent={actionTarget?.type === 'revoke' ? 'danger' : 'primary'}
-        loading={actionBusy}
-        onClose={() => { if (!actionBusy) setActionTarget(null); }}
-        onConfirm={confirmTargetAction}
-      >
-        <strong>{findStudent(state.students, actionTarget?.response?.studentNumber)?.name || actionTarget?.response?.studentName || 'Student response'}</strong>
-        <span>{selectedDeliverable?.title || 'Deliverable'} | {actionTarget?.response?.teamCode || 'No team'}</span>
-        <span>Saved {actionTarget?.response ? formatDateTime(actionTarget.response.updatedAt || actionTarget.response.submittedAt) : ''}</span>
-      </ConfirmDialog>
-    </div>
+    </Stack>
   );
 }
 
-function ReviewTableRows({ response, state, expanded, documentCheckEnabled, onToggle, onDocumentCheck, onAiReview, onAccept, onRevoke, onArchive }) {
-  const student = findStudent(state.students, response.studentNumber);
-  const fileLink = firstSubmissionLink(response.values);
-  const project = getProjectMetadata(state, student?.teamCode || response.teamCode);
-  const primary = response.primaryStatus || response.reviewStatus || 'Received';
-  const checkRunning = response.fileCheckStatus === 'Checking';
-  const report = response.documentCheck;
-  const secondaryFlags = (response.flags || []).filter((flag) => !['Received', primary, response.reviewStatus].includes(flag)).slice(0, 2);
-  const missingPreview = compactMissingSections(report?.missingSections);
-
-  return (
-    <>
-      <tr className={expanded ? 'selected-row' : ''} onClick={onToggle}>
-        <td><strong>{student?.name || response.studentName || response.studentNumber}</strong><small>{response.studentNumber}</small></td>
-        <td>{student?.teamCode || response.teamCode}</td>
-        <td><strong>{formatDateTime(response.updatedAt || response.submittedAt)}</strong></td>
-        <td>
-          <div className="review-status-summary">
-            <div className="status-strip stable">
-              <StatusBadge status={primary} />
-              {documentCheckEnabled ? <StatusBadge status={documentCheckStatus(response)} /> : null}
-              {secondaryFlags.map((flag) => <StatusBadge key={flag} status={flag} />)}
-            </div>
-            <p>{response.checkSummary || (documentCheckEnabled ? 'Document Check will run automatically for this response.' : 'This deliverable does not require PDF Document Check.')}</p>
-            {response.acceptance ? <small>Accepted by {response.acceptance.acceptedBy} ({response.acceptance.acceptedByRole})</small> : null}
-          </div>
-        </td>
-        <td>
-          <div className="row-action-group review-actions-compact">
-            {fileLink ? (
-              <a className="btn btn-secondary btn-sm" href={makeDriveViewUrl(fileLink)} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
-                <ArrowSquareOut weight="regular" /><span>Open file</span>
-              </a>
-            ) : null}
-            {documentCheckEnabled ? (
-              <Button size="sm" variant="secondary" icon={MagnifyingGlass} loading={checkRunning} onClick={(event) => { event.stopPropagation(); onDocumentCheck(); }}>
-                {isDocumentCheckCurrent(response) ? 'View check' : 'Check document'}
-              </Button>
-            ) : null}
-            {response.reviewStatus === 'Accepted' ? (
-              <Button size="sm" variant="secondary" icon={ArrowCounterClockwise} disabled={response.archiveStatus === 'Archived'} onClick={(event) => { event.stopPropagation(); onRevoke(); }}>Revoke</Button>
-            ) : <Button size="sm" variant="secondary" icon={CheckCircle} onClick={(event) => { event.stopPropagation(); onAccept(); }}>Accept</Button>}
-            <Button size="sm" variant="primary" icon={Archive} disabled={response.reviewStatus !== 'Accepted' || response.archiveStatus === 'Archived'} onClick={(event) => { event.stopPropagation(); onArchive(); }}>Archive</Button>
-          </div>
-        </td>
-      </tr>
-      {expanded ? (
-        <tr className="review-expanded-row">
-          <td colSpan={5}>
-            <div className="review-expanded-content">
-              <section>
-                <span>Document Check</span>
-                {documentCheckEnabled ? (
-                  <>
-                    <p>{report?.summary || response.checkSummary || 'This response has not been checked yet.'}</p>
-                    {report?.redFlags?.length ? <div className="status-strip stable">{report.redFlags.map((flag) => <StatusBadge key={flag} status={flag} />)}</div> : null}
-                    {missingPreview ? <small>Template headings not detected: {missingPreview}</small> : null}
-                    {report?.document ? <small>{report.document.pageCount} pages | {report.document.extractedCharacterCount.toLocaleString()} readable characters</small> : null}
-                    <Button size="sm" variant="secondary" icon={MagnifyingGlass} loading={checkRunning} onClick={onDocumentCheck}>
-                      {isDocumentCheckCurrent(response) ? 'View document check' : 'Check document'}
-                    </Button>
-                  </>
-                ) : <p>Not required for this link-based deliverable.</p>}
-              </section>
-              <section>
-                <span>Project context</span>
-                <p>{project?.projectTitle || 'Project metadata not loaded yet.'}</p>
-                {project?.softwareName ? <small>{project.softwareName}</small> : null}
-                {project?.proposalRemarks ? <small>{project.proposalRemarks}</small> : null}
-              </section>
-              <section>
-                <span>Admin AI Review</span>
-                <p>{response.aiReport?.summary || 'Generate a content summary and instruction-level findings after Gemini is connected.'}</p>
-                <Button size="sm" variant="secondary" icon={Sparkle} disabled={!documentCheckEnabled || !isDocumentCheckCurrent(response)} onClick={onAiReview}>
-                  {!documentCheckEnabled ? 'Not available for this form' : !isDocumentCheckCurrent(response) ? 'Check document first' : response.aiReport ? 'View AI Review' : 'Run AI Review'}
-                </Button>
-                {response.acceptance ? <small>Accepted by {response.acceptance.acceptedBy} on {formatDateTime(response.acceptance.acceptedAt)}.</small> : null}
-              </section>
-            </div>
-          </td>
-        </tr>
-      ) : null}
-    </>
-  );
+function withoutId(values, id) {
+  const next = new Set(values);
+  next.delete(id);
+  return next;
 }
 
-function Count({ label, value }) {
-  return <div><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function isFlaggedResponse(response) {
-  return (response.flags || []).some((flag) => [
-    'Template-like',
-    'Too Short',
-    'Template Headings Missing',
-    'Not PDF',
-    'Inaccessible',
-    'Invalid Drive Link',
-    'Download Disabled',
-    'File Too Large',
-    'Download Failed',
-    'Password Protected',
-    'Corrupt PDF'
-  ].includes(flag));
-}
-
-function needsReviewAction(response) {
-  if (response.reviewStatus === 'Accepted') return false;
-  return isFlaggedResponse(response) || !isDocumentCheckCurrent(response) || response.reviewStatus === 'Needs Review' || response.reviewStatus === 'Received';
+function sameSet(first, second) {
+  return first.size === second.size && [...first].every((value) => second.has(value));
 }

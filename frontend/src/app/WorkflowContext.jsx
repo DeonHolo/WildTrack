@@ -4,12 +4,14 @@ import {
   applyClassRecordImport,
   deriveAttemptFlags,
   deliverableUsesDocumentCheck,
+  findDeliverableForUpsert,
+  findOwnedResponse,
   findStudent,
   findWorkspace,
   firstSubmissionLink,
   getDeliverable,
-  getResponseIdentity,
   getTrackerColumn,
+  hasResponseConflict,
   hashArchiveRecord,
   importPublicClassRecord,
   importPublicSheetSource,
@@ -27,9 +29,11 @@ import {
   saveWorkspaceCatalog,
   slugify,
   sortDeliverables,
+  upsertDeliverable,
   validateSubmission,
   valuesChanged
 } from '../lib/workflow.js';
+import { disableGoogleAutoSelect } from '../lib/googleIdentitySession.js';
 import {
   createWorkspace as createBackendWorkspace,
   deleteDocumentTemplate,
@@ -39,6 +43,7 @@ import {
   importSheetSource as importBackendSheetSource,
   runDocumentCheck as requestDocumentCheck,
   uploadDocumentTemplate,
+  uploadDriveDocumentTemplate,
   writeTrackerValue
 } from '../lib/api.js';
 
@@ -174,30 +179,24 @@ export function WorkflowProvider({ children }) {
 
   const publishDeliverable = useCallback((payload) => {
     setState((current) => {
-      const existingByColumn = current.deliverables.find((item) => item.trackerColumn === payload.trackerColumn);
-      const id = payload.id || existingByColumn?.id || `deliv-${Date.now()}`;
+      const existingDeliverable = findDeliverableForUpsert(current.deliverables, payload);
       const trackerColumn = getTrackerColumn(current, payload.trackerColumn);
       const shortTitle = payload.shortTitle || trackerColumn?.label || payload.trackerColumn;
       const title = payload.title || `${shortTitle} Submission`;
-      const slug = payload.slug || slugify(title);
       const deliverable = {
-        ...(existingByColumn || {}),
-        id,
-        slug,
+        ...(existingDeliverable || {}),
         title,
         shortTitle,
         status: payload.status || 'Published',
         fields: payload.fields,
         ...payload
       };
-      const existing = current.deliverables.some((item) => item.id === id);
-      const nextDeliverables = existing
-        ? current.deliverables.map((item) => item.id === id ? deliverable : item)
-        : [...current.deliverables.filter((item) => item.trackerColumn !== payload.trackerColumn), deliverable];
+      const nextDeliverables = upsertDeliverable(current.deliverables, deliverable);
+      const savedDeliverable = nextDeliverables.find((item) => item.trackerColumn === payload.trackerColumn);
       return {
         ...current,
         deliverables: sortDeliverables(current, nextDeliverables),
-        activity: [{ id: `act-${Date.now()}`, at: new Date().toISOString(), text: `${existing ? 'Updated' : 'Published'} ${deliverable.title}.` }, ...current.activity]
+        activity: [{ id: `act-${Date.now()}`, at: new Date().toISOString(), text: `${existingDeliverable ? 'Updated' : 'Published'} ${savedDeliverable?.title || title}.` }, ...current.activity]
       };
     });
   }, []);
@@ -214,13 +213,21 @@ export function WorkflowProvider({ children }) {
   }, []);
 
   const connectSheetSource = useCallback(async (sourceType, payload) => {
+    const workspaceId = activeWorkspaceRef.current;
+    const workspaceState = state;
+    const previewPromise = importPublicSheetSource(sourceType, payload, workspaceState).catch(() => null);
+
     try {
       const backendImport = await importBackendSheetSource(sourceType, {
         ...payload,
         displayName: sourceType === 'tracker' ? payload.trackerSheet : payload.name
-      }, activeWorkspaceRef.current);
-      const snapshot = await getBackendSnapshot(activeWorkspaceRef.current);
-      const imported = buildBackendImportResult(sourceType, backendImport, snapshot);
+      }, workspaceId);
+      const snapshot = await getBackendSnapshot(workspaceId);
+      const preview = await previewPromise;
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before the Sheet import finished.' };
+      }
+      const imported = buildBackendImportResult(sourceType, backendImport, snapshot, preview);
       setState((current) => {
         const next = applyClassRecordImport(current, { ...payload, sourceType }, imported);
         return applyBackendSnapshot(next, snapshot, {
@@ -230,7 +237,10 @@ export function WorkflowProvider({ children }) {
       });
       return imported;
     } catch (backendError) {
-      const imported = await importPublicSheetSource(sourceType, payload, state);
+      const imported = await previewPromise || await importPublicSheetSource(sourceType, payload, workspaceState);
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before the Sheet import finished.' };
+      }
       const fallbackImport = {
         ...imported,
         backendError: backendError.message
@@ -251,7 +261,6 @@ export function WorkflowProvider({ children }) {
       return fallbackImport;
     }
   }, [state]);
-
   const connectClassRecord = useCallback(async (payload) => {
     return connectSheetSource('tracker', payload);
   }, [connectSheetSource]);
@@ -357,8 +366,55 @@ export function WorkflowProvider({ children }) {
     }, activeWorkspaceRef.current));
     return { ok: true, account };
   }, [state.studentAccounts]);
+  const authenticateGoogleAccount = useCallback((identity) => {
+    const email = String(identity.email || '').trim().toLowerCase();
+    const googleSubject = String(identity.subject || '').trim();
+    if (!email || !googleSubject) {
+      return { ok: false, error: 'Google sign-in did not return a usable identity.' };
+    }
+
+    const accounts = loadStudentAccounts(state.studentAccounts);
+    const existing = accounts.find((account) =>
+      account.googleSubject === googleSubject || account.email.toLowerCase() === email
+    );
+    const authenticatedAt = new Date().toISOString();
+    const account = {
+      ...(existing || {}),
+      id: existing?.id || `acct-google-${googleSubject}`,
+      email,
+      displayName: identity.name || existing?.displayName || '',
+      pictureUrl: identity.pictureUrl || existing?.pictureUrl || '',
+      googleSubject,
+      authMethod: 'Google',
+      workspaceClaims: existing?.workspaceClaims || {},
+      createdAt: existing?.createdAt || authenticatedAt,
+      lastAuthenticatedAt: authenticatedAt
+    };
+    const nextAccounts = [
+      account,
+      ...accounts.filter((item) => item.id !== account.id && item.googleSubject !== googleSubject && item.email.toLowerCase() !== email)
+    ];
+    const claim = account.workspaceClaims?.[activeWorkspaceRef.current];
+
+    saveStudentAccounts(nextAccounts);
+    saveActiveStudentAccountEmail(account.email);
+    setState((current) => materializeStudentSession({
+      ...current,
+      studentAccounts: nextAccounts,
+      activeAccountEmail: account.email,
+      activeStudentNumber: claim?.studentNumber || '',
+      activity: [{
+        id: `act-${Date.now()}`,
+        at: authenticatedAt,
+        text: `${account.email} signed in with Google.`
+      }, ...current.activity]
+    }, activeWorkspaceRef.current));
+
+    return { ok: true, account };
+  }, [state.studentAccounts]);
 
   const logoutStudentAccount = useCallback(() => {
+    disableGoogleAutoSelect();
     saveActiveStudentAccountEmail('');
     setState((current) => ({
       ...current,
@@ -369,11 +425,9 @@ export function WorkflowProvider({ children }) {
 
   const claimStudentNumber = useCallback((studentNumber) => {
     const email = state.activeAccountEmail;
-    if (!email) return { ok: false, error: 'Sign in or register before claiming a Student Number.' };
+    if (!email) return { ok: false, error: 'Continue with Google before connecting a Student Number.' };
     const student = findStudent(state.students, studentNumber);
     if (!student) return { ok: false, error: 'Choose a Student Number from the connected class record.' };
-    const existingOwner = state.studentAccounts.find((account) => normalizeStudentNumber(account.studentNumber) === normalizeStudentNumber(student.studentNumber) && account.email.toLowerCase() !== email.toLowerCase());
-    if (existingOwner) return { ok: false, error: 'This Student Number is already connected to another account.' };
 
     const claimedAt = new Date().toISOString();
     const globalAccounts = loadStudentAccounts(state.studentAccounts);
@@ -552,7 +606,18 @@ export function WorkflowProvider({ children }) {
     const student = findStudent(state.students, payload.studentNumber);
     if (!student) return { ok: false, formError: 'Choose a Student Number from the class record list.' };
     const submittedAt = new Date().toISOString();
-    const existing = state.attempts.find((oldAttempt) => normalizeStudentNumber(oldAttempt.studentNumber) === normalizeStudentNumber(student.studentNumber) && oldAttempt.deliverableId === deliverable.id);
+    const existing = findOwnedResponse(state.attempts, {
+      deliverableId: deliverable.id,
+      studentNumber: student.studentNumber,
+      googleSubject: payload.googleSubject,
+      googleEmail: payload.googleEmail
+    });
+    const identityConflict = !existing && hasResponseConflict(state.attempts, {
+      deliverableId: deliverable.id,
+      studentNumber: student.studentNumber,
+      googleSubject: payload.googleSubject,
+      googleEmail: payload.googleEmail
+    });
     const identityChanged = existing && (
       existing.studentName !== (payload.studentName || student.name) ||
       existing.teamCode !== (payload.teamCode || student.teamCode)
@@ -575,6 +640,9 @@ export function WorkflowProvider({ children }) {
       studentNumber: payload.studentNumber,
       studentName: payload.studentName || student?.name || '',
       teamCode: payload.teamCode || student?.teamCode || '',
+      googleSubject: payload.googleSubject || existing?.googleSubject || '',
+      googleEmailSnapshot: payload.googleEmail || existing?.googleEmailSnapshot || '',
+      identityConflict,
       matched: Boolean(student),
       submittedAt,
       updatedAt: submittedAt,
@@ -603,7 +671,7 @@ export function WorkflowProvider({ children }) {
     };
 
     setState((current) => {
-      const nextStudents = current.students.map((item) => {
+      const nextStudents = identityConflict ? current.students : current.students.map((item) => {
         if (item.studentNumber !== student.studentNumber) return item;
         return {
           ...item,
@@ -613,12 +681,14 @@ export function WorkflowProvider({ children }) {
           }
         };
       });
-      const withoutExisting = current.attempts.filter((oldAttempt) => getResponseIdentity(oldAttempt) !== getResponseIdentity(attempt));
+      const withoutExisting = existing
+        ? current.attempts.filter((oldAttempt) => oldAttempt.id !== existing.id)
+        : current.attempts;
       return {
         ...current,
         students: nextStudents,
         attempts: [attempt, ...withoutExisting],
-        activity: [{ id: `act-${Date.now()}`, at: submittedAt, text: `${payload.studentName || student?.name || payload.studentNumber} ${existing ? 'updated' : 'submitted'} ${deliverable.shortTitle}${existing?.acceptance ? '; prior acceptance requires review.' : '.'}` }, ...current.activity]
+        activity: [{ id: `act-${Date.now()}`, at: submittedAt, text: `${payload.studentName || student?.name || payload.studentNumber} ${existing ? 'updated' : 'submitted'} ${deliverable.shortTitle}${identityConflict ? '; identity conflict requires review.' : existing?.acceptance ? '; prior acceptance requires review.' : '.'}` }, ...current.activity]
       };
     });
 
@@ -628,20 +698,27 @@ export function WorkflowProvider({ children }) {
 
     const daysLate = calculateDaysLate(deliverable.dueAt, submittedAt);
     let trackerSync;
-    try {
-      trackerSync = await writeTrackerValue(activeWorkspaceRef.current, {
-        studentNumber: student.studentNumber,
-        teamCode: student.teamCode,
-        memberNumber: String(student.memberNumber || ''),
-        trackerColumnKey: deliverable.trackerColumn,
-        daysLate,
-        writeToGoogleSheet: true
-      });
-    } catch (error) {
+    if (identityConflict) {
       trackerSync = {
-        status: 'LOCAL_ONLY',
-        message: `Response saved and the CapVault tracker was updated. Google Sheet sync is pending: ${error.message}`
+        status: 'IDENTITY_CONFLICT',
+        message: 'Response saved separately. The existing tracker source was not replaced.'
       };
+    } else {
+      try {
+        trackerSync = await writeTrackerValue(activeWorkspaceRef.current, {
+          studentNumber: student.studentNumber,
+          teamCode: student.teamCode,
+          memberNumber: String(student.memberNumber || ''),
+          trackerColumnKey: deliverable.trackerColumn,
+          daysLate,
+          writeToGoogleSheet: true
+        });
+      } catch (error) {
+        trackerSync = {
+          status: 'LOCAL_ONLY',
+          message: `Response saved and the WildTrack tracker was updated. Google Sheet sync is pending: ${error.message}`
+        };
+      }
     }
 
     return { ok: true, updated: Boolean(existing), attempt, student, deliverable, trackerSync, documentCheckStarted: documentChanged };
@@ -692,22 +769,31 @@ export function WorkflowProvider({ children }) {
   const saveFeedback = useCallback((attemptId, payload) => {
     const note = String(payload.note || '').trim();
     if (!note) return;
-    setState((current) => ({
-      ...current,
-      attempts: current.attempts.map((attempt) => attempt.id === attemptId ? {
-        ...attempt,
-        feedback: [
-          {
-            id: `fb-${Date.now()}`,
-            note,
-            author: payload.author || 'Sir/adviser',
-            visibility: payload.visibility || 'Student',
-            createdAt: new Date().toISOString()
-          },
-          ...(attempt.feedback || [])
-        ]
-      } : attempt)
-    }));
+    setState((current) => {
+      const now = new Date().toISOString();
+      return {
+        ...current,
+        attempts: current.attempts.map((attempt) => {
+          if (attempt.id !== attemptId) return attempt;
+          const existing = (attempt.feedback || []).find((item) => item.visibility !== 'Staff');
+          const staffFeedback = (attempt.feedback || []).filter((item) => item.visibility === 'Staff');
+          return {
+            ...attempt,
+            feedback: [
+              {
+                id: existing?.id || `fb-${Date.now()}`,
+                note,
+                author: payload.author || 'Sir/adviser',
+                visibility: payload.visibility || 'Student',
+                createdAt: existing?.createdAt || now,
+                updatedAt: now
+              },
+              ...staffFeedback
+            ]
+          };
+        })
+      };
+    });
   }, []);
 
   const markAccepted = useCallback((attemptId, reviewer = {}) => {
@@ -770,7 +856,7 @@ export function WorkflowProvider({ children }) {
     }
 
     const archives = await Promise.all(
-      eligibleAttempts.map((attempt, index) => buildArchiveRecord(state, attempt, index))
+      eligibleAttempts.map((attempt, index) => buildArchiveRecord(state, attempt, index, activeWorkspace))
     );
     const archivedIds = new Set(archives.map((archive) => archive.attemptId));
     const archivedAt = new Date().toISOString();
@@ -798,7 +884,7 @@ export function WorkflowProvider({ children }) {
       ]
     }));
     return { ok: true, archived: archives.length };
-  }, [state]);
+  }, [activeWorkspace, state]);
 
   const archiveAttempt = useCallback((attemptId) => archiveAttempts([attemptId]), [archiveAttempts]);
 
@@ -833,12 +919,22 @@ export function WorkflowProvider({ children }) {
   }, []);
 
   const saveTemplate = useCallback(async (payload) => {
+    const workspaceId = activeWorkspaceRef.current;
     try {
-      const saved = await uploadDocumentTemplate(activeWorkspaceRef.current, {
-        deliverableKey: payload.deliverable,
-        displayName: payload.name,
-        file: payload.file
-      });
+      const saved = payload.sourceType === 'drive'
+        ? await uploadDriveDocumentTemplate(workspaceId, {
+            deliverableKey: payload.deliverable,
+            displayName: payload.name,
+            driveUrl: payload.driveUrl
+          })
+        : await uploadDocumentTemplate(workspaceId, {
+            deliverableKey: payload.deliverable,
+            displayName: payload.name,
+            file: payload.file
+          });
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before the template was saved.' };
+      }
       const template = mapBackendTemplate(saved);
       setState((current) => ({
         ...current,
@@ -856,8 +952,12 @@ export function WorkflowProvider({ children }) {
   }, []);
 
   const removeTemplate = useCallback(async (templateId) => {
+    const workspaceId = activeWorkspaceRef.current;
     try {
-      await deleteDocumentTemplate(activeWorkspaceRef.current, templateId);
+      await deleteDocumentTemplate(workspaceId, templateId);
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before the template was removed.' };
+      }
       setState((current) => ({
         ...current,
         templates: current.templates.filter((item) => item.id !== templateId)
@@ -893,6 +993,7 @@ export function WorkflowProvider({ children }) {
     connectSheetSource,
     claimStudentNumber,
     disconnectStudentNumber,
+    authenticateGoogleAccount,
     generateFormsFromSuggestions,
     loginStudentAccount,
     logoutStudentAccount,
@@ -914,7 +1015,7 @@ export function WorkflowProvider({ children }) {
     archiveAttempt,
     archiveAttempts,
     reset
-  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStudentAccount, markAccepted, publishDeliverable, refreshBackendData, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
+  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, authenticateGoogleAccount, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStudentAccount, markAccepted, publishDeliverable, refreshBackendData, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>;
 }
@@ -925,7 +1026,7 @@ export function useWorkflow() {
   return context;
 }
 
-async function buildArchiveRecord(state, attempt, index) {
+async function buildArchiveRecord(state, attempt, index, workspace) {
   const deliverable = getDeliverable(state, attempt.deliverableId);
   const student = findStudent(state.students, attempt.studentNumber);
   const teamCode = student?.teamCode || attempt.teamCode || 'No team';
@@ -935,17 +1036,23 @@ async function buildArchiveRecord(state, attempt, index) {
   return {
     id: `arc-${Date.now()}-${index}`,
     attemptId: attempt.id,
+    workspaceId: workspace?.id || state.workspaceId || '',
+    workspaceName: workspace?.name || '',
     deliverableTitle: deliverable?.title || 'Unknown deliverable',
     teamCode,
     studentName: student?.name || attempt.studentName || attempt.studentNumber,
+    studentNumber: student?.studentNumber || attempt.studentNumber || '',
     projectTitle: project?.projectTitle || '',
     softwareName: project?.softwareName || '',
     adviserName: project?.adviserName || student?.adviser || '',
+    version: `v${Math.max(1, (attempt.history?.length || 0) + 1)}`,
     archivedAt,
-    storageKey: `archive/finals/${teamCode || 'unmatched'}/${deliverable?.shortTitle || 'file'}/${attempt.id}.pdf`,
     sourceLink: firstSubmissionLink(attempt.values),
+    metadataSha256: hash,
     sha256: hash,
-    verified: true
+    storageStatus: 'Metadata only',
+    integrityStatus: 'Unavailable',
+    verified: false
   };
 }
 
@@ -968,7 +1075,7 @@ function applyBackendSnapshot(current, snapshot, options = {}) {
   };
 }
 
-function buildBackendImportResult(sourceType, backendImport, snapshot) {
+function buildBackendImportResult(sourceType, backendImport, snapshot, preview = null) {
   const mapped = mapBackendSnapshot(snapshot);
   const suggestedForms = (backendImport.deadlineSuggestions || []).map((item) => ({
     trackerColumn: item.trackerColumnKey,
@@ -980,7 +1087,9 @@ function buildBackendImportResult(sourceType, backendImport, snapshot) {
     sourceRowNumber: item.sourceRowNumber
   }));
   const details = backendImport.details || {};
+  const previewSummary = preview?.importSummary || {};
   const commonSummary = {
+    ...previewSummary,
     sourceType: sourceType === 'teamFormation'
       ? 'Team Formation'
       : sourceType === 'projectMonitor'
@@ -988,10 +1097,10 @@ function buildBackendImportResult(sourceType, backendImport, snapshot) {
         : 'Tracker',
     resultStatus: (backendImport.warnings || []).length ? 'Imported with warnings' : 'Imported',
     headerRow: details.headerRow,
-    detectedFields: details.detectedFields || [],
-    missingFields: details.missingFields || [],
-    metrics: details.metrics || {},
-    deadlineRows: details.deadlineRows || 0,
+    detectedFields: previewSummary.detectedFields || details.detectedFields || [],
+    missingFields: previewSummary.missingFields || details.missingFields || [],
+    metrics: { ...(previewSummary.metrics || {}), ...(details.metrics || {}) },
+    deadlineRows: previewSummary.deadlineRows || details.deadlineRows || [],
     suggestedForms,
     warnings: backendImport.warnings || []
   };
@@ -1016,8 +1125,8 @@ function buildBackendImportResult(sourceType, backendImport, snapshot) {
   return {
     ok: true,
     sourceType,
-    headers: [],
-    csvUrl: '',
+    headers: preview?.headers || previewSummary.headers || [],
+    csvUrl: preview?.csvUrl || '',
     warnings: backendImport.warnings || [],
     suggestedForms,
     importSummary,

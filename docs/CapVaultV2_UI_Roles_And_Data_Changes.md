@@ -2,6 +2,8 @@
 
 Date: 2026-07-26
 
+Identity supersession notice: the browser-local registration, password login, and exclusive Student Number claim design in this historical UI audit is superseded by `docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md`.
+
 This document captures the planned changes, confirmed decisions, and open discussion points for the next CapVault V2 pass. Items marked **CONFIRMED** are ready to implement. Items marked **NEEDS DECISION** require a final call before implementation.
 
 ---
