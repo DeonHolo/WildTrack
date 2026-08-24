@@ -1,0 +1,11 @@
+frontend/
+design-system/
+legacy/
+public/
+docs/
+.scratch/
+.pnpm-store/
+backend/data/
+backend/storage/
+backend/logs/
+backend/target/surefire-reports/

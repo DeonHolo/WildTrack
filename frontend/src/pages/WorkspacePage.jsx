@@ -79,7 +79,7 @@ const EMPTY_TEMPLATE = {
   replacing: null
 };
 
-export function WorkspacePage() {
+export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV }) {
   const [searchParams] = useSearchParams();
   const linkedSource = searchParams.get('source') || '';
   const {
@@ -456,12 +456,12 @@ export function WorkspacePage() {
       <section className="panel subtle-panel wt-maintenance">
         <div>
           <h2>Workspace maintenance</h2>
-          <p>Refresh backend records or restore the selected workspace to its starter dataset.</p>
+          <p>{developmentToolsEnabled ? 'Refresh backend records or restore the selected workspace to its starter dataset.' : 'Refresh backend records from the connected sources.'}</p>
           <small>{state.classRecord.connectedAt ? `Last connected ${formatDateTime(state.classRecord.connectedAt)}` : 'No live Sheet connection yet.'}</small>
         </div>
         <div className="button-row">
           <Button variant="secondary" icon={Database} loading={refreshingBackend} onClick={() => setMaintenanceAction('refresh')}>Refresh backend data</Button>
-          <Button variant="secondary" icon={ArrowClockwise} onClick={() => { setMaintenanceAction('reset'); setResetConfirmation(''); }}>Restore starter data</Button>
+          {developmentToolsEnabled && <Button variant="secondary" icon={ArrowClockwise} onClick={() => { setMaintenanceAction('reset'); setResetConfirmation(''); }}>Restore starter data</Button>}
         </div>
       </section>
 
@@ -573,21 +573,23 @@ export function WorkspacePage() {
         <strong>{templateToRemove?.name}</strong><span>{templateToRemove?.deliverable}</span>
       </ConfirmDialog>
 
-      <ConfirmDialog
-        open={maintenanceAction === 'reset'}
-        title={`Restore ${activeWorkspace?.name || 'workspace'} starter data?`}
-        description={`Only ${activeWorkspace?.name || 'the selected workspace'} will be reset. Other academic workspaces are not changed.`}
-        confirmLabel="Restore starter data"
-        confirmText="RESET"
-        confirmationValue={resetConfirmation}
-        onConfirmationValueChange={setResetConfirmation}
-        onClose={() => { setMaintenanceAction(''); setResetConfirmation(''); }}
-        onConfirm={restoreStarterData}
-        intent="danger"
-      >
-        <strong>Type RESET exactly as shown</strong>
-        <span>Imported sources, forms, responses, feedback, and archive examples in this workspace will be replaced.</span>
-      </ConfirmDialog>
+      {developmentToolsEnabled && (
+        <ConfirmDialog
+          open={maintenanceAction === 'reset'}
+          title={`Restore ${activeWorkspace?.name || 'workspace'} starter data?`}
+          description={`Only ${activeWorkspace?.name || 'the selected workspace'} will be reset. Other academic workspaces are not changed.`}
+          confirmLabel="Restore starter data"
+          confirmText="RESET"
+          confirmationValue={resetConfirmation}
+          onConfirmationValueChange={setResetConfirmation}
+          onClose={() => { setMaintenanceAction(''); setResetConfirmation(''); }}
+          onConfirm={restoreStarterData}
+          intent="danger"
+        >
+          <strong>Type RESET exactly as shown</strong>
+          <span>Imported sources, forms, responses, feedback, and archive examples in this workspace will be replaced.</span>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

@@ -60,12 +60,12 @@ function createState() {
   };
 }
 
-function renderPage(initialEntry = '/workspace') {
+function renderPage(initialEntry = '/workspace', pageProps = {}) {
   return render(
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
         <MemoryRouter initialEntries={[initialEntry]} future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
-          <WorkspacePage />
+          <WorkspacePage {...pageProps} />
         </MemoryRouter>
       </ModalsProvider>
     </MantineProvider>
@@ -187,6 +187,14 @@ describe('workspace operations', () => {
     fireEvent.click(confirm);
     expect(workflow.reset).toHaveBeenCalledOnce();
   });
+
+  it('does not expose starter-data restoration in production', () => {
+    renderPage('/workspace', { developmentToolsEnabled: false });
+
+    expect(screen.queryByRole('button', { name: 'Restore starter data' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Refresh backend data' })).toBeInTheDocument();
+  });
+
 
   it('highlights the exact source requested by an operational queue link', () => {
     renderPage('/workspace?source=tracker');
