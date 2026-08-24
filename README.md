@@ -36,10 +36,12 @@ PostgreSQL is not required for local use. The default backend uses an H2 databas
 For a new copy:
 
 ```powershell
-git clone https://github.com/DeonHolo/CapVault.git
-cd CapVault
+git clone <repository-url> WildTrack
+cd WildTrack
 git switch main
 ```
+
+Replace `<repository-url>` with the HTTPS clone URL shown on the repository's GitHub page.
 
 For an existing copy:
 
@@ -195,9 +197,8 @@ The local scripts configure normal development values automatically.
 | `VITE_GOOGLE_CLIENT_ID` | Public Google OAuth client ID | Set by `setup-local.ps1` |
 | `WILDTRACK_GOOGLE_CLIENT_ID` | OAuth client ID accepted by the backend | Set by `setup-local.ps1` |
 | `WILDTRACK_GOOGLE_IDENTITY_ENABLED` | Enables Google ID-token verification | `true` through the launcher |
-| `CAPVAULT_GOOGLE_DRIVE_API_KEY` | Restricted backend-only Drive API key | Set by `setup-local.ps1` |
-| `CAPVAULT_GOOGLE_DRIVE_ENABLED` | Enables Drive metadata and PDF checks | `true` through the launcher |
-| `CAPVAULT_CORS_ALLOWED_ORIGINS` | Browser origins allowed by the backend | Set from the frontend port |
+
+The setup and launcher scripts also configure the backend-only Drive key, Drive integration switch, and allowed browser origins. Use the scripts instead of entering those values in a visible command.
 
 Public Google Sheets can be imported without service-account credentials. Writing to a private Google Sheet requires Google Sheets API service-account credentials and permission to that Sheet.
 
