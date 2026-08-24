@@ -785,21 +785,23 @@ html {
   font-size: 1.16rem;
 }
 
-.wt-adviser-detail-grid,
-.wt-adviser-feedback-grid {
+.wt-adviser-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
 }
 
 .wt-adviser-detail-grid > section,
-.wt-adviser-feedback-grid > section,
-.wt-adviser-feedback-grid > form {
+.wt-adviser-feedback-editor > form {
   min-width: 0;
   padding: 17px;
   border: 1px solid var(--wt-border);
   border-radius: var(--mantine-radius-sm);
   background: #fff;
+}
+
+.wt-adviser-feedback-editor {
+  width: min(100%, 760px);
 }
 
 .wt-adviser-detail-heading {
@@ -817,25 +819,6 @@ html {
   background: #f7f4f2;
 }
 
-.wt-adviser-feedback-entry {
-  display: grid;
-  gap: 7px;
-  padding: 12px 0;
-  border-top: 1px solid var(--wt-border);
-}
-
-.wt-adviser-feedback-entry:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.wt-adviser-feedback-entry .is-collapsed {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
 .wt-adviser-empty-main {
   min-height: 560px;
 }
@@ -846,8 +829,7 @@ html {
   }
 
   .wt-adviser-team-header,
-  .wt-adviser-detail-grid,
-  .wt-adviser-feedback-grid {
+  .wt-adviser-detail-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1564,7 +1546,7 @@ html {
 }
 
 .wt-student-section-head .mantine-SegmentedControl-root {
-  flex: 0 1 420px;
+  flex: 0 1 320px;
   max-width: 100%;
 }
 
@@ -1574,11 +1556,15 @@ html {
 
 .wt-student-deliverable-row {
   display: grid;
-  grid-template-columns: minmax(190px, 1.25fr) minmax(120px, 0.6fr) minmax(230px, 1.4fr) minmax(190px, auto);
-  align-items: center;
-  gap: 18px;
-  min-height: 118px;
-  padding: 18px 20px;
+  grid-template-areas:
+    "title state actions"
+    "detail detail detail";
+  grid-template-columns: minmax(220px, 1.2fr) minmax(175px, 0.7fr) minmax(330px, auto);
+  align-items: start;
+  column-gap: 24px;
+  row-gap: 16px;
+  min-height: 136px;
+  padding: 22px 20px;
   border-bottom: 1px solid var(--wt-border);
 }
 
@@ -1592,6 +1578,23 @@ html {
   display: grid;
   min-width: 0;
   gap: 4px;
+}
+
+.wt-student-deliverable-title {
+  grid-area: title;
+}
+
+.wt-student-deliverable-state {
+  grid-area: state;
+}
+
+.wt-student-deliverable-detail {
+  grid-area: detail;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--wt-border);
 }
 
 .wt-student-deliverable-title p,
@@ -1608,15 +1611,9 @@ html {
   white-space: nowrap;
 }
 
-.wt-feedback-preview {
-  max-width: 62ch;
-  margin-top: 5px;
-  padding-left: 10px;
-  border-left: 2px solid var(--mantine-color-wildtrackGold-5);
-  overflow-wrap: anywhere;
-}
-
 .wt-student-deliverable-actions {
+  grid-area: actions;
+  align-self: center;
   min-width: 0;
 }
 
@@ -1700,15 +1697,19 @@ html {
   }
 
   .wt-student-deliverable-row {
-    grid-template-columns: minmax(0, 1fr) minmax(150px, auto);
+    grid-template-areas:
+      "title state"
+      "detail detail"
+      "actions actions";
+    grid-template-columns: minmax(0, 1fr) minmax(170px, auto);
   }
 
   .wt-student-deliverable-detail {
-    grid-column: 1;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
   .wt-student-deliverable-actions {
-    grid-column: 2;
+    justify-content: flex-start;
   }
 
   .wt-student-progress-body {
@@ -1811,15 +1812,19 @@ html {
   }
 
   .wt-student-deliverable-row {
+    grid-template-areas:
+      "title"
+      "state"
+      "detail"
+      "actions";
     grid-template-columns: 1fr;
     gap: 14px;
     min-height: 0;
     padding: 17px 16px;
   }
 
-  .wt-student-deliverable-detail,
-  .wt-student-deliverable-actions {
-    grid-column: 1;
+  .wt-student-deliverable-detail {
+    grid-template-columns: 1fr;
   }
 
   .wt-student-deliverable-actions {

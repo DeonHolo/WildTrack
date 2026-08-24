@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
 
   Alert,
@@ -34,7 +34,7 @@ import {
   getWorkspacePublicKey,
   normalizeStudentNumber
 } from '../lib/workflow.js';
-import { ApiError, getMyAssociation, submitResponse } from '../lib/api.js';
+import { ApiError, clearDraft, getDraft, getMyAssociation, saveDraft, submitResponse } from '../lib/api.js';
 
 function FormUnavailable({ deliverable }) {
   return (
@@ -116,6 +116,8 @@ export function PublicSubmissionPage() {
   const [identity, setIdentity] = useState({ studentNumber: '', studentName: '', teamCode: '' });
   const [values, setValues] = useState({});
   const [fieldErrors, setFieldErrors] = useState({});
+  const [draftStatus, setDraftStatus] = useState(''); // '', 'saving', 'saved', 'error'
+  const draftRevisionRef = useRef(null);
   const [identityErrors, setIdentityErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [result, setResult] = useState(null);
@@ -190,6 +192,39 @@ export function PublicSubmissionPage() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [activeWorkspaceId, activeAccount?.email]);
+  // Ticket 05: restore any saved draft once the deliverable is known.
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeWorkspaceId || !deliverable?.id || !activeAccount?.googleSubject) return undefined;
+    getDraft(activeWorkspaceId, deliverable.id)
+      .then((draft) => {
+        if (cancelled || !draft?.present || !draft.values) return;
+        setValues((current) => (Object.keys(current).length ? current : draft.values));
+        draftRevisionRef.current = draft.revision;
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeWorkspaceId, deliverable?.id, activeAccount?.googleSubject]);
+
+  // Ticket 05: debounced autosave on material field changes.
+  useEffect(() => {
+    if (!activeWorkspaceId || !deliverable?.id || !activeAccount?.googleSubject) return undefined;
+    if (!Object.keys(values).length) return undefined;
+    setDraftStatus('saving');
+    const timer = setTimeout(() => {
+      saveDraft(activeWorkspaceId, deliverable.id, values, draftRevisionRef.current)
+        .then((saved) => {
+          if (saved.conflict) {
+            setDraftStatus('error');
+            return;
+          }
+          draftRevisionRef.current = saved.revision;
+          setDraftStatus('saved');
+        })
+        .catch(() => setDraftStatus('error'));
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [values, activeWorkspaceId, deliverable?.id, activeAccount?.googleSubject]);
 
   useEffect(() => {
     setValues(ownedResponse?.values ? { ...ownedResponse.values } : {});
@@ -371,6 +406,11 @@ export function PublicSubmissionPage() {
                       <Divider />
                       <Group justify="space-between" gap="md" wrap="wrap">
                         <Text c="dimmed" size="xs" maw={460}>Submitting records your Google account, selected class identity, and response time.</Text>
+                  {draftStatus && (
+                    <Text size="sm" c="dimmed" role="status">
+                      {draftStatus === 'saving' ? 'Saving draft…' : draftStatus === 'saved' ? 'Draft saved' : draftStatus === 'error' ? 'Draft not saved' : ''
+                    }</Text>
+                  )}
                         <Button type="submit" size="md" loading={submitting} leftSection={<PaperPlaneTilt size={19} weight="bold" />}>
                           {ownedResponse ? 'Save response changes' : 'Submit response'}
                         </Button>

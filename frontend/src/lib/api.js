@@ -284,3 +284,31 @@ export async function submitResponse(workspaceId, deliverableId, values) {
 export async function getResponseHistory(workspaceId, deliverableId) {
   return request(`/workspace/responses/${encodeURIComponent(deliverableId)}/history?workspaceId=${encodeURIComponent(workspaceId)}`);
 }
+
+export async function saveDraft(workspaceId, deliverableId, values, revision) {
+  const response = await fetch(`${API_BASE_URL}/workspace/drafts/save?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    credentials: 'include',
+    mode: 'cors',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...csrfHeader()
+    },
+    body: JSON.stringify({ deliverableId, valuesJson: JSON.stringify(values), revision: revision ?? null })
+  });
+  if (response.status === 409) return { conflict: true };
+  if (!response.ok) throw new ApiError(`Draft could not be saved (${response.status})`, response.status);
+  return response.json();
+}
+
+export async function getDraft(workspaceId, deliverableId) {
+  return request(`/workspace/drafts?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`);
+}
+
+export async function clearDraft(workspaceId, deliverableId) {
+  await ensureCsrfToken();
+  return request(`/workspace/drafts?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`, {
+    method: 'DELETE'
+  });
+}
