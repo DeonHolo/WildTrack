@@ -324,3 +324,30 @@ export async function selectCanonicalResponse(workspaceId, payload) {
     body: payload
   });
 }
+
+export async function getStaffProfiles(workspaceId) {
+  return request(`/workspace/staff?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function upsertStaffEmail(workspaceId, googleEmail, roles) {
+  await ensureCsrfToken();
+  return request(`/workspace/staff?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    body: { googleEmail, roles }
+  });
+}
+
+export async function assignAdviserTeam(workspaceId, googleSubject, teamCode) {
+  await ensureCsrfToken();
+  return request(`/workspace/staff/assignments?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    body: { googleSubject, teamCode }
+  });
+}
+
+export async function unassignAdviserTeam(workspaceId, googleSubject, teamCode) {
+  await ensureCsrfToken();
+  return request(`/workspace/staff/assignments?workspaceId=${encodeURIComponent(workspaceId)}&googleSubject=${encodeURIComponent(googleSubject)}&teamCode=${encodeURIComponent(teamCode)}`, {
+    method: 'DELETE'
+  });
+}
