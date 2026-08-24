@@ -1,4 +1,4 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8080/api').replace(/\/+$/, '');
+const API_BASE_URL = '/api';
 
 const SOURCE_TYPE_TO_API = {
   teamFormation: 'TEAM_FORMATION',
@@ -175,7 +175,7 @@ export async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method || 'GET',
     credentials: 'include',
-    mode: 'cors',
+    mode: 'same-origin',
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
@@ -203,7 +203,7 @@ async function requestForm(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method || 'GET',
     credentials: 'include',
-    mode: 'cors',
+    mode: 'same-origin',
     headers: {
       Accept: 'application/json',
       ...(options.method !== 'GET' ? csrfHeader() : {}),
@@ -259,7 +259,7 @@ export async function submitResponse(workspaceId, deliverableId, values) {
   const response = await fetch(`${API_BASE_URL}/workspace/responses/submit?workspaceId=${encodeURIComponent(workspaceId)}`, {
     method: 'POST',
     credentials: 'include',
-    mode: 'cors',
+    mode: 'same-origin',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
@@ -289,7 +289,7 @@ export async function saveDraft(workspaceId, deliverableId, values, revision) {
   const response = await fetch(`${API_BASE_URL}/workspace/drafts/save?workspaceId=${encodeURIComponent(workspaceId)}`, {
     method: 'POST',
     credentials: 'include',
-    mode: 'cors',
+    mode: 'same-origin',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',

@@ -11,8 +11,9 @@ export function getCsrfToken() {
 }
 
 export async function fetchCurrentSession() {
-  const response = await fetch(getApiBase() + '/auth/session', {
+  const response = await fetch('/api/auth/session', {
     credentials: 'include',
+    mode: 'same-origin',
     headers: { Accept: 'application/json' }
   });
   if (!response.ok) return { authenticated: false };
@@ -20,9 +21,10 @@ export async function fetchCurrentSession() {
 }
 
 export async function logoutSession() {
-  const response = await fetch(getApiBase() + '/auth/logout', {
+  const response = await fetch('/api/auth/logout', {
     method: 'POST',
     credentials: 'include',
+    mode: 'same-origin',
     headers: {
       Accept: 'application/json',
       ...(getCsrfToken() ? { [CSRF_HEADER]: getCsrfToken() } : {})
@@ -30,9 +32,3 @@ export async function logoutSession() {
   });
   return response.ok;
 }
-
-function getApiBase() {
-  // Avoids circular import with api.js; mirrors its base URL logic.
-  return (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8080/api').replace(/\/+$/, '');
-}
-

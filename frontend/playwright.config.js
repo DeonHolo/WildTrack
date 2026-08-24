@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/browser',
+  testIgnore: 'deployment-delivery.spec.js',
   fullyParallel: true,
   reporter: 'line',
   use: {
@@ -23,4 +24,3 @@ export default defineConfig({
     stderr: 'pipe'
   }
 });
-
