@@ -312,3 +312,15 @@ export async function clearDraft(workspaceId, deliverableId) {
     method: 'DELETE'
   });
 }
+
+export async function getIdentityConflicts(workspaceId) {
+  return request(`/workspace/students/identity-conflicts?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function selectCanonicalResponse(workspaceId, payload) {
+  await ensureCsrfToken();
+  return request(`/workspace/responses/canonical/select?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    body: payload
+  });
+}
