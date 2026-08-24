@@ -9,12 +9,13 @@ import {
   UnstyledButton,
   VisuallyHidden
 } from '@mantine/core';
-import { CaretRight } from '@phosphor-icons/react';
+import { WarningCircle, CaretRight } from '@phosphor-icons/react';
 import { documentCheckStatus } from './DocumentCheckDialog.jsx';
 import { ReviewStatusBadge } from './ReviewStatusBadge.jsx';
 import { findStudent, formatDateTime, isAiReportCurrent } from '../../lib/workflow.js';
 
 export function ReviewSubmissionsTable({
+  conflictStudentNumbers = [],
   responses,
   state,
   deliverable,
@@ -80,6 +81,9 @@ export function ReviewSubmissionsTable({
                         <Stack gap={1}>
                           <Text component="span" size="sm" fw={750}>{studentName}</Text>
                           <Text component="span" size="xs" c="dimmed" className="wt-tabular">{response.studentNumber}</Text>
+                          {conflictStudentNumbers.includes(response.studentNumber) && (
+                            <Text component="span" size="xs" c="orange.7" fw={700}>Identity conflict</Text>
+                          )}
                         </Stack>
                       </UnstyledButton>
                     </Table.Td>

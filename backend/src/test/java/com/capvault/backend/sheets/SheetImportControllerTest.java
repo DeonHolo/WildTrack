@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -97,7 +98,7 @@ class SheetImportControllerTest {
     void importsTeamFormationAndExposesStudentIds() throws Exception {
         when(sheetCsvClient.fetchCsv(anyString())).thenReturn(TEAM_FORMATION_CSV);
 
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION")
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -124,7 +125,7 @@ class SheetImportControllerTest {
             24-0001-111,"DOE, JANE A.",2526-sem2-it332-99,2
             """);
 
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION")
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -155,7 +156,7 @@ class SheetImportControllerTest {
 
         importTeamFormation();
 
-        mockMvc.perform(post("/api/sheets/import/TRACKER")
+        mockMvc.perform(post("/api/sheets/import/TRACKER").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -176,7 +177,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$[?(@.studentNumber == '20-0649-750')]").exists())
             .andExpect(jsonPath("$[?(@.studentName == 'TAGHOY, RON LUIGI F.')]").exists());
 
-        mockMvc.perform(post("/api/tracker/writebacks")
+        mockMvc.perform(post("/api/tracker/writebacks").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -197,7 +198,7 @@ class SheetImportControllerTest {
     void importsSoftwareProjectMonitorMetadata() throws Exception {
         when(sheetCsvClient.fetchCsv(anyString())).thenReturn(PROJECT_MONITOR_CSV);
 
-        mockMvc.perform(post("/api/sheets/import/PROJECT_MONITOR")
+        mockMvc.perform(post("/api/sheets/import/PROJECT_MONITOR").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -216,7 +217,7 @@ class SheetImportControllerTest {
     }
 
     private void importTeamFormation() throws Exception {
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION")
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -227,3 +228,5 @@ class SheetImportControllerTest {
             .andExpect(status().isOk());
     }
 }
+
+

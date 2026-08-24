@@ -6,6 +6,9 @@ const SOURCE_TYPE_TO_API = {
   projectMonitor: 'PROJECT_MONITOR'
 };
 
+const CSRF_COOKIE = 'XSRF-TOKEN';
+const CSRF_HEADER = 'X-XSRF-TOKEN';
+
 export class ApiError extends Error {
   constructor(message, status = 0) {
     super(message);
@@ -18,11 +21,39 @@ export function getApiBaseUrl() {
   return API_BASE_URL;
 }
 
+function readCookie(name) {
+  const match = document.cookie.split('; ').find((row) => row.startsWith(name + '='));
+  return match ? decodeURIComponent(match.substring(name.length + 1)) : null;
+}
+
+function csrfHeader() {
+  const token = readCookie(CSRF_COOKIE);
+  return token ? { [CSRF_HEADER]: token } : {};
+}
+
+function ensureCsrfToken() {
+  if (!readCookie(CSRF_COOKIE)) {
+    // Trigger the backend to set the CSRF cookie via a lightweight GET.
+    return fetch(API_BASE_URL + '/auth/session', { credentials: 'include' }).catch(() => {});
+  }
+  return Promise.resolve();
+}
+
 export async function authenticateGoogle(credential) {
-  return request('/auth/google', {
+  await ensureCsrfToken();
+  return request('/auth/google/session', {
     method: 'POST',
-    body: { credential }
+    body: { credential },
+    skipCsrfPrecheck: true
   });
+}
+
+export async function getCurrentSession() {
+  return request('/auth/session');
+}
+
+export async function logout() {
+  return request('/auth/logout', { method: 'POST' });
 }
 
 export async function getWorkspaces() {
@@ -133,13 +164,19 @@ function withWorkspace(path, workspaceId) {
 }
 
 export async function request(path, options = {}) {
+  const mutating = options.method && options.method !== 'GET';
+  const headers = {
+    Accept: 'application/json',
+    ...(mutating && !options.skipCsrfPrecheck ? csrfHeader() : {}),
+    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(options.headers || {})
+  };
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method || 'GET',
-    headers: {
-      Accept: 'application/json',
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(options.headers || {})
-    },
+    credentials: 'include',
+    mode: 'cors',
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
 
@@ -165,8 +202,11 @@ export async function request(path, options = {}) {
 async function requestForm(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method || 'GET',
+    credentials: 'include',
+    mode: 'cors',
     headers: {
       Accept: 'application/json',
+      ...(options.method !== 'GET' ? csrfHeader() : {}),
       ...(options.headers || {})
     },
     body: options.body
@@ -185,4 +225,129 @@ async function requestForm(path, options = {}) {
   }
   if (response.status === 204) return null;
   return response.json();
+}
+
+export async function getMyAssociation(workspaceId) {
+  return request(`/workspace/students/me?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function getRosterOptions(workspaceId) {
+  return request(`/workspace/students/options?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function confirmStudentAssociation(workspaceId, studentNumber) {
+  await ensureCsrfToken();
+  return request(`/workspace/students/associate?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    body: { studentNumber }
+  });
+}
+
+export async function disconnectStudentAssociation(workspaceId) {
+  await ensureCsrfToken();
+  return request(`/workspace/students/associate?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function getMyResponse(workspaceId, deliverableId) {
+  return request(`/workspace/responses/mine?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`);
+}
+
+export async function submitResponse(workspaceId, deliverableId, values) {
+  await ensureCsrfToken();
+  const response = await fetch(`${API_BASE_URL}/workspace/responses/submit?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    credentials: 'include',
+    mode: 'cors',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...csrfHeader()
+    },
+    body: JSON.stringify({ deliverableId, valuesJson: JSON.stringify(values) })
+  });
+  if (response.status === 409) {
+    return { conflict: true };
+  }
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`;
+    try {
+      const error = await response.json();
+      message = error.error || error.message || message;
+    } catch {}
+    throw new ApiError(message, response.status);
+  }
+  return response.json();
+}
+
+export async function getResponseHistory(workspaceId, deliverableId) {
+  return request(`/workspace/responses/${encodeURIComponent(deliverableId)}/history?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function saveDraft(workspaceId, deliverableId, values, revision) {
+  const response = await fetch(`${API_BASE_URL}/workspace/drafts/save?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    credentials: 'include',
+    mode: 'cors',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...csrfHeader()
+    },
+    body: JSON.stringify({ deliverableId, valuesJson: JSON.stringify(values), revision: revision ?? null })
+  });
+  if (response.status === 409) return { conflict: true };
+  if (!response.ok) throw new ApiError(`Draft could not be saved (${response.status})`, response.status);
+  return response.json();
+}
+
+export async function getDraft(workspaceId, deliverableId) {
+  return request(`/workspace/drafts?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`);
+}
+
+export async function clearDraft(workspaceId, deliverableId) {
+  await ensureCsrfToken();
+  return request(`/workspace/drafts?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function getIdentityConflicts(workspaceId) {
+  return request(`/workspace/students/identity-conflicts?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function selectCanonicalResponse(workspaceId, payload) {
+  await ensureCsrfToken();
+  return request(`/workspace/responses/canonical/select?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function getStaffProfiles(workspaceId) {
+  return request(`/workspace/staff?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function upsertStaffEmail(workspaceId, googleEmail, roles) {
+  await ensureCsrfToken();
+  return request(`/workspace/staff?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    body: { googleEmail, roles }
+  });
+}
+
+export async function assignAdviserTeam(workspaceId, googleSubject, teamCode) {
+  await ensureCsrfToken();
+  return request(`/workspace/staff/assignments?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    body: { googleSubject, teamCode }
+  });
+}
+
+export async function unassignAdviserTeam(workspaceId, googleSubject, teamCode) {
+  await ensureCsrfToken();
+  return request(`/workspace/staff/assignments?workspaceId=${encodeURIComponent(workspaceId)}&googleSubject=${encodeURIComponent(googleSubject)}&teamCode=${encodeURIComponent(teamCode)}`, {
+    method: 'DELETE'
+  });
 }

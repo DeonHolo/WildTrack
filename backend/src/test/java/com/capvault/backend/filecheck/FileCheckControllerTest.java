@@ -2,6 +2,7 @@ package com.capvault.backend.filecheck;
 
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -43,7 +44,7 @@ class FileCheckControllerTest {
                 "Google Drive API is not configured. Run setup-local.ps1 and restart the backend."
             ));
 
-        mockMvc.perform(post("/api/file-checks")
+        mockMvc.perform(post("/api/file-checks").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -66,3 +67,5 @@ class FileCheckControllerTest {
             .andExpect(jsonPath("$.status").value("UNAVAILABLE"));
     }
 }
+
+

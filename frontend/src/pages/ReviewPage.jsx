@@ -15,6 +15,7 @@ import {
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { CheckCircle, Files, MagnifyingGlass, Sparkle, X } from '@phosphor-icons/react';
+import { getIdentityConflicts } from '../lib/api.js';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { ReviewDeliverablesTable } from '../components/review/ReviewDeliverablesTable.jsx';
@@ -67,6 +68,7 @@ export function ReviewPage() {
   const [filter, setFilter] = useState('Pending');
   const [query, setQuery] = useState('');
   const [selectedResponseId, setSelectedResponseId] = useState(linkedResponse?.id || '');
+  const [conflictStudentNumbers, setConflictStudentNumbers] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [checkDialogId, setCheckDialogId] = useState('');
   const [batchProgress, setBatchProgress] = useState(null);
@@ -105,6 +107,21 @@ export function ReviewPage() {
   const firstVisibleIndex = visibleResponses.length ? (activePage - 1) * REVIEW_PAGE_SIZE + 1 : 0;
   const lastVisibleIndex = Math.min(activePage * REVIEW_PAGE_SIZE, visibleResponses.length);
 
+  // Ticket 06: compact conflict indicators for the staff exception view.
+  useEffect(() => {
+    let cancelled = false;
+    if (!state.activeWorkspace?.id) return undefined;
+    getIdentityConflicts(state.activeWorkspace.id)
+      .then((conflicts) => {
+        if (cancelled || !Array.isArray(conflicts)) return;
+        setConflictStudentNumbers(conflicts
+          .filter((conflict) => conflict.status === 'OPEN')
+          .map((conflict) => identityStudents.find((student) => student.id === conflict.studentRecordId)?.studentNumber).filter(Boolean)
+          .filter(Boolean));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [state.activeWorkspace?.id]);
   useEffect(() => {
     setSelectedIds((current) => {
       const visibleIds = new Set(visibleResponses.map((response) => response.id));
@@ -358,6 +375,7 @@ export function ReviewPage() {
           ) : null}
 
           <ReviewSubmissionsTable
+                  conflictStudentNumbers={conflictStudentNumbers}
             responses={pageResponses}
             state={state}
             deliverable={selectedDeliverable}

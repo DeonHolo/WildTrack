@@ -107,7 +107,6 @@ export function AdviserViewPage() {
   useEffect(() => {
     setSelectedDeliverableId('');
     setSelectedOutputIds({});
-    setFeedback('');
     setBatchProgress(null);
   }, [selectedTeamCode]);
 
