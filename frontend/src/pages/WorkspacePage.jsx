@@ -15,9 +15,9 @@ import {
   Table,
   Trash
 } from '@phosphor-icons/react';
-import { Checkbox, Collapse, Input, Modal, NativeSelect, Tabs, TextInput } from '@mantine/core';
+import { Badge, Checkbox, Collapse, Input, Modal, NativeSelect, Tabs, TextInput } from '@mantine/core';
 import { useSearchParams } from 'react-router-dom';
-import { Button, ConfirmDialog, PageHeader, StatusBadge } from '../components/ui.jsx';
+import { Button, ConfirmDialog, PageHeader, StatusIndicator } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/workflow.js';
 import { setStoredPreviewRole } from '../hooks/usePreviewRole.js';
@@ -281,7 +281,7 @@ export function WorkspacePage() {
               <strong>{activeWorkspace?.program} | {activeWorkspace?.courseCode}</strong>
               <span>{activeWorkspace?.semester} | {activeWorkspace?.academicYear}</span>
             </div>
-            <StatusBadge status={importedCount ? 'Imported' : 'Starter data'} />
+            <StatusIndicator status={importedCount ? 'Imported' : 'Starter data'} />
           </div>
         </div>
         <div className="wt-workspace-facts" aria-label="Workspace data summary">
@@ -330,7 +330,7 @@ export function WorkspacePage() {
                       <small>Sheet ID: {extractSheetId(sources[source.key]) || 'Not entered'}</small>
                     </div>
                   </td>
-                  <td><StatusBadge status={source.status || 'Not connected'} /></td>
+                  <td><StatusIndicator status={source.status || 'Not connected'} /></td>
                   <td>
                     <Button
                       type="button"
@@ -363,7 +363,7 @@ export function WorkspacePage() {
             <small>{state.trackerColumns.length} columns mapped; {activeColumns.length} currently used in forms and tracker views.</small>
           </div>
           <div className="wt-section-toggle-actions">
-            {pendingSuggestions.length ? <StatusBadge status={`${pendingSuggestions.length} form suggestions`} /> : null}
+            {pendingSuggestions.length ? <Badge variant="light" color="wildtrackMaroon">{pendingSuggestions.length} form suggestions</Badge> : null}
             {columnsOpen ? <CaretUp aria-hidden="true" /> : <CaretDown aria-hidden="true" />}
           </div>
         </button>
@@ -597,7 +597,7 @@ function ImportSummaryDialog({ summary, mappingDraft, onMappingChange, onApplyMa
       <div className="wt-import-summary-content">
         <div className="panel-header">
           <div><span className="eyebrow">Import review</span><h2>Review detected fields</h2><p>Confirm what was found, mapped, skipped, and still needs attention.</p></div>
-          <StatusBadge status={summary.resultStatus || 'Imported'} />
+          <StatusIndicator status={summary.resultStatus || 'Imported'} />
         </div>
 
         <div className="summary-metric-grid">
@@ -654,7 +654,7 @@ function ImportSummaryDialog({ summary, mappingDraft, onMappingChange, onApplyMa
               {[...summary.suggestedForms].sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt)).map((item) => (
                 <div className="suggested-form-row" key={`${item.trackerColumn}-${item.dueAt}`}>
                   <div><strong>{item.title}</strong><span>{item.sourceValue}</span></div>
-                  <StatusBadge status={item.pdfRequired ? 'PDF required' : 'Link fields'} />
+                  <Badge variant="light" color="gray">{item.pdfRequired ? 'PDF required' : 'Link fields'}</Badge>
                 </div>
               ))}
             </div>

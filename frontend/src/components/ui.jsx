@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button as MantineButton,
   Group,
   Input,
@@ -49,10 +48,14 @@ export function Field({ label, helper, error, children, required = false }) {
   );
 }
 
-export function StatusBadge({ status }) {
+export function StatusIndicator({ status, className = '' }) {
   const tone = statusTone(status);
-  const colors = { success: 'green', warning: 'orange', danger: 'red', info: 'wildtrackMaroon' };
-  return <Badge className="wt-status-badge" color={colors[tone] || 'gray'} variant="light" radius="sm">{status}</Badge>;
+  return (
+    <span className={`wt-status-indicator ${className}`.trim()} data-tone={tone}>
+      <span className="wt-status-indicator-dot" aria-hidden="true" />
+      <span className="wt-status-indicator-label">{status}</span>
+    </span>
+  );
 }
 
 export function PageHeader({ title, description, actions }) {

@@ -802,6 +802,7 @@ html {
 
 .wt-adviser-feedback-editor {
   width: min(100%, 760px);
+  justify-self: center;
 }
 
 .wt-adviser-detail-heading {
@@ -1562,8 +1563,7 @@ html {
   grid-template-columns: minmax(220px, 1.2fr) minmax(175px, 0.7fr) minmax(330px, auto);
   align-items: start;
   column-gap: 24px;
-  row-gap: 16px;
-  min-height: 136px;
+  row-gap: 12px;
   padding: 22px 20px;
   border-bottom: 1px solid var(--wt-border);
 }
@@ -1590,11 +1590,20 @@ html {
 
 .wt-student-deliverable-detail {
   grid-area: detail;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 10px;
-  padding-top: 14px;
-  border-top: 1px solid var(--wt-border);
+}
+
+.wt-student-document-check-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.wt-student-document-check-line p {
+  min-width: 0;
 }
 
 .wt-student-deliverable-title p,
@@ -1705,7 +1714,7 @@ html {
   }
 
   .wt-student-deliverable-detail {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .wt-student-deliverable-actions {
@@ -1825,6 +1834,12 @@ html {
 
   .wt-student-deliverable-detail {
     grid-template-columns: 1fr;
+  }
+
+  .wt-student-document-check-line {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
   }
 
   .wt-student-deliverable-actions {
@@ -2158,9 +2173,10 @@ html {
   outline-offset: 1px;
 }
 
-.wt-review-status {
+.wt-status-indicator {
   display: inline-flex;
   min-width: 0;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: flex-start;
   gap: 7px;
@@ -2171,15 +2187,16 @@ html {
 }
 
 .wt-review-status-cell {
+  min-width: 124px;
   text-align: center !important;
   vertical-align: middle;
 }
 
-.wt-review-status-cell .wt-review-status {
+.wt-review-status-cell .wt-status-indicator {
   justify-content: center;
 }
 
-.wt-review-status-dot {
+.wt-status-indicator-dot {
   width: 7px;
   height: 7px;
   flex: 0 0 7px;
@@ -2187,23 +2204,23 @@ html {
   background: #9b9296;
 }
 
-.wt-review-status[data-tone="success"] .wt-review-status-dot {
+.wt-status-indicator[data-tone="success"] .wt-status-indicator-dot {
   background: #267a59;
 }
 
-.wt-review-status[data-tone="maroon"] .wt-review-status-dot {
+.wt-status-indicator[data-tone="maroon"] .wt-status-indicator-dot {
   background: var(--wt-maroon);
 }
 
-.wt-review-status[data-tone="info"] .wt-review-status-dot {
+.wt-status-indicator[data-tone="info"] .wt-status-indicator-dot {
   background: #2769a6;
 }
 
-.wt-review-status[data-tone="warning"] .wt-review-status-dot {
+.wt-status-indicator[data-tone="warning"] .wt-status-indicator-dot {
   background: #c56b21;
 }
 
-.wt-review-status[data-tone="danger"] .wt-review-status-dot {
+.wt-status-indicator[data-tone="danger"] .wt-status-indicator-dot {
   background: #c23d44;
 }
 

@@ -216,6 +216,9 @@ describe('deliverable-first submission review', () => {
     expect(within(submissions).getByText('Pacio, Muriel D.')).toBeInTheDocument();
     expect(within(submissions).getByText('Taghoy, Ron Luigi F.')).toBeInTheDocument();
     expect(within(submissions).queryByText('Barangan, Mark Lorenz L.')).not.toBeInTheDocument();
+    within(submissions).getAllByText('Not checked').forEach((label) => {
+      expect(label.closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'neutral');
+    });
   });
 
   it('keeps every deliverable chevron at one fixed size regardless of label length', () => {

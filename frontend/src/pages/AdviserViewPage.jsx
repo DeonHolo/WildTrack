@@ -34,7 +34,7 @@ import {
 } from '@phosphor-icons/react';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
-import { ReviewStatusBadge } from '../components/review/ReviewStatusBadge.jsx';
+import { StatusIndicator } from '../components/ui.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../hooks/useApplicationRole.js';
 import { getStoredPreviewAdviser, setStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
 import {
@@ -312,10 +312,10 @@ export function AdviserViewPage() {
                           <Text size="xs" c={row.hasConflict ? 'red' : 'dimmed'}>{row.hasConflict ? 'Selection required' : outputOwnerLabel(row.currentOutput)}</Text>
                         </Table.Td>
                         <Table.Td className="wt-review-status-cell">
-                          <ReviewStatusBadge label={documentCheckLabel(row.currentOutput?.latest, row.deliverable)} />
+                          <StatusIndicator status={documentCheckLabel(row.currentOutput?.latest, row.deliverable)} />
                         </Table.Td>
                         <Table.Td className="wt-review-status-cell">
-                          <ReviewStatusBadge label={decisionLabel(row.currentOutput?.latest)} />
+                          <StatusIndicator status={decisionLabel(row.currentOutput?.latest)} />
                         </Table.Td>
                         <Table.Td>
                           <Tooltip label={`Open ${row.deliverable.shortTitle} details`}>
@@ -412,19 +412,19 @@ function SelectedGroupOutput({
         </div>
         <Group gap="xs" wrap="wrap">
           {link ? (
-            <Button component="a" href={makeDriveViewUrl(link)} target="_blank" rel="noreferrer" variant="default" leftSection={<ArrowSquareOut size={17} />}>
+            <Button component="a" href={makeDriveViewUrl(link)} target="_blank" rel="noreferrer" variant="default" leftSection={<ArrowSquareOut size={17} aria-hidden="true" />}>
               Open group file
             </Button>
           ) : null}
           {deliverableUsesDocumentCheck(row.deliverable) && response ? (
-            <Button variant="default" leftSection={<MagnifyingGlass size={17} />} onClick={onOpenDocumentCheck}>
+            <Button variant="default" leftSection={<MagnifyingGlass size={17} aria-hidden="true" />} onClick={onOpenDocumentCheck}>
               {isDocumentCheckCurrent(response) ? 'View Document Check' : 'Check document'}
             </Button>
           ) : null}
           {accepted ? (
             <Button color="red" variant="light" leftSection={<XCircle size={17} />} disabled={response.archiveStatus === 'Archived'} onClick={onRevoke}>Revoke acceptance</Button>
           ) : (
-            <Button color="wildtrackMaroon" leftSection={<CheckCircle size={17} />} disabled={!response} onClick={onAccept}>Accept group output</Button>
+            <Button color="wildtrackMaroon" leftSection={<CheckCircle size={17} aria-hidden="true" />} disabled={!response} onClick={onAccept}>Accept group output</Button>
           )}
         </Group>
       </div>
@@ -456,7 +456,7 @@ function SelectedGroupOutput({
           <section>
             <div className="wt-adviser-detail-heading">
               <Text fw={800}>Document Check</Text>
-              <ReviewStatusBadge label={documentCheckLabel(response, row.deliverable)} />
+              <StatusIndicator status={documentCheckLabel(response, row.deliverable)} />
             </div>
             <Text size="sm">{response.documentCheck?.summary || response.checkSummary || 'No current Document Check is available for this file.'}</Text>
             {pendingChecks.length ? (
@@ -478,7 +478,7 @@ function SelectedGroupOutput({
           <section>
             <div className="wt-adviser-detail-heading">
               <Text fw={800}>AI Review</Text>
-              <ReviewStatusBadge label={aiCurrent ? 'Reviewed' : 'Not reviewed'} />
+              <StatusIndicator status={aiCurrent ? 'Reviewed' : 'Not reviewed'} />
             </div>
             {aiCurrent ? (
               <Stack gap="xs">
@@ -517,7 +517,7 @@ function SelectedGroupOutput({
             mt="md"
             type="submit"
             color="wildtrackMaroon"
-            leftSection={<NotePencil size={17} />}
+            leftSection={<NotePencil size={17} aria-hidden="true" />}
             disabled={!response || !feedback.trim() || feedback.trim() === currentFeedback?.note}
           >
             {currentFeedback ? 'Update feedback' : 'Save feedback'}

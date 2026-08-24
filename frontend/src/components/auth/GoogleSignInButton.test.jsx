@@ -14,7 +14,7 @@ function renderButton(props = {}) {
   return render(
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <GoogleSignInButton
-        clientId={props.clientId}
+        clientId={props.clientId ?? ''}
         onAuthenticated={props.onAuthenticated || vi.fn()}
         enableOneTap={props.enableOneTap}
         autoSelect={props.autoSelect}

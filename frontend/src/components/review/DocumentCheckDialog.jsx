@@ -1,6 +1,6 @@
-import { Modal } from '@mantine/core';
+import { Badge, Modal } from '@mantine/core';
 import { ArrowSquareOut, CheckCircle, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
-import { Button, StatusBadge } from '../ui.jsx';
+import { Button, StatusIndicator } from '../ui.jsx';
 import { formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 
 export function DocumentCheckDialog({ response, fileLink, open, onClose, onRecheck, rechecking = false }) {
@@ -37,7 +37,7 @@ export function DocumentCheckDialog({ response, fileLink, open, onClose, onReche
       <div className={`document-check-overview ${report?.redFlags?.length ? 'attention' : ''}`}>
         {successful && !report?.redFlags?.length ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
         <div>
-          <StatusBadge status={documentCheckStatus(response)} />
+          <StatusIndicator status={documentCheckStatus(response)} />
           <p>{report?.summary || response.checkSummary || 'No Document Check result is available.'}</p>
         </div>
       </div>
@@ -81,7 +81,7 @@ export function DocumentCheckDialog({ response, fileLink, open, onClose, onReche
         <section className="document-check-section">
           <h3>Findings</h3>
           <div className="status-strip stable">
-            {report.redFlags.map((flag) => <StatusBadge key={flag} status={flag} />)}
+            {report.redFlags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}
           </div>
           <p>{report.suggestedAction}</p>
         </section>

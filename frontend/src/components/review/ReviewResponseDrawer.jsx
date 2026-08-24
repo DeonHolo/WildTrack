@@ -18,7 +18,6 @@ import {
   Sparkle
 } from '@phosphor-icons/react';
 import { compactMissingSections, documentCheckStatus } from './DocumentCheckDialog.jsx';
-import { ReviewStatusBadge } from './ReviewStatusBadge.jsx';
 import {
   firstSubmissionLink,
   formatDateTime,
@@ -27,6 +26,7 @@ import {
   isDocumentCheckCurrent,
   makeDriveViewUrl
 } from '../../lib/workflow.js';
+import { StatusIndicator } from '../ui.jsx';
 
 export function ReviewResponseDrawer({
   opened,
@@ -71,7 +71,7 @@ export function ReviewResponseDrawer({
               <Text size="sm" c="dimmed" className="wt-tabular">{student.studentNumber} | {student.teamCode || response.teamCode}</Text>
               <Text size="xs" c="dimmed" mt={4}>Saved {formatDateTime(response.updatedAt || response.submittedAt)}</Text>
             </div>
-            <ReviewStatusBadge label={archived ? 'Archived' : response.reviewStatus || 'Received'} />
+            <StatusIndicator status={archived ? 'Archived' : response.reviewStatus || 'Received'} />
           </Group>
         </section>
 
@@ -83,17 +83,17 @@ export function ReviewResponseDrawer({
               target="_blank"
               rel="noreferrer"
               variant="default"
-              leftSection={<ArrowSquareOut size={17} />}
+              leftSection={<ArrowSquareOut size={17} aria-hidden="true" />}
               aria-label="Open submitted file"
             >
               Open submitted file
             </Button>
-          ) : <Badge color="red" variant="light" radius="sm">No file link</Badge>}
+          ) : <StatusIndicator status="No file link" />}
           {documentCheckEnabled ? (
             <Button
               variant="light"
               color="wildtrackMaroon"
-              leftSection={<MagnifyingGlass size={17} />}
+              leftSection={<MagnifyingGlass size={17} aria-hidden="true" />}
               loading={checkRunning}
               onClick={onDocumentCheck}
             >
@@ -116,7 +116,7 @@ export function ReviewResponseDrawer({
         <section className="wt-review-detail-section" aria-labelledby="document-check-detail-heading">
           <Group justify="space-between" gap="sm">
             <Text component="h3" id="document-check-detail-heading" fw={750}>Document Check</Text>
-            <ReviewStatusBadge label={documentCheckEnabled ? documentCheckStatus(response) : 'Not checked'} />
+            <StatusIndicator status={documentCheckEnabled ? documentCheckStatus(response) : 'Not checked'} />
           </Group>
           {documentCheckEnabled ? (
             <>
@@ -137,7 +137,7 @@ export function ReviewResponseDrawer({
         <section className="wt-review-detail-section" aria-labelledby="ai-review-detail-heading">
           <Group justify="space-between" gap="sm">
             <Text component="h3" id="ai-review-detail-heading" fw={750}>AI Review</Text>
-            <ReviewStatusBadge label={isAiReportCurrent(response) ? 'Reviewed' : 'Not reviewed'} />
+            <StatusIndicator status={isAiReportCurrent(response) ? 'Reviewed' : 'Not reviewed'} />
           </Group>
           {isAiReportCurrent(response) ? (
             <ScrollArea.Autosize mah={220} type="auto" offsetScrollbars>
@@ -173,11 +173,11 @@ export function ReviewResponseDrawer({
               Revoke acceptance
             </Button>
           ) : (
-            <Button variant="default" leftSection={<CheckCircle size={17} />} onClick={onAccept}>
+            <Button variant="default" leftSection={<CheckCircle size={17} aria-hidden="true" />} onClick={onAccept}>
               Accept response
             </Button>
           )}
-          <Button color="wildtrackMaroon" leftSection={<Archive size={17} />} disabled={!accepted || archived} onClick={onArchive}>
+          <Button color="wildtrackMaroon" leftSection={<Archive size={17} aria-hidden="true" />} disabled={!accepted || archived} onClick={onArchive}>
             {archived ? 'Archived' : 'Archive response'}
           </Button>
         </Group>

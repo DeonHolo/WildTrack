@@ -88,6 +88,9 @@ describe('forms management', () => {
 
     const table = screen.getByRole('table', { name: 'Published submission forms' });
     expect(within(table).getAllByRole('row')).toHaveLength(3);
+    within(table).getAllByText('Published').forEach((label) => {
+      expect(label.closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'success');
+    });
     expect(within(table).getByRole('link', { name: 'Open SRS submission form' })).toHaveAttribute(
       'href',
       '/w/it-it332-2025-26-semester-2/submit/week-9-srs'

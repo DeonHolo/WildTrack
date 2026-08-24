@@ -235,8 +235,13 @@ describe('student dashboard', () => {
     const source = within(deliverables).getByText('Source Code', { selector: '.wt-student-deliverable-title *' }).closest('article');
 
     expect(srs).toHaveTextContent('All 2 team members submitted');
+    expect(within(srs).getByText('Submitted').closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'success');
+    expect(within(srs).getByText('File accessible').closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'success');
     expect(sdd).toHaveTextContent('1 of 2 team members submitted');
+    expect(within(sdd).getByText('Response recorded').closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'neutral');
     expect(source).toHaveTextContent('No team members submitted');
+    expect(within(source).getByText('Not submitted').closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'neutral');
+    expect(screen.queryByText('No response has been recorded.')).not.toBeInTheDocument();
     expect(screen.queryByText(/Members with a recorded response/i)).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('teammate-private-response');
   });
@@ -281,7 +286,7 @@ describe('student dashboard', () => {
 
     expect(screen.getByText('DELA CRUZ, JUAN CARLOS M.')).toBeInTheDocument();
     expect(screen.getAllByText('juan.student@gmail.com')).toHaveLength(2);
-    expect(screen.getByRole('link', { name: 'Open submitted file link' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Open file' })).toHaveAttribute(
       'href',
       'https://drive.google.com/file/d/owned-response/view'
     );
@@ -291,7 +296,7 @@ describe('student dashboard', () => {
     expect(document.body).not.toHaveTextContent('STAFF ONLY AI ANALYSIS');
     expect(screen.queryByText(/Needs review/i)).not.toBeInTheDocument();
 
-    screen.getAllByRole('link', { name: /Open form|Edit response|Open submitted file link/i }).forEach((link) => {
+    screen.getAllByRole('link', { name: /Open form|Edit response|Open file/i }).forEach((link) => {
       expect(link).toHaveAttribute('target', '_blank');
     });
   });

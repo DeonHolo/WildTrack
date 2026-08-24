@@ -1431,10 +1431,11 @@ function parseDisplayDate(value) {
 
 export function statusTone(status) {
   const key = String(status).toLowerCase();
-  if (['pdf ok', 'accepted', 'archived', 'verified', 'on time', 'active', 'ready', 'ready for review', 'connected', 'imported', 'published'].includes(key)) return 'success';
-  if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'not checked', 'outdated', 'starter data'].includes(key)) return 'warning';
-  if (['not pdf', 'editable link', 'inaccessible', 'blocked', 'needs attention', 'could not check', 'not connected'].includes(key)) return 'danger';
-  if (['checked', 'checking', 'received', 'reviewed', 'pdf required', 'link fields', 'late', 'unpublished'].includes(key)) return 'info';
+  if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'connected', 'imported', 'published', 'submitted', 'file accessible'].includes(key)) return 'success';
+  if (['archived', 'reviewed'].includes(key)) return 'maroon';
+  if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'outdated', 'starter data', 'late', 'needs attention'].includes(key)) return 'warning';
+  if (['not pdf', 'editable link', 'inaccessible', 'blocked', 'could not check', 'no file link'].includes(key)) return 'danger';
+  if (['checked', 'checking', 'received'].includes(key)) return 'info';
   return 'neutral';
 }
 

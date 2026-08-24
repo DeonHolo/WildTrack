@@ -123,6 +123,9 @@ describe('adviser My advised teams review', () => {
     expect(screen.getByText('2 of 2 members')).toBeInTheDocument();
     expect(screen.getByText('1 shared file')).toBeInTheDocument();
     expect(screen.getByText('SRS')).toBeInTheDocument();
+    screen.getAllByText('Not checked').forEach((label) => {
+      expect(label.closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'neutral');
+    });
   });
 
   it('shows conflicting member files and lets the adviser choose the current group output', () => {

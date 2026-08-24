@@ -85,8 +85,10 @@ describe('workspace operations', () => {
     expect(within(sources).getByText(/Student identities and team membership/)).toBeInTheDocument();
     expect(within(sources).getByText(/Progress, deliverables, and deadline row/)).toBeInTheDocument();
     expect(within(sources).getByText(/Project titles, advisers, and remarks/)).toBeInTheDocument();
-    expect(within(sources).getByText('Imported')).toBeInTheDocument();
-    expect(within(sources).getAllByText('Not connected')).toHaveLength(2);
+    expect(within(sources).getByText('Imported').closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'success');
+    within(sources).getAllByText('Not connected').forEach((label) => {
+      expect(label.closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'neutral');
+    });
   });
 
   it('shows source-specific mapping, missing, optional, unrecognized, skipped, and deadline details', async () => {

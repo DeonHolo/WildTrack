@@ -21,6 +21,15 @@ async function expectNoPageOverflow(page) {
   expect(overflows).toBe(false);
 }
 
+async function expectStatusIndicatorsReadable(page) {
+  const indicators = page.locator('.wt-status-indicator');
+  expect(await indicators.count()).toBeGreaterThan(0);
+  const clippedLabels = await indicators.locator('.wt-status-indicator-label').evaluateAll((labels) => (
+    labels.filter((label) => label.scrollWidth > label.clientWidth + 1).map((label) => label.textContent)
+  ));
+  expect(clippedLabels).toEqual([]);
+}
+
 async function expectRenderedArtwork(locator, expectedFile) {
   await expect(locator).toBeVisible();
   const result = await locator.evaluate((element, fileName) => {
@@ -124,15 +133,34 @@ test('admin review opens in the staff shell without page-level clipping', async 
 
   await expect(page.getByRole('heading', { name: 'Submission review' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Staff navigation' })).toBeVisible();
+  await expectStatusIndicatorsReadable(page);
   await expectNoPageOverflow(page);
 });
 
+test('compact statuses remain readable in narrow staff tables', async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 912 });
+  await openAs(page, 'admin', '/forms');
+  await expect(page.getByRole('heading', { name: 'Forms', exact: true })).toBeVisible();
+  await expectStatusIndicatorsReadable(page);
+
+  await page.goto('/workspace');
+  await expect(page.getByRole('heading', { name: 'Workspace setup', exact: true })).toBeVisible();
+  await expectStatusIndicatorsReadable(page);
+});
+
 test('adviser lands on assigned-team review', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.setViewportSize({ width: 1600, height: 900 });
   await openAs(page, 'adviser', '/adviser');
 
   await expect(page.getByRole('heading', { name: 'My advised teams' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Staff navigation' })).toBeVisible();
+  await expectStatusIndicatorsReadable(page);
+
+  const feedback = page.getByRole('textbox', { name: 'Feedback for student' });
+  await feedback.scrollIntoViewIfNeeded();
+  const editorBox = await page.locator('.wt-adviser-feedback-editor').boundingBox();
+  const detailBox = await page.locator('.wt-adviser-output-detail').boundingBox();
+  expect(Math.abs((editorBox.x + editorBox.width / 2) - (detailBox.x + detailBox.width / 2))).toBeLessThanOrEqual(2);
   await expectNoPageOverflow(page);
 });
 
@@ -162,6 +190,10 @@ for (const viewport of artworkViewports) {
       page.getByRole('img', { name: 'WildTrack mascot waving' }),
       'Waving.webp'
     );
+    await expectStatusIndicatorsReadable(page);
+    const submittedDetail = page.locator('.wt-student-deliverable-detail').first();
+    await expect(submittedDetail).toBeVisible();
+    expect(await submittedDetail.evaluate((element) => getComputedStyle(element).borderTopStyle)).toBe('none');
     await expectNoPageOverflow(page);
   });
 }

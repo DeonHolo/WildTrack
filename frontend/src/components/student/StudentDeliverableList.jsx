@@ -1,7 +1,8 @@
-import { Badge, Button, Group, Modal, Paper, SegmentedControl, Stack, Text, ThemeIcon, Title } from '@mantine/core';
-import { ArrowSquareOut, CheckCircle, FilePdf, NotePencil, WarningCircle } from '@phosphor-icons/react';
+import { Button, Group, Modal, Paper, SegmentedControl, Stack, Text, Title } from '@mantine/core';
+import { ArrowSquareOut, NotePencil } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { formatDate, formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
+import { StatusIndicator } from '../ui.jsx';
 
 const FILTERS = [
   { label: 'All', value: 'all' },
@@ -53,21 +54,20 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
               </div>
 
               <div className="wt-student-deliverable-state">
-                <StatusBadge status={row.status} />
+                <StatusIndicator status={row.status} />
                 {row.savedAt ? <Text size="xs" c="dimmed">Saved {formatDateTime(row.savedAt)}</Text> : null}
                 <Text size="xs" c="dimmed" className="wt-nowrap wt-tabular">
                   {formatTeamProgress(row.teamProgress)}
                 </Text>
               </div>
 
-              <div className="wt-student-deliverable-detail">
+              {row.response || row.recorded ? <div className="wt-student-deliverable-detail">
                 {row.response ? (
                   <>
-                    <Group gap={7} wrap="nowrap">
-                      <FileCheckIcon tone={row.fileCheck.tone} />
-                      <Text size="sm" fw={650}>{row.fileCheck.label}</Text>
-                    </Group>
-                    <Text size="sm" c="dimmed" lineClamp={2}>{row.fileCheck.summary}</Text>
+                    <div className="wt-student-document-check-line">
+                      <StatusIndicator status={row.fileCheck.label} />
+                      <Text size="sm" c="dimmed" lineClamp={2}>{row.fileCheck.summary}</Text>
+                    </div>
                     <Group gap="md" mt={4}>
                       {row.documentCheck ? (
                         <Button variant="subtle" size="compact-sm" color="wildtrackMaroon" onClick={() => setActiveCheck(row)}>
@@ -83,10 +83,8 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
                   </>
                 ) : row.recorded ? (
                   <Text size="sm" c="dimmed">A response is recorded for this Student Number. Its private details belong to the Google account that submitted it.</Text>
-                ) : (
-                  <Text size="sm" c="dimmed">No response has been recorded.</Text>
-                )}
-              </div>
+                ) : null}
+              </div> : null}
 
               <Group className="wt-student-deliverable-actions" gap="xs" justify="flex-end" wrap="wrap">
                 {row.link ? (
@@ -96,9 +94,9 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
                     target="_blank"
                     rel="noreferrer"
                     variant="default"
-                    leftSection={<ArrowSquareOut size={17} />}
+                    leftSection={<ArrowSquareOut size={17} aria-hidden="true" />}
                   >
-                    Open submitted file link
+                    Open file
                   </Button>
                 ) : null}
                 <Button
@@ -108,7 +106,7 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
                   rel="noreferrer"
                   color={row.response ? 'wildtrackMaroon' : 'wildtrackGold'}
                   variant={row.response ? 'outline' : 'filled'}
-                  leftSection={row.response ? <NotePencil size={17} /> : <ArrowSquareOut size={17} />}
+                  leftSection={row.response ? <NotePencil size={17} aria-hidden="true" /> : <ArrowSquareOut size={17} aria-hidden="true" />}
                 >
                   {row.response ? 'Edit response' : 'Open form'}
                 </Button>
@@ -153,17 +151,6 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
       </Modal>
     </Paper>
   );
-}
-
-function StatusBadge({ status }) {
-  const tone = status === 'Accepted' ? 'green' : status === 'Not submitted' ? 'gray' : 'blue';
-  return <Badge color={tone} variant="light" radius="sm" tt="none">{status}</Badge>;
-}
-
-function FileCheckIcon({ tone }) {
-  if (tone === 'success') return <CheckCircle size={18} color="#267a59" weight="fill" aria-hidden="true" />;
-  if (tone === 'warning' || tone === 'danger') return <WarningCircle size={18} color="#a84a1f" weight="fill" aria-hidden="true" />;
-  return <FilePdf size={18} color="#6b5d62" aria-hidden="true" />;
 }
 
 function DocumentCheckDetails({ row }) {

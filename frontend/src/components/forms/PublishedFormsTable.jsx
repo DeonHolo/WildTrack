@@ -1,7 +1,6 @@
 import {
   ActionIcon,
   Anchor,
-  Badge,
   Button,
   Group,
   Paper,
@@ -13,6 +12,7 @@ import {
 } from '@mantine/core';
 import { CheckCircle, Copy, PencilSimple, Prohibit } from '@phosphor-icons/react';
 import { formatDate, formatTime } from '../../lib/workflow.js';
+import { StatusIndicator } from '../ui.jsx';
 
 export function PublishedFormsTable({
   deliverables,
@@ -72,7 +72,7 @@ export function PublishedFormsTable({
                             aria-label={`Copy ${item.shortTitle} form link`}
                             onClick={() => onCopy(item, path)}
                           >
-                            <Copy size={17} />
+                            <Copy size={17} aria-hidden="true" />
                           </ActionIcon>
                         </Tooltip>
                         <Anchor
@@ -88,16 +88,14 @@ export function PublishedFormsTable({
                       </Group>
                     </Table.Td>
                     <Table.Td>
-                      <Badge color={published ? 'green' : 'gray'} variant="light" radius="sm">
-                        {published ? 'Published' : 'Unpublished'}
-                      </Badge>
+                      <StatusIndicator status={published ? 'Published' : 'Unpublished'} />
                     </Table.Td>
                     <Table.Td className="wt-forms-actions-column">
                       <Group gap="xs" wrap="nowrap" className="wt-form-row-actions">
                         <Button
                           variant="default"
                           size="sm"
-                          leftSection={<PencilSimple size={16} />}
+                          leftSection={<PencilSimple size={16} aria-hidden="true" />}
                           aria-label={`Edit ${item.shortTitle} form`}
                           onClick={() => onEdit(item)}
                         >
@@ -108,7 +106,7 @@ export function PublishedFormsTable({
                             variant="subtle"
                             color="red"
                             size="sm"
-                            leftSection={<Prohibit size={16} />}
+                            leftSection={<Prohibit size={16} aria-hidden="true" />}
                             aria-label={`Unpublish ${item.shortTitle} form`}
                             onClick={() => onUnpublish(item)}
                           >
@@ -119,7 +117,7 @@ export function PublishedFormsTable({
                             variant="light"
                             color="green"
                             size="sm"
-                            leftSection={<CheckCircle size={16} />}
+                            leftSection={<CheckCircle size={16} aria-hidden="true" />}
                             aria-label={`Republish ${item.shortTitle} form`}
                             onClick={() => onRepublish(item)}
                           >
