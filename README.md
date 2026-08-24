@@ -36,12 +36,10 @@ PostgreSQL is not required for local use. The default backend uses an H2 databas
 For a new copy:
 
 ```powershell
-git clone <repository-url> WildTrack
+git clone https://github.com/DeonHolo/WildTrack.git
 cd WildTrack
 git switch main
 ```
-
-Replace `<repository-url>` with the HTTPS clone URL shown on the repository's GitHub page.
 
 For an existing copy:
 
