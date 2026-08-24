@@ -246,6 +246,17 @@ describe('student dashboard', () => {
     expect(document.body).not.toHaveTextContent('teammate-private-response');
   });
 
+  it('explains numeric tracker values with one concise shared tooltip', async () => {
+    associateAccount();
+    renderDashboard();
+
+    const help = screen.getByRole('button', { name: 'Explain tracker values' });
+    fireEvent.focus(help);
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Numbers show days late. 0 means submitted on time.');
+    expect(screen.getAllByRole('button', { name: 'Explain tracker values' })).toHaveLength(1);
+  });
+
   it('welcomes the connected student with useful progress and student-facing artwork', () => {
     associateAccount();
     renderDashboard();

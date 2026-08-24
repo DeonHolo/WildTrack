@@ -15,7 +15,7 @@ import {
   Table,
   Trash
 } from '@phosphor-icons/react';
-import { Badge, Checkbox, Collapse, Input, Modal, NativeSelect, Tabs, TextInput } from '@mantine/core';
+import { Badge, Button as MantineButton, Checkbox, Collapse, Input, Modal, NativeSelect, Tabs, TextInput, Tooltip } from '@mantine/core';
 import { useSearchParams } from 'react-router-dom';
 import { Button, ConfirmDialog, PageHeader, StatusIndicator } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
@@ -332,15 +332,20 @@ export function WorkspacePage() {
                   </td>
                   <td><StatusIndicator status={source.status || 'Not connected'} /></td>
                   <td>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      icon={LinkSimple}
-                      loading={importing === source.key}
-                      onClick={() => importSource(source.key)}
-                    >
-                      {source.importLabel}
-                    </Button>
+                    <Tooltip label={source.importLabel} withArrow openDelay={350}>
+                      <MantineButton
+                        type="button"
+                        variant="default"
+                        color="wildtrackMaroon"
+                        size="sm"
+                        aria-label={source.importLabel}
+                        leftSection={<LinkSimple size={16} aria-hidden="true" />}
+                        loading={importing === source.key}
+                        onClick={() => importSource(source.key)}
+                      >
+                        Import
+                      </MantineButton>
+                    </Tooltip>
                   </td>
                 </tr>
               ))}

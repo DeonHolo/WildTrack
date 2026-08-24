@@ -89,6 +89,10 @@ describe('workspace operations', () => {
     within(sources).getAllByText('Not connected').forEach((label) => {
       expect(label.closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'neutral');
     });
+    expect(within(sources).getAllByText('Import')).toHaveLength(3);
+    expect(within(sources).getByRole('button', { name: 'Import Team Formation' })).toHaveClass('mantine-Button-root');
+    expect(within(sources).getByRole('button', { name: 'Import Tracker' })).toHaveClass('mantine-Button-root');
+    expect(within(sources).getByRole('button', { name: 'Import Project Monitor' })).toHaveClass('mantine-Button-root');
   });
 
   it('shows source-specific mapping, missing, optional, unrecognized, skipped, and deadline details', async () => {

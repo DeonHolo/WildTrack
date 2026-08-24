@@ -1,4 +1,7 @@
-import { Paper, Text, Title } from '@mantine/core';
+import { ActionIcon, Group, Paper, Text, Title, Tooltip } from '@mantine/core';
+import { Info } from '@phosphor-icons/react';
+
+const TRACKER_VALUE_HELP = 'Numbers show days late. 0 means submitted on time.';
 
 export function StudentProgressPanel({ activeColumns, student }) {
   return (
@@ -12,7 +15,20 @@ export function StudentProgressPanel({ activeColumns, student }) {
 
       <div className="wt-student-progress-body">
         <section aria-labelledby="personal-tracker-heading">
-          <Text id="personal-tracker-heading" fw={750} mb="sm">Your tracker values</Text>
+          <Group gap={6} mb="sm" wrap="nowrap">
+            <Text id="personal-tracker-heading" fw={750}>Your tracker values</Text>
+            <Tooltip label={TRACKER_VALUE_HELP} withArrow events={{ hover: true, focus: true, touch: true }}>
+              <ActionIcon
+                aria-label="Explain tracker values"
+                color="wildtrackMaroon"
+                radius="sm"
+                size={30}
+                variant="subtle"
+              >
+                <Info size={16} aria-hidden="true" />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
           {activeColumns.length ? (
             <dl className="wt-personal-tracker-values">
               {activeColumns.map((column) => (

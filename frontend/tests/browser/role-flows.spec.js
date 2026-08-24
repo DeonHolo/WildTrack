@@ -148,6 +148,22 @@ test('compact statuses remain readable in narrow staff tables', async ({ page })
   await expectStatusIndicatorsReadable(page);
 });
 
+test('workspace source imports fit at desktop width', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openAs(page, 'admin', '/workspace');
+
+  const sourceTable = page.getByRole('table', { name: 'Workspace source sheets' });
+  await expect(sourceTable).toBeVisible();
+  for (const name of ['Import Team Formation', 'Import Tracker', 'Import Project Monitor']) {
+    const action = sourceTable.getByRole('button', { name });
+    await expect(action).toBeVisible();
+    await expect(action).toHaveText('Import');
+  }
+  expect(await page.locator('.wt-source-table-wrap').evaluate((element) => (
+    element.scrollWidth <= element.clientWidth + 1
+  ))).toBe(true);
+});
+
 test('adviser lands on assigned-team review', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await openAs(page, 'adviser', '/adviser');
@@ -191,6 +207,9 @@ for (const viewport of artworkViewports) {
       'Waving.webp'
     );
     await expectStatusIndicatorsReadable(page);
+    const trackerHelp = page.getByRole('button', { name: 'Explain tracker values' });
+    await trackerHelp.focus();
+    await expect(page.getByRole('tooltip')).toHaveText('Numbers show days late. 0 means submitted on time.');
     const submittedDetail = page.locator('.wt-student-deliverable-detail').first();
     await expect(submittedDetail).toBeVisible();
     expect(await submittedDetail.evaluate((element) => getComputedStyle(element).borderTopStyle)).toBe('none');
