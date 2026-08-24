@@ -71,17 +71,18 @@ export function loadStudentAccounts(fallback = []) {
   }
 }
 
-export function saveStudentAccounts(accounts) {
-  localStorage.setItem(STUDENT_ACCOUNTS_KEY, JSON.stringify(accounts || []));
+// Ticket 09: account identities and Google subjects never persist to browser storage.
+export function saveStudentAccounts() {
+  // Intentionally empty. Accounts live only in memory and on the backend session.
 }
 
 export function loadActiveStudentAccountEmail(fallback = '') {
   return readStorageWithMigration(ACTIVE_STUDENT_ACCOUNT_KEY, '.v2.active-student-account') || fallback || '';
 }
 
-export function saveActiveStudentAccountEmail(email) {
-  if (email) localStorage.setItem(ACTIVE_STUDENT_ACCOUNT_KEY, email);
-  else localStorage.removeItem(ACTIVE_STUDENT_ACCOUNT_KEY);
+// Ticket 09: active account email is session-scoped in memory, not browser storage.
+export function saveActiveStudentAccountEmail() {
+  // Intentionally empty.
 }
 
 export function materializeStudentSession(workflowState, workspaceId) {
@@ -1451,3 +1452,5 @@ export function firstSubmissionLink(values) {
 export function deliverableUsesDocumentCheck(deliverable) {
   return Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
 }
+
+
