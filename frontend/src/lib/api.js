@@ -88,13 +88,15 @@ export async function importSheetSource(sourceType, payload, workspaceId) {
 
 export async function getBackendSnapshot(workspaceId) {
   const scoped = (path) => withWorkspace(path, workspaceId);
-  const [students, projects, trackerColumns, trackerRows, deliverables, templates] = await Promise.all([
-    request(scoped('/students')),
-    request(scoped('/projects')),
-    request(scoped('/tracker/columns')),
-    request(scoped('/tracker/rows')),
-    request(scoped('/deliverables')),
-    request(scoped('/templates'))
+  const [students, projects, trackerColumns, trackerRows, deliverables, templates, sources, staffResponses] = await Promise.all([
+    request(scoped('/students')).catch(() => []),
+    request(scoped('/projects')).catch(() => []),
+    request(scoped('/tracker/columns')).catch(() => []),
+    request(scoped('/tracker/rows')).catch(() => []),
+    request(scoped('/deliverables')).catch(() => []),
+    request(scoped('/templates')).catch(() => []),
+    request(scoped('/workspace/sources')).catch(() => []),
+    request(scoped('/workspace/responses/staff')).catch(() => [])
   ]);
 
   return {
@@ -103,8 +105,26 @@ export async function getBackendSnapshot(workspaceId) {
     trackerColumns,
     trackerRows,
     deliverables,
-    templates
+    templates,
+    sources,
+    staffResponses
   };
+}
+
+export async function saveBackendDeliverable(workspaceId, payload) {
+  const dueAtIso = String(payload.dueAt || '').replace(/[+-]\d\d:\d\d$|Z$/i, '');
+  return request(withWorkspace('/deliverables', workspaceId), {
+    method: 'POST',
+    body: {
+      trackerColumnKey: payload.trackerColumn || payload.shortTitle || payload.trackerColumnKey,
+      title: payload.title || payload.shortTitle,
+      slug: payload.slug,
+      instructions: payload.instructions || '',
+      dueAt: dueAtIso.length === 16 ? `${dueAtIso}:00` : dueAtIso || '2026-04-18T23:59:00',
+      pdfRequired: Boolean(payload.pdfRequired || payload.fields?.some((f) => f.pdfRequired || f.type === 'drive')),
+      status: String(payload.status || 'PUBLISHED').toUpperCase()
+    }
+  });
 }
 
 export async function getDriveConnectionStatus() {

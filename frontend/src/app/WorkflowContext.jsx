@@ -44,6 +44,7 @@ import {
   importSheetSource as importBackendSheetSource,
   logout as apiLogout,
   runDocumentCheck as requestDocumentCheck,
+  saveBackendDeliverable,
   uploadDocumentTemplate,
   uploadDriveDocumentTemplate,
   writeTrackerValue
@@ -191,6 +192,10 @@ export function WorkflowProvider({ children }) {
   }, [state]);
 
   const publishDeliverable = useCallback((payload) => {
+    const workspaceId = activeWorkspaceRef.current;
+    if (workspaceId) {
+      saveBackendDeliverable(workspaceId, payload).catch(() => null);
+    }
     setState((current) => {
       const existingDeliverable = findDeliverableForUpsert(current.deliverables, payload);
       const trackerColumn = getTrackerColumn(current, payload.trackerColumn);
@@ -280,6 +285,7 @@ export function WorkflowProvider({ children }) {
 
   const generateFormsFromSuggestions = useCallback((suggestions = []) => {
     if (!suggestions.length) return;
+    const workspaceId = activeWorkspaceRef.current;
     setState((current) => {
       const now = Date.now();
       const nextDeliverables = [...current.deliverables];
@@ -315,6 +321,9 @@ export function WorkflowProvider({ children }) {
             ? [{ id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', required: true, pdfRequired: true }]
             : [{ id: 'primaryLink', label: 'Submission Link', type: 'url', required: true, pdfRequired: false }]
         };
+        if (workspaceId) {
+          saveBackendDeliverable(workspaceId, deliverable).catch(() => null);
+        }
         if (existingIndex >= 0) nextDeliverables[existingIndex] = deliverable;
         else nextDeliverables.push(deliverable);
         created.push(shortTitle);
@@ -1104,13 +1113,23 @@ async function buildArchiveRecord(state, attempt, index, workspace) {
 
 function applyBackendSnapshot(current, snapshot, options = {}) {
   const mapped = mapBackendSnapshot(snapshot);
+  const nextSources = {
+    ...(current.classRecord?.sources || {}),
+    ...(mapped.sources || {})
+  };
+  const hasSources = Object.keys(mapped.sources || {}).length > 0;
   return {
     ...current,
     ...(mapped.students.length ? { students: mapped.students } : {}),
     ...(mapped.trackerColumns.length ? { trackerColumns: mapped.trackerColumns } : {}),
     ...(mapped.projectMetadata.length ? { projectMetadata: mapped.projectMetadata } : {}),
     ...(mapped.deliverables.length ? { deliverables: sortDeliverables(current, mergeDeliverables(current.deliverables, mapped.deliverables)) } : {}),
+    ...(mapped.attempts.length ? { attempts: mapped.attempts } : {}),
     templates: mapped.templates,
+    classRecord: {
+      ...current.classRecord,
+      ...(hasSources ? { sources: nextSources } : {})
+    },
     backendSync: {
       enabled: options.enabled ?? true,
       apiBaseUrl: getApiBaseUrl(),
@@ -1252,12 +1271,51 @@ function mapBackendSnapshot(snapshot) {
   }));
   const templates = (snapshot.templates || []).map(mapBackendTemplate);
 
+  const sources = {};
+  for (const source of snapshot.sources || []) {
+    const key = source.sourceType === 'TEAM_FORMATION' ? 'teamFormation'
+      : source.sourceType === 'PROJECT_MONITOR' ? 'projectMonitor'
+      : 'tracker';
+    sources[key] = {
+      status: source.status === 'IMPORTED' ? 'Imported' : source.status === 'CONNECTED' ? 'Connected' : 'Starter data',
+      sheetUrl: source.sheetUrl || '',
+      displayName: source.displayName || '',
+      connectedAt: source.connectedAt || ''
+    };
+  }
+
+  const attempts = (snapshot.staffResponses || []).map((resp) => {
+    let values = {};
+    try {
+      values = typeof resp.valuesJson === 'string' ? JSON.parse(resp.valuesJson) : resp.valuesJson || {};
+    } catch {
+      values = {};
+    }
+    return {
+      id: resp.id,
+      deliverableId: resp.deliverableId,
+      studentNumber: resp.studentNumber,
+      studentName: resp.studentName,
+      teamCode: resp.teamCode,
+      googleSubject: resp.googleSubject,
+      googleEmailSnapshot: resp.googleEmail,
+      submittedAt: resp.submittedAt,
+      updatedAt: resp.updatedAt,
+      values,
+      flags: [],
+      reviewStatus: 'Received',
+      primaryStatus: 'Received'
+    };
+  });
+
   return {
     students,
     trackerColumns,
     projectMetadata,
     deliverables,
-    templates
+    templates,
+    sources,
+    attempts
   };
 }
 
