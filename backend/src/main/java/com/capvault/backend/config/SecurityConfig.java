@@ -14,6 +14,9 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import com.capvault.backend.auth.WildTrackSessionAuthenticationFilter;
+import com.capvault.backend.auth.WildTrackSessionService;
+import com.capvault.backend.staff.StaffAccessResolver;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,6 +25,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -37,8 +41,14 @@ public class SecurityConfig {
     private static final Map<String, Window> SIGN_IN_WINDOWS = new ConcurrentHashMap<>();
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(
+        HttpSecurity http,
+        WildTrackSessionService sessionService,
+        StaffAccessResolver staffAccessResolver
+    ) throws Exception {
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
+        WildTrackSessionAuthenticationFilter sessionFilter = new WildTrackSessionAuthenticationFilter(sessionService, staffAccessResolver);
+
         return http
             .csrf(csrf -> csrf
                 .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
@@ -56,6 +66,7 @@ public class SecurityConfig {
                 .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
                 .permissionsPolicy(permissions -> permissions.policy("camera=(), microphone=(), geolocation=()")))
             .addFilterBefore(signInThrottle(SIGN_IN_WINDOWS), CsrfFilter.class)
+            .addFilterBefore(sessionFilter, UsernamePasswordAuthenticationFilter.class)
             .build();
     }
 

@@ -46,6 +46,6 @@ class ProductionProfileContractTest {
         assertThat(production.getProperty("wildtrack.session.secure-cookie")).isEqualTo(true);
         assertThat(production.getProperty("wildtrack.google.identity.enabled")).isEqualTo(true);
         assertThat(production.getProperty("capvault.cors.allowed-origins"))
-            .isEqualTo("${CAPVAULT_CORS_ALLOWED_ORIGINS:https://wildtrack.dev}");
+            .isEqualTo("${CAPVAULT_CORS_ALLOWED_ORIGINS:https://wildtrack.dev,https://www.wildtrack.dev}");
     }
 }

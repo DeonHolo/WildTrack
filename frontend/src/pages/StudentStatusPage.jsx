@@ -1,6 +1,6 @@
-import { Alert, Button, Container, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { Alert, Badge, Button, Container, Modal, NativeSelect, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { modals } from '@mantine/modals';
-import { ArrowClockwise, WarningCircle } from '@phosphor-icons/react';
+import { ArrowClockwise, Buildings, WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
 import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 import { StudentIdentityPanel } from '../components/public/StudentIdentityPanel.jsx';
@@ -27,7 +27,10 @@ import { getMyAssociation, disconnectStudentAssociation } from '../lib/api.js';
 export function StudentStatusPage() {
   const {
     state,
+    workspaces,
     activeWorkspace,
+    activeWorkspaceId,
+    switchWorkspace,
     claimStudentNumber,
     disconnectStudentNumber,
     authenticateGoogleAccount,
@@ -37,6 +40,7 @@ export function StudentStatusPage() {
   const [connectionError, setConnectionError] = useState('');
   const [signInError, setSignInError] = useState('');
   const [backendAssociation, setBackendAssociation] = useState(null);
+  const [switchSectionModalOpen, setSwitchSectionModalOpen] = useState(false);
   // Ticket 03: the dashboard identity section is composed from the backend association.
   useEffect(() => {
     let cancelled = false;
@@ -167,29 +171,102 @@ export function StudentStatusPage() {
           </header>
           {connectionOptions.length ? (
             <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
-            <StudentIdentityPanel
-              students={connectionOptions}
-              student={selectedStudent}
-              value={selectedNumber}
-              activeAccount={activeAccount}
-              returning={false}
-              onChange={(value, selected) => {
-                setSelectedNumber(selected?.studentNumber || value);
-                setConnectionError('');
-              }}
-            />
-            {connectionError ? <Alert color="red" mt="md" icon={<WarningCircle size={18} />}>{connectionError}</Alert> : null}
-            <Button mt="lg" color="wildtrackMaroon" disabled={!selectedStudent} onClick={connectSelectedRecord}>
-              Connect student record
-            </Button>
+              {workspaces && workspaces.length > 1 ? (
+                <div className="wt-student-section-picker">
+                  <NativeSelect
+                    label="Capstone section"
+                    description="Make sure you are viewing your enrolled capstone section."
+                    value={activeWorkspaceId}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      if (value && value !== activeWorkspaceId) {
+                        setSelectedNumber('');
+                        setConnectionError('');
+                        switchWorkspace(value);
+                      }
+                    }}
+                    data={workspaces.map((w) => ({
+                      value: w.id,
+                      label: `${w.program || 'Capstone'} — ${w.name}`
+                    }))}
+                    leftSection={<Buildings size={18} aria-hidden="true" />}
+                    mb="md"
+                  />
+                </div>
+              ) : null}
+              <StudentIdentityPanel
+                students={connectionOptions}
+                student={selectedStudent}
+                value={selectedNumber}
+                activeAccount={activeAccount}
+                returning={false}
+                onChange={(value, selected) => {
+                  setSelectedNumber(selected?.studentNumber || value);
+                  setConnectionError('');
+                }}
+              />
+              {connectionError ? <Alert color="red" mt="md" icon={<WarningCircle size={18} />}>{connectionError}</Alert> : null}
+              <Button mt="lg" color="wildtrackMaroon" disabled={!selectedStudent} onClick={connectSelectedRecord}>
+                Connect student record
+              </Button>
             </Paper>
           ) : identityStudents.length ? (
-            <StudentDataUnavailable
-              title="No student records are available to connect"
-              error="Every Student Number in this workspace is already associated with another account. Ask the administrator to review the account records."
-            />
+            <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
+              {workspaces && workspaces.length > 1 ? (
+                <div className="wt-student-section-picker">
+                  <NativeSelect
+                    label="Capstone section"
+                    description="Make sure you are viewing your enrolled capstone section."
+                    value={activeWorkspaceId}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      if (value && value !== activeWorkspaceId) {
+                        setSelectedNumber('');
+                        setConnectionError('');
+                        switchWorkspace(value);
+                      }
+                    }}
+                    data={workspaces.map((w) => ({
+                      value: w.id,
+                      label: `${w.program || 'Capstone'} — ${w.name}`
+                    }))}
+                    leftSection={<Buildings size={18} aria-hidden="true" />}
+                    mb="md"
+                  />
+                </div>
+              ) : null}
+              <StudentDataUnavailable
+                title="No student records are available to connect"
+                error="Every Student Number in this workspace is already associated with another account. Ask the administrator to review the account records."
+              />
+            </Paper>
           ) : (
-            <StudentDataUnavailable error={loadError} onRetry={refreshBackendData} />
+            <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
+              {workspaces && workspaces.length > 1 ? (
+                <div className="wt-student-section-picker">
+                  <NativeSelect
+                    label="Capstone section"
+                    description="Make sure you are viewing your enrolled capstone section."
+                    value={activeWorkspaceId}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      if (value && value !== activeWorkspaceId) {
+                        setSelectedNumber('');
+                        setConnectionError('');
+                        switchWorkspace(value);
+                      }
+                    }}
+                    data={workspaces.map((w) => ({
+                      value: w.id,
+                      label: `${w.program || 'Capstone'} — ${w.name}`
+                    }))}
+                    leftSection={<Buildings size={18} aria-hidden="true" />}
+                    mb="md"
+                  />
+                </div>
+              ) : null}
+              <StudentDataUnavailable error={loadError} onRetry={refreshBackendData} />
+            </Paper>
           )}
         </div>
       </DashboardContainer>
@@ -212,7 +289,22 @@ export function StudentStatusPage() {
   return (
     <DashboardContainer>
       <header className="wt-student-page-heading">
-        <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">{activeWorkspace?.name}</Text>
+        <div className="wt-student-heading-section-row">
+          <Badge variant="light" color="wildtrackMaroon" size="sm">
+            {activeWorkspace?.program || 'Capstone'} · {activeWorkspace?.courseCode || activeWorkspace?.name}
+          </Badge>
+          {workspaces && workspaces.length > 1 ? (
+            <Button
+              variant="subtle"
+              size="compact-xs"
+              color="gray"
+              leftSection={<Buildings size={14} aria-hidden="true" />}
+              onClick={() => setSwitchSectionModalOpen(true)}
+            >
+              Switch section
+            </Button>
+          ) : null}
+        </div>
         <Title order={1}>Student Dashboard</Title>
         <Text c="dimmed">Your submissions, adviser feedback, and class-record progress in one place.</Text>
       </header>
@@ -228,6 +320,38 @@ export function StudentStatusPage() {
       />
       <StudentDeliverableList rows={deliverableRows} workspaceKey={workspaceKey} studentNumber={student.studentNumber} />
       <StudentProgressPanel activeColumns={activeColumns} student={student} />
+
+      {workspaces && workspaces.length > 1 ? (
+        <Modal
+          opened={switchSectionModalOpen}
+          onClose={() => setSwitchSectionModalOpen(false)}
+          title="Switch Capstone Section"
+          centered
+          size="sm"
+        >
+          <Stack gap="md">
+            <Text size="sm" c="dimmed">
+              Select another academic workspace to view your deliverables and progress for that course.
+            </Text>
+            <NativeSelect
+              label="Enrolled section"
+              value={activeWorkspaceId}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                if (value && value !== activeWorkspaceId) {
+                  switchWorkspace(value);
+                  setSwitchSectionModalOpen(false);
+                }
+              }}
+              data={workspaces.map((w) => ({
+                value: w.id,
+                label: `${w.program || 'Capstone'} — ${w.name}`
+              }))}
+              leftSection={<Buildings size={18} aria-hidden="true" />}
+            />
+          </Stack>
+        </Modal>
+      ) : null}
     </DashboardContainer>
   );
 }

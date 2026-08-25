@@ -410,13 +410,41 @@ export function WorkflowProvider({ children }) {
       account,
       ...accounts.filter((item) => item.id !== account.id && item.googleSubject !== googleSubject && item.email.toLowerCase() !== email)
     ];
-    const claim = account.workspaceClaims?.[activeWorkspaceRef.current];
+
+    let targetWorkspaceId = activeWorkspaceRef.current;
+    if (!account.workspaceClaims?.[targetWorkspaceId]) {
+      const existingClaimedWorkspaceId = Object.keys(account.workspaceClaims || {})[0];
+      if (existingClaimedWorkspaceId && workspaces?.some((w) => w.id === existingClaimedWorkspaceId)) {
+        targetWorkspaceId = existingClaimedWorkspaceId;
+      } else {
+        const currentMatch = (state.students || []).some((s) => (s.institutionalEmail || s.email || '').toLowerCase() === email);
+        if (!currentMatch && Array.isArray(workspaces)) {
+          for (const ws of workspaces) {
+            if (ws.id === targetWorkspaceId) continue;
+            const wsState = loadWorkflowState(ws.id, ws);
+            const found = (wsState.students || []).some((s) => (s.institutionalEmail || s.email || '').toLowerCase() === email);
+            if (found) {
+              targetWorkspaceId = ws.id;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (targetWorkspaceId !== activeWorkspaceRef.current) {
+      activeWorkspaceRef.current = targetWorkspaceId;
+      setActiveWorkspaceId(targetWorkspaceId);
+      saveActiveWorkspaceId(targetWorkspaceId);
+    }
+
+    const claim = account.workspaceClaims?.[targetWorkspaceId];
 
     saveStudentAccounts(nextAccounts);
     saveActiveStudentAccountEmail(account.email);
     refreshSession();
     setState((current) => materializeStudentSession({
-      ...current,
+      ...(targetWorkspaceId !== current.workspaceId ? loadWorkflowState(targetWorkspaceId, workspaces?.find((w) => w.id === targetWorkspaceId)) : current),
       studentAccounts: nextAccounts,
       activeAccountEmail: account.email,
       activeStudentNumber: claim?.studentNumber || '',
@@ -425,10 +453,10 @@ export function WorkflowProvider({ children }) {
         at: authenticatedAt,
         text: `${account.email} signed in with Google.`
       }, ...current.activity]
-    }, activeWorkspaceRef.current));
+    }, targetWorkspaceId));
 
     return { ok: true, account };
-  }, [refreshSession, state.studentAccounts]);
+  }, [refreshSession, state.studentAccounts, state.students, workspaces]);
 
   const logoutStudentAccount = useCallback(() => {
     disableGoogleAutoSelect();
