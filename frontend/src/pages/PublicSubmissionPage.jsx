@@ -329,7 +329,6 @@ export function PublicSubmissionPage() {
               <form onSubmit={submit} noValidate>
                 <Stack gap="xl">
                   <Stack gap="md">
-                    <Text className="wt-form-eyebrow">{deliverable.shortTitle} submission</Text>
                     <Title order={1} className="wt-form-title">{deliverable.title}</Title>
                     <Text className="wt-form-instructions">{deliverable.instructions}</Text>
                     <Group className="wt-form-meta" gap="lg" wrap="wrap">

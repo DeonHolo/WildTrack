@@ -2988,15 +2988,104 @@ html {
   }
 }
 
-/* Google identity access */
+/* Google identity access & login experience */
 .wt-student-access-page {
   min-height: calc(100dvh - 68px);
   background: var(--wt-bg);
-  padding: clamp(40px, 8vh, 88px) 20px 72px;
+  padding: clamp(32px, 6vh, 64px) 20px 72px;
 }
 
 .wt-student-access-container {
   width: 100%;
+  max-width: 640px;
+}
+
+.wt-login-banner {
+  position: relative;
+  display: grid;
+  min-height: 168px;
+  grid-template-columns: minmax(0, 1fr) clamp(180px, 32%, 240px);
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--wt-maroon-deep);
+  border-radius: 8px;
+  background-color: var(--wt-maroon-deep);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(125deg, var(--wt-maroon-deep) 0 57%, var(--wt-maroon) 57% 100%);
+  background-size: 28px 28px, 28px 28px, 100% 100%;
+  color: #fffdf9;
+  isolation: isolate;
+  padding: 24px 30px;
+}
+
+.wt-login-banner-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+}
+
+.wt-login-banner-title {
+  color: #fffdf9;
+  font-size: clamp(1.45rem, 3vw, 1.85rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.wt-login-banner-subtitle {
+  color: rgba(255, 253, 249, 0.9);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.wt-login-banner-art {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  bottom: 0;
+  width: 240px;
+  height: 100%;
+  background-position: right bottom;
+  background-repeat: no-repeat;
+  background-size: contain;
+  pointer-events: none;
+}
+
+.wt-login-surface {
+  border: 1px solid var(--wt-border);
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgba(72, 16, 32, 0.06);
+}
+
+.wt-login-surface-intro {
+  display: grid;
+  gap: 4px;
+}
+
+.wt-login-surface-title {
+  color: var(--wt-text);
+  font-size: 1.25rem;
+  font-weight: 750;
+}
+
+.wt-login-surface-desc {
+  color: var(--wt-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.wt-login-footer-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--wt-muted);
+  font-size: 0.79rem;
+  text-align: center;
 }
 
 .wt-google-access {
@@ -3116,9 +3205,34 @@ html {
 .wt-student-dashboard-link {
   min-width: 104px;
 }
+
 @media (max-width: 720px) {
   .wt-student-access-page {
-    padding: 28px 16px 56px;
+    padding: 20px 14px 48px;
+  }
+
+  .wt-login-banner {
+    min-height: 160px;
+    grid-template-columns: 1fr;
+    padding: 20px 18px;
+  }
+
+  .wt-login-banner-art {
+    display: none;
+  }
+
+  .wt-login-banner-copy {
+    max-width: 100%;
+  }
+
+  .wt-login-features {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .wt-login-surface {
+    padding: 20px 16px;
+    gap: 18px;
   }
 
   .wt-google-access {

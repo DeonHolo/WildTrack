@@ -9,7 +9,6 @@ export function FormArtwork({ success = false }) {
   return (
     <Box className={`wt-form-artwork${success ? ' is-success' : ''}`}>
       <div className="wt-artwork-copy">
-        <Text component="span" className="wt-artwork-kicker">WildTrack academic workflow</Text>
         <Text component="strong">{success ? 'Submission recorded' : 'Submit with a clear trail'}</Text>
       </div>
       <div
