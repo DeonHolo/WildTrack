@@ -123,6 +123,34 @@ class DocumentTemplateControllerTest {
             .andExpect(content().bytes(bytes));
     }
 
+    @Test
+    void supportsUnicodeCharactersInFilename() throws Exception {
+        byte[] bytes = docx("Project Proposal Official Capstone Template instructions and rubric details");
+        DriveFileReference reference = new DriveFileReference("unicode-doc-id", null);
+        when(driveGateway.isConfigured()).thenReturn(true);
+        when(driveGateway.getMetadata(reference)).thenReturn(new DriveFileMetadata(
+            "unicode-doc-id",
+            "Project Proposal (Weeks 7–8).docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            1024L,
+            "https://drive.google.com/file/d/unicode-doc-id/view",
+            java.time.OffsetDateTime.parse("2026-08-24T00:00:00Z"),
+            true,
+            "https://drive.google.com/uc?id=unicode-doc-id"
+        ));
+        when(driveGateway.download(reference)).thenReturn(bytes);
+        mockMvc.perform(post("/api/templates/from-drive").with(session())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "deliverableKey": "Proposal",
+                      "driveUrl": "https://drive.google.com/file/d/unicode-doc-id/view"
+                    }
+                    """))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.originalFilename").value("Project Proposal (Weeks 7–8).docx"));
+    }
+
     private String upload(String displayName, String text) throws Exception {
         MockMultipartFile file = new MockMultipartFile(
             "file",

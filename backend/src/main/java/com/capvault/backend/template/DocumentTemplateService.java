@@ -263,8 +263,16 @@ public class DocumentTemplateService {
     }
 
     private static String safeFilename(String filename) {
-        String value = filename == null ? "template.docx" : Path.of(filename).getFileName().toString();
-        return value.isBlank() ? "template.docx" : value;
+        if (filename == null || filename.isBlank()) {
+            return "template.docx";
+        }
+        String clean = filename.replace('\\', '/');
+        int lastSlash = clean.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            clean = clean.substring(lastSlash + 1);
+        }
+        clean = clean.trim();
+        return clean.isBlank() ? "template.docx" : clean;
     }
 
     private static String sha256(byte[] bytes) {
