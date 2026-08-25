@@ -26,7 +26,7 @@ class PostgresMigrationIntegrationTest {
             MigrateResult firstMigration = flyway.migrate();
 
             assertThat(firstMigration.migrationsExecuted).isPositive();
-            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("12");
+            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("13");
             assertThat(tableExists(dataSource, "academic_workspaces")).isTrue();
             assertThat(tableExists(dataSource, "wildtrack_sessions")).isTrue();
             assertThat(tableExists(dataSource, "form_responses")).isTrue();

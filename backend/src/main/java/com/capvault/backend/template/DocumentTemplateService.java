@@ -3,7 +3,6 @@ package com.capvault.backend.template;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -20,6 +19,12 @@ import com.capvault.backend.drive.DriveFileReference;
 import com.capvault.backend.drive.DriveLinkParser;
 import com.capvault.backend.drive.GoogleDriveGateway;
 
+/**
+ * Official templates are stored durably in PostgreSQL. The legacy local
+ * filesystem path is only a provenance hint: production never reads template
+ * bytes from disk, and rows migrated from the local era are marked explicitly
+ * unavailable until they are replaced.
+ */
 @Service
 public class DocumentTemplateService {
 
@@ -76,7 +81,8 @@ public class DocumentTemplateService {
             displayName,
             originalFilename,
             contentType,
-            readBytes(file)
+            readBytes(file),
+            null
         );
     }
 
@@ -121,26 +127,30 @@ public class DocumentTemplateService {
             resolvedDisplayName,
             originalFilename,
             contentType,
-            bytes
+            bytes,
+            "drive:" + reference.fileId()
         );
     }
 
     @Transactional(readOnly = true)
     public TemplateFile readFile(UUID workspaceId, UUID templateId) {
         DocumentTemplate template = findById(workspaceId, templateId);
-        try {
-            byte[] bytes = Files.readAllBytes(Path.of(template.getStoragePath()));
-            return new TemplateFile(bytes, template.getOriginalFilename(), template.getContentType());
-        } catch (IOException exception) {
-            throw new IllegalStateException("The stored template file could not be read.", exception);
+        if (!template.isBytesAvailable() || template.getContentBytes() == null) {
+            throw new IllegalStateException(
+                "This template's stored file was migrated from the previous local storage era and is no longer available. Replace the template to restore Document Checks."
+            );
         }
+        return new TemplateFile(
+            template.getContentBytes(),
+            template.getOriginalFilename(),
+            template.getContentType()
+        );
     }
 
     @Transactional
     public void delete(UUID workspaceId, UUID templateId) {
         DocumentTemplate template = findById(workspaceId, templateId);
         repository.delete(template);
-        deleteQuietly(template.getStoragePath(), null);
     }
 
     @Transactional(readOnly = true)
@@ -155,7 +165,8 @@ public class DocumentTemplateService {
         String displayName,
         String originalFilename,
         String contentType,
-        byte[] bytes
+        byte[] bytes,
+        String provenance
     ) {
         String extractedText = textExtractor.extract(bytes, originalFilename, contentType);
         if (extractedText.length() < 50) {
@@ -167,8 +178,6 @@ public class DocumentTemplateService {
         DocumentTemplate existing = repository
             .findByWorkspaceIdAndDeliverableKeyIgnoreCase(workspaceId, deliverableKey.trim())
             .orElse(null);
-        Path storedFile = store(workspaceId, bytes, originalFilename, contentType);
-        String oldStoragePath = existing == null ? null : existing.getStoragePath();
         String sha256 = sha256(bytes);
 
         DocumentTemplate template;
@@ -179,7 +188,8 @@ public class DocumentTemplateService {
                 displayName.trim(),
                 originalFilename,
                 contentType,
-                storedFile.toString(),
+                bytes,
+                provenance,
                 sha256,
                 extractedText
             );
@@ -188,16 +198,15 @@ public class DocumentTemplateService {
                 displayName.trim(),
                 originalFilename,
                 contentType,
-                storedFile.toString(),
+                bytes,
+                provenance,
                 sha256,
                 extractedText
             );
             template = existing;
         }
 
-        DocumentTemplate saved = repository.save(template);
-        deleteQuietly(oldStoragePath, storedFile);
-        return DocumentTemplateResponse.from(saved);
+        return DocumentTemplateResponse.from(repository.save(template));
     }
 
     private DocumentTemplate findById(UUID workspaceId, UUID templateId) {
@@ -240,27 +249,6 @@ public class DocumentTemplateService {
         }
     }
 
-    private Path store(UUID workspaceId, byte[] bytes, String originalFilename, String contentType) {
-        try {
-            Path root = Path.of(properties.storagePath()).toAbsolutePath().normalize();
-            Path workspaceDirectory = root.resolve(workspaceId.toString()).normalize();
-            if (!workspaceDirectory.startsWith(root)) {
-                throw new IllegalArgumentException("Template storage path is invalid.");
-            }
-            Files.createDirectories(workspaceDirectory);
-            String extension = PDF_CONTENT_TYPE.equalsIgnoreCase(contentType)
-                || originalFilename.toLowerCase(Locale.ROOT).endsWith(".pdf")
-                ? ".pdf"
-                : ".docx";
-            Path temporary = Files.createTempFile(workspaceDirectory, "template-", ".tmp");
-            Files.write(temporary, bytes);
-            Path target = workspaceDirectory.resolve(UUID.randomUUID() + extension);
-            return Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException exception) {
-            throw new IllegalStateException("The template could not be stored locally.", exception);
-        }
-    }
-
     private static String normalizeContentType(String contentType, String filename) {
         if (contentType != null && !contentType.isBlank() && !"application/octet-stream".equalsIgnoreCase(contentType)) {
             return contentType;
@@ -284,21 +272,6 @@ public class DocumentTemplateService {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable.", exception);
-        }
-    }
-
-    private static void deleteQuietly(String storagePath, Path replacement) {
-        if (storagePath == null || storagePath.isBlank()) {
-            return;
-        }
-        Path oldPath = Path.of(storagePath).toAbsolutePath().normalize();
-        if (replacement != null && oldPath.equals(replacement.toAbsolutePath().normalize())) {
-            return;
-        }
-        try {
-            Files.deleteIfExists(oldPath);
-        } catch (IOException ignored) {
-            // The database remains authoritative; stale local files can be cleaned manually.
         }
     }
 

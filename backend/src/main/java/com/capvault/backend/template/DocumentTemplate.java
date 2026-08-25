@@ -32,8 +32,17 @@ public class DocumentTemplate {
     @Column(name = "content_type", nullable = false, length = 160)
     private String contentType;
 
-    @Column(name = "storage_path", nullable = false, length = 1600)
+    @Column(name = "storage_path", length = 1600)
     private String storagePath;
+
+    @Column(name = "content_bytes", columnDefinition = "bytea")
+    private byte[] contentBytes;
+
+    @Column(name = "bytes_available", nullable = false)
+    private boolean bytesAvailable;
+
+    @Column(name = "unavailable_reason", length = 500)
+    private String unavailableReason;
 
     @Column(nullable = false, length = 64)
     private String sha256;
@@ -59,7 +68,8 @@ public class DocumentTemplate {
         String displayName,
         String originalFilename,
         String contentType,
-        String storagePath,
+        byte[] contentBytes,
+        String legacyStoragePath,
         String sha256,
         String extractedText
     ) {
@@ -68,7 +78,9 @@ public class DocumentTemplate {
         this.displayName = displayName;
         this.originalFilename = originalFilename;
         this.contentType = contentType;
-        this.storagePath = storagePath;
+        this.contentBytes = contentBytes;
+        this.bytesAvailable = contentBytes != null && contentBytes.length > 0;
+        this.storagePath = legacyStoragePath;
         this.sha256 = sha256;
         this.extractedText = extractedText;
         this.extractedCharacterCount = extractedText.length();
@@ -95,14 +107,18 @@ public class DocumentTemplate {
         String displayName,
         String originalFilename,
         String contentType,
-        String storagePath,
+        byte[] contentBytes,
+        String legacyStoragePath,
         String sha256,
         String extractedText
     ) {
         this.displayName = displayName;
         this.originalFilename = originalFilename;
         this.contentType = contentType;
-        this.storagePath = storagePath;
+        this.contentBytes = contentBytes;
+        this.bytesAvailable = contentBytes != null && contentBytes.length > 0;
+        this.unavailableReason = null;
+        this.storagePath = legacyStoragePath;
         this.sha256 = sha256;
         this.extractedText = extractedText;
         this.extractedCharacterCount = extractedText.length();
@@ -134,6 +150,18 @@ public class DocumentTemplate {
 
     public String getStoragePath() {
         return storagePath;
+    }
+
+    public byte[] getContentBytes() {
+        return contentBytes;
+    }
+
+    public boolean isBytesAvailable() {
+        return bytesAvailable;
+    }
+
+    public String getUnavailableReason() {
+        return unavailableReason;
     }
 
     public String getSha256() {
