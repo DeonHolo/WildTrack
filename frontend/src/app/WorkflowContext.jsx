@@ -118,8 +118,8 @@ export function WorkflowProvider({ children }) {
         }
       })
       .catch(() => {});
-    if (state.backendSync?.enabled) refreshBackendData({ silent: true });
-  }, [refreshBackendData, refreshSession, state.backendSync?.enabled]);
+    refreshBackendData({ silent: true });
+  }, [refreshBackendData, refreshSession]);
 
   useEffect(() => {
     saveWorkflowState(state, state.workspaceId || activeWorkspaceRef.current);
@@ -137,9 +137,6 @@ export function WorkflowProvider({ children }) {
     saveActiveWorkspaceId(workspaceId);
     const localState = loadWorkflowState(workspaceId, target);
     setState(localState);
-    if (!localState.backendSync?.enabled) {
-      return { ok: true, workspace: target, localOnly: true };
-    }
 
     try {
       const snapshot = await getBackendSnapshot(workspaceId);
