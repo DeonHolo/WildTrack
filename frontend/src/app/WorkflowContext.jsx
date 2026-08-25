@@ -1333,12 +1333,22 @@ function mapBackendTemplate(template) {
   };
 }
 
-function mergeDeliverables(existingDeliverables, backendDeliverables) {
-  const byId = new Map((existingDeliverables || []).map((deliverable) => [deliverable.id, deliverable]));
-  for (const deliverable of backendDeliverables) {
-    byId.set(deliverable.id, { ...(byId.get(deliverable.id) || {}), ...deliverable });
+function mergeDeliverables(existingDeliverables = [], backendDeliverables = []) {
+  if (!backendDeliverables || !backendDeliverables.length) return existingDeliverables;
+  const result = [...existingDeliverables];
+  for (const backend of backendDeliverables) {
+    const existingIndex = result.findIndex((item) => (
+      item.id === backend.id ||
+      (backend.trackerColumn && item.trackerColumn === backend.trackerColumn) ||
+      (backend.slug && item.slug === backend.slug)
+    ));
+    if (existingIndex >= 0) {
+      result[existingIndex] = { ...result[existingIndex], ...backend };
+    } else {
+      result.push(backend);
+    }
   }
-  return Array.from(byId.values());
+  return result;
 }
 
 function titleCase(value) {

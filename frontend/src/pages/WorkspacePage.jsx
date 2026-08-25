@@ -134,6 +134,17 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
   const importedCount = sourceStatuses.filter((item) => item.status === 'Imported').length;
 
   useEffect(() => {
+    setSources((current) => {
+      const incoming = sourceValues(state);
+      return {
+        teamFormation: current.teamFormation || incoming.teamFormation,
+        tracker: current.tracker || incoming.tracker,
+        projectMonitor: current.projectMonitor || incoming.projectMonitor
+      };
+    });
+  }, [state.classRecord.sources, state.classRecord.sheetUrl]);
+
+  useEffect(() => {
     setSources(sourceValues(state));
     setWorkspaceName(activeWorkspace?.name || state.classRecord.name);
     setTrackerSheet(state.classRecord.trackerSheet || `${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
