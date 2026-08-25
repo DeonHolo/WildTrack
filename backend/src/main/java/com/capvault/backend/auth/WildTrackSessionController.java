@@ -52,10 +52,11 @@ public class WildTrackSessionController {
         boolean authenticated,
         String email,
         String name,
-        Instant expiresAt
+        Instant expiresAt,
+        java.util.List<String> roles
     ) {
         static CurrentSessionResponse anonymous() {
-            return new CurrentSessionResponse(false, null, null, null);
+            return new CurrentSessionResponse(false, null, null, null, java.util.List.of());
         }
     }
 
@@ -88,12 +89,17 @@ public class WildTrackSessionController {
         for (Cookie cookie : cookies) {
             if (!SESSION_COOKIE.equals(cookie.getName())) continue;
             return sessionService.resolve(cookie.getValue())
-                .map(session -> ResponseEntity.ok(new CurrentSessionResponse(
-                    true,
-                    session.googleEmail(),
-                    null,
-                    session.expiresAt()
-                )))
+                .map(session -> {
+                    var roles = staffAccessResolver.activeRolesFor(session.googleSubject())
+                        .stream().map(Enum::name).toList();
+                    return ResponseEntity.ok(new CurrentSessionResponse(
+                        true,
+                        session.googleEmail(),
+                        null,
+                        session.expiresAt(),
+                        roles
+                    ));
+                })
                 .orElseGet(() -> ResponseEntity.ok(CurrentSessionResponse.anonymous()));
         }
         return ResponseEntity.ok(CurrentSessionResponse.anonymous());

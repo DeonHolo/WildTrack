@@ -3,6 +3,7 @@ import { ArrowLeft } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { getCurrentSession } from '../lib/api.js';
 import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 
 export function RegisterPage() {
@@ -11,12 +12,26 @@ export function RegisterPage() {
   const location = useLocation();
   const [error, setError] = useState('');
 
-  function finishGoogleSignIn(identity) {
+  async function finishGoogleSignIn(identity) {
     setError('');
     const response = authenticateGoogleAccount(identity);
     if (!response.ok) {
       setError(response.error);
       return;
+    }
+    try {
+      const sessionData = await getCurrentSession();
+      const roles = (sessionData?.roles || []).map((r) => String(r).toUpperCase());
+      if (roles.includes('ADMIN')) {
+        navigate(location.state?.from || '/', { replace: true });
+        return;
+      }
+      if (roles.includes('ADVISER')) {
+        navigate(location.state?.from || '/adviser', { replace: true });
+        return;
+      }
+    } catch {
+      // ignore
     }
     navigate(location.state?.from || '/student', { replace: true });
   }

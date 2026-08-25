@@ -3059,27 +3059,36 @@ html {
 }
 
 .wt-google-access-action {
-  display: grid;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   width: min(100%, 360px);
   min-width: 0;
   margin-inline: auto;
-  align-content: center;
 }
 
-.wt-google-sign-in,
+.wt-google-sign-in {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .wt-google-sign-in-button {
   width: 100%;
   min-width: 0;
-}
-
-.wt-google-sign-in-button {
-  min-height: 44px;
-  overflow: hidden;
+  min-height: 48px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: visible;
 }
 
 .wt-google-sign-in-button > div,
 .wt-google-sign-in-button iframe {
   max-width: 100% !important;
+  margin: 0 auto;
 }
 
 .wt-google-access-error {

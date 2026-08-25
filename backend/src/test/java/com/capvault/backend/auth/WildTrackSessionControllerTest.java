@@ -84,12 +84,14 @@ class WildTrackSessionControllerTest {
     void sessionLookupReturnsAuthenticatedIdentityWithoutInternalSecrets() throws Exception {
         when(sessionService.resolve(RAW_TOKEN)).thenReturn(
             Optional.of(new StoredWildTrackSession("hash", "google-subject-123", "student@gmail.com", NOW, EXPIRY)));
+        when(staffAccessResolver.activeRolesFor("google-subject-123")).thenReturn(java.util.Set.of());
 
         mockMvc.perform(get("/api/auth/session")
                 .cookie(new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", RAW_TOKEN)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.authenticated").value(true))
             .andExpect(jsonPath("$.email").value("student@gmail.com"))
+            .andExpect(jsonPath("$.roles").isArray())
             .andExpect(jsonPath("$.expiresAt").exists())
             .andExpect(jsonPath("$.tokenHash").doesNotExist())
             .andExpect(jsonPath("$.googleSubject").doesNotExist());

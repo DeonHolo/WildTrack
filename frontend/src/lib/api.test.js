@@ -59,6 +59,21 @@ describe('production API delivery', () => {
       message: 'Authentication required.'
     });
   });
+
+  it('handles non-JSON error bodies without crashing on consumed stream', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('<html><body>Bad Gateway</body></html>', {
+        status: 502,
+        headers: { 'Content-Type': 'text/html' }
+      })
+    );
+
+    await expect(getCurrentSession()).rejects.toMatchObject({
+      name: ApiError.name,
+      status: 502,
+      message: '<html><body>Bad Gateway</body></html>'
+    });
+  });
 });
 
 describe('same-origin session helpers', () => {

@@ -182,12 +182,14 @@ export async function request(path, options = {}) {
 
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
-    try {
-      const error = await response.json();
-      message = error.error || error.message || message;
-    } catch {
-      const text = await response.text();
-      if (text) message = text;
+    const text = await response.text().catch(() => '');
+    if (text) {
+      try {
+        const error = JSON.parse(text);
+        message = error.error || error.message || message;
+      } catch {
+        message = text;
+      }
     }
     throw new ApiError(message, response.status);
   }
@@ -214,12 +216,14 @@ async function requestForm(path, options = {}) {
 
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
-    try {
-      const error = await response.json();
-      message = error.error || error.message || message;
-    } catch {
-      const text = await response.text();
-      if (text) message = text;
+    const text = await response.text().catch(() => '');
+    if (text) {
+      try {
+        const error = JSON.parse(text);
+        message = error.error || error.message || message;
+      } catch {
+        message = text;
+      }
     }
     throw new ApiError(message, response.status);
   }

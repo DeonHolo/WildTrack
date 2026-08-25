@@ -45,7 +45,8 @@ public class StaffAccessResolver {
     /** Disabling access also revokes any live sessions so revocation takes effect immediately. */
     @Transactional(readOnly = true)
     public java.util.Set<StaffRole> activeRolesFor(String googleSubject) {
-        return java.util.EnumSet.copyOf(staffAccessService.activeRolesFor(googleSubject));
+        var roles = staffAccessService.activeRolesFor(googleSubject);
+        return roles.isEmpty() ? java.util.Collections.emptySet() : java.util.EnumSet.copyOf(roles);
     }
 
     public void revokeStaffAccess(String googleSubject, com.capvault.backend.staff.StaffRole role) {

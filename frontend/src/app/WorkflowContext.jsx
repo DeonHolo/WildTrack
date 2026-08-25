@@ -39,8 +39,10 @@ import {
   deleteDocumentTemplate,
   getApiBaseUrl,
   getBackendSnapshot,
+  getCurrentSession,
   getWorkspaces as getBackendWorkspaces,
   importSheetSource as importBackendSheetSource,
+  logout as apiLogout,
   runDocumentCheck as requestDocumentCheck,
   uploadDocumentTemplate,
   uploadDriveDocumentTemplate,
@@ -54,8 +56,21 @@ export function WorkflowProvider({ children }) {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(loadWorkspaceCatalog()));
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0];
   const [state, setState] = useState(() => loadWorkflowState(activeWorkspaceId, activeWorkspace));
+  const [session, setSession] = useState(null);
   const backendBootstrapped = useRef(false);
   const activeWorkspaceRef = useRef(activeWorkspaceId);
+
+  const refreshSession = useCallback(async () => {
+    try {
+      const data = await getCurrentSession();
+      setSession(data);
+      return data;
+    } catch {
+      const anonymous = { authenticated: false, roles: [] };
+      setSession(anonymous);
+      return anonymous;
+    }
+  }, []);
 
   const refreshBackendData = useCallback(async ({ silent = false } = {}) => {
     try {
@@ -85,6 +100,7 @@ export function WorkflowProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    refreshSession();
     if (backendBootstrapped.current) return;
     backendBootstrapped.current = true;
     getBackendWorkspaces()
@@ -103,7 +119,7 @@ export function WorkflowProvider({ children }) {
       })
       .catch(() => {});
     if (state.backendSync?.enabled) refreshBackendData({ silent: true });
-  }, [refreshBackendData, state.backendSync?.enabled]);
+  }, [refreshBackendData, refreshSession, state.backendSync?.enabled]);
 
   useEffect(() => {
     saveWorkflowState(state, state.workspaceId || activeWorkspaceRef.current);
@@ -398,6 +414,7 @@ export function WorkflowProvider({ children }) {
 
     saveStudentAccounts(nextAccounts);
     saveActiveStudentAccountEmail(account.email);
+    refreshSession();
     setState((current) => materializeStudentSession({
       ...current,
       studentAccounts: nextAccounts,
@@ -411,10 +428,12 @@ export function WorkflowProvider({ children }) {
     }, activeWorkspaceRef.current));
 
     return { ok: true, account };
-  }, [state.studentAccounts]);
+  }, [refreshSession, state.studentAccounts]);
 
   const logoutStudentAccount = useCallback(() => {
     disableGoogleAutoSelect();
+    apiLogout().catch(() => {});
+    setSession({ authenticated: false, roles: [] });
     saveActiveStudentAccountEmail('');
     setState((current) => ({
       ...current,
@@ -997,6 +1016,8 @@ export function WorkflowProvider({ children }) {
     generateFormsFromSuggestions,
     loginStudentAccount,
     logoutStudentAccount,
+    session,
+    refreshSession,
     publishDeliverable,
     refreshBackendData,
     registerStudentAccount,
@@ -1015,7 +1036,7 @@ export function WorkflowProvider({ children }) {
     archiveAttempt,
     archiveAttempts,
     reset
-  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, authenticateGoogleAccount, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStudentAccount, markAccepted, publishDeliverable, refreshBackendData, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
+  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, authenticateGoogleAccount, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStudentAccount, markAccepted, publishDeliverable, refreshBackendData, refreshSession, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, session, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>;
 }
