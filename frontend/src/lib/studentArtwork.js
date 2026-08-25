@@ -24,5 +24,11 @@ export const STUDENT_ARTWORK = Object.freeze({
     'WildTrack mascot celebrating a recorded submission',
     'center bottom',
     'auto 100%'
+  ),
+  loginHero: artwork(
+    '/assets/FIND%20QUEST%20NODES.webp',
+    'WildTrack mascot exploring quest nodes',
+    'right bottom',
+    'contain'
   )
 });
