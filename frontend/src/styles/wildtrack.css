@@ -3063,11 +3063,10 @@ html {
   display: flex;
   justify-content: center;
   align-items: center;
-  width: min(100%, 360px);
+  width: min(100%, 400px);
   min-width: 0;
   margin-inline: auto;
-  overflow: visible;
-  padding-inline: 2px;
+  padding-inline: 20px;
 }
 
 .wt-google-sign-in {
