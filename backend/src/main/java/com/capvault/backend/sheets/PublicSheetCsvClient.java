@@ -3,6 +3,15 @@ package com.capvault.backend.sheets;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+
+import org.springframework.boot.web.client.ClientHttpRequestFactories;
+import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
+import org.springframework.stereotype.Component;
+
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -14,7 +23,11 @@ public class PublicSheetCsvClient implements SheetCsvClient {
     private final RestClient restClient;
 
     public PublicSheetCsvClient(RestClient.Builder restClientBuilder) {
-        this.restClient = restClientBuilder.build();
+        this.restClient = restClientBuilder
+            .requestFactory(ClientHttpRequestFactories.get(ClientHttpRequestFactorySettings.DEFAULTS
+                .withConnectTimeout(Duration.ofSeconds(5))
+                .withReadTimeout(Duration.ofSeconds(20))))
+            .build();
     }
 
     @Override

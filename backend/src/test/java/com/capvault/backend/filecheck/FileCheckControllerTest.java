@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import static com.capvault.backend.support.AuthenticatedRequest.session;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -37,14 +39,14 @@ class FileCheckControllerTest {
 
     @Test
     void reportsHonestUnconfiguredStateAndPersistsAttempt() throws Exception {
-        mockMvc.perform(get("/api/file-checks/status"))
+        mockMvc.perform(get("/api/file-checks/status").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.configured").value(false))
             .andExpect(jsonPath("$.message").value(
                 "Google Drive API is not configured. Run setup-local.ps1 and restart the backend."
             ));
 
-        mockMvc.perform(post("/api/file-checks").with(csrf())
+        mockMvc.perform(post("/api/file-checks").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -61,7 +63,7 @@ class FileCheckControllerTest {
                 "Google Drive API is not configured on this machine."
             ));
 
-        mockMvc.perform(get("/api/file-checks/response-001"))
+        mockMvc.perform(get("/api/file-checks/response-001").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.responseId").value("response-001"))
             .andExpect(jsonPath("$.status").value("UNAVAILABLE"));

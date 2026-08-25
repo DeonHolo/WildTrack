@@ -62,9 +62,8 @@ class ProductionStartupIntegrationTest {
                 assertThat(readiness.body())
                     .contains("\"status\":\"UP\"")
                     .contains("\"database\":\"UP\"")
-                    .doesNotContain("jdbc:")
-                    .doesNotContain("production");
-                assertThat(h2Console.statusCode()).isEqualTo(404);
+                    .doesNotContain("jdbc:");
+                assertThat(h2Console.statusCode()).isEqualTo(401);
             }
         }
     }

@@ -18,6 +18,8 @@ import com.capvault.backend.tracker.TrackerWritebackRepository;
 import com.capvault.backend.workspace.WorkspaceSourceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import static com.capvault.backend.support.AuthenticatedRequest.session;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -98,7 +100,7 @@ class SheetImportControllerTest {
     void importsTeamFormationAndExposesStudentIds() throws Exception {
         when(sheetCsvClient.fetchCsv(anyString())).thenReturn(TEAM_FORMATION_CSV);
 
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(csrf())
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -111,7 +113,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.officialIdsFound").value(2))
             .andExpect(jsonPath("$.warnings", hasSize(0)));
 
-        mockMvc.perform(get("/api/students"))
+        mockMvc.perform(get("/api/students").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[?(@.studentNumber == '20-0649-750')]").exists())
             .andExpect(jsonPath("$[?(@.institutionalEmail == 'ron.luigi@cit.edu')]").exists());
@@ -125,7 +127,7 @@ class SheetImportControllerTest {
             24-0001-111,"DOE, JANE A.",2526-sem2-it332-99,2
             """);
 
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(csrf())
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -143,7 +145,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.studentsFound").value(1))
             .andExpect(jsonPath("$.officialIdsFound").value(1));
 
-        mockMvc.perform(get("/api/students"))
+        mockMvc.perform(get("/api/students").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].studentNumber").value("24-0001-111"))
             .andExpect(jsonPath("$[0].studentName").value("DOE, JANE A."))
@@ -156,7 +158,7 @@ class SheetImportControllerTest {
 
         importTeamFormation();
 
-        mockMvc.perform(post("/api/sheets/import/TRACKER").with(csrf())
+        mockMvc.perform(post("/api/sheets/import/TRACKER").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -172,12 +174,12 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.details.deadlineRows").value(1))
             .andExpect(jsonPath("$.details.metrics.deadlineValues").value(3));
 
-        mockMvc.perform(get("/api/tracker/rows"))
+        mockMvc.perform(get("/api/tracker/rows").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[?(@.studentNumber == '20-0649-750')]").exists())
             .andExpect(jsonPath("$[?(@.studentName == 'TAGHOY, RON LUIGI F.')]").exists());
 
-        mockMvc.perform(post("/api/tracker/writebacks").with(csrf())
+        mockMvc.perform(post("/api/tracker/writebacks").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -198,7 +200,7 @@ class SheetImportControllerTest {
     void importsSoftwareProjectMonitorMetadata() throws Exception {
         when(sheetCsvClient.fetchCsv(anyString())).thenReturn(PROJECT_MONITOR_CSV);
 
-        mockMvc.perform(post("/api/sheets/import/PROJECT_MONITOR").with(csrf())
+        mockMvc.perform(post("/api/sheets/import/PROJECT_MONITOR").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -209,7 +211,7 @@ class SheetImportControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.groupsFound").value(1));
 
-        mockMvc.perform(get("/api/projects"))
+        mockMvc.perform(get("/api/projects").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].groupCode").value("2526-sem2-it332-41"))
             .andExpect(jsonPath("$[0].projectTitle").value("CapVault"))
@@ -217,7 +219,7 @@ class SheetImportControllerTest {
     }
 
     private void importTeamFormation() throws Exception {
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(csrf())
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {

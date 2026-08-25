@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.capvault.backend.sheets.SheetImportRunRepository;
 import org.junit.jupiter.api.Test;
+import static com.capvault.backend.support.AuthenticatedRequest.session;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,7 +37,7 @@ class WorkspaceSourceControllerTest {
         sheetImportRunRepository.deleteAll();
         repository.deleteAll();
 
-        mockMvc.perform(put("/api/workspace/sources/TEAM_FORMATION").with(csrf())
+        mockMvc.perform(put("/api/workspace/sources/TEAM_FORMATION").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -50,7 +52,7 @@ class WorkspaceSourceControllerTest {
             .andExpect(jsonPath("$.displayName").value("Team Formation"))
             .andExpect(jsonPath("$.status").value("IMPORTED"));
 
-        mockMvc.perform(get("/api/workspace/sources"))
+        mockMvc.perform(get("/api/workspace/sources").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].sourceType").value("TEAM_FORMATION"));
@@ -58,7 +60,7 @@ class WorkspaceSourceControllerTest {
 
     @Test
     void upsertSourceRejectsBlankUrl() throws Exception {
-        mockMvc.perform(put("/api/workspace/sources/TRACKER").with(csrf())
+        mockMvc.perform(put("/api/workspace/sources/TRACKER").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {

@@ -24,7 +24,14 @@ class ProductionProfileContractTest {
         assertThat(production.getProperty("server.port")).isEqualTo("${PORT:8080}");
         assertThat(production.getProperty("server.forward-headers-strategy")).isEqualTo("framework");
         assertThat(production.getProperty("server.error.include-message")).isEqualTo("never");
+        assertThat(production.getProperty("server.error.include-binding-errors")).isEqualTo("never");
         assertThat(production.getProperty("server.error.include-stacktrace")).isEqualTo("never");
+        assertThat(production.getProperty("server.error.include-exception")).isEqualTo(false);
+        assertThat(production.getProperty("server.servlet.session.cookie.http-only")).isEqualTo(true);
+        assertThat(production.getProperty("server.servlet.session.cookie.secure")).isEqualTo(true);
+        assertThat(production.getProperty("server.servlet.session.cookie.same-site")).isEqualTo("lax");
+        assertThat(production.getProperty("spring.servlet.multipart.max-file-size")).isEqualTo("15MB");
+        assertThat(production.getProperty("spring.servlet.multipart.max-request-size")).isEqualTo("16MB");
         assertThat(production.getProperty("spring.datasource.url"))
             .isEqualTo("${SPRING_DATASOURCE_URL}");
         assertThat(production.getProperty("spring.datasource.username"))

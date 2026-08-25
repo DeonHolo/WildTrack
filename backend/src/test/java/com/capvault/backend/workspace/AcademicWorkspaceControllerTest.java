@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import static com.capvault.backend.support.AuthenticatedRequest.session;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,12 +27,12 @@ class AcademicWorkspaceControllerTest {
 
     @Test
     void listsSeededWorkspacesAndCreatesAnotherAcademicContext() throws Exception {
-        mockMvc.perform(get("/api/workspaces"))
+        mockMvc.perform(get("/api/workspaces").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()", greaterThanOrEqualTo(2)))
             .andExpect(jsonPath("$[?(@.courseCode == 'IT332')]").exists());
 
-        mockMvc.perform(post("/api/workspaces").with(csrf())
+        mockMvc.perform(post("/api/workspaces").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {

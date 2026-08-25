@@ -18,6 +18,8 @@ import java.time.OffsetDateTime;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import static com.capvault.backend.support.AuthenticatedRequest.session;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -62,23 +64,23 @@ class DocumentTemplateControllerTest {
 
         upload("Updated SRS template", "Updated official SRS template instructions and required sections");
 
-        mockMvc.perform(get("/api/templates"))
+        mockMvc.perform(get("/api/templates").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].displayName").value("Updated SRS template"))
             .andExpect(jsonPath("$[0].originalFilename").value("template.docx"));
 
-        mockMvc.perform(get("/api/templates/" + firstId + "/file"))
+        mockMvc.perform(get("/api/templates/" + firstId + "/file").with(session()))
             .andExpect(status().isOk())
             .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"template.docx\""))
             .andExpect(content().contentType(
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ));
 
-        mockMvc.perform(delete("/api/templates/" + firstId).with(csrf()))
+        mockMvc.perform(delete("/api/templates/" + firstId).with(session()))
             .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/templates"))
+        mockMvc.perform(get("/api/templates").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(0)));
     }
@@ -92,15 +94,14 @@ class DocumentTemplateControllerTest {
             "drive-template-id",
             "Official SRS Template.docx",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            (long) bytes.length,
-            null,
-            OffsetDateTime.now(),
+            1024L,
+            "https://drive.google.com/file/d/drive-template-id/view",
+            java.time.OffsetDateTime.parse("2026-08-24T00:00:00Z"),
             true,
-            "https://drive.google.com/file/d/drive-template-id/view"
+            "https://drive.google.com/uc?id=drive-template-id"
         ));
         when(driveGateway.download(reference)).thenReturn(bytes);
-
-        String response = mockMvc.perform(post("/api/templates/from-drive").with(csrf())
+        String response = mockMvc.perform(post("/api/templates/from-drive").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -117,7 +118,7 @@ class DocumentTemplateControllerTest {
             .getContentAsString();
 
         String templateId = response.replaceAll(".*\"id\":\"([^\"]+)\".*", "$1");
-        mockMvc.perform(get("/api/templates/" + templateId + "/file"))
+        mockMvc.perform(get("/api/templates/" + templateId + "/file").with(session()))
             .andExpect(status().isOk())
             .andExpect(content().bytes(bytes));
     }
@@ -132,7 +133,7 @@ class DocumentTemplateControllerTest {
         return mockMvc.perform(multipart("/api/templates")
                 .file(file)
                 .param("deliverableKey", "SRS")
-                .param("displayName", displayName).with(csrf()))
+                .param("displayName", displayName).with(session()))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.deliverableKey").value("SRS"))
             .andReturn()

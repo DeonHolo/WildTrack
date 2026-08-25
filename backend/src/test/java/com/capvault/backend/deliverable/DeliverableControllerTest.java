@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import static com.capvault.backend.support.AuthenticatedRequest.session;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,7 +33,7 @@ class DeliverableControllerTest {
     void createUpdateAndListDeliverables() throws Exception {
         repository.deleteAll();
 
-        String createdJson = mockMvc.perform(post("/api/deliverables").with(csrf())
+        String createdJson = mockMvc.perform(post("/api/deliverables").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -54,7 +56,7 @@ class DeliverableControllerTest {
 
         String id = createdJson.replaceAll(".*\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
 
-        mockMvc.perform(put("/api/deliverables/" + id).with(csrf())
+        mockMvc.perform(put("/api/deliverables/" + id).with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -71,7 +73,7 @@ class DeliverableControllerTest {
             .andExpect(jsonPath("$.title").value("Updated SRS Submission"))
             .andExpect(jsonPath("$.status").value("UNPUBLISHED"));
 
-        mockMvc.perform(get("/api/deliverables"))
+        mockMvc.perform(get("/api/deliverables").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].slug").value("updated-srs-submission"));
@@ -79,7 +81,7 @@ class DeliverableControllerTest {
 
     @Test
     void createDeliverableRejectsMissingRequiredFields() throws Exception {
-        mockMvc.perform(post("/api/deliverables").with(csrf())
+        mockMvc.perform(post("/api/deliverables").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
