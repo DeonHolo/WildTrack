@@ -1,5 +1,4 @@
-import { Anchor, Container, Stack } from '@mantine/core';
-import { ArrowLeft } from '@phosphor-icons/react';
+import { Container, Stack } from '@mantine/core';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
@@ -45,10 +44,7 @@ export function RegisterPage() {
             error={error}
             onAuthenticated={finishGoogleSignIn}
           />
-          <Anchor component={Link} to="/student" className="wt-google-access-return">
-            <ArrowLeft size={16} aria-hidden="true" />
-            Return to student dashboard
-          </Anchor>
+
         </Stack>
       </Container>
     </main>

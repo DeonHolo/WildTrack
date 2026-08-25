@@ -41,7 +41,7 @@ spring:
 
 capvault:
   cors:
-    allowed-origins: ${CAPVAULT_CORS_ALLOWED_ORIGINS:https://wildtrack.dev}
+    allowed-origins: ${CAPVAULT_CORS_ALLOWED_ORIGINS:https://wildtrack.dev,https://www.wildtrack.dev}
 
 wildtrack:
   google:

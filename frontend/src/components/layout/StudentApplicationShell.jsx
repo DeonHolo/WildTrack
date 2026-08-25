@@ -25,7 +25,7 @@ export function StudentApplicationShell({ children }) {
         <Container size="xl" h="100%" className="wt-student-header-inner">
           <WildTrackBrand compact to="/student" />
           <Group component="nav" aria-label="Student navigation" gap="xs" wrap="nowrap">
-            {!(activeAccount && location.pathname === '/student') ? (
+            {!(isAccessRoute || (activeAccount && location.pathname === '/student')) ? (
               <Button
                 className="wt-student-dashboard-link"
                 component={Link}
