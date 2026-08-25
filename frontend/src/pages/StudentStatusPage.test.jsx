@@ -131,6 +131,26 @@ const workflow = vi.hoisted(() => ({
     semester: 'Semester 2',
     academicYear: '2025-26'
   },
+  activeWorkspaceId: 'workspace-it',
+  workspaces: [
+    {
+      id: 'workspace-it',
+      name: 'IT Capstone - IT332',
+      program: 'IT',
+      courseCode: 'IT332',
+      semester: 'Semester 2',
+      academicYear: '2025-26'
+    },
+    {
+      id: 'workspace-cs',
+      name: 'CS Capstone - CS332',
+      program: 'CS',
+      courseCode: 'CS332',
+      semester: 'Semester 2',
+      academicYear: '2025-26'
+    }
+  ],
+  switchWorkspace: vi.fn(),
   state: null,
   claimStudentNumber: vi.fn(),
   disconnectStudentNumber: vi.fn(),
@@ -378,5 +398,15 @@ describe('student dashboard', () => {
     expect(screen.getByText('The roster service is unavailable.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(workflow.refreshBackendData).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows students to switch capstone sections when connecting their record', () => {
+    workflow.state.activeAccountEmail = 'cs.student@gmail.com';
+    workflow.state.studentAccounts = [{ email: 'cs.student@gmail.com', googleSubject: 'google-cs', studentNumber: '' }];
+    renderDashboard();
+
+    expect(screen.getByLabelText('Capstone section')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Capstone section'), { target: { value: 'workspace-cs' } });
+    expect(workflow.switchWorkspace).toHaveBeenCalledWith('workspace-cs');
   });
 });

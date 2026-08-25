@@ -3248,3 +3248,17 @@ html {
     width: min(100%, 360px);
   }
 }
+
+/* Student Section Selection */
+.wt-student-heading-section-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.wt-student-section-picker {
+  margin-bottom: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--wt-border);
+}
