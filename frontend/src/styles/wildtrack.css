@@ -3067,6 +3067,7 @@ html {
   min-width: 0;
   margin-inline: auto;
   overflow: visible;
+  padding-inline: 2px;
 }
 
 .wt-google-sign-in {
