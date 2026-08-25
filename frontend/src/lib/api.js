@@ -202,13 +202,17 @@ export async function request(path, options = {}) {
 }
 
 async function requestForm(path, options = {}) {
+  const mutating = options.method && options.method !== 'GET';
+  if (mutating && !options.skipCsrfPrecheck) {
+    await ensureCsrfToken();
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method || 'GET',
     credentials: 'include',
     mode: 'same-origin',
     headers: {
       Accept: 'application/json',
-      ...(options.method !== 'GET' ? csrfHeader() : {}),
+      ...(mutating && !options.skipCsrfPrecheck ? csrfHeader() : {}),
       ...(options.headers || {})
     },
     body: options.body
