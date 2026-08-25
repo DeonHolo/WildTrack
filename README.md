@@ -282,18 +282,13 @@ cd ..
 
 ## Production status
 
-WildTrack is suitable for local development and a controlled classroom demo. Do not expose the current application publicly with real student information.
+WildTrack is deployment-ready at the repository level: a clean clone builds the production backend and frontend, migrates an empty PostgreSQL database, and passes the packaged production smoke test without source edits. Connecting the live services (Heroku app, Vercel project, wildtrack.dev DNS, Google Identity client) are external launch steps owned by the project owner.
 
-Production deployment still needs:
+Follow the ordered handoff in [`docs/deployment/deployment-runbook.md`](docs/deployment/deployment-runbook.md), the variable contract in [`.env.production.example`](.env.production.example), and the operations and recovery procedures in [`docs/deployment/operations-runbook.md`](docs/deployment/operations-runbook.md). The pilot uses an always-on Heroku Basic dyno; a sleeping runtime does not provide reliable classroom testing.
 
-- authenticated, server-enforced Admin, Adviser, and Student authorization for every protected API;
-- a reviewed production configuration and deployment manifest;
-- a managed PostgreSQL database with migrations tested in the hosted environment;
-- secrets management, backups, recovery procedures, monitoring, and alerts;
-- rate limiting, abuse protection, and a security review;
-- reliable background processing for long-running work;
-- independent archive file storage and integrity verification;
-- an end-to-end test using the final Google OAuth origins.
+Deferred until separately configured and verified: Gemini/AI-assisted review, Google Sheet writeback, and independent archive file storage. Each stays disabled with honest unavailable states until its own ticket lands.
+
+
 
 Google Sheet writeback, independent archive storage, and Gemini-assisted review also require separate service credentials and operational limits. Choose hosting only after the classroom demo scope is confirmed.
 
