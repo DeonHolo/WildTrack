@@ -281,7 +281,6 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
               <strong>{activeWorkspace?.program} | {activeWorkspace?.courseCode}</strong>
               <span>{activeWorkspace?.semester} | {activeWorkspace?.academicYear}</span>
             </div>
-            <StatusIndicator status={importedCount ? 'Imported' : 'Starter data'} />
           </div>
         </div>
         <div className="wt-workspace-facts" aria-label="Workspace data summary">
@@ -324,7 +323,10 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
                       <TextInput
                         aria-label={`${source.title} published Google Sheet link`}
                         value={sources[source.key]}
-                        onChange={(event) => setSources((current) => ({ ...current, [source.key]: event.currentTarget.value }))}
+                        onChange={(event) => {
+                          const value = event.currentTarget.value;
+                          setSources((current) => ({ ...current, [source.key]: value }));
+                        }}
                         placeholder="https://docs.google.com/spreadsheets/d/..."
                       />
                       <small>Sheet ID: {extractSheetId(sources[source.key]) || 'Not entered'}</small>

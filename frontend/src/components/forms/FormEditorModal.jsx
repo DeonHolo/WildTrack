@@ -68,7 +68,10 @@ export function FormEditorModal({
           <TextInput
             label="Form title"
             value={draft.title}
-            onChange={(event) => setDraft((current) => ({ ...current, title: event.currentTarget.value }))}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setDraft((current) => ({ ...current, title: value }));
+            }}
             required
           />
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md" className="wt-date-time-grid">
@@ -77,7 +80,10 @@ export function FormEditorModal({
               aria-label="Due date"
               type="date"
               value={dateTime.date}
-              onChange={(event) => setDraft((current) => ({ ...current, dueAt: joinLocalDateTime(event.currentTarget.value, dateTime.time) }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setDraft((current) => ({ ...current, dueAt: joinLocalDateTime(value, dateTime.time) }));
+              }}
               required
             />
             <TextInput
@@ -85,7 +91,10 @@ export function FormEditorModal({
               aria-label="Due time"
               type="time"
               value={dateTime.time}
-              onChange={(event) => setDraft((current) => ({ ...current, dueAt: joinLocalDateTime(dateTime.date, event.currentTarget.value) }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setDraft((current) => ({ ...current, dueAt: joinLocalDateTime(dateTime.date, value) }));
+              }}
               required
             />
           </SimpleGrid>
@@ -101,7 +110,10 @@ export function FormEditorModal({
           <Textarea
             label="Instructions"
             value={draft.instructions}
-            onChange={(event) => setDraft((current) => ({ ...current, instructions: event.currentTarget.value }))}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setDraft((current) => ({ ...current, instructions: value }));
+            }}
             autosize
             minRows={3}
             maxRows={7}
