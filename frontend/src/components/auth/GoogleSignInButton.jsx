@@ -87,7 +87,7 @@ export function GoogleSignInButton({
           size: 'large',
           text: 'continue_with',
           shape: 'rectangular',
-          width: Math.min(buttonRef.current.clientWidth || 320, 380)
+          logo_alignment: 'left'
         });
         if (enableOneTap && !promptSuppressed) googleIdentity.prompt?.();
         setStatus('ready');
