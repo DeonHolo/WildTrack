@@ -95,6 +95,14 @@ describe('workspace operations', () => {
     expect(within(sources).getByRole('button', { name: 'Import Project Monitor' })).toHaveClass('mantine-Button-root');
   });
 
+  it('updates published sheet URL inputs without crashing when typing', () => {
+    renderPage();
+    const teamInput = screen.getByLabelText('Team Formation published Google Sheet link');
+    fireEvent.change(teamInput, { target: { value: 'https://docs.google.com/spreadsheets/d/test-sheet-12345/edit' } });
+    expect(teamInput).toHaveValue('https://docs.google.com/spreadsheets/d/test-sheet-12345/edit');
+    expect(screen.getByText('Sheet ID: test-sheet-12345')).toBeInTheDocument();
+  });
+
   it('shows source-specific mapping, missing, optional, unrecognized, skipped, and deadline details', async () => {
     workflow.connectSheetSource.mockResolvedValue({
       ok: true,

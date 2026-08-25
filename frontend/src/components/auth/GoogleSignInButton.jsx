@@ -81,13 +81,16 @@ export function GoogleSignInButton({
           }
         });
         buttonRef.current.replaceChildren();
+        const calculatedWidth = typeof window !== 'undefined' && window.innerWidth < 420
+          ? Math.max(260, Math.min(window.innerWidth - 48, 380))
+          : 380;
         googleIdentity.renderButton(buttonRef.current, {
           type: 'standard',
           theme: 'outline',
           size: 'large',
           text: 'continue_with',
           shape: 'rectangular',
-          logo_alignment: 'left'
+          width: calculatedWidth
         });
         if (enableOneTap && !promptSuppressed) googleIdentity.prompt?.();
         setStatus('ready');
