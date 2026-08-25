@@ -106,6 +106,7 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [template, setTemplate] = useState(EMPTY_TEMPLATE);
   const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateError, setTemplateError] = useState('');
   const [templateToRemove, setTemplateToRemove] = useState(null);
   const [driveStatus, setDriveStatus] = useState({ configured: false, message: 'Checking connection...' });
   const [message, setMessage] = useState('');
@@ -186,6 +187,7 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
       driveUrl: item?.sourceUrl || '',
       replacing: item
     });
+    setTemplateError('');
     setTemplateModalOpen(true);
     setMessage('');
   }
@@ -200,22 +202,24 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
 
   async function submitTemplate(event) {
     event.preventDefault();
+    setTemplateError('');
     const needsUpload = template.sourceType === 'upload' && !template.file;
     const needsDriveLink = template.sourceType === 'drive' && !template.driveUrl.trim();
     const needsName = template.sourceType === 'upload' && !template.name.trim();
     if (!template.deliverable || needsName || needsUpload || needsDriveLink) {
-      setMessage('Choose a deliverable and template file or Drive link.');
+      setTemplateError('Choose a deliverable and template file or Drive link.');
       return;
     }
     setTemplateSaving(true);
     const result = await saveTemplate(template);
     setTemplateSaving(false);
     if (!result.ok) {
-      setMessage(result.error);
+      setTemplateError(result.error);
       return;
     }
     setTemplateModalOpen(false);
     setTemplate(EMPTY_TEMPLATE);
+    setTemplateError('');
     setMessage(`${result.template.name} is ready for Document Check comparison.`);
   }
 
@@ -477,8 +481,9 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
         importing={Boolean(importing)}
       />
 
-      <Modal opened={templateModalOpen} onClose={() => setTemplateModalOpen(false)} title={template.replacing ? 'Replace official template' : 'Add official template'} centered size="lg">
+      <Modal opened={templateModalOpen} onClose={() => { setTemplateModalOpen(false); setTemplateError(''); }} title={template.replacing ? 'Replace official template' : 'Add official template'} centered size="lg">
         <form className="wt-template-dialog" onSubmit={submitTemplate} aria-label={template.replacing ? 'Replace official template' : 'Add official template'}>
+          {templateError ? <div className="inline-alert error" role="alert">{templateError}</div> : null}
           <div className="two-col">
             <NativeSelect
               label="Deliverable"
