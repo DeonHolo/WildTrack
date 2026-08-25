@@ -81,9 +81,9 @@ export function GoogleSignInButton({
           }
         });
         buttonRef.current.replaceChildren();
-        const calculatedWidth = typeof window !== 'undefined' && window.innerWidth < 420
-          ? Math.max(260, Math.min(window.innerWidth - 48, 380))
-          : 380;
+        const calculatedWidth = typeof window !== 'undefined' && window.innerWidth < 390
+          ? Math.max(250, Math.min(window.innerWidth - 48, 350))
+          : 350;
         googleIdentity.renderButton(buttonRef.current, {
           type: 'standard',
           theme: 'outline',

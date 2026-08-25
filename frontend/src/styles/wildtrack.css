@@ -3174,14 +3174,10 @@ html {
   display: flex;
   justify-content: center;
   align-items: center;
-  overflow: visible;
 }
 
-.wt-google-sign-in-button > div,
-.wt-google-sign-in-button iframe {
-  max-width: 100% !important;
+.wt-google-sign-in-button > div {
   margin: 0 auto;
-  overflow: visible !important;
 }
 
 .wt-google-access-error {
