@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, getApiBaseUrl, getCurrentSession, logout } from './api.js';
+import { ApiError, describeSnapshotFailures, getApiBaseUrl, getBackendSnapshot, getCurrentSession, logout } from './api.js';
 import { fetchCurrentSession, logoutSession } from './session.js';
 
 describe('production API delivery', () => {
@@ -77,6 +77,48 @@ describe('production API delivery', () => {
 });
 
 describe('same-origin session helpers', () => {
+  it('names each failing snapshot segment instead of silently returning empty data', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/students')) {
+        return Promise.resolve(new Response(JSON.stringify({ error: 'Roster service is down.' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' }
+        }));
+      }
+      if (String(url).includes('/workspace/sources')) {
+        return Promise.reject(new TypeError('Failed to fetch'));
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+    });
+
+    const snapshot = await getBackendSnapshot('workspace-it');
+
+    expect(snapshot.students).toEqual([]);
+    expect(snapshot.failures.map((failure) => failure.segment).sort()).toEqual(['sources', 'students']);
+    expect(snapshot.failures.find((failure) => failure.segment === 'students')).toMatchObject({
+      status: 503,
+      message: 'Roster service is down.'
+    });
+    expect(describeSnapshotFailures(snapshot.failures)).toBe(
+      'Backend sync incomplete: students (Roster service is down.), workspace sources (Failed to fetch).'
+    );
+  });
+
+  it('reports no failures and empty description when every segment loads', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })));
+
+    const snapshot = await getBackendSnapshot('workspace-it');
+
+    expect(snapshot.failures).toEqual([]);
+    expect(describeSnapshotFailures(snapshot.failures)).toBe('');
+  });
+
   it('restores sessions without bundling a backend hostname', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ authenticated: true }), { status: 200 })
