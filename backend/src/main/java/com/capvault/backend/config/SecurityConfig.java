@@ -28,11 +28,13 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 @Configuration
 public class SecurityConfig {
@@ -47,6 +49,7 @@ public class SecurityConfig {
         StaffAccessResolver staffAccessResolver
     ) throws Exception {
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
+        csrfHandler.setCsrfRequestAttributeName(null);
         WildTrackSessionAuthenticationFilter sessionFilter = new WildTrackSessionAuthenticationFilter(sessionService, staffAccessResolver);
 
         return http
@@ -66,8 +69,21 @@ public class SecurityConfig {
                 .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
                 .permissionsPolicy(permissions -> permissions.policy("camera=(), microphone=(), geolocation=()")))
             .addFilterBefore(signInThrottle(SIGN_IN_WINDOWS), CsrfFilter.class)
+            .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
             .addFilterBefore(sessionFilter, UsernamePasswordAuthenticationFilter.class)
             .build();
+    }
+
+    private static final class CsrfCookieFilter extends OncePerRequestFilter {
+        @Override
+        protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+                throws ServletException, IOException {
+            CsrfToken csrfToken = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+            if (csrfToken != null) {
+                csrfToken.getToken();
+            }
+            filterChain.doFilter(request, response);
+        }
     }
 
     @Bean
@@ -152,3 +168,4 @@ public class SecurityConfig {
         }
     }
 }
+

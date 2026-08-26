@@ -208,6 +208,9 @@ function withWorkspace(path, workspaceId) {
 
 export async function request(path, options = {}) {
   const mutating = options.method && options.method !== 'GET';
+  if (mutating && !options.skipCsrfPrecheck) {
+    await ensureCsrfToken();
+  }
   const headers = {
     Accept: 'application/json',
     ...(mutating && !options.skipCsrfPrecheck ? csrfHeader() : {}),
@@ -411,3 +414,5 @@ export async function unassignAdviserTeam(workspaceId, googleSubject, teamCode) 
     method: 'DELETE'
   });
 }
+
+
