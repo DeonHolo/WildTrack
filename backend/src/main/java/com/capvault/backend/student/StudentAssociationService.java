@@ -13,6 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class StudentAssociationService {
 
     public static final String ASSURANCE_SELF_DECLARED = "SELF_DECLARED";
+    public static final String CONFLICT_OPEN = "OPEN";
+    public static final String CONFLICT_RESOLVED = "RESOLVED";
+    public static final String CONFLICT_DISMISSED = "DISMISSED";
 
     private final WorkspaceStudentAssociationRepository associationRepository;
     private final StudentIdentityConflictRepository conflictRepository;
@@ -40,6 +43,33 @@ public class StudentAssociationService {
         String studentName,
         String teamCode,
         String assuranceLevel
+    ) {
+    }
+
+    /** One competing Google identity, as staff need to see it in the conflict queue. */
+    public record ConflictIdentity(
+        String googleSubject,
+        String googleEmail,
+        boolean active,
+        Instant connectedAt
+    ) {
+    }
+
+    /** A conflict with the Student Record it touches and both competing identities. */
+    public record ConflictDetail(
+        UUID id,
+        UUID studentRecordId,
+        String studentNumber,
+        String studentName,
+        String teamCode,
+        String status,
+        Instant createdAt,
+        ConflictIdentity existingIdentity,
+        ConflictIdentity conflictingIdentity,
+        Instant decidedAt,
+        String decidedBySubject,
+        String decidedByEmail,
+        String decisionNote
     ) {
     }
 
@@ -91,7 +121,7 @@ public class StudentAssociationService {
                 record.getId(),
                 holder,
                 googleSubject,
-                "OPEN",
+                CONFLICT_OPEN,
                 clock.instant()
             ));
         }
@@ -122,9 +152,64 @@ public class StudentAssociationService {
         return toView(saved).orElseThrow();
     }
 
+    /** The Admin queue: open conflicts only, each carrying its record and both identities. */
     @Transactional(readOnly = true)
-    public List<StudentIdentityConflict> conflictsForWorkspace(UUID workspaceId) {
-        return conflictRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(workspaceId);
+    public List<ConflictDetail> openConflictDetails(UUID workspaceId) {
+        return conflictRepository.findAllByWorkspaceIdAndStatusOrderByCreatedAtDesc(workspaceId, CONFLICT_OPEN)
+            .stream()
+            .map(this::toDetail)
+            .toList();
+    }
+
+    /**
+     * Persists the staff decision on one conflict. RESOLVED means the record's rightful owner
+     * was confirmed; DISMISSED means the collision was not a real problem. Either way the
+     * conflict leaves the open queue and keeps who decided, when, and why.
+     */
+    @Transactional
+    public ConflictDetail decideConflict(UUID workspaceId, UUID conflictId, String decision,
+                                         String decidedBySubject, String decidedByEmail, String note) {
+        String normalized = decision == null ? "" : decision.trim().toUpperCase();
+        if (!CONFLICT_RESOLVED.equals(normalized) && !CONFLICT_DISMISSED.equals(normalized)) {
+            throw new IllegalArgumentException("Decision must be RESOLVED or DISMISSED.");
+        }
+        StudentIdentityConflict conflict = conflictRepository.findById(conflictId)
+            .filter(candidate -> candidate.getWorkspaceId().equals(workspaceId))
+            .orElseThrow(() -> new IllegalArgumentException("No identity conflict with that id exists in this workspace."));
+
+        String trimmedNote = note == null || note.isBlank() ? null : note.trim();
+        conflict.decide(normalized, decidedBySubject, decidedByEmail, trimmedNote, clock.instant());
+        return toDetail(conflictRepository.save(conflict));
+    }
+
+    private ConflictDetail toDetail(StudentIdentityConflict conflict) {
+        StudentRecord record = studentRecordRepository.findById(conflict.getStudentRecordId()).orElse(null);
+        return new ConflictDetail(
+            conflict.getId(),
+            conflict.getStudentRecordId(),
+            record == null ? null : record.getStudentNumber(),
+            record == null ? null : record.getStudentName(),
+            record == null ? null : record.getTeamCode(),
+            conflict.getStatus(),
+            conflict.getCreatedAt(),
+            identityOf(conflict.getWorkspaceId(), conflict.getExistingSubject()),
+            identityOf(conflict.getWorkspaceId(), conflict.getConflictingSubject()),
+            conflict.getDecidedAt(),
+            conflict.getDecidedBySubject(),
+            conflict.getDecidedByEmail(),
+            conflict.getDecisionNote()
+        );
+    }
+
+    private ConflictIdentity identityOf(UUID workspaceId, String googleSubject) {
+        return associationRepository.findByWorkspaceIdAndGoogleSubject(workspaceId, googleSubject)
+            .map(association -> new ConflictIdentity(
+                googleSubject,
+                association.getGoogleEmail(),
+                association.isActive(),
+                association.getUpdatedAt()
+            ))
+            .orElseGet(() -> new ConflictIdentity(googleSubject, null, false, null));
     }
 
     /** Disconnect keeps submissions/history/audit intact — only the link deactivates. */

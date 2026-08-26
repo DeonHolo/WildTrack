@@ -2917,6 +2917,17 @@ html {
   min-width: 138px;
 }
 
+.wt-command-action-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.wt-command-table td:last-child .wt-command-action-pair .mantine-Button-root {
+  min-width: 0;
+}
+
 .wt-command-pagination {
   padding: 12px 20px;
   border-top: 1px solid var(--wt-border);

@@ -26,11 +26,12 @@ class PostgresMigrationIntegrationTest {
             MigrateResult firstMigration = flyway.migrate();
 
             assertThat(firstMigration.migrationsExecuted).isPositive();
-            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("13");
+            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("14");
             assertThat(tableExists(dataSource, "academic_workspaces")).isTrue();
             assertThat(tableExists(dataSource, "wildtrack_sessions")).isTrue();
             assertThat(tableExists(dataSource, "form_responses")).isTrue();
             assertThat(tableExists(dataSource, "response_feedback")).isTrue();
+            assertThat(columnExists(dataSource, "student_identity_conflicts", "decided_at")).isTrue();
 
             MigrateResult secondMigration = flyway.migrate();
             assertThat(secondMigration.migrationsExecuted).isZero();
@@ -43,6 +44,15 @@ class PostgresMigrationIntegrationTest {
             ResultSet tables = connection.getMetaData().getTables(null, null, tableName, null)
         ) {
             return tables.next();
+        }
+    }
+
+    private boolean columnExists(DataSource dataSource, String tableName, String columnName) throws Exception {
+        try (
+            Connection connection = dataSource.getConnection();
+            ResultSet columns = connection.getMetaData().getColumns(null, null, tableName, columnName)
+        ) {
+            return columns.next();
         }
     }
 }

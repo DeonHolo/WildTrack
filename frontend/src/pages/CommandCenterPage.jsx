@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -15,6 +15,7 @@ import { notifications } from '@mantine/notifications';
 import { CheckCircle, Files, MagnifyingGlass } from '@phosphor-icons/react';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { WorkQueueTable } from '../components/command/WorkQueueTable.jsx';
+import { decideIdentityConflict, getIdentityConflicts } from '../lib/api.js';
 import {
   deliverableUsesDocumentCheck,
   findStudent,
@@ -40,8 +41,29 @@ export function CommandCenterPage() {
   const [runningIds, setRunningIds] = useState(new Set());
   const [resolvedTaskIds, setResolvedTaskIds] = useState(new Set());
   const [batchProgress, setBatchProgress] = useState(null);
+  const [openConflicts, setOpenConflicts] = useState([]);
+  const workspaceId = state.activeWorkspace?.id;
 
-  const allTasks = useMemo(() => buildWorkQueue(state), [state]);
+  // Ticket 05: identity conflicts are server-owned, so Today's work reads the open queue
+  // from the backend instead of inferring conflicts from this browser's submissions.
+  useEffect(() => {
+    let cancelled = false;
+    if (!workspaceId) {
+      setOpenConflicts([]);
+      return undefined;
+    }
+    getIdentityConflicts(workspaceId)
+      .then((conflicts) => {
+        if (cancelled) return;
+        setOpenConflicts(Array.isArray(conflicts) ? conflicts.filter((item) => item.status === 'OPEN') : []);
+      })
+      .catch(() => {
+        if (!cancelled) setOpenConflicts([]);
+      });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
+  const allTasks = useMemo(() => buildWorkQueue(state, openConflicts), [state, openConflicts]);
   const openTasks = useMemo(
     () => allTasks.filter((task) => !resolvedTaskIds.has(task.id)),
     [allTasks, resolvedTaskIds]
@@ -133,6 +155,27 @@ export function CommandCenterPage() {
       done: true
     });
   }
+
+  const decideConflict = useCallback(async (task, decision) => {
+    setRunningIds((current) => withId(current, task.id));
+    try {
+      await decideIdentityConflict(workspaceId, task.conflict.id, decision);
+      setOpenConflicts((current) => current.filter((item) => item.id !== task.conflict.id));
+      notifications.show({
+        color: 'green',
+        title: decision === 'DISMISSED' ? 'Conflict dismissed' : 'Conflict resolved',
+        message: 'The decision was recorded for ' + (task.conflict.studentNumber || 'this Student Record') + '.'
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        title: 'Decision not recorded',
+        message: error?.message || 'The identity conflict is still open.'
+      });
+    } finally {
+      setRunningIds((current) => withoutId(current, task.id));
+    }
+  }, [workspaceId]);
 
   function confirmArchive(task) {
     modals.openConfirmModal({
@@ -262,6 +305,7 @@ export function CommandCenterPage() {
               runningIds={runningIds}
               onCheck={checkDocument}
               onArchive={confirmArchive}
+              onDecideConflict={decideConflict}
             />
             {visibleTasks.length > PAGE_SIZE ? (
               <div className="wt-command-pagination">
@@ -288,9 +332,31 @@ export function CommandCenterPage() {
   );
 }
 
-function buildWorkQueue(state) {
+function buildWorkQueue(state, openConflicts = []) {
   const tasks = [];
   const attempts = state.attempts || [];
+
+  openConflicts.forEach((conflict) => {
+    const label = conflict.studentNumber || conflict.studentRecordId;
+    tasks.push({
+      id: 'conflict:' + conflict.id,
+      category: 'identity',
+      type: 'Identity conflict',
+      title: (conflict.studentName || 'Unnamed student') + ' has two Google accounts claiming one Student Record',
+      detail: 'Student Record ' + label + ' | '
+        + identityLabel(conflict.existingIdentity) + ' vs ' + identityLabel(conflict.conflictingIdentity)
+        + '. Resolve keeps the record under staff review; Dismiss closes it as harmless.',
+      studentName: conflict.studentName || '',
+      teamCode: conflict.teamCode || 'Unmatched team',
+      deliverableCode: 'Student identity',
+      updatedAt: conflict.createdAt,
+      conflict,
+      action: 'conflict',
+      actionLabel: 'Resolve conflict',
+      actionAriaLabel: 'Resolve ' + label + ' identity conflict',
+      dismissAriaLabel: 'Dismiss ' + label + ' identity conflict'
+    });
+  });
 
   attempts.forEach((response) => {
     if (response.archiveStatus === 'Archived') return;
@@ -413,6 +479,11 @@ function buildWorkQueue(state) {
     });
 
   return tasks.sort((a, b) => priorityOf(a.category) - priorityOf(b.category) || dateValue(b.updatedAt) - dateValue(a.updatedAt));
+}
+
+function identityLabel(identity) {
+  if (!identity) return 'unknown account';
+  return identity.googleEmail || identity.googleSubject || 'unknown account';
 }
 
 function importWarnings(state) {

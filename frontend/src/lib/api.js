@@ -368,6 +368,15 @@ export async function getIdentityConflicts(workspaceId) {
   return request(`/workspace/students/identity-conflicts?workspaceId=${encodeURIComponent(workspaceId)}`);
 }
 
+/** Admin-only: records RESOLVED or DISMISSED for one identity conflict. */
+export async function decideIdentityConflict(workspaceId, conflictId, decision, note) {
+  await ensureCsrfToken();
+  return request(
+    `/workspace/students/identity-conflicts/${encodeURIComponent(conflictId)}/decision?workspaceId=${encodeURIComponent(workspaceId)}`,
+    { method: 'POST', body: note ? { decision, note } : { decision } }
+  );
+}
+
 export async function selectCanonicalResponse(workspaceId, payload) {
   await ensureCsrfToken();
   return request(`/workspace/responses/canonical/select?workspaceId=${encodeURIComponent(workspaceId)}`, {
