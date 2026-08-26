@@ -1737,6 +1737,11 @@ html {
   }
 
   .wt-staff-account {
+    margin-left: auto;
+  }
+
+  .wt-staff-account .mantine-Avatar-root,
+  .wt-staff-account .wt-account-copy {
     display: none;
   }
 

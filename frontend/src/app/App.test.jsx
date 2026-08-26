@@ -40,6 +40,7 @@ const workflow = vi.hoisted(() => ({
     activeStudentNumber: ''
   },
   switchWorkspace: vi.fn(),
+  logoutStaffSession: vi.fn(),
   logoutStudentAccount: vi.fn()
 }));
 
@@ -85,6 +86,7 @@ describe('role-specific application shells', () => {
       activeStudentNumber: ''
     };
     workflow.switchWorkspace.mockReset();
+    workflow.logoutStaffSession.mockReset();
     workflow.logoutStudentAccount.mockReset();
   });
 
@@ -120,6 +122,34 @@ describe('role-specific application shells', () => {
     expect(within(navigation).queryByRole('link', { name: 'Review' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('link', { name: 'Archive' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('link', { name: 'Workspace' })).not.toBeInTheDocument();
+  });
+
+  it('lets Sir end his staff session from the account area and returns him to login', async () => {
+    setRole('admin');
+    renderApp('/');
+
+    const account = screen.getByRole('group', { name: 'Signed-in staff account' });
+    fireEvent.click(within(account).getByRole('button', { name: 'Log out' }));
+
+    expect(workflow.logoutStaffSession).toHaveBeenCalledOnce();
+    expect(await screen.findByRole('heading', { name: 'Student access page' })).toBeInTheDocument();
+  });
+
+  it('offers the same logout control to an adviser', () => {
+    setRole('adviser');
+    renderApp('/adviser');
+
+    const account = screen.getByRole('group', { name: 'Signed-in staff account' });
+    expect(within(account).getByRole('button', { name: 'Log out' })).toBeInTheDocument();
+  });
+
+  it('sends an unauthenticated visitor from protected staff routes to login', async () => {
+    setRole('anonymous');
+    renderApp('/workspace');
+
+    expect(await screen.findByRole('heading', { name: 'Student access page' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Staff navigation' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Workspace page' })).not.toBeInTheDocument();
   });
 
   it('uses a lightweight student shell and redirects students away from staff routes', async () => {
