@@ -33,8 +33,18 @@ public class DeliverableService {
 
     @Transactional(readOnly = true)
     public DeliverableResponse getPublishedDeliverableBySlug(UUID workspaceId, String slug) {
-        return repository.findByWorkspaceIdAndSlug(workspaceId, normalizeSlug(slug, slug))
-            .filter(deliverable -> deliverable.getStatus() == DeliverableStatus.PUBLISHED)
+        String normalizedTarget = normalizeSlug(slug, slug);
+        return repository.findAllByWorkspaceIdOrderByDueAtAscTitleAsc(workspaceId)
+            .stream()
+            .filter(d -> d.getStatus() == DeliverableStatus.PUBLISHED)
+            .filter(d -> {
+                String dSlug = normalizeSlug(d.getSlug(), d.getTitle());
+                String dCol = normalizeSlug(d.getTrackerColumnKey(), d.getTrackerColumnKey());
+                return dSlug.equalsIgnoreCase(normalizedTarget)
+                    || dCol.equalsIgnoreCase(normalizedTarget)
+                    || d.getId().toString().equalsIgnoreCase(slug.trim());
+            })
+            .findFirst()
             .map(DeliverableResponse::from)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Published form was not found."));
     }

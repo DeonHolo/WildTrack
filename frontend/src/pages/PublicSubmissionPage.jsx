@@ -102,13 +102,13 @@ export function PublicSubmissionPage() {
   const activeWorkspaceKey = getWorkspacePublicKey(activeWorkspace);
   const isSyncLoading = !state.backendSync?.lastLoadedAt && state.backendSync?.enabled !== false;
   const [workspaceStatus, setWorkspaceStatus] = useState(
-    !workspaceKey || (workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey) && (state.deliverables?.length || !isSyncLoading) ? 'ready' : 'loading'
+    !workspaceKey || (workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey) ? 'ready' : 'loading'
   );
   const [workspaceError, setWorkspaceError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [publicFormPayload, setPublicFormPayload] = useState(null);
   const stateDeliverable = getDeliverable(state, slug);
-  const deliverable = stateDeliverable || (publicFormPayload?.deliverable ? {
+  const deliverable = stateDeliverable || (publicFormPayload?.deliverable && publicFormPayload.deliverable.slug === slug ? {
     id: publicFormPayload.deliverable.id,
     slug: publicFormPayload.deliverable.slug,
     title: publicFormPayload.deliverable.title,
@@ -153,56 +153,42 @@ export function PublicSubmissionPage() {
 
   useEffect(() => {
     let active = true;
-    if (!workspaceKey) {
-      setWorkspaceStatus('ready');
-      setWorkspaceError('');
-      return () => { active = false; };
+    if (!stateDeliverable && slug) {
+      const targetWorkspaceKey = workspaceKey || activeWorkspaceKey || 'default';
+      getPublicSubmissionForm(targetWorkspaceKey, slug)
+        .then((data) => {
+          if (!active) return;
+          if (data?.deliverable) {
+            setPublicFormPayload(data);
+          }
+        })
+        .catch(() => {});
     }
-    if ((workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey) && (state.deliverables?.length || !isSyncLoading)) {
-      setWorkspaceStatus('ready');
-      setWorkspaceError('');
-      return () => { active = false; };
-    }
-    setWorkspaceStatus('loading');
-    setWorkspaceError('');
-    const publicPromise = getPublicSubmissionForm(workspaceKey, slug)
-      .then((data) => {
-        if (!active) return data;
-        if (data?.deliverable) {
-          setPublicFormPayload(data);
-          setWorkspaceStatus('ready');
-        }
-        return data;
-      })
-      .catch(() => null);
 
-    switchWorkspace(workspaceKey)
-      .then((response) => {
-        if (!active) return;
-        if (response?.ok) {
-          setWorkspaceStatus('ready');
-          return;
-        }
-        publicPromise.then((publicData) => {
+    if (workspaceKey && (workspaceKey !== activeWorkspaceId && workspaceKey !== activeWorkspaceKey)) {
+      setWorkspaceStatus('loading');
+      setWorkspaceError('');
+      switchWorkspace(workspaceKey)
+        .then((response) => {
           if (!active) return;
-          if (!publicData?.deliverable) {
-            setWorkspaceStatus('error');
-            setWorkspaceError(response?.error || 'This academic workspace could not be opened.');
+          if (response?.ok) {
+            setWorkspaceStatus('ready');
+            return;
           }
-        });
-      })
-      .catch((error) => {
-        if (!active) return;
-        publicPromise.then((publicData) => {
+          setWorkspaceStatus('error');
+          setWorkspaceError(response?.error || 'This academic workspace could not be opened.');
+        })
+        .catch((error) => {
           if (!active) return;
-          if (!publicData?.deliverable) {
-            setWorkspaceStatus('error');
-            setWorkspaceError(error?.message || 'This academic workspace could not be opened.');
-          }
+          setWorkspaceStatus('error');
+          setWorkspaceError(error?.message || 'This academic workspace could not be opened.');
         });
-      });
+    } else {
+      setWorkspaceStatus('ready');
+    }
+
     return () => { active = false; };
-  }, [activeWorkspaceId, activeWorkspaceKey, switchWorkspace, workspaceKey, slug, state.deliverables?.length, isSyncLoading]);
+  }, [slug, workspaceKey, activeWorkspaceKey, activeWorkspaceId, switchWorkspace, stateDeliverable]);
 
   useEffect(() => {
     const matched = activeAccount
