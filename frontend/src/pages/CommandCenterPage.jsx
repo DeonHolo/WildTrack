@@ -12,7 +12,7 @@ import {
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
-import { CheckCircle, Files, MagnifyingGlass } from '@phosphor-icons/react';
+import { CheckCircle, Files, MagnifyingGlass, Warning } from '@phosphor-icons/react';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { WorkQueueTable } from '../components/command/WorkQueueTable.jsx';
 import { decideIdentityConflict, getIdentityConflicts } from '../lib/api.js';
@@ -34,7 +34,7 @@ const QUEUE_FILTERS = [
 ];
 
 export function CommandCenterPage() {
-  const { state, runDocumentCheck, runDocumentChecks, archiveAttempt } = useWorkflow();
+  const { state, activeWorkspaceId, runDocumentCheck, runDocumentChecks, archiveAttempt } = useWorkflow();
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -42,7 +42,9 @@ export function CommandCenterPage() {
   const [resolvedTaskIds, setResolvedTaskIds] = useState(new Set());
   const [batchProgress, setBatchProgress] = useState(null);
   const [openConflicts, setOpenConflicts] = useState([]);
-  const workspaceId = state.activeWorkspace?.id;
+  const [conflictError, setConflictError] = useState(null);
+  // The active workspace lives at the workflow-context root, not inside state.
+  const workspaceId = activeWorkspaceId;
 
   // Ticket 05: identity conflicts are server-owned, so Today's work reads the open queue
   // from the backend instead of inferring conflicts from this browser's submissions.
@@ -50,15 +52,20 @@ export function CommandCenterPage() {
     let cancelled = false;
     if (!workspaceId) {
       setOpenConflicts([]);
+      setConflictError(null);
       return undefined;
     }
     getIdentityConflicts(workspaceId)
       .then((conflicts) => {
         if (cancelled) return;
+        setConflictError(null);
         setOpenConflicts(Array.isArray(conflicts) ? conflicts.filter((item) => item.status === 'OPEN') : []);
       })
-      .catch(() => {
-        if (!cancelled) setOpenConflicts([]);
+      .catch((error) => {
+        if (cancelled) return;
+        setOpenConflicts([]);
+        // A failed fetch must not read as "All clear": say the queue is incomplete.
+        setConflictError(error?.message || 'Identity conflicts could not be loaded.');
       });
     return () => { cancelled = true; };
   }, [workspaceId]);
@@ -211,7 +218,7 @@ export function CommandCenterPage() {
   }
 
   const emptyTitle = filter === 'all' && !query
-    ? 'All clear for this workspace'
+    ? (conflictError ? 'Work queue is incomplete' : 'All clear for this workspace')
     : 'No ' + (filter === 'all' ? 'matching' : QUEUE_FILTERS.find((item) => item.value === filter)?.label.toLowerCase()) + ' work';
 
   return (
@@ -295,6 +302,19 @@ export function CommandCenterPage() {
               </Text>
               <Progress value={(batchProgress.completed / Math.max(batchProgress.total, 1)) * 100} color="wildtrackMaroon" size="sm" />
             </Stack>
+          </Alert>
+        ) : null}
+
+        {conflictError ? (
+          <Alert
+            role="status"
+            color="orange"
+            variant="light"
+            title="Identity conflicts could not be loaded"
+            icon={<Warning size={19} />}
+            className="wt-command-batch-progress"
+          >
+            <Text size="sm">{conflictError} This queue may be missing identity work.</Text>
           </Alert>
         ) : null}
 

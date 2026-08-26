@@ -43,6 +43,7 @@ public class ReviewFeedbackService {
         if (!role.equals("ADMIN") && !role.equals("ADVISER")) {
             throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
         }
+        requireTeamAccess(response, subject, role, "comment on");
         Instant now = clock.instant();
         Optional<ResponseFeedback> existing = feedbackRepository.findByResponseIdAndAuthorSubject(responseId, subject);
         if (existing.isPresent()) {
@@ -64,15 +65,7 @@ public class ReviewFeedbackService {
     public ResponseAcceptance accept(UUID responseId, String subject, String email, String role) {
         FormResponse response = responseRepository.findById(responseId)
             .orElseThrow(() -> new IllegalArgumentException("Response not found."));
-        if (!role.equals("ADMIN")) {
-            boolean assignedToThisTeam = adviserTeamRepository
-                .findAllByGoogleSubjectAndWorkspaceId(subject, response.getWorkspaceId()).stream()
-                .anyMatch(a -> a.getTeamCode().equalsIgnoreCase(response.getTeamCode()));
-            if (!assignedToThisTeam) {
-                throw new org.springframework.security.access.AccessDeniedException(
-                    "Advisers may only accept responses for their assigned teams.");
-            }
-        }
+        requireTeamAccess(response, subject, role, "accept");
         Instant now = clock.instant();
         // Replace any prior acceptance row for the same response (re-accept after revoke).
         acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId)
@@ -83,6 +76,37 @@ public class ReviewFeedbackService {
         return acceptanceRepository.save(new ResponseAcceptance(
             UUID.randomUUID(), response, subject, email, role,
             response.getUpdatedAt(), now));
+    }
+
+    /**
+     * Ticket 06 follow-up: every staff mutation on a single response is scoped the same way as
+     * the staff queue, so an adviser cannot reach an unassigned team by calling the API directly.
+     * ADMIN passes through; an ADVISER must own the response's team in that workspace.
+     */
+    @Transactional(readOnly = true)
+    public void requireStaffTeamAccess(UUID responseId, String subject, String role) {
+        FormResponse response = responseRepository.findById(responseId)
+            .orElseThrow(() -> new IllegalArgumentException("Response not found."));
+        requireTeamAccess(response, subject, role, "read or change");
+    }
+
+    /** True when the session owns this response, which lets a student read their own feedback. */
+    @Transactional(readOnly = true)
+    public boolean isOwnedBy(UUID responseId, String subject) {
+        return responseRepository.findById(responseId)
+            .map(response -> response.getGoogleSubject().equals(subject))
+            .orElse(false);
+    }
+
+    private void requireTeamAccess(FormResponse response, String subject, String role, String verb) {
+        if ("ADMIN".equals(role)) return;
+        boolean assignedToThisTeam = adviserTeamRepository
+            .findAllByGoogleSubjectAndWorkspaceId(subject, response.getWorkspaceId()).stream()
+            .anyMatch(a -> a.getTeamCode().equalsIgnoreCase(response.getTeamCode()));
+        if (!assignedToThisTeam) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                "Advisers may only " + verb + " responses for their assigned teams.");
+        }
     }
 
     @Transactional

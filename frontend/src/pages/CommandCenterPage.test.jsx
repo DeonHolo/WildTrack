@@ -9,6 +9,7 @@ import { CommandCenterPage } from './CommandCenterPage.jsx';
 
 const workflow = vi.hoisted(() => ({
   state: null,
+  activeWorkspaceId: null,
   runDocumentCheck: vi.fn(),
   runDocumentChecks: vi.fn(),
   archiveAttempt: vi.fn()
@@ -110,6 +111,7 @@ describe("today's work queues", () => {
     workflow.runDocumentCheck.mockReset().mockResolvedValue({ ok: true });
     workflow.runDocumentChecks.mockReset().mockResolvedValue({ completed: 1, total: 1, failed: 0, results: [] });
     workflow.archiveAttempt.mockReset().mockResolvedValue({ ok: true, archived: 1 });
+    workflow.activeWorkspaceId = null;
     api.getIdentityConflicts.mockReset().mockResolvedValue([]);
     api.decideIdentityConflict.mockReset().mockResolvedValue({ status: 'RESOLVED' });
   });
@@ -218,7 +220,8 @@ describe('identity conflicts from the server', () => {
 
   beforeEach(() => {
     workflow.state = makeState([]);
-    workflow.state.activeWorkspace = { id: 'workspace-1', name: 'IT332 Sem 2' };
+    // The page must read the workspace from the workflow context root, as production does.
+    workflow.activeWorkspaceId = 'workspace-1';
     api.getIdentityConflicts.mockReset().mockResolvedValue([conflict]);
     api.decideIdentityConflict.mockReset().mockResolvedValue({ ...conflict, status: 'RESOLVED' });
   });
@@ -262,5 +265,14 @@ describe('identity conflicts from the server', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Resolve 20-0649-750 identity conflict' }));
     await waitFor(() => expect(api.decideIdentityConflict).toHaveBeenCalled());
     expect(await screen.findByRole('button', { name: 'Resolve 20-0649-750 identity conflict' })).toBeInTheDocument();
+  });
+
+  it('says the queue is incomplete instead of all clear when conflicts cannot be loaded', async () => {
+    api.getIdentityConflicts.mockRejectedValue(new Error('Identity conflicts service is unavailable.'));
+    renderPage();
+
+    expect(await screen.findByText('Identity conflicts could not be loaded')).toBeInTheDocument();
+    expect(screen.getByText('Work queue is incomplete')).toBeInTheDocument();
+    expect(screen.queryByText('All clear for this workspace')).not.toBeInTheDocument();
   });
 });

@@ -96,9 +96,10 @@ class RestartPersistenceTest {
             workspaceId, deliverableId, subject, email,
             Map.of("driveLink", "https://drive.example.test/edited")));
 
-        // Review feedback
-        feedbackService.saveFeedback(responseId, "adviser-subject", "adviser@test.com",
-            "ADVISER", "Good progress on the SRS.", "STUDENT_VISIBLE");
+        // Review feedback. Saved as ADMIN because staff notes are now team-scoped and this test
+        // exercises persistence, not authorization.
+        feedbackService.saveFeedback(responseId, "admin-subject", "admin@test.com",
+            "ADMIN", "Good progress on the SRS.", "STUDENT_VISIBLE");
 
         // Acceptance
         feedbackService.accept(responseId, "admin-subject", "admin@test.com", "ADMIN");
