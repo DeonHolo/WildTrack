@@ -3,6 +3,7 @@ import {
   Avatar,
   Box,
   Burger,
+  Button,
   Divider,
   Group,
   NavLink as MantineNavLink,
@@ -18,13 +19,14 @@ import {
   Gauge,
   GoogleLogo,
   ListChecks,
+  SignOut,
   Table,
   UsersThree
 } from '@phosphor-icons/react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkflow } from '../../app/WorkflowContext.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../../hooks/useApplicationRole.js';
-import { getStoredPreviewAdviser } from '../../hooks/usePreviewRole.js';
+import { clearStoredPreviewRole, getStoredPreviewAdviser } from '../../hooks/usePreviewRole.js';
 import { WildTrackBrand } from './WildTrackBrand.jsx';
 
 const ADMIN_GROUPS = [
@@ -70,11 +72,19 @@ export function StaffApplicationShell({ children }) {
   const [mobileOpened, { toggle, close }] = useDisclosure(false);
   const role = useApplicationRole();
   const location = useLocation();
-  const { workspaces, activeWorkspace, activeWorkspaceId, switchWorkspace } = useWorkflow();
+  const navigate = useNavigate();
+  const { workspaces, activeWorkspace, activeWorkspaceId, needsWorkspaceChoice, switchWorkspace, logoutStaffSession } = useWorkflow();
   const isAdviser = role === APPLICATION_ROLES.ADVISER;
   const navigationGroups = isAdviser ? ADVISER_GROUPS : ADMIN_GROUPS;
   const accountName = isAdviser ? getStoredPreviewAdviser() || 'Adviser account' : 'Ralph Laviste';
   const accountRole = isAdviser ? 'Adviser' : 'Administrator';
+
+  function signOut() {
+    logoutStaffSession();
+    clearStoredPreviewRole();
+    close();
+    navigate('/login', { replace: true });
+  }
 
   return (
     <MantineAppShell
@@ -105,12 +115,21 @@ export function StaffApplicationShell({ children }) {
               <Text size="xs" c="dimmed">{activeWorkspace?.semester} {activeWorkspace?.academicYear}</Text>
             </div>
           </Group>
-          <Group className="wt-staff-account" gap="xs" wrap="nowrap" ml="auto">
+          <Group className="wt-staff-account" gap="xs" wrap="nowrap" ml="auto" role="group" aria-label="Signed-in staff account">
             <Avatar color="wildtrackMaroon" size={34}>{initials(accountName)}</Avatar>
             <div className="wt-account-copy">
               <Text component="strong" size="sm" fw={750}>{accountName}</Text>
               <Text size="xs" c="dimmed">{accountRole}</Text>
             </div>
+            <Button
+              className="wt-staff-logout"
+              variant="default"
+              size="sm"
+              leftSection={<SignOut size={17} aria-hidden="true" />}
+              onClick={signOut}
+            >
+              Log out
+            </Button>
           </Group>
         </Group>
       </MantineAppShell.Header>
@@ -160,7 +179,11 @@ export function StaffApplicationShell({ children }) {
       </MantineAppShell.Navbar>
 
       <MantineAppShell.Main id="wildtrack-main">
-        <div className="wt-staff-main">{children}</div>
+        <div className="wt-staff-main">
+          {needsWorkspaceChoice ? (
+            <WorkspaceChooser workspaces={workspaces} onSelect={switchWorkspace} />
+          ) : children}
+        </div>
       </MantineAppShell.Main>
     </MantineAppShell>
   );
@@ -174,4 +197,28 @@ function initials(name) {
     .map((part) => part.charAt(0))
     .join('')
     .toUpperCase();
+}
+
+function WorkspaceChooser({ workspaces, onSelect }) {
+  return (
+    <div className="wt-workspace-chooser" role="region" aria-label="Choose a capstone section">
+      <Stack gap="lg" align="center" py="xl" maw={440} mx="auto">
+        <Text component="h2" size="lg" fw={700}>Choose a capstone section</Text>
+        <Text size="sm" c="dimmed">Select the workspace you want to manage before continuing.</Text>
+        <Stack gap="sm" w="100%">
+          {workspaces.map((workspace) => (
+            <Button
+              key={workspace.id}
+              variant="default"
+              size="lg"
+              fullWidth
+              onClick={() => onSelect(workspace.id)}
+            >
+              {workspace.name}
+            </Button>
+          ))}
+        </Stack>
+      </Stack>
+    </div>
+  );
 }

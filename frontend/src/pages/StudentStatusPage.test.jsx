@@ -448,14 +448,13 @@ describe('student dashboard', () => {
     expect(workflow.refreshBackendData).toHaveBeenCalledTimes(1);
   });
 
-  it('allows students to switch capstone sections when connecting their record', () => {
+  it('does not allow students to switch capstone sections from the student dashboard', () => {
     workflow.state.activeAccountEmail = 'cs.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'cs.student@gmail.com', googleSubject: 'google-cs', studentNumber: '' }];
     renderDashboard();
 
-    expect(screen.getByLabelText('Capstone section')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Capstone section'), { target: { value: 'workspace-cs' } });
-    expect(workflow.switchWorkspace).toHaveBeenCalledWith('workspace-cs');
+    expect(screen.queryByLabelText('Capstone section')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Switch section/i })).not.toBeInTheDocument();
   });
 
   it('persists a confirmed connection to the server association', async () => {
@@ -597,3 +596,5 @@ describe('student dashboard', () => {
     await waitFor(() => expect(confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1002-002'));
   });
 });
+
+

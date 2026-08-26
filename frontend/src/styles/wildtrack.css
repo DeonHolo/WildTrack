@@ -1737,6 +1737,11 @@ html {
   }
 
   .wt-staff-account {
+    margin-left: auto;
+  }
+
+  .wt-staff-account .mantine-Avatar-root,
+  .wt-staff-account .wt-account-copy {
     display: none;
   }
 
@@ -2910,6 +2915,17 @@ html {
 
 .wt-command-table td:last-child .mantine-Button-root {
   min-width: 138px;
+}
+
+.wt-command-action-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.wt-command-table td:last-child .wt-command-action-pair .mantine-Button-root {
+  min-width: 0;
 }
 
 .wt-command-pagination {

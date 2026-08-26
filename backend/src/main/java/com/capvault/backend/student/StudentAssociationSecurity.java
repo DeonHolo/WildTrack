@@ -1,6 +1,9 @@
 package com.capvault.backend.student;
 
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Optional;
+import java.util.Set;
 
 import com.capvault.backend.auth.StoredWildTrackSession;
 import com.capvault.backend.auth.WildTrackSessionService;
@@ -40,5 +43,12 @@ public class StudentAssociationSecurity {
     public boolean isAdmin(HttpServletRequest request) {
         var session = requireSession(request);
         return staffAccessResolver.activeRolesFor(session.googleSubject()).contains(StaffRole.ADMIN);
+    }
+
+    /** Staff roles held by the caller's session; empty for students and unknown staff. */
+    @Transactional(readOnly = true)
+    public Set<StaffRole> activeRoles(HttpServletRequest request) {
+        var roles = staffAccessResolver.activeRolesFor(requireSession(request).googleSubject());
+        return roles.isEmpty() ? Collections.emptySet() : EnumSet.copyOf(roles);
     }
 }

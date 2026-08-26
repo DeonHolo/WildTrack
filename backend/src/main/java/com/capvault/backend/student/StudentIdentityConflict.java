@@ -33,6 +33,18 @@ public class StudentIdentityConflict {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "decided_at")
+    private Instant decidedAt;
+
+    @Column(name = "decided_by_subject")
+    private String decidedBySubject;
+
+    @Column(name = "decided_by_email")
+    private String decidedByEmail;
+
+    @Column(name = "decision_note", length = 1000)
+    private String decisionNote;
+
     protected StudentIdentityConflict() {
     }
 
@@ -55,4 +67,17 @@ public class StudentIdentityConflict {
     public String getConflictingSubject() { return conflictingSubject; }
     public String getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
+    public Instant getDecidedAt() { return decidedAt; }
+    public String getDecidedBySubject() { return decidedBySubject; }
+    public String getDecidedByEmail() { return decidedByEmail; }
+    public String getDecisionNote() { return decisionNote; }
+
+    /** Records the staff decision that takes this conflict out of the open queue. */
+    public void decide(String status, String decidedBySubject, String decidedByEmail, String note, Instant decidedAt) {
+        this.status = status;
+        this.decidedBySubject = decidedBySubject;
+        this.decidedByEmail = decidedByEmail;
+        this.decisionNote = note;
+        this.decidedAt = decidedAt;
+    }
 }

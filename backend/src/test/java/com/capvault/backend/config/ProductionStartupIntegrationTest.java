@@ -1,76 +1,77 @@
 package com.capvault.backend.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.net.ServerSocket;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.sql.Connection;
-
 import javax.sql.DataSource;
 
-import com.capvault.backend.CapVaultBackendApplication;
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.SpringApplication;
-import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 
+@SpringBootTest(properties = {
+    "wildtrack.google.identity.enabled=true",
+    "wildtrack.google.identity.client-id=test-client.example.invalid",
+    "wildtrack.staff.bootstrap.assignments=ADMIN:admin@example.test",
+    "wildtrack.session.secure-cookie=true",
+    "capvault.cors.allowed-origins=https://wildtrack.dev"
+})
+@AutoConfigureMockMvc
+@ActiveProfiles("production")
 class ProductionStartupIntegrationTest {
+
+    private static EmbeddedPostgres postgres;
+
+    @BeforeAll
+    static void startPostgres() throws Exception {
+        postgres = EmbeddedPostgres.builder().start();
+    }
+
+    @AfterAll
+    static void stopPostgres() throws Exception {
+        if (postgres != null) {
+            postgres.close();
+        }
+    }
+
+    @DynamicPropertySource
+    static void configurePostgres(DynamicPropertyRegistry registry) throws Exception {
+        DataSource dataSource = postgres.getPostgresDatabase();
+        try (Connection connection = dataSource.getConnection()) {
+            String url = connection.getMetaData().getURL();
+            String user = connection.getMetaData().getUserName();
+            registry.add("spring.datasource.url", () -> url);
+            registry.add("spring.datasource.username", () -> user);
+            registry.add("spring.datasource.password", () -> "embedded-test-password");
+        }
+    }
+
+    @Autowired
+    private MockMvc mockMvc;
 
     @Test
     void productionApplicationBindsTheSuppliedPortAndBecomesReadyOnPostgres() throws Exception {
-        try (EmbeddedPostgres postgres = EmbeddedPostgres.builder().start()) {
-            DataSource embeddedDataSource = postgres.getPostgresDatabase();
-            String jdbcUrl;
-            String username;
-            try (Connection connection = embeddedDataSource.getConnection()) {
-                jdbcUrl = connection.getMetaData().getURL();
-                username = connection.getMetaData().getUserName();
-            }
+        String readinessBody = mockMvc.perform(get("/api/health/ready"))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString();
 
-            int port = availablePort();
-            SpringApplication application = new SpringApplication(CapVaultBackendApplication.class);
-            try (ConfigurableApplicationContext context = application.run(
-                "--spring.profiles.active=production",
-                "--server.port=" + port,
-                "--spring.datasource.url=" + jdbcUrl,
-                "--spring.datasource.username=" + username,
-                "--spring.datasource.password=embedded-test-password",
-                "--wildtrack.google.identity.enabled=true",
-                "--wildtrack.google.identity.client-id=test-client.example.invalid",
-                "--wildtrack.staff.bootstrap.assignments=ADMIN:admin@example.test",
-                "--wildtrack.session.secure-cookie=true",
-                "--capvault.cors.allowed-origins=https://wildtrack.dev"
-            )) {
-                HttpClient client = HttpClient.newHttpClient();
-                HttpResponse<String> readiness = client.send(
-                    HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/health/ready"))
-                        .GET()
-                        .build(),
-                    HttpResponse.BodyHandlers.ofString()
-                );
-                HttpResponse<String> h2Console = client.send(
-                    HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/h2-console"))
-                        .GET()
-                        .build(),
-                    HttpResponse.BodyHandlers.ofString()
-                );
+        assertThat(readinessBody)
+            .contains("\"status\":\"UP\"")
+            .contains("\"database\":\"UP\"")
+            .doesNotContain("jdbc:");
 
-                assertThat(readiness.statusCode()).isEqualTo(200);
-                assertThat(readiness.body())
-                    .contains("\"status\":\"UP\"")
-                    .contains("\"database\":\"UP\"")
-                    .doesNotContain("jdbc:");
-                assertThat(h2Console.statusCode()).isEqualTo(401);
-            }
-        }
-    }
-
-    private int availablePort() throws Exception {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        }
+        mockMvc.perform(get("/h2-console"))
+            .andExpect(status().isUnauthorized());
     }
 }
+

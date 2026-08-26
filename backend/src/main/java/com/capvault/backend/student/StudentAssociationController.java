@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.capvault.backend.student.StudentAssociationService.AssociationView;
+import com.capvault.backend.student.StudentAssociationService.ConflictDetail;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -11,6 +12,7 @@ import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,7 +34,7 @@ public class StudentAssociationController {
     public record ConfirmRequest(@NotBlank String studentNumber) {
     }
 
-    public record ConflictView(UUID id, UUID studentRecordId, String status, java.time.Instant createdAt) {
+    public record ConflictDecisionRequest(@NotBlank String decision, String note) {
     }
 
     @GetMapping("/me")
@@ -67,12 +69,29 @@ public class StudentAssociationController {
     }
 
     @GetMapping("/identity-conflicts")
-    public List<ConflictView> conflicts(@RequestParam UUID workspaceId, HttpServletRequest request) {
-        if (!security.isAdmin(request)) {
-            throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
+    public List<ConflictDetail> conflicts(@RequestParam UUID workspaceId, HttpServletRequest request) {
+        requireAdmin(request);
+        return associationService.openConflictDetails(workspaceId);
+    }
+
+    /** Admin-only decision: RESOLVED or DISMISSED, recorded with who decided and when. */
+    @PostMapping("/identity-conflicts/{conflictId}/decision")
+    public ConflictDetail decideConflict(
+        @RequestParam UUID workspaceId,
+        @PathVariable UUID conflictId,
+        @Valid @RequestBody ConflictDecisionRequest body,
+        HttpServletRequest request
+    ) {
+        var session = requireAdmin(request);
+        return associationService.decideConflict(
+            workspaceId, conflictId, body.decision(), session.googleSubject(), session.googleEmail(), body.note());
+    }
+
+    private com.capvault.backend.auth.StoredWildTrackSession requireAdmin(HttpServletRequest request) {
+        var session = security.requireSession(request);
+        if (!security.activeRoles(request).contains(com.capvault.backend.staff.StaffRole.ADMIN)) {
+            throw new org.springframework.security.access.AccessDeniedException("Admin authorization required.");
         }
-        return associationService.conflictsForWorkspace(workspaceId).stream()
-            .map(c -> new ConflictView(c.getId(), c.getStudentRecordId(), c.getStatus(), c.getCreatedAt()))
-            .toList();
+        return session;
     }
 }

@@ -21,7 +21,7 @@ const TYPE_ICONS = {
   'Integrity check failed': WarningCircle
 };
 
-export function WorkQueueTable({ tasks, runningIds, onCheck, onArchive }) {
+export function WorkQueueTable({ tasks, runningIds, onCheck, onArchive, onDecideConflict }) {
   return (
     <div className="wt-command-table-wrap">
       <Table.ScrollContainer minWidth={700} type="native">
@@ -69,6 +69,29 @@ export function WorkQueueTable({ tasks, runningIds, onCheck, onArchive }) {
                       >
                         {task.actionLabel}
                       </Button>
+                    ) : task.action === 'conflict' ? (
+                      <div className="wt-command-action-pair">
+                        <Button
+                          variant="default"
+                          size="sm"
+                          loading={runningIds.has(task.id)}
+                          leftSection={<IdentificationBadge size={17} />}
+                          aria-label={task.actionAriaLabel}
+                          onClick={() => onDecideConflict(task, 'RESOLVED')}
+                        >
+                          {task.actionLabel}
+                        </Button>
+                        <Button
+                          variant="subtle"
+                          color="gray"
+                          size="sm"
+                          disabled={runningIds.has(task.id)}
+                          aria-label={task.dismissAriaLabel}
+                          onClick={() => onDecideConflict(task, 'DISMISSED')}
+                        >
+                          Dismiss
+                        </Button>
+                      </div>
                     ) : task.action === 'archive' ? (
                       <Button
                         variant="default"

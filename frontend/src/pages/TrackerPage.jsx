@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Group, Paper, Popover, Text, TextInput, Title } from '@mantine/core';
 import { CaretLeft, CaretRight, ChartBar, MagnifyingGlass, UsersThree } from '@phosphor-icons/react';
-import { PageHeader } from '../components/ui.jsx';
+import { EmptyState, PageHeader } from '../components/ui.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import {
   formatDateTime,
@@ -76,7 +76,12 @@ export function TrackerPage() {
       />
 
       <Paper className="wt-tracker-workbench" withBorder>
-        {selected ? (
+        {!state.students.length ? (
+          <EmptyState
+            title="No students imported"
+            description="Import the Tracker sheet from the Workspace page to populate the class roster."
+          />
+        ) : selected ? (
           <section className="wt-tracker-context" aria-label="Selected student context">
             <div className="wt-tracker-student-identity">
               <Text component="span" className="wt-tracker-eyebrow">Selected student</Text>

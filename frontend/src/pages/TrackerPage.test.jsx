@@ -114,3 +114,26 @@ describe('class tracker at scale', () => {
     expect(within(workbench).getByText('Page 1 of 13')).toBeInTheDocument();
   });
 });
+
+describe('empty tracker state (ticket 07)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    workflow.state = {
+      activeStudentNumber: '',
+      trackerColumns: [
+        { id: 'srs', key: 'SRS', label: 'SRS', active: true, order: 1 }
+      ],
+      students: [],
+      projectMetadata: [],
+      deliverables: [],
+      attempts: []
+    };
+  });
+
+  it('shows an instructive empty state when no students are imported', () => {
+    renderPage();
+    expect(screen.getByText('No students imported')).toBeInTheDocument();
+    expect(screen.getByText(/Import the Tracker sheet/i)).toBeInTheDocument();
+    expect(screen.getByText('0 rows')).toBeInTheDocument();
+  });
+});

@@ -9,14 +9,22 @@ import { CommandCenterPage } from './CommandCenterPage.jsx';
 
 const workflow = vi.hoisted(() => ({
   state: null,
+  activeWorkspaceId: null,
   runDocumentCheck: vi.fn(),
   runDocumentChecks: vi.fn(),
   archiveAttempt: vi.fn()
 }));
 
+const api = vi.hoisted(() => ({
+  getIdentityConflicts: vi.fn(),
+  decideIdentityConflict: vi.fn()
+}));
+
 vi.mock('../app/WorkflowContext.jsx', () => ({
   useWorkflow: () => workflow
 }));
+
+vi.mock('../lib/api.js', () => api);
 
 const submittedAt = '2026-04-19T11:04:00+08:00';
 
@@ -103,6 +111,9 @@ describe("today's work queues", () => {
     workflow.runDocumentCheck.mockReset().mockResolvedValue({ ok: true });
     workflow.runDocumentChecks.mockReset().mockResolvedValue({ completed: 1, total: 1, failed: 0, results: [] });
     workflow.archiveAttempt.mockReset().mockResolvedValue({ ok: true, archived: 1 });
+    workflow.activeWorkspaceId = null;
+    api.getIdentityConflicts.mockReset().mockResolvedValue([]);
+    api.decideIdentityConflict.mockReset().mockResolvedValue({ status: 'RESOLVED' });
   });
 
   it('shows only unresolved operational work without metric cards or recent activity', () => {
@@ -191,5 +202,77 @@ describe("today's work queues", () => {
 
     expect(screen.getByText('All clear for this workspace')).toBeInTheDocument();
     expect(screen.queryByRole('table', { name: "Today's work queue" })).not.toBeInTheDocument();
+  });
+});
+
+describe('identity conflicts from the server', () => {
+  const conflict = {
+    id: 'conflict-1',
+    studentRecordId: 'record-1',
+    studentNumber: '20-0649-750',
+    studentName: 'Deon Holo',
+    teamCode: '2526-sem2-it332-07',
+    status: 'OPEN',
+    createdAt: '2026-04-21T08:30:00+08:00',
+    existingIdentity: { googleSubject: 'sub-first', googleEmail: 'rontaghoy@gmail.com', active: true },
+    conflictingIdentity: { googleSubject: 'sub-second', googleEmail: 'impostor@gmail.com', active: true }
+  };
+
+  beforeEach(() => {
+    workflow.state = makeState([]);
+    // The page must read the workspace from the workflow context root, as production does.
+    workflow.activeWorkspaceId = 'workspace-1';
+    api.getIdentityConflicts.mockReset().mockResolvedValue([conflict]);
+    api.decideIdentityConflict.mockReset().mockResolvedValue({ ...conflict, status: 'RESOLVED' });
+  });
+
+  it('renders each open conflict with its Student Record and both competing identities', async () => {
+    renderPage();
+
+    await waitFor(() => expect(api.getIdentityConflicts).toHaveBeenCalledWith('workspace-1'));
+    const queue = await screen.findByRole('table', { name: "Today's work queue" });
+    expect(within(queue).getByText('Identity conflict')).toBeInTheDocument();
+    expect(within(queue).getByText(/Deon Holo/)).toBeInTheDocument();
+    expect(within(queue).getByText(/20-0649-750/)).toBeInTheDocument();
+    expect(within(queue).getByText(/rontaghoy@gmail.com/)).toBeInTheDocument();
+    expect(within(queue).getByText(/impostor@gmail.com/)).toBeInTheDocument();
+  });
+
+  it('records a resolve decision and drops the conflict from the open list', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Resolve 20-0649-750 identity conflict' }));
+    await waitFor(() => expect(api.decideIdentityConflict)
+      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'RESOLVED'));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Resolve 20-0649-750 identity conflict' })).not.toBeInTheDocument());
+    expect(screen.getByText('All clear for this workspace')).toBeInTheDocument();
+  });
+
+  it('records a dismiss decision and drops the conflict from the open list', async () => {
+    api.decideIdentityConflict.mockResolvedValue({ ...conflict, status: 'DISMISSED' });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss 20-0649-750 identity conflict' }));
+    await waitFor(() => expect(api.decideIdentityConflict)
+      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'DISMISSED'));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Dismiss 20-0649-750 identity conflict' })).not.toBeInTheDocument());
+  });
+
+  it('keeps the conflict listed when the decision fails', async () => {
+    api.decideIdentityConflict.mockRejectedValue(new Error('Admin authorization required.'));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Resolve 20-0649-750 identity conflict' }));
+    await waitFor(() => expect(api.decideIdentityConflict).toHaveBeenCalled());
+    expect(await screen.findByRole('button', { name: 'Resolve 20-0649-750 identity conflict' })).toBeInTheDocument();
+  });
+
+  it('says the queue is incomplete instead of all clear when conflicts cannot be loaded', async () => {
+    api.getIdentityConflicts.mockRejectedValue(new Error('Identity conflicts service is unavailable.'));
+    renderPage();
+
+    expect(await screen.findByText('Identity conflicts could not be loaded')).toBeInTheDocument();
+    expect(screen.getByText('Work queue is incomplete')).toBeInTheDocument();
+    expect(screen.queryByText('All clear for this workspace')).not.toBeInTheDocument();
   });
 });

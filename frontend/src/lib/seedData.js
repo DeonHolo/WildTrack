@@ -34,7 +34,9 @@ export const seedWorkspaces = [
   }
 ];
 
-export const seedProjectMetadata = [
+// Ticket 07: everything from here to `starterInitialState` is development-only starter
+// data. Production never composes it; `initialState` below is the empty production seed.
+const starterProjectMetadata = [
   {
     groupCode: '2526-sem2-it332-11',
     projectTitle: 'StudyBuddy: A Collaborative Academic Task Manager',
@@ -59,7 +61,7 @@ export const seedProjectMetadata = [
   }
 ];
 
-export const seedStudents = [
+const starterStudents = [
   {
     studentNumber: '22-1001-001',
     name: 'DELA CRUZ, JUAN CARLOS M.',
@@ -176,7 +178,7 @@ export const seedStudents = [
   }
 ];
 
-export const seedDeliverables = [
+const starterDeliverables = [
   {
     id: 'deliv-srs',
     slug: 'week-9-srs',
@@ -223,7 +225,7 @@ export const seedDeliverables = [
   }
 ];
 
-export const seedAttempts = [
+const starterAttempts = [
   {
     id: 'att-001',
     deliverableId: 'deliv-srs',
@@ -264,31 +266,31 @@ export const seedAttempts = [
 
 export const initialState = {
   classRecord: {
-    name: 'ClassRec SEM2 2025-26 : IT332 Tracker',
+    name: '',
     sheetUrl: '',
     connectedAt: '',
-    trackerSheet: 'IT332 Tracker',
-    status: 'Connected',
-    importedColumns: ['NAME OF STUDENT', 'STUDENT NO', 'TEAM FORMATION', 'MEMBER#', ...trackerColumns],
+    trackerSheet: '',
+    status: 'Not connected',
+    importedColumns: [],
     sources: {
       teamFormation: {
         name: 'Team Formation',
         sheetUrl: '',
-        status: 'Starter data',
+        status: 'Not connected',
         connectedAt: '',
         csvUrl: ''
       },
       tracker: {
         name: 'Tracker',
         sheetUrl: '',
-        status: 'Starter data',
+        status: 'Not connected',
         connectedAt: '',
         csvUrl: ''
       },
       projectMonitor: {
         name: 'Software Project Monitor',
         sheetUrl: '',
-        status: 'Starter data',
+        status: 'Not connected',
         connectedAt: '',
         csvUrl: ''
       }
@@ -297,15 +299,36 @@ export const initialState = {
     importWarnings: []
   },
   trackerColumns: seedTrackerColumns,
-  projectMetadata: seedProjectMetadata,
+  projectMetadata: [],
   templates: [],
-  students: seedStudents,
-  deliverables: seedDeliverables,
-  attempts: seedAttempts,
+  students: [],
+  deliverables: [],
+  attempts: [],
   archives: [],
   studentAccounts: [],
   activeAccountEmail: '',
   activeStudentNumber: '',
+  activity: []
+};
+
+export const starterInitialState = {
+  ...initialState,
+  classRecord: {
+    ...initialState.classRecord,
+    name: 'ClassRec SEM2 2025-26 : IT332 Tracker',
+    trackerSheet: 'IT332 Tracker',
+    status: 'Connected',
+    importedColumns: ['NAME OF STUDENT', 'STUDENT NO', 'TEAM FORMATION', 'MEMBER#', ...trackerColumns],
+    sources: {
+      teamFormation: { ...initialState.classRecord.sources.teamFormation, status: 'Starter data' },
+      tracker: { ...initialState.classRecord.sources.tracker, status: 'Starter data' },
+      projectMonitor: { ...initialState.classRecord.sources.projectMonitor, status: 'Starter data' }
+    }
+  },
+  projectMetadata: starterProjectMetadata,
+  students: starterStudents,
+  deliverables: starterDeliverables,
+  attempts: starterAttempts,
   activity: [
     { id: 'act-001', at: '2026-06-18T00:10:00+08:00', text: 'Loaded local starter records for testing.' },
     { id: 'act-002', at: '2026-06-18T00:15:00+08:00', text: 'Published SRS and SDD submission forms.' }

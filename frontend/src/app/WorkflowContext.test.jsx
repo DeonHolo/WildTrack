@@ -51,6 +51,8 @@ function Probe() {
       <span data-testid="sync-status">{workflow.state.backendSync?.status || ''}</span>
       <span data-testid="sync-error">{workflow.state.backendSync?.lastError || ''}</span>
       <span data-testid="tracker-status">{workflow.state.classRecord?.sources?.tracker?.status || ''}</span>
+      <span data-testid="session-authenticated">{String(Boolean(workflow.session?.authenticated))}</span>
+      <span data-testid="active-account">{workflow.state.activeAccountEmail || ''}</span>
     </div>
   );
 }
@@ -130,5 +132,45 @@ describe('backend failure visibility', () => {
     expect(result.ok).toBe(true);
     await waitFor(() => expect(screen.getByTestId('sync-status').textContent).toBe('Tracker imported through backend.'));
     expect(screen.getByTestId('sync-error').textContent).toBe('');
+  });
+});
+
+describe('staff sign-out', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    captured = null;
+    Object.values(api).forEach((mock) => mock.mockReset());
+    api.getWorkspaces.mockResolvedValue([]);
+    api.getBackendSnapshot.mockResolvedValue(emptySnapshot());
+    api.logout.mockResolvedValue(undefined);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => '' }));
+  });
+
+  it('ends the backend session and clears client session state', async () => {
+    api.getCurrentSession.mockResolvedValue({ authenticated: true, email: 'ralph@example.edu', roles: ['ADMIN'] });
+    renderProvider();
+
+    await waitFor(() => expect(screen.getByTestId('session-authenticated').textContent).toBe('true'));
+
+    const result = await captured.logoutStaffSession();
+
+    expect(result.ok).toBe(true);
+    expect(api.logout).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.getByTestId('session-authenticated').textContent).toBe('false'));
+    expect(screen.getByTestId('active-account').textContent).toBe('');
+  });
+
+  it('still clears the client session when the backend logout call fails', async () => {
+    api.getCurrentSession.mockResolvedValue({ authenticated: true, email: 'ralph@example.edu', roles: ['ADMIN'] });
+    api.logout.mockRejectedValue(Object.assign(new Error('Request failed with status 503'), { status: 503 }));
+    renderProvider();
+
+    await waitFor(() => expect(screen.getByTestId('session-authenticated').textContent).toBe('true'));
+
+    const result = await captured.logoutStaffSession();
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('503');
+    await waitFor(() => expect(screen.getByTestId('session-authenticated').textContent).toBe('false'));
   });
 });

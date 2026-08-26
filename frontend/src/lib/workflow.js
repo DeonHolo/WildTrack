@@ -1,4 +1,4 @@
-import { initialState, seedWorkspaces } from './seedData.js';
+import { initialState, seedWorkspaces, starterInitialState } from './seedData.js';
 import { browserStorageKeys, isJsonStorageValue, readStorageWithMigration } from './browserStorage.js';
 
 const STORAGE_KEY = browserStorageKeys.workflow;
@@ -32,9 +32,8 @@ export function saveWorkspaceCatalog(workspaces) {
 
 export function loadActiveWorkspaceId(workspaces = loadWorkspaceCatalog()) {
   const stored = readStorageWithMigration(ACTIVE_WORKSPACE_KEY, '.v2.active-workspace');
-  return workspaces.some((workspace) => workspace.id === stored)
-    ? stored
-    : workspaces[0]?.id || DEFAULT_WORKSPACE_ID;
+  if (stored && workspaces.some((workspace) => workspace.id === stored)) return stored;
+  return null;
 }
 
 export function saveActiveWorkspaceId(workspaceId) {
@@ -128,66 +127,6 @@ export function createWorkspaceInitialState(workspace) {
   cloned.workspaceId = workspace.id;
   cloned.classRecord.name = workspace.name;
   cloned.classRecord.trackerSheet = `${workspace.courseCode || workspace.program} Tracker`;
-  if (workspace.id !== DEFAULT_WORKSPACE_ID) {
-    cloned.classRecord.status = 'Starter data';
-    cloned.classRecord.sources = Object.fromEntries(
-      Object.entries(cloned.classRecord.sources).map(([key, source]) => [
-        key,
-        { ...source, status: 'Starter data', sheetUrl: '', connectedAt: '', csvUrl: '' }
-      ])
-    );
-    const courseKey = slugify(workspace.courseCode || workspace.program || 'capstone');
-    const workspaceNames = [
-      'MENDOZA, ALTHEA NICOLE R.',
-      'NAVARRO, GABRIEL LUIS T.',
-      'LIM, SOFIA ISABEL M.',
-      'RAMOS, ETHAN MIGUEL C.',
-      'VILLANUEVA, CLARISSE MAE D.',
-      'CASTILLO, NATHANIEL JOSE P.'
-    ];
-    const studentMap = new Map();
-    cloned.students = cloned.students.map((student, index) => {
-      const teamSuffix = String(Math.floor(index / 2) + 1).padStart(2, '0');
-      const mapped = {
-        ...student,
-        studentNumber: `CS-${String(index + 1).padStart(4, '0')}`,
-        name: workspaceNames[index] || `STUDENT ${index + 1}`,
-        teamCode: `${workspace.academicYear?.replace(/-/g, '') || '2526'}-${courseKey}-${teamSuffix}`,
-        section: workspace.courseCode || workspace.program,
-        adviser: index < 4 ? 'Dr. Elena Mercado' : 'Prof. Adrian Flores'
-      };
-      studentMap.set(student.studentNumber, mapped);
-      return mapped;
-    });
-    const projectNames = [
-      ['CodeCompass: Programming Practice Companion', 'CodeCompass'],
-      ['LabLink: Computing Laboratory Scheduler', 'LabLink']
-    ];
-    cloned.projectMetadata = cloned.projectMetadata.map((project, index) => ({
-      ...project,
-      groupCode: cloned.students[index * 2]?.teamCode || `${courseKey}-${index + 1}`,
-      projectTitle: projectNames[index]?.[0] || project.projectTitle,
-      softwareName: projectNames[index]?.[1] || project.softwareName,
-      adviserName: cloned.students[index * 2]?.adviser || 'Unassigned'
-    }));
-    cloned.attempts = cloned.attempts.map((attempt) => {
-      const mapped = studentMap.get(attempt.studentNumber);
-      return mapped ? {
-        ...attempt,
-        id: `${attempt.id}-${courseKey}`,
-        studentNumber: mapped.studentNumber,
-        studentName: mapped.name,
-        teamCode: mapped.teamCode
-      } : attempt;
-    });
-    cloned.archives = [];
-    cloned.studentAccounts = [];
-    cloned.activeAccountEmail = '';
-    cloned.activeStudentNumber = '';
-    cloned.activity = [
-      { id: `act-starter-${workspace.id}`, at: new Date().toISOString(), text: `Loaded starter records for ${workspace.name}.` }
-    ];
-  }
   return cloned;
 }
 
@@ -272,7 +211,13 @@ export function saveWorkflowState(state, workspaceId = state.workspaceId || DEFA
 export function resetWorkflowState(workspaceId = DEFAULT_WORKSPACE_ID, workspace = null) {
   localStorage.removeItem(`${WORKSPACE_STORAGE_PREFIX}${workspaceId}`);
   if (workspaceId === DEFAULT_WORKSPACE_ID) localStorage.removeItem(STORAGE_KEY);
-  return materializeStudentSession(createWorkspaceInitialState(workspace), workspaceId);
+  const starter = JSON.parse(JSON.stringify(starterInitialState));
+  if (workspace) {
+    starter.workspaceId = workspace.id;
+    starter.classRecord.name = workspace.name;
+    starter.classRecord.trackerSheet = `${workspace.courseCode || workspace.program} Tracker`;
+  }
+  return materializeStudentSession(starter, workspaceId);
 }
 
 export function findStudent(students, studentNumber) {

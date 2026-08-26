@@ -36,6 +36,7 @@ const REVIEW_PAGE_SIZE = 50;
 export function ReviewPage() {
   const {
     state,
+    activeWorkspaceId,
     runDocumentCheck,
     runDocumentChecks,
     runAiReview,
@@ -110,8 +111,8 @@ export function ReviewPage() {
   // Ticket 06: compact conflict indicators for the staff exception view.
   useEffect(() => {
     let cancelled = false;
-    if (!state.activeWorkspace?.id) return undefined;
-    getIdentityConflicts(state.activeWorkspace.id)
+    if (!activeWorkspaceId) return undefined;
+    getIdentityConflicts(activeWorkspaceId)
       .then((conflicts) => {
         if (cancelled || !Array.isArray(conflicts)) return;
         setConflictStudentNumbers(conflicts
@@ -121,7 +122,7 @@ export function ReviewPage() {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [state.activeWorkspace?.id]);
+  }, [activeWorkspaceId]);
   useEffect(() => {
     setSelectedIds((current) => {
       const visibleIds = new Set(visibleResponses.map((response) => response.id));

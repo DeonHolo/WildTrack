@@ -5,6 +5,16 @@ WildTrack manages capstone class workflows: academic workspaces, Google Sheet im
 > [!IMPORTANT]
 > WildTrack is currently for local development and supervised demonstrations. It is **not ready for a public production deployment** or real student data. Read [Production status](#production-status) before exposing it to the internet.
 
+## Persistence and Identity Architecture
+
+WildTrack uses the backend (Spring Boot on PostgreSQL / local H2) as the single source of truth for all critical workflow data:
+
+- **Server-persisted student associations:** When a student confirms their Student Number using Google Sign-In, the association is recorded on the backend. It persists across cleared browser storage, devices, and sessions, automatically loading their profile and submissions on any browser.
+- **Identity collision resolution:** If a different Google account attempts to associate with an already-claimed Student Number, the system flags an open identity conflict. Administrators review competing claims in Today's Work and record an explicit decision (resolved or dismissed).
+- **Deliverable deduplication:** Deliverables are canonicalized by tracker column and slug, self-healing any duplicate records on reload.
+- **Durable staff and student sessions:** Both staff and student views provide explicit Log out controls that invalidate the server session, clear client state, and redirect unauthenticated access.
+- **Data hygiene:** Production initial state is completely clean with instructive empty states; starter seed data is restricted to local development environments.
+
 ## Quick start on Windows
 
 The supported local workflow uses the PowerShell scripts in the repository root. The launcher installs missing frontend packages, builds the backend, starts both services, checks that they are ready, and writes logs.
@@ -306,3 +316,5 @@ For product and interface decisions, start with:
 
 - [`docs/WildTrack_UI_Rebrand_Specification.md`](docs/WildTrack_UI_Rebrand_Specification.md)
 - [`docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md`](docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md)
+
+
