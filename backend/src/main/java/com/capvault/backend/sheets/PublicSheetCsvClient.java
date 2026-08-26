@@ -8,12 +8,9 @@ import java.time.Duration;
 import org.springframework.boot.web.client.ClientHttpRequestFactories;
 import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClientException;
 
-import java.net.URI;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -36,10 +33,20 @@ public class PublicSheetCsvClient implements SheetCsvClient {
         if (csvUrl.isBlank()) {
             throw new IllegalArgumentException("Use a valid Google Sheet link or published Sheet URL.");
         }
-        return restClient.get()
-            .uri(URI.create(csvUrl))
-            .retrieve()
-            .body(String.class);
+        try {
+            return restClient.get()
+                .uri(URI.create(csvUrl))
+                .retrieve()
+                .body(String.class);
+        } catch (HttpClientErrorException.Unauthorized ex) {
+            throw new IllegalArgumentException("Google Sheet returned 401 Unauthorized. Ensure the sheet is published to the web (File > Share > Publish to web) or shared with public view access.", ex);
+        } catch (HttpClientErrorException.Forbidden ex) {
+            throw new IllegalArgumentException("Google Sheet returned 403 Forbidden. Ensure the sheet is published to the web (File > Share > Publish to web) or shared with public view access.", ex);
+        } catch (HttpClientErrorException.NotFound ex) {
+            throw new IllegalArgumentException("Google Sheet was not found (404). Check the sheet URL.", ex);
+        } catch (RestClientException ex) {
+            throw new IllegalArgumentException("Failed to fetch Google Sheet: " + ex.getMessage(), ex);
+        }
     }
 
     public static String buildPublishedSheetCsvUrl(String sheetUrl) {

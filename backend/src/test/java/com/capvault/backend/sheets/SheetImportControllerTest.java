@@ -9,6 +9,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.http.HttpStatus;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.capvault.backend.project.ProjectMetadataRepository;
 import com.capvault.backend.student.StudentRecordRepository;
 import com.capvault.backend.tracker.TrackerCellRepository;
@@ -218,6 +226,24 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$[0].adviserName").value("Sir Ralph Laviste"));
     }
 
+    @Test
+    void returnsReadableBadRequestWhenGoogleSheetsReturnsUnauthorized() throws Exception {
+        when(sheetCsvClient.fetchCsv(anyString())).thenThrow(
+            new IllegalArgumentException("Google Sheet returned 401 Unauthorized. Ensure the sheet is published to the web (File > Share > Publish to web) or shared with public view access.")
+        );
+
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "sheetUrl": "https://docs.google.com/spreadsheets/d/private-sheet/edit",
+                      "displayName": "Team Formation"
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("Google Sheet returned 401 Unauthorized. Ensure the sheet is published to the web (File > Share > Publish to web) or shared with public view access."));
+    }
+
     private void importTeamFormation() throws Exception {
         mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session())
                 .contentType(MediaType.APPLICATION_JSON)
@@ -230,5 +256,4 @@ class SheetImportControllerTest {
             .andExpect(status().isOk());
     }
 }
-
 
