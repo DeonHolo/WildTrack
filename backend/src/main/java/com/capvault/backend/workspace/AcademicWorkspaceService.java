@@ -39,7 +39,10 @@ public class AcademicWorkspaceService {
         return repository.findAllByOrderByActiveDescProgramAscCourseCodeAscAcademicYearDescSemesterAsc()
             .stream()
             .filter(AcademicWorkspace::isActive)
-            .filter(workspace -> publicKeyFor(workspace).equals(normalizedKey))
+            .filter(workspace -> publicKeyFor(workspace).equalsIgnoreCase(normalizedKey)
+                || workspace.getId().toString().equalsIgnoreCase(normalizedKey)
+                || slugify(workspace.getName()).equalsIgnoreCase(normalizedKey)
+                || slugify(workspace.getCourseCode()).equalsIgnoreCase(normalizedKey))
             .findFirst()
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Published form was not found."));
     }
