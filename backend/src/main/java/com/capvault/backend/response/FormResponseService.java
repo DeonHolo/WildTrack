@@ -139,6 +139,11 @@ public class FormResponseService {
         return responseRepository.findAllByWorkspaceId(workspaceId);
     }
 
+    @Transactional(readOnly = true)
+    public List<FormResponse> responsesForSubject(UUID workspaceId, String googleSubject) {
+        return responseRepository.findAllByWorkspaceIdAndGoogleSubject(workspaceId, googleSubject);
+    }
+
     /**
      * Adviser-scoped read: only submissions whose snapshotted team code matches one of the
      * caller's assigned teams. Filtering lives on the server so a direct API call cannot

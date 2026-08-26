@@ -13,4 +13,6 @@ public interface FormResponseRepository extends JpaRepository<FormResponse, UUID
     List<FormResponse> findAllByWorkspaceId(UUID workspaceId);
 
     List<FormResponse> findAllByDeliverableId(UUID deliverableId);
+
+    List<FormResponse> findAllByWorkspaceIdAndGoogleSubject(UUID workspaceId, String googleSubject);
 }

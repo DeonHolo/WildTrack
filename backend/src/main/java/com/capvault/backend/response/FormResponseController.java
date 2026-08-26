@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.capvault.backend.student.StudentAssociationSecurity;
+import com.capvault.backend.student.StudentAssociationService;
 import com.capvault.backend.staff.StaffManagementService;
 import com.capvault.backend.staff.StaffRole;
 
@@ -29,15 +30,18 @@ public class FormResponseController {
     private final FormResponseService responseService;
     private final StudentAssociationSecurity security;
     private final StaffManagementService staffManagementService;
+    private final StudentAssociationService associationService;
 
     public FormResponseController(
         FormResponseService responseService,
         StudentAssociationSecurity security,
-        StaffManagementService staffManagementService
+        StaffManagementService staffManagementService,
+        StudentAssociationService associationService
     ) {
         this.responseService = responseService;
         this.security = security;
         this.staffManagementService = staffManagementService;
+        this.associationService = associationService;
     }
 
     public record SubmitRequest(
@@ -134,5 +138,26 @@ public class FormResponseController {
                 workspaceId, staffManagementService.assignedTeams(session.googleSubject(), workspaceId));
         }
         throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
+    }
+
+    /**
+     * Role-scoped response list accessible to students, advisers, and admins.
+     */
+    @GetMapping("/my-team")
+    public List<FormResponse> myTeamView(@RequestParam UUID workspaceId, HttpServletRequest http) {
+        var session = security.requireSession(http);
+        var roles = security.activeRoles(http);
+        if (roles.contains(StaffRole.ADMIN)) {
+            return responseService.responsesForWorkspace(workspaceId);
+        }
+        if (roles.contains(StaffRole.ADVISER)) {
+            return responseService.responsesForTeams(
+                workspaceId, staffManagementService.assignedTeams(session.googleSubject(), workspaceId));
+        }
+        var assoc = associationService.activeAssociation(workspaceId, session.googleSubject());
+        if (assoc.isPresent() && assoc.get().teamCode() != null && !assoc.get().teamCode().isBlank()) {
+            return responseService.responsesForTeams(workspaceId, List.of(assoc.get().teamCode()));
+        }
+        return responseService.responsesForSubject(workspaceId, session.googleSubject());
     }
 }
