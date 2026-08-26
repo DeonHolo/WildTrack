@@ -124,7 +124,19 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
             activeWorkspaceRef.current = nextId;
             setActiveWorkspaceId(nextId);
             saveActiveWorkspaceId(nextId);
-            setState(loadWorkflowState(nextId, backendWorkspaces[0]));
+            setState((current) => ({
+              ...loadWorkflowState(nextId, backendWorkspaces[0]),
+              studentAccounts: current.studentAccounts || [],
+              activeAccountEmail: current.activeAccountEmail || ''
+            }));
+            getBackendSnapshot(nextId)
+              .then((snapshot) => {
+                setState((current) => applyBackendSnapshot(current, snapshot, {
+                  status: 'Backend data loaded.',
+                  enabled: true
+                }));
+              })
+              .catch(() => {});
           }
           // When multiple workspaces exist and no preference is stored,
           // leave activeWorkspaceId null so the chooser renders (AC 4).
@@ -416,7 +428,7 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
   }, [state.studentAccounts]);
   const authenticateGoogleAccount = useCallback((identity) => {
     const email = String(identity.email || '').trim().toLowerCase();
-    const googleSubject = String(identity.subject || '').trim();
+    const googleSubject = String(identity.subject || identity.sub || '').trim();
     if (!email || !googleSubject) {
       return { ok: false, error: 'Google sign-in did not return a usable identity.' };
     }
@@ -1401,3 +1413,9 @@ function normalizeBackendDueAt(value) {
   if (/[zZ]|[+-]\d\d:\d\d$/.test(text)) return text;
   return `${text.length === 16 ? `${text}:00` : text}+08:00`;
 }
+
+
+
+
+
+
