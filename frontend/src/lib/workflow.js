@@ -461,7 +461,8 @@ export function buildPublishedSheetCsvUrl(value) {
 
   try {
     const url = new URL(text);
-    const gid = url.searchParams.get('gid') || '0';
+    const gidMatch = text.match(/[?&#]gid=([0-9]+)/);
+    const gid = gidMatch?.[1] || url.searchParams.get('gid') || '0';
 
     if (url.pathname.includes('/pubhtml')) {
       url.pathname = url.pathname.replace('/pubhtml', '/pub');
@@ -478,7 +479,7 @@ export function buildPublishedSheetCsvUrl(value) {
 
     const normalId = url.pathname.match(/\/spreadsheets\/d\/([^/]+)/i)?.[1];
     if (normalId) {
-      return `https://docs.google.com/spreadsheets/d/${normalId}/export?format=csv&gid=${encodeURIComponent(gid)}`;
+      return `https://docs.google.com/spreadsheets/d/${normalId}/gviz/tq?tqx=out:csv&gid=${encodeURIComponent(gid)}`;
     }
   } catch {
     return '';
@@ -1455,5 +1456,4 @@ export function firstSubmissionLink(values) {
 export function deliverableUsesDocumentCheck(deliverable) {
   return Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
 }
-
 
