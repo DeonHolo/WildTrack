@@ -73,7 +73,7 @@ export function StaffApplicationShell({ children }) {
   const role = useApplicationRole();
   const location = useLocation();
   const navigate = useNavigate();
-  const { workspaces, activeWorkspace, activeWorkspaceId, switchWorkspace, logoutStaffSession } = useWorkflow();
+  const { workspaces, activeWorkspace, activeWorkspaceId, needsWorkspaceChoice, switchWorkspace, logoutStaffSession } = useWorkflow();
   const isAdviser = role === APPLICATION_ROLES.ADVISER;
   const navigationGroups = isAdviser ? ADVISER_GROUPS : ADMIN_GROUPS;
   const accountName = isAdviser ? getStoredPreviewAdviser() || 'Adviser account' : 'Ralph Laviste';
@@ -179,7 +179,11 @@ export function StaffApplicationShell({ children }) {
       </MantineAppShell.Navbar>
 
       <MantineAppShell.Main id="wildtrack-main">
-        <div className="wt-staff-main">{children}</div>
+        <div className="wt-staff-main">
+          {needsWorkspaceChoice ? (
+            <WorkspaceChooser workspaces={workspaces} onSelect={switchWorkspace} />
+          ) : children}
+        </div>
       </MantineAppShell.Main>
     </MantineAppShell>
   );
@@ -193,4 +197,28 @@ function initials(name) {
     .map((part) => part.charAt(0))
     .join('')
     .toUpperCase();
+}
+
+function WorkspaceChooser({ workspaces, onSelect }) {
+  return (
+    <div className="wt-workspace-chooser" role="region" aria-label="Choose a capstone section">
+      <Stack gap="lg" align="center" py="xl" maw={440} mx="auto">
+        <Text component="h2" size="lg" fw={700}>Choose a capstone section</Text>
+        <Text size="sm" c="dimmed">Select the workspace you want to manage before continuing.</Text>
+        <Stack gap="sm" w="100%">
+          {workspaces.map((workspace) => (
+            <Button
+              key={workspace.id}
+              variant="default"
+              size="lg"
+              fullWidth
+              onClick={() => onSelect(workspace.id)}
+            >
+              {workspace.name}
+            </Button>
+          ))}
+        </Stack>
+      </Stack>
+    </div>
+  );
 }

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createWorkspaceInitialState,
   dedupeDeliverables,
   findOwnedResponse,
   getResponseOwnerKey,
   hasResponseConflict,
   importPublicSheetSource,
+  loadActiveWorkspaceId,
   loadWorkflowState,
   mergeDeliverables,
   resetWorkflowState,
@@ -322,6 +324,51 @@ describe('deliverable identity dedupe', () => {
     ]);
 
     expect(sorted.map((item) => item.trackerColumn)).toEqual(['ProbExploration', 'SRS', 'SDD']);
-    expect(sorted[0].id).toBe('11111111-1111-4111-8111-111111111111');
+  expect(sorted[0].id).toBe('11111111-1111-4111-8111-111111111111');
+  });
+});
+
+describe('production empty initial state (ticket 07)', () => {
+  it('creates a workspace initial state with zero students, deliverables, and attempts', () => {
+    const workspace = { id: 'workspace-fresh', name: 'Fresh Workspace', program: 'IT', courseCode: 'IT332' };
+    const state = createWorkspaceInitialState(workspace);
+    expect(state.students).toEqual([]);
+    expect(state.deliverables).toEqual([]);
+    expect(state.attempts).toEqual([]);
+    expect(state.projectMetadata).toEqual([]);
+    expect(state.activity).toEqual([]);
+  });
+
+  it('creates a default workspace initial state with zero students', () => {
+    const workspace = { id: '11111111-1111-1111-1111-111111111111', name: 'IT Capstone', program: 'IT', courseCode: 'IT332' };
+    const state = createWorkspaceInitialState(workspace);
+    expect(state.students).toEqual([]);
+    expect(state.deliverables).toEqual([]);
+    expect(state.attempts).toEqual([]);
+  });
+
+  it('preserves structural trackerColumns in the empty initial state', () => {
+    const workspace = { id: 'workspace-test', name: 'Test', program: 'IT', courseCode: 'IT332' };
+    const state = createWorkspaceInitialState(workspace);
+    expect(state.trackerColumns.length).toBeGreaterThan(0);
+    expect(state.trackerColumns[0]).toHaveProperty('key');
+  });
+
+  it('sets all source statuses to Not connected in initial state', () => {
+    const workspace = { id: 'workspace-test', name: 'Test', program: 'IT', courseCode: 'IT332' };
+    const state = createWorkspaceInitialState(workspace);
+    Object.values(state.classRecord.sources).forEach((source) => {
+      expect(source.status).toBe('Not connected');
+    });
+  });
+
+  it('loadActiveWorkspaceId returns null when no preference is stored', () => {
+    localStorage.clear();
+    const workspaces = [
+      { id: 'ws-a', name: 'A' },
+      { id: 'ws-b', name: 'B' }
+    ];
+    const result = loadActiveWorkspaceId(workspaces);
+    expect(result).toBeNull();
   });
 });

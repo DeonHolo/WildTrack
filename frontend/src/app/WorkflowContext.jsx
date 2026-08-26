@@ -57,8 +57,12 @@ const WorkflowContext = createContext(null);
 export function WorkflowProvider({ children, allowLocalImportFallback = import.meta.env.DEV }) {
   const [workspaces, setWorkspaces] = useState(() => loadWorkspaceCatalog());
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(loadWorkspaceCatalog()));
-  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0];
-  const [state, setState] = useState(() => loadWorkflowState(activeWorkspaceId, activeWorkspace));
+  const activeWorkspace = activeWorkspaceId
+    ? workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0]
+    : workspaces.length === 1 ? workspaces[0] : null;
+  const needsWorkspaceChoice = !activeWorkspaceId && workspaces.length > 1;
+  const effectiveWorkspaceId = activeWorkspaceId || activeWorkspace?.id || null;
+  const [state, setState] = useState(() => loadWorkflowState(effectiveWorkspaceId, activeWorkspace));
   const [session, setSession] = useState(null);
   const backendBootstrapped = useRef(false);
   const activeWorkspaceRef = useRef(activeWorkspaceId);
@@ -115,11 +119,15 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
         saveWorkspaceCatalog(backendWorkspaces);
         const currentExists = backendWorkspaces.some((workspace) => workspace.id === activeWorkspaceRef.current);
         if (!currentExists) {
-          const nextId = backendWorkspaces[0].id;
-          activeWorkspaceRef.current = nextId;
-          setActiveWorkspaceId(nextId);
-          saveActiveWorkspaceId(nextId);
-          setState(loadWorkflowState(nextId, backendWorkspaces[0]));
+          if (backendWorkspaces.length === 1) {
+            const nextId = backendWorkspaces[0].id;
+            activeWorkspaceRef.current = nextId;
+            setActiveWorkspaceId(nextId);
+            saveActiveWorkspaceId(nextId);
+            setState(loadWorkflowState(nextId, backendWorkspaces[0]));
+          }
+          // When multiple workspaces exist and no preference is stored,
+          // leave activeWorkspaceId null so the chooser renders (AC 4).
         }
       })
       .catch(() => {});
@@ -127,7 +135,8 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
   }, [refreshBackendData, refreshSession]);
 
   useEffect(() => {
-    saveWorkflowState(state, state.workspaceId || activeWorkspaceRef.current);
+    const wsId = state.workspaceId || activeWorkspaceRef.current;
+    if (wsId) saveWorkflowState(state, wsId);
   }, [state]);
 
   const switchWorkspace = useCallback(async (workspaceIdOrPublicKey) => {
@@ -1073,6 +1082,7 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     workspaces,
     activeWorkspace,
     activeWorkspaceId,
+    needsWorkspaceChoice,
     createWorkspace,
     switchWorkspace,
     addTrackerColumn,
@@ -1105,7 +1115,7 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     archiveAttempt,
     archiveAttempts,
     reset
-  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, authenticateGoogleAccount, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStaffSession, logoutStudentAccount, markAccepted, publishDeliverable, refreshBackendData, refreshSession, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, session, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
+  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, authenticateGoogleAccount, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStaffSession, logoutStudentAccount, markAccepted, needsWorkspaceChoice, publishDeliverable, refreshBackendData, refreshSession, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, session, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>;
 }
