@@ -22,7 +22,7 @@ import {
   isUsableAdviserName,
   normalizeStudentNumber
 } from '../lib/workflow.js';
-import { getMyAssociation, disconnectStudentAssociation } from '../lib/api.js';
+import { confirmStudentAssociation, getMyAssociation, disconnectStudentAssociation } from '../lib/api.js';
 
 export function StudentStatusPage() {
   const {
@@ -40,25 +40,46 @@ export function StudentStatusPage() {
   const [connectionError, setConnectionError] = useState('');
   const [signInError, setSignInError] = useState('');
   const [backendAssociation, setBackendAssociation] = useState(null);
+  const [associationLoadedFor, setAssociationLoadedFor] = useState('');
   const [switchSectionModalOpen, setSwitchSectionModalOpen] = useState(false);
+  const associationKey = activeWorkspace?.id && state.activeAccountEmail
+    ? `${activeWorkspace.id}:${String(state.activeAccountEmail).toLowerCase()}`
+    : '';
   // Ticket 03: the dashboard identity section is composed from the backend association.
   useEffect(() => {
     let cancelled = false;
-    if (!activeWorkspace?.id || !state.activeAccountEmail) { setBackendAssociation(null); return undefined; }
+    if (!associationKey) {
+      setBackendAssociation(null);
+      setAssociationLoadedFor('');
+      return undefined;
+    }
     getMyAssociation(activeWorkspace.id)
-      .then((association) => { if (!cancelled) setBackendAssociation(association || null); })
-      .catch(() => { if (!cancelled) setBackendAssociation(null); });
+      .then((association) => {
+        if (!cancelled) {
+          setBackendAssociation(association || null);
+          setAssociationLoadedFor(associationKey);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBackendAssociation(null);
+          setAssociationLoadedFor(associationKey);
+        }
+      });
     return () => { cancelled = true; };
-  }, [activeWorkspace?.id, state.activeAccountEmail]);
+  }, [activeWorkspace?.id, associationKey]);
   const activeAccount = useMemo(() => state.studentAccounts.find(
     (account) => account.googleSubject && String(account.email || '').toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
   ) || null, [state.activeAccountEmail, state.studentAccounts]);
   const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
-  const connectionOptions = useMemo(() => getStudentOptions(identityStudents, state.studentAccounts)
-    .filter((student) => !student.claimed), [identityStudents, state.studentAccounts]);
+  const connectionOptions = useMemo(() => getStudentOptions(identityStudents), [identityStudents]);
   const selectedStudent = useMemo(() => findStudent(identityStudents, selectedNumber), [identityStudents, selectedNumber]);
-  const studentNumber = backendAssociation?.studentNumber || activeAccount?.studentNumber || '';
-  const student = useMemo(() => findStudent(state.students, studentNumber), [state.students, studentNumber]);
+  const studentNumber = backendAssociation?.studentNumber || '';
+  const student = useMemo(() => findStudent(state.students, studentNumber) || (backendAssociation ? {
+    studentNumber: backendAssociation.studentNumber,
+    name: backendAssociation.studentName,
+    teamCode: backendAssociation.teamCode
+  } : null), [backendAssociation, state.students, studentNumber]);
   const project = useMemo(() => student ? getProjectMetadata(state, student.teamCode) : null, [state, student]);
   const adviserLabel = isUsableAdviserName(project?.adviserName)
     ? project.adviserName
@@ -97,7 +118,8 @@ export function StudentStatusPage() {
     });
   }, [activeAccount, state, student]);
   const syncStatus = String(state.backendSync?.status || '');
-  const isLoading = state.dashboardStatus === 'loading' || /^loading\b/i.test(syncStatus);
+  const associationLoading = Boolean(associationKey && associationLoadedFor !== associationKey);
+  const isLoading = associationLoading || state.dashboardStatus === 'loading' || /^loading\b/i.test(syncStatus);
   const loadError = state.dashboardStatus === 'error'
     ? state.dashboardError || 'Student records could not be loaded.'
     : state.backendSync?.lastError || '';
@@ -121,9 +143,16 @@ export function StudentStatusPage() {
       labels: { confirm: 'Connect record', cancel: 'Cancel' },
       confirmProps: { color: 'wildtrackMaroon' },
       centered: true,
-      onConfirm: () => {
-        const result = claimStudentNumber(selectedStudent.studentNumber);
-        if (result && !result.ok) setConnectionError(result.error);
+      onConfirm: async () => {
+        try {
+          const association = await confirmStudentAssociation(activeWorkspace.id, selectedStudent.studentNumber);
+          setBackendAssociation(association);
+          setAssociationLoadedFor(associationKey);
+          claimStudentNumber(association?.studentNumber || selectedStudent.studentNumber);
+          setConnectionError('');
+        } catch (confirmError) {
+          setConnectionError(confirmError.message || 'The connection could not be saved. Try again.');
+        }
       }
     });
   }
@@ -139,7 +168,15 @@ export function StudentStatusPage() {
       labels: { confirm: 'Disconnect record', cancel: 'Keep connected' },
       confirmProps: { color: 'red' },
       centered: true,
-      onConfirm: () => {
+      onConfirm: async () => {
+        try {
+          await disconnectStudentAssociation(activeWorkspace.id);
+        } catch (disconnectError) {
+          setConnectionError(disconnectError.message || 'The disconnection could not be saved. Try again.');
+          return;
+        }
+        setBackendAssociation(null);
+        setAssociationLoadedFor(associationKey);
         const result = disconnectStudentNumber();
         if (result && !result.ok) setConnectionError(result.error);
       }
@@ -160,7 +197,7 @@ export function StudentStatusPage() {
   }
   if (isLoading) return <LoadingDashboard />;
 
-  if (!activeAccount.studentNumber) {
+  if (!studentNumber) {
     return (
       <DashboardContainer>
         <div className="wt-student-connect-column">
@@ -169,6 +206,7 @@ export function StudentStatusPage() {
             <Title order={1}>Connect your student record</Title>
             <Text c="dimmed">Choose your Student Number once. WildTrack fills in the matching name and team details.</Text>
           </header>
+          {connectionError ? <Alert color="red" icon={<WarningCircle size={18} />} mb="md">{connectionError}</Alert> : null}
           {connectionOptions.length ? (
             <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
               {workspaces && workspaces.length > 1 ? (
