@@ -5,6 +5,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.capvault.backend.student.StudentAssociationSecurity;
+import com.capvault.backend.staff.StaffManagementService;
+import com.capvault.backend.staff.StaffRole;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -26,10 +28,16 @@ public class FormResponseController {
 
     private final FormResponseService responseService;
     private final StudentAssociationSecurity security;
+    private final StaffManagementService staffManagementService;
 
-    public FormResponseController(FormResponseService responseService, StudentAssociationSecurity security) {
+    public FormResponseController(
+        FormResponseService responseService,
+        StudentAssociationSecurity security,
+        StaffManagementService staffManagementService
+    ) {
         this.responseService = responseService;
         this.security = security;
+        this.staffManagementService = staffManagementService;
     }
 
     public record SubmitRequest(
@@ -109,12 +117,22 @@ public class FormResponseController {
         return responseService.history(workspaceId, deliverableId, session.googleSubject());
     }
 
-    /** Staff-facing list for review surfaces (ADMIN sees all; adviser team-filtering lands with ticket 07). */
+    /**
+     * Staff-facing list for review surfaces. ADMIN reads the whole workspace; an ADVISER
+     * is narrowed server-side to the teams assigned to them, so a direct request cannot
+     * reach another team's submissions. Non-staff sessions are denied.
+     */
     @GetMapping("/staff")
     public List<FormResponse> staffView(@RequestParam UUID workspaceId, HttpServletRequest http) {
-        if (!security.isAdmin(http)) {
-            throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
+        var session = security.requireSession(http);
+        var roles = security.activeRoles(http);
+        if (roles.contains(StaffRole.ADMIN)) {
+            return responseService.responsesForWorkspace(workspaceId);
         }
-        return responseService.responsesForWorkspace(workspaceId);
+        if (roles.contains(StaffRole.ADVISER)) {
+            return responseService.responsesForTeams(
+                workspaceId, staffManagementService.assignedTeams(session.googleSubject(), workspaceId));
+        }
+        throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
     }
 }

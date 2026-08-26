@@ -3,10 +3,14 @@ package com.capvault.backend.response;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -133,6 +137,29 @@ public class FormResponseService {
     @Transactional(readOnly = true)
     public List<FormResponse> responsesForWorkspace(UUID workspaceId) {
         return responseRepository.findAllByWorkspaceId(workspaceId);
+    }
+
+    /**
+     * Adviser-scoped read: only submissions whose snapshotted team code matches one of the
+     * caller's assigned teams. Filtering lives on the server so a direct API call cannot
+     * widen the result set beyond the assignment list.
+     */
+    @Transactional(readOnly = true)
+    public List<FormResponse> responsesForTeams(UUID workspaceId, Collection<String> teamCodes) {
+        if (teamCodes == null || teamCodes.isEmpty()) {
+            return List.of();
+        }
+        Set<String> allowed = teamCodes.stream()
+            .filter(code -> code != null && !code.isBlank())
+            .map(code -> code.trim().toLowerCase(Locale.ROOT))
+            .collect(Collectors.toSet());
+        if (allowed.isEmpty()) {
+            return List.of();
+        }
+        return responseRepository.findAllByWorkspaceId(workspaceId).stream()
+            .filter(response -> response.getTeamCode() != null
+                && allowed.contains(response.getTeamCode().trim().toLowerCase(Locale.ROOT)))
+            .toList();
     }
 
     private void archiveVersion(FormResponse response) {
