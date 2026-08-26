@@ -20,6 +20,7 @@ import {
   loadWorkflowState,
   loadWorkspaceCatalog,
   materializeStudentSession,
+  mergeDeliverables,
   normalizeStudentNumber,
   resetWorkflowState,
   saveActiveWorkspaceId,
@@ -1331,24 +1332,6 @@ function mapBackendTemplate(template) {
     status: 'Active',
     extractedAt: template.updatedAt
   };
-}
-
-function mergeDeliverables(existingDeliverables = [], backendDeliverables = []) {
-  if (!backendDeliverables || !backendDeliverables.length) return existingDeliverables;
-  const result = [...existingDeliverables];
-  for (const backend of backendDeliverables) {
-    const existingIndex = result.findIndex((item) => (
-      item.id === backend.id ||
-      (backend.trackerColumn && item.trackerColumn === backend.trackerColumn) ||
-      (backend.slug && item.slug === backend.slug)
-    ));
-    if (existingIndex >= 0) {
-      result[existingIndex] = { ...result[existingIndex], ...backend };
-    } else {
-      result.push(backend);
-    }
-  }
-  return result;
 }
 
 function titleCase(value) {
