@@ -97,7 +97,8 @@ export function PublicSubmissionPage() {
     activeWorkspaceId,
     authenticateGoogleAccount,
     switchWorkspace,
-    submitPublicForm
+    submitPublicForm,
+    refreshBackendData
   } = useWorkflow();
   const activeWorkspaceKey = getWorkspacePublicKey(activeWorkspace);
   const isSyncLoading = !state.backendSync?.lastLoadedAt && state.backendSync?.enabled !== false;
@@ -318,6 +319,7 @@ export function PublicSubmissionPage() {
           setFormError('A newer version was saved from another session. Reload the form to continue editing.');
           return;
         }
+        refreshBackendData?.({ silent: true })?.catch?.(() => {});
         setResult({
           ok: true,
           updated: saved.changed && saved.revision > 1,
