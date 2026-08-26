@@ -6,6 +6,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
 import { PublicSubmissionPage } from './PublicSubmissionPage.jsx';
 
+const api = vi.hoisted(() => ({
+  getPublicSubmissionForm: vi.fn()
+}));
+
+vi.mock('../lib/api.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  getPublicSubmissionForm: api.getPublicSubmissionForm
+}));
+
 const createState = () => ({
   classRecord: {
     name: 'IT Capstone - IT332',
@@ -125,6 +134,37 @@ describe('public submission form', () => {
     workflow.switchWorkspace.mockResolvedValue({ ok: true });
     workflow.authenticateGoogleAccount.mockReset();
     workflow.submitPublicForm.mockReset();
+    api.getPublicSubmissionForm.mockReset();
+    api.getPublicSubmissionForm.mockResolvedValue({
+      workspace: workflow.activeWorkspace,
+      deliverable: {
+        id: 'deliv-srs',
+        trackerColumnKey: 'SRS',
+        title: 'Week 9: Software Requirements Specification',
+        slug: 'week-9-srs',
+        instructions: 'Submit your SRS as a PDF Drive file.',
+        dueAt: '2026-04-18T23:59:00',
+        pdfRequired: true,
+        status: 'PUBLISHED'
+      }
+    });
+  });
+
+  it('loads a published workspace form for an anonymous visitor without private workspace data', async () => {
+    workflow.state = {
+      ...createState(),
+      deliverables: [],
+      students: [],
+      studentAccounts: [],
+      activeAccountEmail: ''
+    };
+    workflow.switchWorkspace.mockResolvedValue({ ok: false, error: 'Private workspace access is not available.' });
+
+    renderForm('/w/it-it332-2025-26-semester-2/submit/week-9-srs');
+
+    expect(await screen.findByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
+    expect(screen.getAllByText('Continue with Google').length).toBeGreaterThan(0);
+    expect(api.getPublicSubmissionForm).toHaveBeenCalledWith('it-it332-2025-26-semester-2', 'week-9-srs');
   });
 
   it('requires verified Google identity before class-record and submission fields are shown', () => {
@@ -358,6 +398,7 @@ describe('public submission form', () => {
   });
 
   it('shows a recoverable error when the form workspace cannot be opened', async () => {
+    api.getPublicSubmissionForm.mockRejectedValue(new Error('Workspace access failed.'));
     workflow.switchWorkspace.mockResolvedValue({ ok: false, error: 'Workspace access failed.' });
     renderForm('/w/workspace-cs/submit/week-9-srs');
 

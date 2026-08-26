@@ -59,7 +59,7 @@ public class SecurityConfig {
                 .ignoringRequestMatchers(SIGN_IN_PATH))
             .cors(Customizer.withDefaults())
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/health/live", "/api/health/ready", "/api/auth/session", SIGN_IN_PATH).permitAll()
+                .requestMatchers("/api/health/live", "/api/health/ready", "/api/auth/session", SIGN_IN_PATH, "/api/public/forms/**").permitAll()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll())
             .exceptionHandling(exceptions -> exceptions
@@ -168,4 +168,3 @@ public class SecurityConfig {
         }
     }
 }
-

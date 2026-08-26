@@ -67,6 +67,12 @@ export async function createWorkspace(payload) {
   });
 }
 
+export async function getPublicSubmissionForm(workspaceKey, slug) {
+  return request(`/public/forms/${encodeURIComponent(workspaceKey)}/${encodeURIComponent(slug)}`, {
+    skipCsrfPrecheck: true
+  });
+}
+
 export function toApiSourceType(sourceType) {
   return SOURCE_TYPE_TO_API[sourceType] || sourceType;
 }
@@ -414,5 +420,4 @@ export async function unassignAdviserTeam(workspaceId, googleSubject, teamCode) 
     method: 'DELETE'
   });
 }
-
 

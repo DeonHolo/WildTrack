@@ -1,5 +1,8 @@
 package com.capvault.backend.deliverable;
 
+import java.time.LocalDateTime;
+
+import com.capvault.backend.workspace.AcademicWorkspace;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -94,6 +97,26 @@ class DeliverableControllerTest {
             .andExpect(jsonPath("$.fieldErrors.title").value("Title is required"))
             .andExpect(jsonPath("$.fieldErrors.dueAt").value("Due date is required"));
     }
-}
 
+    @Test
+    void anonymousVisitorsCanReadAPublishedFormFromItsPublicUrl() throws Exception {
+        repository.deleteAll();
+        repository.save(new Deliverable(
+            AcademicWorkspace.DEFAULT_IT_ID,
+            "RFL",
+            "RFL Submission",
+            "rfl-submission",
+            "Submit your RFL document.",
+            LocalDateTime.of(2026, 4, 18, 23, 59),
+            true,
+            DeliverableStatus.PUBLISHED
+        ));
+
+        mockMvc.perform(get("/api/public/forms/it-it332-2025-26-semester-2/rfl-submission"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.workspace.id").value(AcademicWorkspace.DEFAULT_IT_ID.toString()))
+            .andExpect(jsonPath("$.deliverable.slug").value("rfl-submission"))
+            .andExpect(jsonPath("$.deliverable.status").value("PUBLISHED"));
+    }
+}
 
