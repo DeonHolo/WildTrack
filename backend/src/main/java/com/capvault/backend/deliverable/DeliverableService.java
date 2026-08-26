@@ -4,8 +4,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class DeliverableService {
@@ -27,6 +29,14 @@ public class DeliverableService {
     @Transactional(readOnly = true)
     public DeliverableResponse getDeliverable(UUID workspaceId, UUID id) {
         return DeliverableResponse.from(findRequired(workspaceId, id));
+    }
+
+    @Transactional(readOnly = true)
+    public DeliverableResponse getPublishedDeliverableBySlug(UUID workspaceId, String slug) {
+        return repository.findByWorkspaceIdAndSlug(workspaceId, normalizeSlug(slug, slug))
+            .filter(deliverable -> deliverable.getStatus() == DeliverableStatus.PUBLISHED)
+            .map(DeliverableResponse::from)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Published form was not found."));
     }
 
     @Transactional
