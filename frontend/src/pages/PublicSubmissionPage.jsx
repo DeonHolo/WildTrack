@@ -100,8 +100,9 @@ export function PublicSubmissionPage() {
     submitPublicForm
   } = useWorkflow();
   const activeWorkspaceKey = getWorkspacePublicKey(activeWorkspace);
+  const isSyncLoading = !state.backendSync?.lastLoadedAt && state.backendSync?.enabled !== false;
   const [workspaceStatus, setWorkspaceStatus] = useState(
-    !workspaceKey || workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey ? 'ready' : 'loading'
+    !workspaceKey || (workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey) && (state.deliverables?.length || !isSyncLoading) ? 'ready' : 'loading'
   );
   const [workspaceError, setWorkspaceError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -137,7 +138,12 @@ export function PublicSubmissionPage() {
 
   useEffect(() => {
     let active = true;
-    if (!workspaceKey || workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey) {
+    if (!workspaceKey) {
+      setWorkspaceStatus('ready');
+      setWorkspaceError('');
+      return () => { active = false; };
+    }
+    if ((workspaceKey === activeWorkspaceId || workspaceKey === activeWorkspaceKey) && (state.deliverables?.length || !isSyncLoading)) {
       setWorkspaceStatus('ready');
       setWorkspaceError('');
       return () => { active = false; };
@@ -160,7 +166,7 @@ export function PublicSubmissionPage() {
         setWorkspaceError(error?.message || 'This academic workspace could not be opened.');
       });
     return () => { active = false; };
-  }, [activeWorkspaceId, activeWorkspaceKey, switchWorkspace, workspaceKey]);
+  }, [activeWorkspaceId, activeWorkspaceKey, switchWorkspace, workspaceKey, state.deliverables?.length, isSyncLoading]);
 
   useEffect(() => {
     const matched = activeAccount
@@ -316,7 +322,7 @@ export function PublicSubmissionPage() {
     <main className="wt-public-root">
       <WildTrackPublicHeader subtitle={state.classRecord.name} />
       <Container component="section" size="sm" py={{ base: 'lg', sm: 'xl' }}>
-        {workspaceStatus === 'loading' ? <FormLoading /> : workspaceStatus === 'error' ? (
+        {(workspaceStatus === 'loading' || (isSyncLoading && !deliverable)) ? <FormLoading /> : workspaceStatus === 'error' ? (
           <WorkspaceError message={workspaceError} />
         ) : !deliverable || deliverable.status === 'Unpublished' ? (
           <FormUnavailable deliverable={deliverable} />
@@ -425,3 +431,5 @@ export function PublicSubmissionPage() {
     </main>
   );
 }
+
+

@@ -152,10 +152,24 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
   }, [state]);
 
   const switchWorkspace = useCallback(async (workspaceIdOrPublicKey) => {
-    const target = findWorkspace(workspaces, workspaceIdOrPublicKey);
+    let availableWorkspaces = workspaces;
+    let target = findWorkspace(availableWorkspaces, workspaceIdOrPublicKey);
+    if (!target) {
+      try {
+        const fetched = await getBackendWorkspaces();
+        if (fetched && fetched.length) {
+          availableWorkspaces = fetched;
+          setWorkspaces(fetched);
+          saveWorkspaceCatalog(fetched);
+          target = findWorkspace(fetched, workspaceIdOrPublicKey);
+        }
+      } catch {
+        // ignore
+      }
+    }
     if (!target) return { ok: false, error: 'Workspace was not found.' };
     const workspaceId = target.id;
-    if (workspaceId === activeWorkspaceRef.current) return { ok: true, workspace: target };
+    if (workspaceId === activeWorkspaceRef.current && state.deliverables?.length) return { ok: true, workspace: target };
 
     saveWorkflowState(state, activeWorkspaceRef.current);
     activeWorkspaceRef.current = workspaceId;
@@ -1413,6 +1427,8 @@ function normalizeBackendDueAt(value) {
   if (/[zZ]|[+-]\d\d:\d\d$/.test(text)) return text;
   return `${text.length === 16 ? `${text}:00` : text}+08:00`;
 }
+
+
 
 
 
