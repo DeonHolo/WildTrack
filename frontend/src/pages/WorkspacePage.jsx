@@ -132,6 +132,7 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
   })), [state.classRecord.sources]);
   const pendingSuggestions = state.classRecord.pendingFormSuggestions || state.classRecord.importSummary?.suggestedForms || [];
   const importedCount = sourceStatuses.filter((item) => item.status === 'Imported').length;
+  const backendSyncError = state.backendSync?.lastError || '';
 
   useEffect(() => {
     setSources((current) => {
@@ -313,6 +314,9 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
             <p>Each Sheet has one responsibility. Import results are reviewed before further setup.</p>
           </div>
         </div>
+        {backendSyncError ? (
+          <div role="alert" className="inline-alert danger">{backendSyncError}</div>
+        ) : null}
         <TextInput
           label="Tracker tab label"
           description="Use the tab name shown at the bottom of the Tracker Sheet."

@@ -1,6 +1,6 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
@@ -163,6 +163,12 @@ vi.mock('../app/WorkflowContext.jsx', () => ({
   useWorkflow: () => workflow
 }));
 
+vi.mock('../lib/api.js', () => ({
+  getMyAssociation: vi.fn().mockResolvedValue(null),
+  disconnectStudentAssociation: vi.fn().mockResolvedValue({}),
+  confirmStudentAssociation: vi.fn()
+}));
+
 function renderDashboard() {
   return render(
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
@@ -195,7 +201,38 @@ function associateAccount(overrides = {}) {
 }
 
 describe('student dashboard', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    const { confirmStudentAssociation, disconnectStudentAssociation, getMyAssociation } = await import('../lib/api.js');
+    getMyAssociation.mockReset().mockImplementation(() => ({
+      then(onFulfilled) {
+        const account = workflow.state.studentAccounts.find((item) => item.email === workflow.state.activeAccountEmail);
+        const student = workflow.state.students.find((item) => item.studentNumber === account?.studentNumber);
+        const association = student ? {
+          id: 'association-current',
+          workspaceId: workflow.activeWorkspaceId,
+          googleEmail: account.email,
+          studentNumber: student.studentNumber,
+          studentName: student.name,
+          teamCode: student.teamCode,
+          assuranceLevel: 'SELF_DECLARED'
+        } : null;
+        onFulfilled(association);
+        return Promise.resolve(association);
+      }
+    }));
+    disconnectStudentAssociation.mockReset().mockResolvedValue({});
+    confirmStudentAssociation.mockReset().mockImplementation(async (workspaceId, studentNumber) => {
+      const student = workflow.state.students.find((item) => item.studentNumber === studentNumber);
+      return {
+        id: 'association-confirmed',
+        workspaceId,
+        googleEmail: workflow.state.activeAccountEmail,
+        studentNumber,
+        studentName: student?.name || '',
+        teamCode: student?.teamCode || '',
+        assuranceLevel: 'SELF_DECLARED'
+      };
+    });
     workflow.state = createState();
     workflow.claimStudentNumber.mockReset();
     workflow.disconnectStudentNumber.mockReset();
@@ -242,7 +279,7 @@ describe('student dashboard', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Connect this student record?' });
     expect(dialog).toHaveTextContent('juan.student@gmail.com');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
-    expect(workflow.claimStudentNumber).toHaveBeenCalledWith('22-1001-001');
+    await waitFor(() => expect(workflow.claimStudentNumber).toHaveBeenCalledWith('22-1001-001'));
   });
 
   it('shows team submission progress in the context of each deliverable', () => {
@@ -366,15 +403,26 @@ describe('student dashboard', () => {
     expect(dialog).not.toHaveTextContent('STAFF ONLY AI ANALYSIS');
   });
 
-  it('offers self-service disconnection when an associated record is no longer in the roster', async () => {
+  it('renders and disconnects a server association when the roster snapshot is stale', async () => {
+    const { getMyAssociation } = await import('../lib/api.js');
+    getMyAssociation.mockResolvedValue({
+      id: 'association-stale-roster',
+      workspaceId: 'workspace-it',
+      googleEmail: 'juan.student@gmail.com',
+      studentNumber: '99-9999-999',
+      studentName: 'SERVER ASSOCIATED STUDENT',
+      teamCode: '2526-sem2-it332-99',
+      assuranceLevel: 'SELF_DECLARED'
+    });
     associateAccount({ studentNumber: '99-9999-999' });
     renderDashboard();
 
-    expect(screen.getByRole('heading', { name: 'Student record unavailable' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'SERVER ASSOCIATED STUDENT' })).toBeInTheDocument();
+    expect(screen.getByText('99-9999-999')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Disconnect record' }));
     const dialog = await screen.findByRole('dialog', { name: 'Disconnect this student record?' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect record' }));
-    expect(workflow.disconnectStudentNumber).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(workflow.disconnectStudentNumber).toHaveBeenCalledTimes(1));
   });
 
   it('renders a stable loading state while workspace data is being fetched', () => {
@@ -408,5 +456,144 @@ describe('student dashboard', () => {
     expect(screen.getByLabelText('Capstone section')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Capstone section'), { target: { value: 'workspace-cs' } });
     expect(workflow.switchWorkspace).toHaveBeenCalledWith('workspace-cs');
+  });
+
+  it('persists a confirmed connection to the server association', async () => {
+    const { confirmStudentAssociation } = await import('../lib/api.js');
+    confirmStudentAssociation.mockResolvedValue({
+      id: 'assoc-1',
+      workspaceId: 'workspace-it',
+      googleEmail: 'juan.student@gmail.com',
+      studentRecordId: 'record-1',
+      studentNumber: '22-1001-001',
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
+      teamCode: '2526-sem2-it332-11',
+      assuranceLevel: 'SELF_DECLARED'
+    });
+    workflow.state.activeAccountEmail = 'juan.student@gmail.com';
+    workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
+    workflow.claimStudentNumber.mockReturnValue({ ok: true, student: workflow.state.students[0] });
+    renderDashboard();
+
+    const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
+    fireEvent.focus(studentNumber);
+    fireEvent.change(studentNumber, { target: { value: '22-1001' } });
+    fireEvent.click(screen.getByRole('option', { name: /22-1001-001/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect student record' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Connect this student record?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
+
+    await waitFor(() => expect(confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1001-001'));
+  });
+
+  it('shows an error and stays unconnected when the server rejects the association', async () => {
+    const { confirmStudentAssociation } = await import('../lib/api.js');
+    confirmStudentAssociation.mockRejectedValue(new Error('No Student Record with that number exists in this workspace.'));
+    workflow.state.activeAccountEmail = 'juan.student@gmail.com';
+    workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
+    renderDashboard();
+
+    const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
+    fireEvent.focus(studentNumber);
+    fireEvent.change(studentNumber, { target: { value: '22-1001' } });
+    fireEvent.click(screen.getByRole('option', { name: /22-1001-001/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect student record' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Connect this student record?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
+
+    const alerts = await screen.findAllByRole('alert');
+    const connectionAlert = alerts.find((node) => node.textContent.includes('No Student Record with that number exists'));
+    expect(connectionAlert).toBeDefined();
+    expect(workflow.claimStudentNumber).not.toHaveBeenCalled();
+  });
+
+  it('deactivates the association on the server when disconnecting', async () => {
+    const { disconnectStudentAssociation } = await import('../lib/api.js');
+    disconnectStudentAssociation.mockResolvedValue({});
+    associateAccount();
+    renderDashboard();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect record' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Disconnect this student record?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect record' }));
+
+    await waitFor(() => expect(disconnectStudentAssociation).toHaveBeenCalledWith('workspace-it'));
+    expect(await screen.findByRole('heading', { name: 'Connect your student record' })).toBeInTheDocument();
+  });
+
+  it('renders identity from the server association on a fresh browser with no local claim', async () => {
+    const { getMyAssociation } = await import('../lib/api.js');
+    getMyAssociation.mockResolvedValue({
+      id: 'assoc-1',
+      workspaceId: 'workspace-it',
+      googleEmail: 'juan.student@gmail.com',
+      studentNumber: '22-1001-001',
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
+      teamCode: '2526-sem2-it332-11',
+      assuranceLevel: 'SELF_DECLARED'
+    });
+    workflow.state.activeAccountEmail = 'juan.student@gmail.com';
+    workflow.state.activeStudentNumber = '';
+    workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan' }];
+    workflow.state.students = [];
+    renderDashboard();
+
+    await screen.findByText('DELA CRUZ, JUAN CARLOS M.');
+    expect(screen.getByText('22-1001-001')).toBeInTheDocument();
+  });
+
+  it('reconnecting to another student record confirms with the new record', async () => {
+    const { confirmStudentAssociation, disconnectStudentAssociation, getMyAssociation } = await import('../lib/api.js');
+    let serverAssociation = {
+      id: 'assoc-1',
+      workspaceId: 'workspace-it',
+      googleEmail: 'juan.student@gmail.com',
+      studentNumber: '22-1001-001',
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
+      teamCode: '2526-sem2-it332-11',
+      assuranceLevel: 'SELF_DECLARED'
+    };
+    getMyAssociation.mockImplementation(async () => serverAssociation);
+    disconnectStudentAssociation.mockImplementation(async () => {
+      serverAssociation = null;
+      return {};
+    });
+    confirmStudentAssociation.mockImplementation(async () => {
+      serverAssociation = {
+        id: 'assoc-2',
+        workspaceId: 'workspace-it',
+        googleEmail: 'juan.student@gmail.com',
+        studentNumber: '22-1002-002',
+        studentName: 'SANTOS, MARIA L.',
+        teamCode: '2526-sem2-it332-11',
+        assuranceLevel: 'SELF_DECLARED'
+      };
+      return serverAssociation;
+    });
+    associateAccount(); // currently connected to 22-1001-001
+    const firstBrowser = renderDashboard();
+
+    // disconnect first (the connected dashboard has no selector by design)
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect record' }));
+    let dialog = await screen.findByRole('dialog', { name: 'Disconnect this student record?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect record' }));
+    await waitFor(() => expect(disconnectStudentAssociation).toHaveBeenCalledWith('workspace-it'));
+
+    expect(await screen.findByRole('heading', { name: 'Connect your student record' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
+    fireEvent.focus(studentNumber);
+    fireEvent.change(studentNumber, { target: { value: '22-1002' } });
+    // Mantine positions the dropdown with floating-ui; in jsdom the re-rendered
+    // dropdown keeps display:none, so the option is queried including hidden nodes.
+    fireEvent.click(await screen.findByRole('option', { name: /22-1002-002/i, hidden: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect student record' }));
+
+    dialog = await screen.findByRole('dialog', { name: 'Connect this student record?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
+
+    await waitFor(() => expect(confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1002-002'));
   });
 });

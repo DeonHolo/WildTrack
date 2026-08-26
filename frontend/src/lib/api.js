@@ -86,28 +86,51 @@ export async function importSheetSource(sourceType, payload, workspaceId) {
   });
 }
 
+const SNAPSHOT_SEGMENTS = [
+  { segment: 'students', label: 'students', path: '/students' },
+  { segment: 'projects', label: 'projects', path: '/projects' },
+  { segment: 'trackerColumns', label: 'tracker columns', path: '/tracker/columns' },
+  { segment: 'trackerRows', label: 'tracker rows', path: '/tracker/rows' },
+  { segment: 'deliverables', label: 'deliverables', path: '/deliverables' },
+  { segment: 'templates', label: 'templates', path: '/templates' },
+  { segment: 'sources', label: 'workspace sources', path: '/workspace/sources' },
+  { segment: 'staffResponses', label: 'staff responses', path: '/workspace/responses/staff' }
+];
+
+export function describeSnapshotFailures(failures = []) {
+  if (!failures.length) return '';
+  const detail = failures
+    .map((failure) => `${failure.label || failure.segment}${failure.message ? ` (${failure.message})` : ''}`)
+    .join(', ');
+  return `Backend sync incomplete: ${detail}.`;
+}
+
 export async function getBackendSnapshot(workspaceId) {
   const scoped = (path) => withWorkspace(path, workspaceId);
-  const [students, projects, trackerColumns, trackerRows, deliverables, templates, sources, staffResponses] = await Promise.all([
-    request(scoped('/students')).catch(() => []),
-    request(scoped('/projects')).catch(() => []),
-    request(scoped('/tracker/columns')).catch(() => []),
-    request(scoped('/tracker/rows')).catch(() => []),
-    request(scoped('/deliverables')).catch(() => []),
-    request(scoped('/templates')).catch(() => []),
-    request(scoped('/workspace/sources')).catch(() => []),
-    request(scoped('/workspace/responses/staff')).catch(() => [])
-  ]);
+  const failures = [];
+  const results = await Promise.all(SNAPSHOT_SEGMENTS.map(async ({ segment, label, path }) => {
+    try {
+      return [segment, await request(scoped(path))];
+    } catch (error) {
+      failures.push({
+        segment,
+        label,
+        status: error?.status ?? 0,
+        message: error?.message || 'Request failed.'
+      });
+      return [segment, []];
+    }
+  }));
+
+  const snapshot = Object.fromEntries(results);
+  const orderedFailures = SNAPSHOT_SEGMENTS
+    .map(({ segment }) => failures.find((failure) => failure.segment === segment))
+    .filter(Boolean);
 
   return {
-    students,
-    projects,
-    trackerColumns,
-    trackerRows,
-    deliverables,
-    templates,
-    sources,
-    staffResponses
+    ...snapshot,
+    failures: orderedFailures,
+    failureMessage: describeSnapshotFailures(orderedFailures)
   };
 }
 

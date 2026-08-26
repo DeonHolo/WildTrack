@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  dedupeDeliverables,
   findOwnedResponse,
   getResponseOwnerKey,
   hasResponseConflict,
   importPublicSheetSource,
   loadWorkflowState,
+  mergeDeliverables,
   resetWorkflowState,
   saveWorkflowState,
+  sortDeliverables,
   upsertDeliverable
 } from './workflow.js';
 
@@ -223,5 +226,102 @@ describe('workspace data isolation', () => {
       program: 'IT',
       courseCode: 'IT332'
     }).marker).toBeUndefined();
+  });
+});
+
+describe('deliverable identity dedupe', () => {
+  const trackerColumns = [
+    { id: 'column-prob', key: 'ProbExploration', label: 'Problem Exploration', sourceColumn: 'ProbExploration', active: true },
+    { id: 'column-srs', key: 'SRS', label: 'SRS', sourceColumn: 'SRS', active: true },
+    { id: 'column-sdd', key: 'SDD', label: 'SDD', sourceColumn: 'SDD', active: true }
+  ];
+
+  const clientProb = {
+    id: 'deliv-generated-1780000000000',
+    slug: 'probexploration-submission',
+    trackerColumn: 'ProbExploration',
+    title: 'ProbExploration Submission',
+    shortTitle: 'ProbExploration',
+    status: 'Published',
+    instructions: 'Submit the problem exploration as a PDF Drive file.'
+  };
+
+  const backendProb = {
+    id: '11111111-1111-4111-8111-111111111111',
+    slug: 'probexploration',
+    trackerColumn: 'ProbExploration',
+    title: 'Problem Exploration',
+    shortTitle: 'ProbExploration',
+    status: 'Published',
+    instructions: ''
+  };
+
+  it('collapses duplicate columns to the backend record when loading saved state', () => {
+    localStorage.clear();
+    const workspaceId = 'workspace-dedupe';
+    const workspace = { id: workspaceId, name: 'IT Dedupe', program: 'IT', courseCode: 'IT332' };
+    saveWorkflowState({
+      workspaceId,
+      trackerColumns,
+      deliverables: [clientProb, backendProb, { ...clientProb, id: 'deliv-generated-1780000000001' }]
+    }, workspaceId);
+
+    const loaded = loadWorkflowState(workspaceId, workspace);
+
+    expect(loaded.deliverables).toHaveLength(1);
+    expect(loaded.deliverables[0]).toMatchObject({
+      id: '11111111-1111-4111-8111-111111111111',
+      slug: 'probexploration',
+      title: 'Problem Exploration',
+      trackerColumn: 'ProbExploration'
+    });
+    expect(loaded.deliverables[0].instructions).toBe('Submit the problem exploration as a PDF Drive file.');
+  });
+
+  it('collapses pre-existing duplicates instead of appending when merging a backend snapshot', () => {
+    const existing = [
+      clientProb,
+      { ...clientProb, id: 'deliv-generated-1780000000002' },
+      { id: 'deliv-srs-001', slug: 'week-9-srs', trackerColumn: 'SRS', title: 'Week 9: Software Requirements Specification (Due Apr 18)' }
+    ];
+    const backend = [
+      backendProb,
+      { id: '22222222-2222-4222-8222-222222222222', slug: 'srs', trackerColumn: 'SRS', title: 'SRS Submission' }
+    ];
+
+    const merged = mergeDeliverables(existing, backend);
+
+    expect(merged).toHaveLength(2);
+    expect(merged.map((item) => item.trackerColumn)).toEqual(['ProbExploration', 'SRS']);
+    expect(merged.find((item) => item.trackerColumn === 'SRS')).toMatchObject({
+      id: '22222222-2222-4222-8222-222222222222',
+      slug: 'srs',
+      title: 'SRS Submission'
+    });
+  });
+
+  it('dedupes by slug when a tracker column is missing and keeps unrelated entries', () => {
+    const deduped = dedupeDeliverables([
+      { id: 'local-1', slug: 'legacy-form', title: 'Legacy form' },
+      { id: '33333333-3333-4333-8333-333333333333', slug: 'legacy-form', title: 'Legacy Form (server)' },
+      { id: 'local-2', slug: 'other-form', title: 'Other form' }
+    ]);
+
+    expect(deduped).toHaveLength(2);
+    expect(deduped[0]).toMatchObject({ id: '33333333-3333-4333-8333-333333333333', title: 'Legacy Form (server)' });
+    expect(deduped[1]).toMatchObject({ id: 'local-2' });
+  });
+
+  it('sorts deduped deliverables in tracker-column order', () => {
+    const sorted = sortDeliverables({ trackerColumns }, [
+      { id: 'deliv-sdd', slug: 'sdd', trackerColumn: 'SDD', title: 'SDD' },
+      backendProb,
+      { id: 'deliv-srs', slug: 'srs', trackerColumn: 'SRS', title: 'SRS' },
+      clientProb,
+      { id: 'deliv-srs-dup', slug: 'srs-submission', trackerColumn: 'SRS', title: 'SRS duplicate' }
+    ]);
+
+    expect(sorted.map((item) => item.trackerColumn)).toEqual(['ProbExploration', 'SRS', 'SDD']);
+    expect(sorted[0].id).toBe('11111111-1111-4111-8111-111111111111');
   });
 });

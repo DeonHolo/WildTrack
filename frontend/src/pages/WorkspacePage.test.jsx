@@ -204,6 +204,36 @@ describe('workspace operations', () => {
   });
 
 
+  it('shows a visible backend sync alert naming the failed snapshot segments', () => {
+    workflow.state.backendSync = {
+      enabled: true,
+      status: 'Backend sync incomplete: students (Roster service is down.), workspace sources (Failed to fetch).',
+      lastError: 'Backend sync incomplete: students (Roster service is down.), workspace sources (Failed to fetch).',
+      failedSegments: ['students', 'workspace sources']
+    };
+    renderPage();
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('students (Roster service is down.)');
+    expect(alert).toHaveTextContent('workspace sources (Failed to fetch)');
+    expect(alert).toHaveClass('danger');
+  });
+
+  it('reports a failed Sheet import instead of claiming success', async () => {
+    workflow.connectSheetSource.mockResolvedValue({ ok: false, error: 'Request failed with status 401' });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Import Tracker' }));
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Request failed with status 401'));
+    expect(screen.getByRole('status')).toHaveClass('danger');
+  });
+
+  it('stays quiet about backend sync when every segment loaded', () => {
+    renderPage();
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('highlights the exact source requested by an operational queue link', () => {
     renderPage('/workspace?source=tracker');
 

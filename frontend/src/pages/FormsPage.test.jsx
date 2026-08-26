@@ -147,4 +147,36 @@ describe('forms management', () => {
     expect(workflow.removeDeliverable).toHaveBeenCalledWith('deliverable-srs');
   });
 
+  it('shows one row per real deliverable when saved state still holds duplicate copies', () => {
+    workflow.state.deliverables = [
+      ...workflow.state.deliverables,
+      {
+        id: '44444444-4444-4444-8444-444444444444',
+        slug: 'srs',
+        title: 'SRS Submission',
+        shortTitle: 'SRS',
+        trackerColumn: 'SRS',
+        dueAt: '2026-04-18T23:59:00+08:00',
+        status: 'Published',
+        fields: [{ id: 'documentPdf', label: 'PDF Drive Link', pdfRequired: true }]
+      },
+      {
+        id: 'deliv-generated-1780000000003',
+        slug: 'sdd-submission',
+        title: 'SDD Submission',
+        shortTitle: 'SDD',
+        trackerColumn: 'SDD',
+        dueAt: '2026-04-25T23:59:00+08:00',
+        status: 'Published',
+        fields: [{ id: 'documentPdf', label: 'PDF Drive Link', pdfRequired: true }]
+      }
+    ];
+
+    renderPage();
+
+    const table = screen.getByRole('table', { name: 'Published submission forms' });
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    expect(within(table).getAllByRole('link', { name: /submission form$/ })).toHaveLength(2);
+  });
+
 });

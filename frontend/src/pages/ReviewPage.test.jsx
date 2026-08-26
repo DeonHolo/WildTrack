@@ -453,4 +453,39 @@ describe('deliverable-first submission review', () => {
     expect(screen.getByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'SRS submissions' })).toBeInTheDocument();
   });
+
+  it('lists one queue row per deliverable when saved state still holds duplicate copies', () => {
+    workflow.state = {
+      ...workflow.state,
+      deliverables: [
+        ...workflow.state.deliverables,
+        {
+          id: '55555555-5555-4555-8555-555555555555',
+          slug: 'srs',
+          title: 'SRS Submission',
+          shortTitle: 'SRS',
+          trackerColumn: 'SRS',
+          dueAt: '2026-04-18T23:59:00+08:00',
+          status: 'Published',
+          fields: [{ id: 'documentPdf', label: 'PDF Drive Link', pdfRequired: true }]
+        },
+        {
+          id: 'deliv-generated-1780000000004',
+          slug: 'sdd-submission',
+          title: 'SDD Submission',
+          shortTitle: 'SDD',
+          trackerColumn: 'SDD',
+          dueAt: '2026-04-25T23:59:00+08:00',
+          status: 'Published',
+          fields: [{ id: 'documentPdf', label: 'PDF Drive Link', pdfRequired: true }]
+        }
+      ]
+    };
+
+    renderPage();
+
+    const queue = screen.getByRole('table', { name: 'Deliverables awaiting review' });
+    expect(within(queue).getAllByRole('button', { name: 'Open SRS review' })).toHaveLength(1);
+    expect(within(queue).getAllByRole('button', { name: /^Open \w+ review$/ })).toHaveLength(2);
+  });
 });

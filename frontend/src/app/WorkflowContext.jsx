@@ -20,6 +20,7 @@ import {
   loadWorkflowState,
   loadWorkspaceCatalog,
   materializeStudentSession,
+  mergeDeliverables,
   normalizeStudentNumber,
   resetWorkflowState,
   saveActiveWorkspaceId,
@@ -37,6 +38,7 @@ import { disableGoogleAutoSelect } from '../lib/googleIdentitySession.js';
 import {
   createWorkspace as createBackendWorkspace,
   deleteDocumentTemplate,
+  describeSnapshotFailures,
   getApiBaseUrl,
   getBackendSnapshot,
   getCurrentSession,
@@ -52,7 +54,7 @@ import {
 
 const WorkflowContext = createContext(null);
 
-export function WorkflowProvider({ children }) {
+export function WorkflowProvider({ children, allowLocalImportFallback = import.meta.env.DEV }) {
   const [workspaces, setWorkspaces] = useState(() => loadWorkspaceCatalog());
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(loadWorkspaceCatalog()));
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0];
@@ -78,10 +80,12 @@ export function WorkflowProvider({ children }) {
       const workspaceId = activeWorkspaceRef.current;
       const snapshot = await getBackendSnapshot(workspaceId);
       if (activeWorkspaceRef.current !== workspaceId) return { ok: false, error: 'Workspace changed while data was loading.' };
+      const failureMessage = describeSnapshotFailures(snapshot.failures);
       setState((current) => applyBackendSnapshot(current, snapshot, {
         status: 'Backend data loaded.',
         enabled: true
       }));
+      if (failureMessage) return { ok: false, error: failureMessage, snapshot, partial: true };
       return { ok: true, snapshot };
     } catch (error) {
       if (!silent) {
@@ -255,10 +259,23 @@ export function WorkflowProvider({ children }) {
       });
       return imported;
     } catch (backendError) {
-      const imported = await previewPromise || await importPublicSheetSource(sourceType, payload, workspaceState);
       if (activeWorkspaceRef.current !== workspaceId) {
         return { ok: false, error: 'Workspace changed before the Sheet import finished.' };
       }
+      if (!allowLocalImportFallback) {
+        setState((current) => ({
+          ...current,
+          backendSync: {
+            enabled: false,
+            apiBaseUrl: getApiBaseUrl(),
+            status: `${describeSheetSourceType(sourceType)} import failed. The Sheet was not saved to the backend.`,
+            lastError: backendError.message,
+            lastLoadedAt: new Date().toISOString()
+          }
+        }));
+        return { ok: false, error: backendError.message, backendError: backendError.message };
+      }
+      const imported = await previewPromise || await importPublicSheetSource(sourceType, payload, workspaceState);
       const fallbackImport = {
         ...imported,
         backendError: backendError.message
@@ -270,7 +287,7 @@ export function WorkflowProvider({ children }) {
           backendSync: {
             enabled: false,
             apiBaseUrl: getApiBaseUrl(),
-            status: imported.ok ? 'Local Sheet import used.' : 'Import failed.',
+            status: imported.ok ? 'Local Sheet import used (development only).' : 'Import failed.',
             lastError: backendError.message,
             lastLoadedAt: new Date().toISOString()
           }
@@ -278,7 +295,7 @@ export function WorkflowProvider({ children }) {
       });
       return fallbackImport;
     }
-  }, [state]);
+  }, [allowLocalImportFallback, state]);
   const connectClassRecord = useCallback(async (payload) => {
     return connectSheetSource('tracker', payload);
   }, [connectSheetSource]);
@@ -1111,8 +1128,16 @@ async function buildArchiveRecord(state, attempt, index, workspace) {
   };
 }
 
+function describeSheetSourceType(sourceType) {
+  if (sourceType === 'teamFormation') return 'Team Formation';
+  if (sourceType === 'projectMonitor') return 'Software Project Monitor';
+  return 'Tracker';
+}
+
 function applyBackendSnapshot(current, snapshot, options = {}) {
   const mapped = mapBackendSnapshot(snapshot);
+  const failures = snapshot.failures || [];
+  const failureMessage = snapshot.failureMessage || describeSnapshotFailures(failures);
   const nextSources = {
     ...(current.classRecord?.sources || {}),
     ...(mapped.sources || {})
@@ -1133,8 +1158,9 @@ function applyBackendSnapshot(current, snapshot, options = {}) {
     backendSync: {
       enabled: options.enabled ?? true,
       apiBaseUrl: getApiBaseUrl(),
-      status: options.status || 'Backend data loaded.',
-      lastError: '',
+      status: failureMessage || options.status || 'Backend data loaded.',
+      lastError: failureMessage,
+      failedSegments: failures.map((failure) => failure.label || failure.segment),
       lastLoadedAt: new Date().toISOString()
     }
   };
@@ -1331,24 +1357,6 @@ function mapBackendTemplate(template) {
     status: 'Active',
     extractedAt: template.updatedAt
   };
-}
-
-function mergeDeliverables(existingDeliverables = [], backendDeliverables = []) {
-  if (!backendDeliverables || !backendDeliverables.length) return existingDeliverables;
-  const result = [...existingDeliverables];
-  for (const backend of backendDeliverables) {
-    const existingIndex = result.findIndex((item) => (
-      item.id === backend.id ||
-      (backend.trackerColumn && item.trackerColumn === backend.trackerColumn) ||
-      (backend.slug && item.slug === backend.slug)
-    ));
-    if (existingIndex >= 0) {
-      result[existingIndex] = { ...result[existingIndex], ...backend };
-    } else {
-      result.push(backend);
-    }
-  }
-  return result;
 }
 
 function titleCase(value) {

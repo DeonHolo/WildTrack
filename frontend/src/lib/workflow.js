@@ -219,7 +219,7 @@ export function loadWorkflowState(workspaceId = DEFAULT_WORKSPACE_ID, workspace 
       ...workspaceInitial,
       ...parsed,
       workspaceId,
-      deliverables: (parsed.deliverables || workspaceInitial.deliverables).map((deliverable) => ({
+      deliverables: dedupeDeliverables(parsed.deliverables || workspaceInitial.deliverables).map((deliverable) => ({
         ...deliverable,
         status: deliverable.status || 'Published',
         shortTitle: deliverable.shortTitle || deliverable.trackerColumn || deliverable.title,
@@ -323,6 +323,63 @@ export function findDeliverableForUpsert(deliverables = [], payload = {}) {
   return existingByColumn || existingById || null;
 }
 
+const BACKEND_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function deliverableIdentityKey(deliverable = {}) {
+  const column = String(deliverable.trackerColumn || '').trim().toLowerCase();
+  if (column) return `column:${column}`;
+  const slug = String(deliverable.slug || '').trim().toLowerCase();
+  if (slug) return `slug:${slug}`;
+  return `id:${String(deliverable.id || '').trim().toLowerCase()}`;
+}
+
+function isBackendDeliverable(deliverable = {}) {
+  return BACKEND_ID_PATTERN.test(String(deliverable.id || ''));
+}
+
+function isBlankValue(value) {
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
+function combineDeliverables(winner, loser) {
+  const combined = { ...loser };
+  for (const [key, value] of Object.entries(winner)) {
+    if (isBlankValue(value) && !isBlankValue(loser[key])) continue;
+    combined[key] = value;
+  }
+  return combined;
+}
+
+export function dedupeDeliverables(deliverables = []) {
+  const order = [];
+  const byKey = new Map();
+
+  for (const deliverable of deliverables) {
+    if (!deliverable) continue;
+    const key = deliverableIdentityKey(deliverable);
+    const current = byKey.get(key);
+    if (!current) {
+      order.push(key);
+      byKey.set(key, deliverable);
+      continue;
+    }
+    const currentIsBackend = isBackendDeliverable(current);
+    const incomingIsBackend = isBackendDeliverable(deliverable);
+    const winner = currentIsBackend && !incomingIsBackend ? current : deliverable;
+    const loser = winner === current ? deliverable : current;
+    byKey.set(key, combineDeliverables(winner, loser));
+  }
+
+  return order.map((key) => byKey.get(key));
+}
+
+export function mergeDeliverables(existingDeliverables = [], backendDeliverables = []) {
+  return dedupeDeliverables([...(existingDeliverables || []), ...(backendDeliverables || [])]);
+}
+
 export function sortDeliverables(state, deliverables = []) {
   const trackerOrder = new Map();
   (state.trackerColumns || initialState.trackerColumns || []).forEach((column, index) => {
@@ -331,7 +388,7 @@ export function sortDeliverables(state, deliverables = []) {
     trackerOrder.set(String(column.sourceColumn || '').toLowerCase(), index);
   });
 
-  return [...deliverables].sort((first, second) => {
+  return dedupeDeliverables(deliverables).sort((first, second) => {
     const firstTime = Date.parse(first.dueAt || '');
     const secondTime = Date.parse(second.dueAt || '');
     if (!Number.isNaN(firstTime) && !Number.isNaN(secondTime) && firstTime !== secondTime) {
