@@ -7,12 +7,14 @@ import { wildTrackTheme } from '../app/theme.js';
 import { PublicSubmissionPage } from './PublicSubmissionPage.jsx';
 
 const api = vi.hoisted(() => ({
-  getPublicSubmissionForm: vi.fn()
+  getPublicSubmissionForm: vi.fn(),
+  getMyAssociation: vi.fn()
 }));
 
 vi.mock('../lib/api.js', async (importOriginal) => ({
   ...(await importOriginal()),
-  getPublicSubmissionForm: api.getPublicSubmissionForm
+  getPublicSubmissionForm: api.getPublicSubmissionForm,
+  getMyAssociation: api.getMyAssociation
 }));
 
 const createState = () => ({
@@ -148,6 +150,8 @@ describe('public submission form', () => {
         status: 'PUBLISHED'
       }
     });
+    api.getMyAssociation.mockReset();
+    api.getMyAssociation.mockResolvedValue(null);
   });
 
   it('loads a published workspace form for an anonymous visitor without private workspace data', async () => {
@@ -256,6 +260,28 @@ describe('public submission form', () => {
     expect(screen.getByRole('combobox', { name: /Team Code/i })).toHaveValue('2526-sem2-it332-11');
     expect(screen.getByText(/associated with juan\.student@gmail\.com/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Use a different student record/i })).not.toBeInTheDocument();
+  });
+
+  it('autofills and retains server association without being cleared by empty state accounts', async () => {
+    workflow.state.activeAccountEmail = 'juan.student@gmail.com';
+    workflow.state.studentAccounts = [{
+      email: 'juan.student@gmail.com',
+      googleSubject: 'google-juan',
+      studentNumber: '',
+      studentName: '',
+      teamCode: ''
+    }];
+    api.getMyAssociation.mockResolvedValue({
+      studentNumber: '22-1001-001',
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
+      teamCode: '2526-sem2-it332-11'
+    });
+
+    renderForm('/w/workspace-it/submit/week-9-srs');
+
+    expect(await screen.findByRole('combobox', { name: /Student Number/i })).toHaveValue('22-1001-001');
+    expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
+    expect(screen.getByRole('combobox', { name: /Team Code/i })).toHaveValue('2526-sem2-it332-11');
   });
 
   it('does not let a query parameter silently replace a returning account identity', async () => {
@@ -384,10 +410,11 @@ describe('public submission form', () => {
     expect(screen.queryByRole('button', { name: /Submit response/i })).not.toBeInTheDocument();
   });
 
-  it('shows a not-found state for an unknown submission link', () => {
+  it('shows a not-found state for an unknown submission link', async () => {
+    api.getPublicSubmissionForm.mockResolvedValue(null);
     renderForm('/submit/not-a-form');
 
-    expect(screen.getByRole('heading', { name: 'Submission form not found' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Submission form not found' })).toBeInTheDocument();
   });
 
   it('shows a loading state while switching to the form workspace', () => {

@@ -100,7 +100,7 @@ const SNAPSHOT_SEGMENTS = [
   { segment: 'deliverables', label: 'deliverables', path: '/deliverables' },
   { segment: 'templates', label: 'templates', path: '/templates' },
   { segment: 'sources', label: 'workspace sources', path: '/workspace/sources' },
-  { segment: 'staffResponses', label: 'staff responses', path: '/workspace/responses/staff' }
+  { segment: 'staffResponses', label: 'workspace responses', path: '/workspace/responses/my-team' }
 ];
 
 export function describeSnapshotFailures(failures = []) {
@@ -420,4 +420,3 @@ export async function unassignAdviserTeam(workspaceId, googleSubject, teamCode) 
     method: 'DELETE'
   });
 }
-

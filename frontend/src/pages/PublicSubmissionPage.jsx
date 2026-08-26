@@ -108,6 +108,7 @@ export function PublicSubmissionPage() {
   const [submitting, setSubmitting] = useState(false);
   const [publicFormPayload, setPublicFormPayload] = useState(null);
   const stateDeliverable = getDeliverable(state, slug);
+  const [fetchingPublicForm, setFetchingPublicForm] = useState(!stateDeliverable && Boolean(slug));
   const deliverable = stateDeliverable || (publicFormPayload?.deliverable && publicFormPayload.deliverable.slug === slug ? {
     id: publicFormPayload.deliverable.id,
     slug: publicFormPayload.deliverable.slug,
@@ -154,6 +155,7 @@ export function PublicSubmissionPage() {
   useEffect(() => {
     let active = true;
     if (!stateDeliverable && slug) {
+      setFetchingPublicForm(true);
       const targetWorkspaceKey = workspaceKey || activeWorkspaceKey || 'default';
       getPublicSubmissionForm(targetWorkspaceKey, slug)
         .then((data) => {
@@ -161,8 +163,14 @@ export function PublicSubmissionPage() {
           if (data?.deliverable) {
             setPublicFormPayload(data);
           }
+          setFetchingPublicForm(false);
         })
-        .catch(() => {});
+        .catch(() => {
+          if (!active) return;
+          setFetchingPublicForm(false);
+        });
+    } else {
+      setFetchingPublicForm(false);
     }
 
     if (workspaceKey && (workspaceKey !== activeWorkspaceId && workspaceKey !== activeWorkspaceKey)) {
@@ -191,18 +199,17 @@ export function PublicSubmissionPage() {
   }, [slug, workspaceKey, activeWorkspaceKey, activeWorkspaceId, switchWorkspace, stateDeliverable]);
 
   useEffect(() => {
-    const matched = activeAccount
-      ? findStudent(identityStudents, activeAccount.studentNumber)
-      : queryStudent
-        ? findStudent(identityStudents, queryStudent)
-        : findStudent(identityStudents, state.activeStudentNumber);
-    if (!matched && !activeAccount) return;
-    setIdentity({
-      studentNumber: matched?.studentNumber || activeAccount?.studentNumber || '',
-      studentName: matched?.name || activeAccount?.studentName || '',
-      teamCode: matched?.teamCode || activeAccount?.teamCode || ''
-    });
-  }, [activeAccount, identityStudents, queryStudent, state.activeStudentNumber]);
+    const targetStudentNumber = activeAccount?.studentNumber || queryStudent || state.activeStudentNumber;
+    if (!targetStudentNumber) return;
+    const matched = findStudent(identityStudents, targetStudentNumber);
+    if (matched) {
+      setIdentity((current) => ({
+        studentNumber: matched.studentNumber || current.studentNumber,
+        studentName: matched.name || current.studentName,
+        teamCode: matched.teamCode || current.teamCode
+      }));
+    }
+  }, [activeAccount?.studentNumber, identityStudents, queryStudent, state.activeStudentNumber]);
 
   // Ticket 03: restore the workspace-scoped association for returning sessions.
   useEffect(() => {
@@ -211,15 +218,16 @@ export function PublicSubmissionPage() {
     getMyAssociation(activeWorkspaceId)
       .then((association) => {
         if (cancelled || !association || !association.studentNumber) return;
+        const matched = findStudent(identityStudents, association.studentNumber);
         setIdentity({
           studentNumber: association.studentNumber,
-          studentName: association.studentName || '',
-          teamCode: association.teamCode || ''
+          studentName: association.studentName || matched?.name || '',
+          teamCode: association.teamCode || matched?.teamCode || ''
         });
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [activeWorkspaceId, activeAccount?.email]);
+  }, [activeWorkspaceId, activeAccount?.email, identityStudents]);
   // Ticket 05: restore any saved draft once the deliverable is known.
   useEffect(() => {
     let cancelled = false;
@@ -344,7 +352,7 @@ export function PublicSubmissionPage() {
     <main className="wt-public-root">
       <WildTrackPublicHeader subtitle={state.classRecord.name} />
       <Container component="section" size="sm" py={{ base: 'lg', sm: 'xl' }}>
-        {(workspaceStatus === 'loading' || (isSyncLoading && !deliverable && workspaceKey)) ? <FormLoading /> : workspaceStatus === 'error' ? (
+        {(workspaceStatus === 'loading' || (fetchingPublicForm && !deliverable)) ? <FormLoading /> : workspaceStatus === 'error' ? (
           <WorkspaceError message={workspaceError} />
         ) : !deliverable || deliverable.status === 'Unpublished' ? (
           <FormUnavailable deliverable={deliverable} />
