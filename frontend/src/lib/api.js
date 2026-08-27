@@ -420,3 +420,10 @@ export async function unassignAdviserTeam(workspaceId, googleSubject, teamCode) 
     method: 'DELETE'
   });
 }
+
+export async function revokeStaffAccess(workspaceId, googleSubject) {
+  await ensureCsrfToken();
+  return request(`/workspace/staff/${encodeURIComponent(googleSubject)}?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'DELETE'
+  });
+}

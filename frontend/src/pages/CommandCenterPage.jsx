@@ -34,7 +34,7 @@ const QUEUE_FILTERS = [
 ];
 
 export function CommandCenterPage() {
-  const { state, activeWorkspaceId, runDocumentCheck, runDocumentChecks, archiveAttempt } = useWorkflow();
+  const { state, activeWorkspaceId, runDocumentCheck, runDocumentChecks, archiveAttempt, refreshBackendData } = useWorkflow();
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -55,6 +55,7 @@ export function CommandCenterPage() {
       setConflictError(null);
       return undefined;
     }
+    refreshBackendData?.({ silent: true })?.catch?.(() => {});
     getIdentityConflicts(workspaceId)
       .then((conflicts) => {
         if (cancelled) return;
@@ -68,7 +69,7 @@ export function CommandCenterPage() {
         setConflictError(error?.message || 'Identity conflicts could not be loaded.');
       });
     return () => { cancelled = true; };
-  }, [workspaceId]);
+  }, [workspaceId, refreshBackendData]);
 
   const allTasks = useMemo(() => buildWorkQueue(state, openConflicts), [state, openConflicts]);
   const openTasks = useMemo(

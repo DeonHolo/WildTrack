@@ -7,6 +7,7 @@ import java.util.UUID;
 import com.capvault.backend.deliverable.Deliverable;
 import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DeliverableStatus;
+import com.capvault.backend.filecheck.FileCheckReportRepository;
 import com.capvault.backend.student.StudentAssociationService;
 import com.capvault.backend.student.StudentRecord;
 import com.capvault.backend.student.StudentRecordRepository;
@@ -45,6 +46,9 @@ class FormResponseServiceTest {
 
     @Autowired
     private StudentAssociationService associationService;
+
+    @Autowired
+    private FileCheckReportRepository fileCheckReportRepository;
 
     private UUID workspaceId;
     private UUID deliverableId;
@@ -174,5 +178,20 @@ class FormResponseServiceTest {
         assertThat(new FormResponseService.ConcurrentModificationException())
             .isInstanceOf(RuntimeException.class)
             .hasMessageContaining("Reload");
+    }
+
+    @Test
+    void submittingResponseWithDriveLinkTriggersAsyncDocumentCheck() {
+        associate("sub-auto-check");
+        var result = submitFor("sub-auto-check", Map.of("documentPdf", "https://drive.google.com/file/d/123456789/view"));
+
+        assertThat(result.changed()).isTrue();
+        org.awaitility.Awaitility.await()
+            .atMost(java.time.Duration.ofSeconds(5))
+            .untilAsserted(() -> {
+                var reports = fileCheckReportRepository.findAllByWorkspaceIdAndExternalResponseIdOrderByCheckedAtDesc(
+                    workspaceId, result.response().getId().toString());
+                assertThat(reports).isNotEmpty();
+            });
     }
 }

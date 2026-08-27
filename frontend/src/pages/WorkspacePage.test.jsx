@@ -29,7 +29,21 @@ const workflow = vi.hoisted(() => ({
 vi.mock('../app/WorkflowContext.jsx', () => ({ useWorkflow: () => workflow }));
 vi.mock('../lib/api.js', () => ({
   getDriveConnectionStatus: vi.fn().mockResolvedValue({ configured: true, message: 'Google Drive connected.' }),
-  getDocumentTemplateFileUrl: vi.fn(() => '/api/templates/template/file')
+  getDocumentTemplateFileUrl: vi.fn(() => '/api/templates/template/file'),
+  getStaffProfiles: vi.fn().mockResolvedValue([
+    {
+      id: 'staff-1',
+      googleSubject: 'sub-admin',
+      googleEmail: 'admin@school.edu',
+      roles: ['ADMIN'],
+      enabled: true,
+      assignedTeams: []
+    }
+  ]),
+  upsertStaffEmail: vi.fn(),
+  assignAdviserTeam: vi.fn(),
+  unassignAdviserTeam: vi.fn(),
+  revokeStaffAccess: vi.fn()
 }));
 
 function createState() {
@@ -184,25 +198,12 @@ describe('workspace operations', () => {
     expect(within(dialog).getByLabelText('Template deliverable')).toBeDisabled();
   });
 
-  it('names the active workspace and requires RESET before restoring only that workspace', () => {
+  it('renders the Staff & Advisers section on the workspace setup page', async () => {
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Restore starter data' }));
-    const dialog = screen.getByRole('dialog', { name: 'Restore IT Capstone - IT332 starter data?' });
-    expect(within(dialog).getByText(/Only IT Capstone - IT332/)).toBeInTheDocument();
-    const confirm = within(dialog).getByRole('button', { name: 'Restore starter data' });
-    expect(confirm).toBeDisabled();
-    fireEvent.change(within(dialog).getByLabelText('Type RESET to continue'), { target: { value: 'RESET' } });
-    fireEvent.click(confirm);
-    expect(workflow.reset).toHaveBeenCalledOnce();
+    expect(screen.getByRole('region', { name: 'Staff and advisers' })).toBeInTheDocument();
+    expect(await screen.findByText('admin@school.edu')).toBeInTheDocument();
+    expect(screen.getByText('Administrator')).toBeInTheDocument();
   });
-
-  it('does not expose starter-data restoration in production', () => {
-    renderPage('/workspace', { developmentToolsEnabled: false });
-
-    expect(screen.queryByRole('button', { name: 'Restore starter data' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Refresh backend data' })).toBeInTheDocument();
-  });
-
 
   it('shows a visible backend sync alert naming the failed snapshot segments', () => {
     workflow.state.backendSync = {

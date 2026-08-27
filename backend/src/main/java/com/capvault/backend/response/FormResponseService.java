@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -17,6 +18,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.capvault.backend.deliverable.Deliverable;
 import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DeliverableStatus;
+import com.capvault.backend.filecheck.FileCheckRequest;
+import com.capvault.backend.filecheck.FileCheckService;
 import com.capvault.backend.student.StudentAssociationService;
 
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -30,6 +33,7 @@ public class FormResponseService {
     private final FormResponseVersionRepository versionRepository;
     private final StudentAssociationService associationService;
     private final DeliverableRepository deliverableRepository;
+    private final FileCheckService fileCheckService;
     private final Clock clock;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -38,12 +42,14 @@ public class FormResponseService {
         FormResponseVersionRepository versionRepository,
         StudentAssociationService associationService,
         DeliverableRepository deliverableRepository,
+        FileCheckService fileCheckService,
         Clock clock
     ) {
         this.responseRepository = responseRepository;
         this.versionRepository = versionRepository;
         this.associationService = associationService;
         this.deliverableRepository = deliverableRepository;
+        this.fileCheckService = fileCheckService;
         this.clock = clock;
     }
 
@@ -90,6 +96,7 @@ public class FormResponseService {
             } catch (OptimisticLockingFailureException e) {
                 throw new ConcurrentModificationException();
             }
+            triggerAsyncDocumentCheck(command.workspaceId(), deliverable, response, command.values());
             return new SaveResult(true, response, response.getRevision());
         }
 
@@ -112,9 +119,47 @@ public class FormResponseService {
             now
         );
         created = responseRepository.save(created);
+        triggerAsyncDocumentCheck(command.workspaceId(), deliverable, created, command.values());
         return new SaveResult(true, created, created.getRevision());
     }
 
+    private void triggerAsyncDocumentCheck(UUID workspaceId, Deliverable deliverable, FormResponse response, Map<String, Object> values) {
+        if (fileCheckService == null || !deliverable.isPdfRequired()) {
+            return;
+        }
+        String link = extractFirstLink(values);
+        if (link == null || link.isBlank()) {
+            return;
+        }
+        String responseId = response.getId().toString();
+        String deliverableKey = deliverable.getTrackerColumnKey() != null && !deliverable.getTrackerColumnKey().isBlank()
+            ? deliverable.getTrackerColumnKey()
+            : deliverable.getSlug();
+        String updatedAt = response.getUpdatedAt() != null
+            ? response.getUpdatedAt().toString()
+            : response.getSubmittedAt().toString();
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                fileCheckService.check(workspaceId, new FileCheckRequest(responseId, deliverableKey, link, updatedAt));
+            } catch (Exception ignored) {
+                // Failure or network error during document check must never fail or roll back the submission
+            }
+        });
+    }
+
+    private static String extractFirstLink(Map<String, Object> values) {
+        if (values == null) return null;
+        for (Object val : values.values()) {
+            if (val != null) {
+                String str = String.valueOf(val).trim();
+                if (str.startsWith("http://") || str.startsWith("https://")) {
+                    return str;
+                }
+            }
+        }
+        return null;
+    }
     /** Ownership is the Google subject: another identity can never read or overwrite these values. */
     @Transactional(readOnly = true)
     public Optional<FormResponse> ownedResponse(UUID workspaceId, UUID deliverableId, String googleSubject) {
