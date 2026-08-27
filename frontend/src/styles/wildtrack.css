@@ -3020,7 +3020,7 @@ html {
   position: relative;
   display: grid;
   min-height: 168px;
-  grid-template-columns: minmax(0, 1fr) clamp(180px, 32%, 240px);
+  grid-template-columns: minmax(0, 1fr) clamp(140px, 30%, 220px);
   align-items: center;
   overflow: hidden;
   border: 1px solid var(--wt-maroon-deep);
@@ -3063,7 +3063,7 @@ html {
   z-index: 1;
   right: 0;
   bottom: 0;
-  width: 240px;
+  width: 220px;
   height: 100%;
   background-position: right bottom;
   background-repeat: no-repeat;
@@ -3100,8 +3100,11 @@ html {
   justify-content: center;
   gap: 7px;
   color: var(--wt-muted);
-  font-size: 0.79rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  max-width: 300px;
   text-align: center;
+  margin: 0 auto;
 }
 
 .wt-google-access {
@@ -3226,13 +3229,17 @@ html {
   }
 
   .wt-login-banner {
-    min-height: 160px;
-    grid-template-columns: 1fr;
-    padding: 20px 18px;
+    min-height: 140px;
+    grid-template-columns: minmax(0, 1fr) 130px;
+    padding: 16px 16px;
   }
 
   .wt-login-banner-art {
-    display: none;
+    display: block;
+    width: 130px;
+    height: 100%;
+    background-position: right bottom;
+    background-size: contain;
   }
 
   .wt-login-banner-copy {
@@ -3245,8 +3252,8 @@ html {
   }
 
   .wt-login-surface {
-    padding: 20px 16px;
-    gap: 18px;
+    padding: 24px 16px;
+    gap: 16px;
   }
 
   .wt-google-access {
@@ -3261,7 +3268,10 @@ html {
   }
 
   .wt-google-access-action {
-    width: min(100%, 360px);
+    width: 100%;
+    max-width: 300px;
+    display: flex;
+    justify-content: center;
   }
 }
 
