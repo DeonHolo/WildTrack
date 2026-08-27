@@ -147,6 +147,22 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
   }, [refreshBackendData, refreshSession]);
 
   useEffect(() => {
+    function onVisibleOrFocus() {
+      if (document.visibilityState === 'visible') {
+        refreshBackendData({ silent: true }).catch(() => {});
+      }
+    }
+    window.addEventListener('focus', onVisibleOrFocus);
+    document.addEventListener('visibilitychange', onVisibleOrFocus);
+    const timer = setInterval(onVisibleOrFocus, 15000);
+    return () => {
+      window.removeEventListener('focus', onVisibleOrFocus);
+      document.removeEventListener('visibilitychange', onVisibleOrFocus);
+      clearInterval(timer);
+    };
+  }, [refreshBackendData]);
+
+  useEffect(() => {
     const wsId = state.workspaceId || activeWorkspaceRef.current;
     if (wsId) saveWorkflowState(state, wsId);
   }, [state]);
@@ -1427,7 +1443,6 @@ function normalizeBackendDueAt(value) {
   if (/[zZ]|[+-]\d\d:\d\d$/.test(text)) return text;
   return `${text.length === 16 ? `${text}:00` : text}+08:00`;
 }
-
 
 
 
