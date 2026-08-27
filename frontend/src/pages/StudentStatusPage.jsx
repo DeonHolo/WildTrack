@@ -414,4 +414,3 @@ function buildDeliverableTeamProgress(state, student, deliverableId) {
       .map((member) => member.name)
   };
 }
-
