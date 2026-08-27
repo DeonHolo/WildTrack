@@ -29,19 +29,7 @@ export function SubmissionResult({ result, identity, onEdit }) {
             <div><Text className="wt-meta-label">Student Number</Text><Text ff="monospace" fw={600}>{result.student?.studentNumber || identity.studentNumber}</Text></div>
             <div><Text className="wt-meta-label">Team</Text><Text ff="monospace" fw={600}>{result.student?.teamCode || identity.teamCode}</Text></div>
             <div><Text className="wt-meta-label">Deliverable</Text><Text fw={700}>{result.deliverable.shortTitle}</Text></div>
-            <div><Text className="wt-meta-label">Status</Text><Text fw={700}>{result.attempt.primaryStatus || result.attempt.reviewStatus}</Text></div>
           </SimpleGrid>
-
-          {result.trackerSync ? (
-            <Alert color={result.trackerSync.status === 'SHEET_WRITTEN' || result.trackerSync.status === 'LOCAL_UPDATED' ? 'green' : 'yellow'} variant="light">
-              {result.trackerSync.message}
-            </Alert>
-          ) : null}
-          {result.documentCheckStarted ? (
-            <Alert color="blue" variant="light">
-              Your response is saved. Document Check is verifying the Drive link and PDF in the background.
-            </Alert>
-          ) : null}
 
           <Divider />
           <Group justify="space-between" gap="sm" wrap="wrap">

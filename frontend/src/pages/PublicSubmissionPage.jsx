@@ -437,7 +437,9 @@ export function PublicSubmissionPage() {
                             onChange={(event) => updateField(field.id, event.currentTarget.value)}
                           />
                         ))}
-                        {formError ? <Alert color="red" variant="light" icon={<WarningCircle size={20} />} role="alert">{formError}</Alert> : null}
+                        {formError && !Object.values(fieldErrors).some(Boolean) && !Object.values(identityErrors).some(Boolean) ? (
+                          <Alert color="red" variant="light" icon={<WarningCircle size={20} />} role="alert">{formError}</Alert>
+                        ) : null}
                       </Stack>
 
                       <Divider />
