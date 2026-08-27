@@ -22,6 +22,7 @@ import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/workflow.js';
 import { setStoredPreviewRole } from '../hooks/usePreviewRole.js';
 import { getDocumentTemplateFileUrl, getDriveConnectionStatus } from '../lib/api.js';
+import { StaffManagementPanel } from '../components/workspace/StaffManagementPanel.jsx';
 
 const SOURCE_CONFIG = [
   {
@@ -474,17 +475,11 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
         <small className="integration-note">{driveStatus.message}</small>
       </section>
 
-      <section className="panel subtle-panel wt-maintenance">
-        <div>
-          <h2>Workspace maintenance</h2>
-          <p>{developmentToolsEnabled ? 'Refresh backend records or restore the selected workspace to its starter dataset.' : 'Refresh backend records from the connected sources.'}</p>
-          <small>{state.classRecord.connectedAt ? `Last connected ${formatDateTime(state.classRecord.connectedAt)}` : 'No live Sheet connection yet.'}</small>
-        </div>
-        <div className="button-row">
-          <Button variant="secondary" icon={Database} loading={refreshingBackend} onClick={() => setMaintenanceAction('refresh')}>Refresh backend data</Button>
-          {developmentToolsEnabled && <Button variant="secondary" icon={ArrowClockwise} onClick={() => { setMaintenanceAction('reset'); setResetConfirmation(''); }}>Restore starter data</Button>}
-        </div>
-      </section>
+      <StaffManagementPanel
+        workspaceId={activeWorkspaceId || activeWorkspace?.id}
+        students={state.students}
+        projectMetadata={state.projectMetadata}
+      />
 
       <ImportSummaryDialog
         summary={summary}

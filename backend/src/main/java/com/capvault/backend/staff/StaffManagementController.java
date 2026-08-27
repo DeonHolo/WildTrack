@@ -86,4 +86,15 @@ public class StaffManagementController {
         staffService.unassignTeam(googleSubject, workspaceId, teamCode);
         return ResponseEntity.noContent().build();
     }
+
+    @DeleteMapping("/{googleSubject}")
+    public ResponseEntity<Void> revokeStaff(
+        @RequestParam UUID workspaceId,
+        @PathVariable String googleSubject,
+        HttpServletRequest http
+    ) {
+        requireAdmin(http);
+        staffService.setStaffEnabled(googleSubject, false);
+        return ResponseEntity.noContent().build();
+    }
 }
