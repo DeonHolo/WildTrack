@@ -243,10 +243,14 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
     setMessage(result.ok ? 'Template removed.' : result.error);
   }
 
-  function generateSuggestedForms(suggestions = summary?.suggestedForms || pendingSuggestions) {
-    generateFormsFromSuggestions(suggestions);
+  async function generateSuggestedForms(suggestions = summary?.suggestedForms || pendingSuggestions) {
+    const result = await generateFormsFromSuggestions(suggestions);
+    if (!result?.ok) {
+      setMessage(result?.error || 'Suggested forms could not be generated.');
+      return;
+    }
     setSummary(null);
-    setMessage(`Generated or updated ${suggestions.length} deliverable form${suggestions.length === 1 ? '' : 's'}.`);
+    setMessage(`Generated or updated ${result.deliverables.length} deliverable form${result.deliverables.length === 1 ? '' : 's'}.`);
   }
 
   async function submitWorkspace(event) {

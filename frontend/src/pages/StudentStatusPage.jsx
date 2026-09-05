@@ -10,6 +10,7 @@ import { StudentProgressPanel } from '../components/student/StudentProgressPanel
 import { StudentWelcomeBanner } from '../components/student/StudentWelcomeBanner.jsx';
 import { StudentWorkspacePicker } from '../components/student/StudentWorkspacePicker.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import {
   findOwnedResponse,
   findStudent,
@@ -28,25 +29,28 @@ import { confirmStudentAssociation, getMyAssociation, disconnectStudentAssociati
 export function StudentStatusPage() {
   const {
     state,
+    claimStudentNumber,
+    disconnectStudentNumber,
+    authenticateGoogleAccount,
+    refreshBackendData
+  } = useWorkflow();
+  const {
+    account: sessionAccount,
     workspaces,
     activeWorkspace,
     activeWorkspaceId,
     needsWorkspaceChoice,
     workspaceCatalogStatus,
     workspaceCatalogError,
-    refreshWorkspaceCatalog,
-    claimStudentNumber,
-    disconnectStudentNumber,
-    authenticateGoogleAccount,
-    refreshBackendData
-  } = useWorkflow();
+    refreshWorkspaceCatalog
+  } = useWorkspaceSession();
   const [selectedNumber, setSelectedNumber] = useState('');
   const [connectionError, setConnectionError] = useState('');
   const [signInError, setSignInError] = useState('');
   const [backendAssociation, setBackendAssociation] = useState(null);
   const [associationLoadedFor, setAssociationLoadedFor] = useState('');
-  const associationKey = !needsWorkspaceChoice && activeWorkspace?.id && state.activeAccountEmail
-    ? `${activeWorkspace.id}:${String(state.activeAccountEmail).toLowerCase()}`
+  const associationKey = !needsWorkspaceChoice && activeWorkspace?.id && sessionAccount?.email
+    ? `${activeWorkspace.id}:${sessionAccount.email.toLowerCase()}`
     : '';
   // Ticket 03: the dashboard identity section is composed from the backend association.
   useEffect(() => {
@@ -71,9 +75,7 @@ export function StudentStatusPage() {
       });
     return () => { cancelled = true; };
   }, [activeWorkspace?.id, associationKey]);
-  const activeAccount = useMemo(() => state.studentAccounts.find(
-    (account) => account.googleSubject && String(account.email || '').toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
-  ) || null, [state.activeAccountEmail, state.studentAccounts]);
+  const activeAccount = sessionAccount;
   const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
   const connectionOptions = useMemo(() => getStudentOptions(identityStudents), [identityStudents]);
   const selectedStudent = useMemo(() => findStudent(identityStudents, selectedNumber), [identityStudents, selectedNumber]);
@@ -106,7 +108,7 @@ export function StudentStatusPage() {
       const ownedResponse = findOwnedResponse(state.attempts, {
         deliverableId: deliverable.id,
         studentNumber: student.studentNumber,
-        googleSubject: activeAccount.googleSubject,
+        googleSubject: '',
         googleEmail: activeAccount.email
       });
       const recorded = state.attempts.some((response) => (

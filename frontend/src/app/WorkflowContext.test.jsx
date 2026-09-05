@@ -160,6 +160,18 @@ describe('student workspace selection', () => {
     expect(captured.workspaces).toEqual([]);
     expect(captured.activeWorkspaceId).toBeNull();
   });
+
+  it('reports a failed workspace load instead of treating saved browser data as success', async () => {
+    renderProvider();
+    await waitFor(() => expect(captured.workspaceCatalogStatus).toBe('ready'));
+    api.getBackendSnapshot.mockRejectedValueOnce(new Error('Workspace API unavailable.'));
+
+    let result;
+    await act(async () => { result = await captured.switchWorkspace(seedWorkspaces[1].id); });
+
+    expect(result).toEqual(expect.objectContaining({ ok: false, error: 'Workspace API unavailable.' }));
+    expect(captured.state.backendSync.lastError).toBe('Workspace API unavailable.');
+  });
 });
 
 describe('backend failure visibility', () => {

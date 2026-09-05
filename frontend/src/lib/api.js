@@ -73,6 +73,10 @@ export async function getPublicSubmissionForm(workspaceKey, slug) {
   });
 }
 
+export async function getDeliverables(workspaceId) {
+  return request(withWorkspace('/deliverables', workspaceId));
+}
+
 export function toApiSourceType(sourceType) {
   return SOURCE_TYPE_TO_API[sourceType] || sourceType;
 }
@@ -142,8 +146,9 @@ export async function getBackendSnapshot(workspaceId) {
 
 export async function saveBackendDeliverable(workspaceId, payload) {
   const dueAtIso = String(payload.dueAt || '').replace(/[+-]\d\d:\d\d$|Z$/i, '');
-  return request(withWorkspace('/deliverables', workspaceId), {
-    method: 'POST',
+  const path = payload.id ? `/deliverables/${encodeURIComponent(payload.id)}` : '/deliverables';
+  return request(withWorkspace(path, workspaceId), {
+    method: payload.id ? 'PUT' : 'POST',
     body: {
       trackerColumnKey: payload.trackerColumn || payload.shortTitle || payload.trackerColumnKey,
       title: payload.title || payload.shortTitle,

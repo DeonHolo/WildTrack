@@ -188,6 +188,7 @@ function renderDashboard() {
 }
 
 function associateAccount(overrides = {}) {
+  workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
   workflow.state.activeAccountEmail = 'juan.student@gmail.com';
   workflow.state.activeStudentNumber = '22-1001-001';
   workflow.state.studentAccounts = [{
@@ -234,6 +235,7 @@ describe('student dashboard', () => {
       };
     });
     workflow.state = createState();
+    workflow.session = { authenticated: false, roles: [] };
     workflow.needsWorkspaceChoice = false;
     workflow.workspaceCatalogStatus = 'ready';
     workflow.workspaceCatalogError = '';
@@ -265,6 +267,7 @@ describe('student dashboard', () => {
   });
 
   it('lets a signed-in student connect one class-record identity with confirmation', async () => {
+    workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{
       email: 'juan.student@gmail.com',
@@ -437,6 +440,7 @@ describe('student dashboard', () => {
   });
 
   it('renders a stable loading state while workspace data is being fetched', () => {
+    workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
     workflow.state.backendSync.status = 'Loading workspace data.';
@@ -447,6 +451,7 @@ describe('student dashboard', () => {
   });
 
   it('explains roster load failures and lets the student retry', () => {
+    workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
     workflow.state.students = [];
@@ -460,6 +465,7 @@ describe('student dashboard', () => {
   });
 
   it('offers workspace selection before connecting a student record', () => {
+    workflow.session = { authenticated: true, email: 'cs.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'cs.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'cs.student@gmail.com', googleSubject: 'google-cs', studentNumber: '' }];
     renderDashboard();
@@ -547,6 +553,7 @@ describe('student dashboard', () => {
       teamCode: '2526-sem2-it332-11',
       assuranceLevel: 'SELF_DECLARED'
     });
+    workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
     workflow.claimStudentNumber.mockReturnValue({ ok: true, student: workflow.state.students[0] });
@@ -567,6 +574,7 @@ describe('student dashboard', () => {
   it('shows an error and stays unconnected when the server rejects the association', async () => {
     const { confirmStudentAssociation } = await import('../lib/api.js');
     confirmStudentAssociation.mockRejectedValue(new Error('No Student Record with that number exists in this workspace.'));
+    workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
     renderDashboard();
@@ -611,6 +619,7 @@ describe('student dashboard', () => {
       teamCode: '2526-sem2-it332-11',
       assuranceLevel: 'SELF_DECLARED'
     });
+    workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.activeStudentNumber = '';
     workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan' }];

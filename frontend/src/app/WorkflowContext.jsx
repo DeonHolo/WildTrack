@@ -4,7 +4,6 @@ import {
   applyClassRecordImport,
   deriveAttemptFlags,
   deliverableUsesDocumentCheck,
-  findDeliverableForUpsert,
   findOwnedResponse,
   findStudent,
   findWorkspace,
@@ -38,7 +37,6 @@ import {
 import { disableGoogleAutoSelect } from '../lib/googleIdentitySession.js';
 import {
   createWorkspace as createBackendWorkspace,
-  deleteDocumentTemplate,
   describeSnapshotFailures,
   getApiBaseUrl,
   getBackendSnapshot,
@@ -47,11 +45,9 @@ import {
   importSheetSource as importBackendSheetSource,
   logout as apiLogout,
   runDocumentCheck as requestDocumentCheck,
-  saveBackendDeliverable,
-  uploadDocumentTemplate,
-  uploadDriveDocumentTemplate,
   writeTrackerValue
 } from '../lib/api.js';
+import { removeSubmissionTemplate, saveDeliverable, saveSubmissionTemplate } from '../lib/submissionClient.js';
 
 const WorkflowContext = createContext(null);
 
@@ -66,17 +62,24 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
   const effectiveWorkspaceId = activeWorkspaceId || activeWorkspace?.id || null;
   const [state, setState] = useState(() => loadWorkflowState(effectiveWorkspaceId, activeWorkspace));
   const [session, setSession] = useState(null);
+  const [sessionStatus, setSessionStatus] = useState('loading');
+  const [sessionError, setSessionError] = useState('');
   const backendBootstrapped = useRef(false);
   const activeWorkspaceRef = useRef(activeWorkspaceId);
 
   const refreshSession = useCallback(async () => {
+    setSessionStatus('loading');
+    setSessionError('');
     try {
       const data = await getCurrentSession();
       setSession(data);
+      setSessionStatus('ready');
       return data;
-    } catch {
+    } catch (error) {
       const anonymous = { authenticated: false, roles: [] };
       setSession(anonymous);
+      setSessionStatus('error');
+      setSessionError(error.message || 'Session could not be loaded.');
       return anonymous;
     }
   }, []);
@@ -221,13 +224,13 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
           backendSync: {
             enabled: false,
             apiBaseUrl: getApiBaseUrl(),
-            status: 'Using saved workspace data.',
+            status: 'Workspace data unavailable.',
             lastError: error.message,
             lastLoadedAt: new Date().toISOString()
           }
         }));
       }
-      return { ok: true, workspace: target, localOnly: true };
+      return { ok: false, error: error.message, workspace: target };
     }
   }, [state, workspaces]);
 
@@ -256,45 +259,6 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     setState(loadWorkflowState(workspace.id, workspace));
     return { ok: true, workspace };
   }, [state]);
-
-  const publishDeliverable = useCallback((payload) => {
-    const workspaceId = activeWorkspaceRef.current;
-    if (workspaceId) {
-      saveBackendDeliverable(workspaceId, payload).catch(() => null);
-    }
-    setState((current) => {
-      const existingDeliverable = findDeliverableForUpsert(current.deliverables, payload);
-      const trackerColumn = getTrackerColumn(current, payload.trackerColumn);
-      const shortTitle = payload.shortTitle || trackerColumn?.label || payload.trackerColumn;
-      const title = payload.title || `${shortTitle} Submission`;
-      const deliverable = {
-        ...(existingDeliverable || {}),
-        title,
-        shortTitle,
-        status: payload.status || 'Published',
-        fields: payload.fields,
-        ...payload
-      };
-      const nextDeliverables = upsertDeliverable(current.deliverables, deliverable);
-      const savedDeliverable = nextDeliverables.find((item) => item.trackerColumn === payload.trackerColumn);
-      return {
-        ...current,
-        deliverables: sortDeliverables(current, nextDeliverables),
-        activity: [{ id: `act-${Date.now()}`, at: new Date().toISOString(), text: `${existingDeliverable ? 'Updated' : 'Published'} ${savedDeliverable?.title || title}.` }, ...current.activity]
-      };
-    });
-  }, []);
-
-  const removeDeliverable = useCallback((deliverableId) => {
-    setState((current) => {
-      const deliverable = current.deliverables.find((item) => item.id === deliverableId);
-      return {
-        ...current,
-        deliverables: current.deliverables.map((item) => item.id === deliverableId ? { ...item, status: 'Unpublished' } : item),
-        activity: [{ id: `act-${Date.now()}`, at: new Date().toISOString(), text: `Unpublished ${deliverable?.title || 'a form'}. Responses were preserved.` }, ...current.activity]
-      };
-    });
-  }, []);
 
   const connectSheetSource = useCallback(async (sourceType, payload) => {
     const workspaceId = activeWorkspaceRef.current;
@@ -362,32 +326,30 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     return connectSheetSource('tracker', payload);
   }, [connectSheetSource]);
 
-  const generateFormsFromSuggestions = useCallback((suggestions = []) => {
-    if (!suggestions.length) return;
+  const generateFormsFromSuggestions = useCallback(async (suggestions = []) => {
+    if (!suggestions.length) return { ok: true, deliverables: [] };
     const workspaceId = activeWorkspaceRef.current;
-    setState((current) => {
-      const now = Date.now();
-      const nextDeliverables = [...current.deliverables];
-      const created = [];
-      const sortedSuggestions = [...suggestions].sort((first, second) => {
+    if (!workspaceId) return { ok: false, error: 'Choose a workspace before generating forms.' };
+    const workspaceState = state;
+    const sortedSuggestions = [...suggestions].sort((first, second) => {
         const firstTime = Date.parse(first.dueAt || '');
         const secondTime = Date.parse(second.dueAt || '');
         if (!Number.isNaN(firstTime) && !Number.isNaN(secondTime) && firstTime !== secondTime) return firstTime - secondTime;
-        const firstColumn = getTrackerColumn(current, first.trackerColumn);
-        const secondColumn = getTrackerColumn(current, second.trackerColumn);
-        const columns = current.trackerColumns || [];
+        const firstColumn = getTrackerColumn(workspaceState, first.trackerColumn);
+        const secondColumn = getTrackerColumn(workspaceState, second.trackerColumn);
+        const columns = workspaceState.trackerColumns || [];
         const firstIndex = columns.findIndex((column) => column.id === firstColumn?.id);
         const secondIndex = columns.findIndex((column) => column.id === secondColumn?.id);
         return (firstIndex < 0 ? 9999 : firstIndex) - (secondIndex < 0 ? 9999 : secondIndex);
       });
-      sortedSuggestions.forEach((suggestion, index) => {
-        const trackerColumn = getTrackerColumn(current, suggestion.trackerColumn);
+    try {
+      const savedDeliverables = [];
+      for (const suggestion of sortedSuggestions) {
+        const trackerColumn = getTrackerColumn(workspaceState, suggestion.trackerColumn);
         const shortTitle = trackerColumn?.label || suggestion.shortTitle || suggestion.trackerColumn;
-        const existingIndex = nextDeliverables.findIndex((item) => item.trackerColumn === suggestion.trackerColumn);
-        const existing = existingIndex >= 0 ? nextDeliverables[existingIndex] : null;
-        const deliverable = {
-          ...(existing || {}),
-          id: existing?.id || `deliv-generated-${now}-${index}`,
+        const existing = workspaceState.deliverables.find((item) => item.trackerColumn === suggestion.trackerColumn);
+        savedDeliverables.push(await saveDeliverable(workspaceId, {
+          id: existing?.id || '',
           slug: existing?.slug || slugify(suggestion.title || `${shortTitle} Submission`),
           title: suggestion.title || `${shortTitle} Submission`,
           shortTitle,
@@ -399,28 +361,31 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
           fields: suggestion.pdfRequired
             ? [{ id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', required: true, pdfRequired: true }]
             : [{ id: 'primaryLink', label: 'Submission Link', type: 'url', required: true, pdfRequired: false }]
-        };
-        if (workspaceId) {
-          saveBackendDeliverable(workspaceId, deliverable).catch(() => null);
-        }
-        if (existingIndex >= 0) nextDeliverables[existingIndex] = deliverable;
-        else nextDeliverables.push(deliverable);
-        created.push(shortTitle);
-      });
-      return {
+        }));
+      }
+      if (activeWorkspaceRef.current !== workspaceId) {
+        return { ok: false, error: 'Workspace changed before the forms were generated.' };
+      }
+      setState((current) => ({
         ...current,
-        deliverables: sortDeliverables(current, nextDeliverables),
+        deliverables: sortDeliverables(current, savedDeliverables.reduce(
+          (items, deliverable) => upsertDeliverable(items, deliverable),
+          current.deliverables
+        )),
         classRecord: {
           ...current.classRecord,
           pendingFormSuggestions: [],
           importSummary: current.classRecord.importSummary
-            ? { ...current.classRecord.importSummary, suggestedForms: [], formsGenerated: created.length }
+            ? { ...current.classRecord.importSummary, suggestedForms: [], formsGenerated: savedDeliverables.length }
             : current.classRecord.importSummary
         },
-        activity: [{ id: `act-${Date.now()}`, at: new Date().toISOString(), text: `Generated forms for ${created.join(', ')} from detected deadlines.` }, ...current.activity]
-      };
-    });
-  }, []);
+        activity: [{ id: `act-${Date.now()}`, at: new Date().toISOString(), text: `Generated ${savedDeliverables.length} deliverable form${savedDeliverables.length === 1 ? '' : 's'} from detected deadlines.` }, ...current.activity]
+      }));
+      return { ok: true, deliverables: savedDeliverables };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Suggested forms could not be generated.' };
+    }
+  }, [state]);
 
   const registerStudentAccount = useCallback((payload) => {
     const email = String(payload.email || '').trim().toLowerCase();
@@ -1045,17 +1010,7 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
   const saveTemplate = useCallback(async (payload) => {
     const workspaceId = activeWorkspaceRef.current;
     try {
-      const saved = payload.sourceType === 'drive'
-        ? await uploadDriveDocumentTemplate(workspaceId, {
-            deliverableKey: payload.deliverable,
-            displayName: payload.name,
-            driveUrl: payload.driveUrl
-          })
-        : await uploadDocumentTemplate(workspaceId, {
-            deliverableKey: payload.deliverable,
-            displayName: payload.name,
-            file: payload.file
-          });
+      const saved = await saveSubmissionTemplate(workspaceId, payload);
       if (activeWorkspaceRef.current !== workspaceId) {
         return { ok: false, error: 'Workspace changed before the template was saved.' };
       }
@@ -1078,7 +1033,7 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
   const removeTemplate = useCallback(async (templateId) => {
     const workspaceId = activeWorkspaceRef.current;
     try {
-      await deleteDocumentTemplate(workspaceId, templateId);
+      await removeSubmissionTemplate(workspaceId, templateId);
       if (activeWorkspaceRef.current !== workspaceId) {
         return { ok: false, error: 'Workspace changed before the template was removed.' };
       }
@@ -1127,11 +1082,11 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     logoutStudentAccount,
     logoutStaffSession,
     session,
+    sessionStatus,
+    sessionError,
     refreshSession,
-    publishDeliverable,
     refreshBackendData,
     registerStudentAccount,
-    removeDeliverable,
     removeTemplate,
     saveTemplate,
     setActiveStudentNumber,
@@ -1146,7 +1101,7 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     archiveAttempt,
     archiveAttempts,
     reset
-  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, authenticateGoogleAccount, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStaffSession, logoutStudentAccount, markAccepted, needsWorkspaceChoice, publishDeliverable, refreshBackendData, refreshSession, refreshWorkspaceCatalog, workspaceCatalogStatus, workspaceCatalogError, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, session, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
+  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, authenticateGoogleAccount, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStaffSession, logoutStudentAccount, markAccepted, needsWorkspaceChoice, refreshBackendData, refreshSession, refreshWorkspaceCatalog, workspaceCatalogStatus, workspaceCatalogError, registerStudentAccount, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, session, sessionError, sessionStatus, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>;
 }
@@ -1432,4 +1387,3 @@ function normalizeBackendDueAt(value) {
   if (/[zZ]|[+-]\d\d:\d\d$/.test(text)) return text;
   return `${text.length === 16 ? `${text}:00` : text}+08:00`;
 }
-

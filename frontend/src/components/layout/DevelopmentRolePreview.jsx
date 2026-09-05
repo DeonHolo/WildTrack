@@ -2,7 +2,7 @@ import { ActionIcon, Box, Popover, Stack, Text, UnstyledButton } from '@mantine/
 import { Eye, FilePdf, Gauge, Student, UsersThree, X } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWorkflow } from '../../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { getWorkspacePublicKey } from '../../lib/workflow.js';
 import { browserStorageKeys, readStorageWithMigration } from '../../lib/browserStorage.js';
 import { setStoredPreviewRole, usePreviewRole } from '../../hooks/usePreviewRole.js';
@@ -12,7 +12,7 @@ const OPEN_KEY = browserStorageKeys.developmentPreviewOpen;
 export function DevelopmentRolePreview({ enabled = import.meta.env.DEV }) {
   const navigate = useNavigate();
   const role = usePreviewRole();
-  const { activeWorkspace } = useWorkflow();
+  const { activeWorkspace } = useWorkspaceSession();
   const [open, setOpen] = useState(() => enabled && readStorageWithMigration(OPEN_KEY, '.v2.dev-preview-open') === 'true');
 
   useEffect(() => {

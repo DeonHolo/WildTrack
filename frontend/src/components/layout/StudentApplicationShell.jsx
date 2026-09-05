@@ -1,17 +1,14 @@
 import { AppShell as MantineAppShell, Button, Container, Group, Text } from '@mantine/core';
 import { SignOut } from '@phosphor-icons/react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useWorkflow } from '../../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { WildTrackBrand } from './WildTrackBrand.jsx';
 
 export function StudentApplicationShell({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { state, logoutStudentAccount } = useWorkflow();
+  const { account: activeAccount, logoutStudentAccount } = useWorkspaceSession();
   const isAccessRoute = ['/login', '/register'].includes(location.pathname);
-  const activeAccount = state.studentAccounts.find(
-    (account) => account.googleSubject && account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
-  );
 
   function logout() {
     logoutStudentAccount();

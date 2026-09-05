@@ -1,14 +1,11 @@
 import { Button, Container, Group, Text, ThemeIcon } from '@mantine/core';
 import { FilePdf, SignOut } from '@phosphor-icons/react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useWorkflow } from '../../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 
 export function WildTrackPublicHeader({ subtitle }) {
   const navigate = useNavigate();
-  const { state, logoutStudentAccount } = useWorkflow();
-  const activeAccount = state.studentAccounts.find(
-    (account) => account.googleSubject && account.email.toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
-  );
+  const { account: activeAccount, logoutStudentAccount } = useWorkspaceSession();
 
   function logout() {
     logoutStudentAccount();

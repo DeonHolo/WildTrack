@@ -24,7 +24,7 @@ import {
   UsersThree
 } from '@phosphor-icons/react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useWorkflow } from '../../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../../hooks/useApplicationRole.js';
 import { clearStoredPreviewRole, getStoredPreviewAdviser } from '../../hooks/usePreviewRole.js';
 import { WildTrackBrand } from './WildTrackBrand.jsx';
@@ -73,7 +73,15 @@ export function StaffApplicationShell({ children }) {
   const role = useApplicationRole();
   const location = useLocation();
   const navigate = useNavigate();
-  const { workspaces, activeWorkspace, activeWorkspaceId, switchWorkspace, logoutStaffSession } = useWorkflow();
+  const {
+    workspaces,
+    activeWorkspace,
+    activeWorkspaceId,
+    workspaceCatalogStatus,
+    workspaceCatalogError,
+    switchWorkspace,
+    logoutStaffSession
+  } = useWorkspaceSession();
   const isAdviser = role === APPLICATION_ROLES.ADVISER;
   const navigationGroups = isAdviser ? ADVISER_GROUPS : ADMIN_GROUPS;
   const accountName = isAdviser ? getStoredPreviewAdviser() || 'Adviser account' : 'Ralph Laviste';
@@ -179,7 +187,12 @@ export function StaffApplicationShell({ children }) {
       </MantineAppShell.Navbar>
 
       <MantineAppShell.Main id="wildtrack-main">
-        <div className="wt-staff-main">{children}</div>
+        <div className="wt-staff-main">
+          {workspaceCatalogStatus === 'error' ? (
+            <Text role="alert" c="red" mb="md">{workspaceCatalogError || 'Workspaces could not be loaded.'}</Text>
+          ) : null}
+          {children}
+        </div>
       </MantineAppShell.Main>
     </MantineAppShell>
   );
