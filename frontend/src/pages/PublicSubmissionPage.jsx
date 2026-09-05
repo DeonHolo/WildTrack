@@ -95,6 +95,7 @@ export function PublicSubmissionPage() {
     state,
     activeWorkspace,
     activeWorkspaceId,
+    needsWorkspaceChoice,
     authenticateGoogleAccount,
     switchWorkspace,
     submitPublicForm,
@@ -175,7 +176,7 @@ export function PublicSubmissionPage() {
       setFetchingPublicForm(false);
     }
 
-    if (workspaceKey && (workspaceKey !== activeWorkspaceId && workspaceKey !== activeWorkspaceKey)) {
+    if (workspaceKey && (needsWorkspaceChoice || (workspaceKey !== activeWorkspaceId && workspaceKey !== activeWorkspaceKey))) {
       setWorkspaceStatus('loading');
       setWorkspaceError('');
       switchWorkspace(workspaceKey)
@@ -198,7 +199,7 @@ export function PublicSubmissionPage() {
     }
 
     return () => { active = false; };
-  }, [slug, workspaceKey, activeWorkspaceKey, activeWorkspaceId, switchWorkspace, stateDeliverable]);
+  }, [slug, workspaceKey, activeWorkspaceKey, activeWorkspaceId, needsWorkspaceChoice, switchWorkspace, stateDeliverable]);
 
   useEffect(() => {
     const targetStudentNumber = activeAccount?.studentNumber || queryStudent || state.activeStudentNumber;

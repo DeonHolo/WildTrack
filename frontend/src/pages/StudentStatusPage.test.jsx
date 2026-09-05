@@ -11,7 +11,7 @@ const LONG_FEEDBACK = 'Clarify the authentication boundary and connect every req
 
 function createState() {
   return {
-    backendSync: { enabled: true, status: 'Backend data loaded.', lastError: '' },
+    backendSync: { enabled: true, status: 'Backend data loaded.', lastError: '', lastLoadedAt: '2026-09-05T00:00:00Z' },
     students: [
       {
         studentNumber: '22-1001-001',
@@ -234,6 +234,17 @@ describe('student dashboard', () => {
       };
     });
     workflow.state = createState();
+    workflow.needsWorkspaceChoice = false;
+    workflow.workspaceCatalogStatus = 'ready';
+    workflow.workspaceCatalogError = '';
+    workflow.refreshWorkspaceCatalog = vi.fn();
+    workflow.activeWorkspaceId = 'workspace-it';
+    workflow.workspaces = [
+      { id: 'workspace-it', name: 'IT Capstone' },
+      { id: 'workspace-cs', name: 'CS Capstone' },
+      { id: 'workspace-third', name: 'IT Capstone Section 3', academicYear: '2026-27', semester: 'Semester 1' }
+    ];
+    workflow.switchWorkspace.mockReset().mockResolvedValue({ ok: true });
     workflow.claimStudentNumber.mockReset();
     workflow.disconnectStudentNumber.mockReset();
     workflow.logoutStudentAccount.mockReset();
@@ -448,13 +459,12 @@ describe('student dashboard', () => {
     expect(workflow.refreshBackendData).toHaveBeenCalledTimes(1);
   });
 
-  it('does not allow students to switch capstone sections from the student dashboard', () => {
+  it('offers workspace selection before connecting a student record', () => {
     workflow.state.activeAccountEmail = 'cs.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'cs.student@gmail.com', googleSubject: 'google-cs', studentNumber: '' }];
     renderDashboard();
 
-    expect(screen.queryByLabelText('Capstone section')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Switch section/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue('workspace-it');
   });
 
   it('renders a loading dashboard while backend sync is hydrating (ticket 03)', () => {
@@ -466,17 +476,63 @@ describe('student dashboard', () => {
     expect(screen.queryByText(/No student records are available to connect/i)).not.toBeInTheDocument();
   });
 
-  it('offers a section switcher when multiple workspaces exist (ticket 03)', () => {
-    workflow.workspaces = [
-      { id: 'workspace-it', name: 'IT Capstone' },
-      { id: 'workspace-cs', name: 'CS Capstone' }
-    ];
+  it('lets a connected student choose the third workspace by name', async () => {
+    associateAccount();
     renderDashboard();
 
-    const switchBtn = screen.getByRole('button', { name: /Switch section/i });
-    expect(switchBtn).toBeInTheDocument();
-    fireEvent.click(switchBtn);
-    expect(workflow.switchWorkspace).toHaveBeenCalledWith('workspace-cs');
+    const picker = await screen.findByRole('combobox', { name: 'Workspace' });
+    expect(screen.getByRole('option', { name: /IT Capstone Section 3.*2026-27.*Semester 1/ })).toBeInTheDocument();
+    fireEvent.change(picker, { target: { value: 'workspace-third' } });
+    await waitFor(() => expect(workflow.switchWorkspace).toHaveBeenCalledWith('workspace-third'));
+  });
+
+  it('requires an explicit workspace choice before showing student numbers', async () => {
+    associateAccount({ studentNumber: '' });
+    workflow.needsWorkspaceChoice = true;
+    renderDashboard();
+    expect(screen.getByRole('heading', { name: 'Choose your workspace' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /Student Number/ })).not.toBeInTheDocument();
+    const picker = screen.getByRole('combobox', { name: 'Workspace' });
+    expect(picker).toHaveValue('');
+    fireEvent.change(picker, { target: { value: 'workspace-it' } });
+    await waitFor(() => expect(workflow.switchWorkspace).toHaveBeenCalledWith('workspace-it'));
+  });
+
+  it('shows a workspace load error with a retry instead of cached options', () => {
+    associateAccount();
+    workflow.workspaceCatalogStatus = 'error';
+    workflow.workspaceCatalogError = 'Workspaces are temporarily unavailable.';
+    renderDashboard();
+    expect(screen.getByRole('alert')).toHaveTextContent(workflow.workspaceCatalogError);
+    expect(screen.queryByRole('combobox', { name: 'Workspace' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(workflow.refreshWorkspaceCatalog).toHaveBeenCalledOnce();
+  });
+
+  it('shows an empty workspace state without student-record controls', () => {
+    associateAccount();
+    workflow.workspaces = [];
+    renderDashboard();
+    expect(screen.getByText(/No workspaces are available yet/)).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('identifies the only workspace without asking the student to select it', () => {
+    associateAccount({ studentNumber: '' });
+    workflow.workspaces = [workflow.workspaces[0]];
+    renderDashboard();
+    expect(screen.getByText('Workspace: IT Capstone')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Workspace' })).not.toBeInTheDocument();
+  });
+
+  it('shows a failed switch and keeps the picker available for retry', async () => {
+    associateAccount({ studentNumber: '' });
+    workflow.needsWorkspaceChoice = true;
+    workflow.switchWorkspace.mockResolvedValue({ ok: false, error: 'Workspace was not found.' });
+    renderDashboard();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Workspace' }), { target: { value: 'workspace-cs' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Workspace was not found.');
+    expect(screen.getByRole('combobox', { name: 'Workspace' })).toBeEnabled();
   });
 
   it('persists a confirmed connection to the server association', async () => {
@@ -618,4 +674,3 @@ describe('student dashboard', () => {
     await waitFor(() => expect(confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1002-002'));
   });
 });
-

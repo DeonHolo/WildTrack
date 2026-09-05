@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Container, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { Alert, Button, Container, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { ArrowClockwise, WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
@@ -8,6 +8,7 @@ import { StudentDeliverableList } from '../components/student/StudentDeliverable
 import { StudentProfileSummary } from '../components/student/StudentProfileSummary.jsx';
 import { StudentProgressPanel } from '../components/student/StudentProgressPanel.jsx';
 import { StudentWelcomeBanner } from '../components/student/StudentWelcomeBanner.jsx';
+import { StudentWorkspacePicker } from '../components/student/StudentWorkspacePicker.jsx';
 import { useWorkflow } from '../app/WorkflowContext.jsx';
 import {
   findOwnedResponse,
@@ -30,7 +31,10 @@ export function StudentStatusPage() {
     workspaces,
     activeWorkspace,
     activeWorkspaceId,
-    switchWorkspace,
+    needsWorkspaceChoice,
+    workspaceCatalogStatus,
+    workspaceCatalogError,
+    refreshWorkspaceCatalog,
     claimStudentNumber,
     disconnectStudentNumber,
     authenticateGoogleAccount,
@@ -41,7 +45,7 @@ export function StudentStatusPage() {
   const [signInError, setSignInError] = useState('');
   const [backendAssociation, setBackendAssociation] = useState(null);
   const [associationLoadedFor, setAssociationLoadedFor] = useState('');
-  const associationKey = activeWorkspace?.id && state.activeAccountEmail
+  const associationKey = !needsWorkspaceChoice && activeWorkspace?.id && state.activeAccountEmail
     ? `${activeWorkspace.id}:${String(state.activeAccountEmail).toLowerCase()}`
     : '';
   // Ticket 03: the dashboard identity section is composed from the backend association.
@@ -73,12 +77,13 @@ export function StudentStatusPage() {
   const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
   const connectionOptions = useMemo(() => getStudentOptions(identityStudents), [identityStudents]);
   const selectedStudent = useMemo(() => findStudent(identityStudents, selectedNumber), [identityStudents, selectedNumber]);
-  const studentNumber = backendAssociation?.studentNumber || '';
-  const student = useMemo(() => findStudent(state.students, studentNumber) || (backendAssociation ? {
-    studentNumber: backendAssociation.studentNumber,
-    name: backendAssociation.studentName,
-    teamCode: backendAssociation.teamCode
-  } : null), [backendAssociation, state.students, studentNumber]);
+  const currentAssociation = associationLoadedFor === associationKey ? backendAssociation : null;
+  const studentNumber = currentAssociation?.studentNumber || '';
+  const student = useMemo(() => findStudent(state.students, studentNumber) || (currentAssociation ? {
+    studentNumber: currentAssociation.studentNumber,
+    name: currentAssociation.studentName,
+    teamCode: currentAssociation.teamCode
+  } : null), [currentAssociation, state.students, studentNumber]);
   const project = useMemo(() => student ? getProjectMetadata(state, student.teamCode) : null, [state, student]);
   const adviserLabel = isUsableAdviserName(project?.adviserName)
     ? project.adviserName
@@ -123,6 +128,11 @@ export function StudentStatusPage() {
   const loadError = state.dashboardStatus === 'error'
     ? state.dashboardError || 'Student records could not be loaded.'
     : state.backendSync?.lastError || '';
+
+  useEffect(() => {
+    setSelectedNumber('');
+    setConnectionError('');
+  }, [activeWorkspaceId]);
 
   function connectSelectedRecord() {
     setConnectionError('');
@@ -195,6 +205,32 @@ export function StudentStatusPage() {
       />
     );
   }
+  if (workspaceCatalogStatus === 'loading') return <LoadingDashboard />;
+  if (workspaceCatalogStatus === 'error' || !workspaces?.length || needsWorkspaceChoice) {
+    return (
+      <DashboardContainer>
+        <Paper className="wt-student-connect wt-student-connect-column" withBorder radius="sm" p="lg">
+          <Stack gap="lg">
+            <header className="wt-student-page-heading">
+              <Title order={1}>Choose your workspace</Title>
+              <Text c="dimmed">Select your capstone class before connecting your student record.</Text>
+            </header>
+            {workspaceCatalogStatus === 'error' ? (
+              <>
+                <Alert color="red" role="alert">{workspaceCatalogError || 'Workspaces could not be loaded.'}</Alert>
+                <Button variant="default" onClick={refreshWorkspaceCatalog}>Try again</Button>
+              </>
+            ) : workspaces?.length ? <StudentWorkspacePicker /> : (
+              <>
+                <Text>No workspaces are available yet. Ask your instructor for a class link, or check again later.</Text>
+                <Button variant="default" onClick={refreshWorkspaceCatalog}>Check again</Button>
+              </>
+            )}
+          </Stack>
+        </Paper>
+      </DashboardContainer>
+    );
+  }
   if (isLoading) return <LoadingDashboard />;
 
   if (!studentNumber) {
@@ -206,6 +242,7 @@ export function StudentStatusPage() {
             <Title order={1}>Connect your student record</Title>
             <Text c="dimmed">Choose your Student Number once. WildTrack fills in the matching name and team details.</Text>
           </header>
+          <StudentWorkspacePicker key={activeWorkspaceId} />
           {connectionError ? <Alert color="red" icon={<WarningCircle size={18} />} mb="md">{connectionError}</Alert> : null}
           {connectionOptions.length ? (
             <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
@@ -245,6 +282,7 @@ export function StudentStatusPage() {
   if (!student) {
     return (
       <DashboardContainer>
+        <StudentWorkspacePicker key={activeWorkspaceId} />
         <StudentDataUnavailable
           title="Student record unavailable"
           error="The connected Student Number is not present in this workspace's current Team Formation data."
@@ -258,27 +296,11 @@ export function StudentStatusPage() {
   return (
     <DashboardContainer>
       <header className="wt-student-page-heading">
-        <div className="wt-student-heading-section-row">
-          <Badge variant="light" color="wildtrackMaroon" size="sm">
-            {activeWorkspace?.program || 'Capstone'} · {activeWorkspace?.courseCode || activeWorkspace?.name}
-          </Badge>
-          {workspaces && workspaces.length > 1 ? (
-            <Button
-              variant="subtle"
-              size="xs"
-              color="wildtrackMaroon"
-              onClick={() => {
-                const other = workspaces.find((w) => w.id !== activeWorkspaceId);
-                if (other) switchWorkspace(other.id);
-              }}
-            >
-              Switch section
-            </Button>
-          ) : null}
-        </div>
         <Title order={1}>Student Dashboard</Title>
         <Text c="dimmed">Your submissions, adviser feedback, and class-record progress in one place.</Text>
       </header>
+
+      <StudentWorkspacePicker key={activeWorkspaceId} />
 
       {connectionError ? <Alert color="red" icon={<WarningCircle size={18} />}>{connectionError}</Alert> : null}
       <StudentWelcomeBanner student={student} rows={deliverableRows} />

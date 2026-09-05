@@ -3007,49 +3007,30 @@ html {
 /* Google identity access & login experience */
 .wt-student-access-page {
   min-height: calc(100dvh - 68px);
-  background: var(--wt-bg);
-  padding: clamp(32px, 6vh, 64px) 20px 72px;
+  background: var(--wt-canvas);
+  padding: 32px 0 72px;
 }
 
 .wt-student-access-container {
   width: 100%;
-  max-width: 640px;
 }
 
 .wt-login-banner {
-  position: relative;
-  display: grid;
-  min-height: 168px;
-  grid-template-columns: minmax(0, 1fr) clamp(140px, 30%, 220px);
-  align-items: center;
-  overflow: hidden;
-  border: 1px solid var(--wt-maroon-deep);
-  border-radius: 8px;
-  background-color: var(--wt-maroon-deep);
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(125deg, var(--wt-maroon-deep) 0 57%, var(--wt-maroon) 57% 100%);
-  background-size: 28px 28px, 28px 28px, 100% 100%;
-  color: #fffdf9;
-  isolation: isolate;
-  padding: 24px 30px;
+  grid-template-columns: minmax(0, 1fr) 42%;
 }
 
 .wt-login-banner-copy {
-  position: relative;
-  z-index: 1;
-  display: grid;
   gap: 6px;
-  max-width: 360px;
+  min-width: 0;
 }
 
 .wt-login-banner-title {
   color: #fffdf9;
-  font-size: clamp(1.45rem, 3vw, 1.85rem);
+  font-size: clamp(1.4rem, 3.5vw, 2rem);
   font-weight: 800;
   line-height: 1.15;
   letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 
 .wt-login-banner-subtitle {
@@ -3059,14 +3040,8 @@ html {
 }
 
 .wt-login-banner-art {
-  position: relative;
-  z-index: 1;
-  min-width: 0;
-  height: 100%;
-  background-position: center bottom;
-  background-repeat: no-repeat;
-  background-size: contain;
-  pointer-events: none;
+  /* Let the artwork reach the banner edge while the copy keeps its padding. */
+  margin-right: -34px;
 }
 
 .wt-login-surface {
@@ -3224,25 +3199,7 @@ html {
 
 @media (max-width: 720px) {
   .wt-student-access-page {
-    padding: 20px 14px 48px;
-  }
-
-  .wt-login-banner {
-    min-height: 150px;
-    grid-template-columns: minmax(0, 1fr) 152px;
-    padding: 0 20px;
-  }
-
-  .wt-login-banner-art {
-    display: block;
-    width: 100%;
-    height: 100%;
-    background-position: center bottom;
-    background-size: contain;
-  }
-
-  .wt-login-banner-copy {
-    max-width: 100%;
+    padding: 24px 0 48px;
   }
 
   .wt-login-features {
@@ -3274,7 +3231,27 @@ html {
   }
 }
 
+@media (max-width: 640px) {
+  .wt-login-banner {
+    grid-template-columns: minmax(0, 1fr) 38%;
+  }
+
+  .wt-login-banner-art {
+    margin-right: -20px;
+  }
+}
+
 /* Student Section Selection */
+.wt-student-workspace-picker {
+  width: 100%;
+  max-width: 36rem;
+  margin-bottom: 16px;
+}
+
+.wt-student-workspace-picker select {
+  text-overflow: ellipsis;
+}
+
 .wt-student-heading-section-row {
   display: flex;
   align-items: center;

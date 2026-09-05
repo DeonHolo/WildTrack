@@ -41,22 +41,22 @@ export function RegisterPage() {
   return (
     <main className="wt-student-access-page">
       <Container size="sm" className="wt-student-access-container">
-        <Stack gap="lg">
-          <Box className="wt-login-banner" component="section" aria-label="WildTrack sign in banner">
-            <div className="wt-login-banner-copy">
+        <Stack gap="md">
+          <Box className="wt-form-artwork wt-login-banner" component="section" aria-label="WildTrack sign in banner">
+            <div className="wt-artwork-copy wt-login-banner-copy">
               <Title order={1} className="wt-login-banner-title">Welcome to WildTrack</Title>
               <Text className="wt-login-banner-subtitle">
                 Access your capstone workspace, submit deliverables, and track adviser feedback.
               </Text>
             </div>
             <div
-              className="wt-login-banner-art"
+              className="wt-artwork-mascot wt-login-banner-art"
               role="img"
               aria-label={artwork.alt}
               style={{
                 backgroundImage: `url("${artwork.src}")`,
-                backgroundPosition: 'center bottom',
-                backgroundSize: 'contain'
+                backgroundPosition: artwork.position,
+                backgroundSize: artwork.size
               }}
             />
           </Box>
