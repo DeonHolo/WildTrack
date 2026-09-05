@@ -55,8 +55,8 @@ export function RegisterPage() {
               aria-label={artwork.alt}
               style={{
                 backgroundImage: `url("${artwork.src}")`,
-                backgroundPosition: artwork.position,
-                backgroundSize: artwork.size
+                backgroundPosition: 'center bottom',
+                backgroundSize: 'contain'
               }}
             />
           </Box>

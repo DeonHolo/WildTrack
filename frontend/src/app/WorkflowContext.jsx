@@ -57,10 +57,8 @@ const WorkflowContext = createContext(null);
 export function WorkflowProvider({ children, allowLocalImportFallback = import.meta.env.DEV }) {
   const [workspaces, setWorkspaces] = useState(() => loadWorkspaceCatalog());
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(loadWorkspaceCatalog()));
-  const activeWorkspace = activeWorkspaceId
-    ? workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0]
-    : workspaces.length === 1 ? workspaces[0] : null;
-  const needsWorkspaceChoice = !activeWorkspaceId && workspaces.length > 1;
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0] || null;
+  const needsWorkspaceChoice = false;
   const effectiveWorkspaceId = activeWorkspaceId || activeWorkspace?.id || null;
   const [state, setState] = useState(() => loadWorkflowState(effectiveWorkspaceId, activeWorkspace));
   const [session, setSession] = useState(null);
@@ -119,7 +117,6 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
         saveWorkspaceCatalog(backendWorkspaces);
         const currentExists = backendWorkspaces.some((workspace) => workspace.id === activeWorkspaceRef.current);
         if (!currentExists) {
-          if (backendWorkspaces.length === 1) {
             const nextId = backendWorkspaces[0].id;
             activeWorkspaceRef.current = nextId;
             setActiveWorkspaceId(nextId);
@@ -137,9 +134,6 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
                 }));
               })
               .catch(() => {});
-          }
-          // When multiple workspaces exist and no preference is stored,
-          // leave activeWorkspaceId null so the chooser renders (AC 4).
         }
       })
       .catch(() => {});
@@ -1443,8 +1437,6 @@ function normalizeBackendDueAt(value) {
   if (/[zZ]|[+-]\d\d:\d\d$/.test(text)) return text;
   return `${text.length === 16 ? `${text}:00` : text}+08:00`;
 }
-
-
 
 
 

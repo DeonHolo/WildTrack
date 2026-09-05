@@ -33,7 +33,7 @@ export function saveWorkspaceCatalog(workspaces) {
 export function loadActiveWorkspaceId(workspaces = loadWorkspaceCatalog()) {
   const stored = readStorageWithMigration(ACTIVE_WORKSPACE_KEY, '.v2.active-workspace');
   if (stored && workspaces.some((workspace) => workspace.id === stored)) return stored;
-  return null;
+  return workspaces[0]?.id || DEFAULT_WORKSPACE_ID;
 }
 
 export function saveActiveWorkspaceId(workspaceId) {
@@ -1456,4 +1456,3 @@ export function firstSubmissionLink(values) {
 export function deliverableUsesDocumentCheck(deliverable) {
   return Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
 }
-

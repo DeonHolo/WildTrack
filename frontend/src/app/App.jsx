@@ -73,5 +73,17 @@ export default function App() {
 
 function RoleHomeRedirect() {
   const role = useApplicationRole();
+  let session = null;
+  try {
+    const workflow = useWorkflow();
+    session = workflow?.session;
+  } catch {
+    // outside workflow context
+  }
+
+  if (!import.meta.env.DEV && session === null) {
+    return null;
+  }
+
   return <Navigate to={getRoleHome(role)} replace />;
 }

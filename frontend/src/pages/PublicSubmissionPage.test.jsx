@@ -8,13 +8,15 @@ import { PublicSubmissionPage } from './PublicSubmissionPage.jsx';
 
 const api = vi.hoisted(() => ({
   getPublicSubmissionForm: vi.fn(),
-  getMyAssociation: vi.fn()
+  getMyAssociation: vi.fn(),
+  getMyResponse: vi.fn()
 }));
 
 vi.mock('../lib/api.js', async (importOriginal) => ({
   ...(await importOriginal()),
   getPublicSubmissionForm: api.getPublicSubmissionForm,
-  getMyAssociation: api.getMyAssociation
+  getMyAssociation: api.getMyAssociation,
+  getMyResponse: api.getMyResponse
 }));
 
 const createState = () => ({
@@ -152,6 +154,8 @@ describe('public submission form', () => {
     });
     api.getMyAssociation.mockReset();
     api.getMyAssociation.mockResolvedValue(null);
+    api.getMyResponse.mockReset();
+    api.getMyResponse.mockResolvedValue(null);
   });
 
   it('loads a published workspace form for an anonymous visitor without private workspace data', async () => {
@@ -169,6 +173,35 @@ describe('public submission form', () => {
     expect(await screen.findByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
     expect(screen.getAllByText('Continue with Google').length).toBeGreaterThan(0);
     expect(api.getPublicSubmissionForm).toHaveBeenCalledWith('it-it332-2025-26-semester-2', 'week-9-srs');
+  });
+
+  it('prefills existing server submission for authenticated owner and marks it ready to edit (ticket 05)', async () => {
+    api.getMyResponse.mockResolvedValue({
+      id: 'server-resp-1',
+      deliverableId: 'deliv-srs',
+      revision: 2,
+      valuesJson: JSON.stringify({ documentPdf: 'https://drive.google.com/file/d/my-prior-srs/view' })
+    });
+    renderForm('/submit/week-9-srs?student=22-1001-001');
+
+    await waitFor(() => {
+      expect(screen.getByText(/Your previous response is ready to edit/i)).toBeInTheDocument();
+      expect(screen.getByDisplayValue('https://drive.google.com/file/d/my-prior-srs/view')).toBeInTheDocument();
+    });
+  });
+
+  it('maintains institutional roster casing on student name prefill (ticket 04)', async () => {
+    api.getMyAssociation.mockResolvedValue({
+      studentNumber: '22-1001-001',
+      studentName: 'Deon Holo', // Title case from Google/OAuth
+      teamCode: '2526-sem2-it332-11'
+    });
+    renderForm('/submit/week-9-srs');
+
+    await waitFor(() => {
+      // Must match official roster name 'DELA CRUZ, JUAN CARLOS M.', not 'Deon Holo'
+      expect(screen.getByDisplayValue('DELA CRUZ, JUAN CARLOS M.')).toBeInTheDocument();
+    });
   });
 
   it('requires verified Google identity before class-record and submission fields are shown', () => {
