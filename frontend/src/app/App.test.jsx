@@ -91,10 +91,13 @@ describe('role-specific application shells', () => {
   });
 
   it('gives Sir institution-wide navigation and direct access to his advised teams', () => {
+    workflow.needsWorkspaceChoice = true;
     setRole('admin');
     renderApp('/');
 
     expect(screen.getAllByText('WildTrack').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('region', { name: 'Choose a capstone section' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: "Today's work page" })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Academic workspace' })).toHaveValue('IT Capstone - IT332');
     expect(screen.getByText('Ralph Laviste')).toBeInTheDocument();
 
@@ -141,6 +144,20 @@ describe('role-specific application shells', () => {
 
     const account = screen.getByRole('group', { name: 'Signed-in staff account' });
     expect(within(account).getByRole('button', { name: 'Log out' })).toBeInTheDocument();
+  });
+
+  it('does not flash an early redirect while production session is resolving', () => {
+    const originalDev = import.meta.env.DEV;
+    import.meta.env.DEV = false;
+    workflow.session = null;
+    try {
+      const { container } = renderApp('/workspace');
+      expect(screen.queryByRole('heading', { name: 'Student access page' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Workspace page' })).not.toBeInTheDocument();
+    } finally {
+      import.meta.env.DEV = originalDev;
+      workflow.session = { authenticated: true, roles: ['ADMIN'] };
+    }
   });
 
   it('sends an unauthenticated visitor from protected staff routes to login', async () => {
