@@ -31,9 +31,13 @@ export function saveWorkspaceCatalog(workspaces) {
 }
 
 export function loadActiveWorkspaceId(workspaces = loadWorkspaceCatalog()) {
+  return loadSavedWorkspaceId(workspaces) || workspaces[0]?.id || DEFAULT_WORKSPACE_ID;
+}
+
+export function loadSavedWorkspaceId(workspaces = loadWorkspaceCatalog()) {
   const stored = readStorageWithMigration(ACTIVE_WORKSPACE_KEY, '.v2.active-workspace');
   if (stored && workspaces.some((workspace) => workspace.id === stored)) return stored;
-  return workspaces[0]?.id || DEFAULT_WORKSPACE_ID;
+  return null;
 }
 
 export function saveActiveWorkspaceId(workspaceId) {

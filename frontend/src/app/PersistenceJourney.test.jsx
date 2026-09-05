@@ -107,7 +107,7 @@ vi.mock('../lib/api.js', async (importOriginal) => {
       }
       return conflict;
     }),
-    getCurrentSession: vi.fn(async () => null),
+    getCurrentSession: vi.fn(async () => ({ authenticated: true, roles: [] })),
     logout: vi.fn(async () => ({})),
     submitFormResponse: vi.fn(async () => ({ ok: true })),
     saveBackendDeliverable: vi.fn(async () => ({ ok: true })),
@@ -193,9 +193,8 @@ describe('cross-browser persistence verification journey (Ticket 12)', () => {
     expect(await firstContext.findByText('DELA CRUZ, JUAN CARLOS M.')).toBeInTheDocument();
     expect(firstContext.getByText('22-1001-001')).toBeInTheDocument();
 
-    // Verify section switch UI is completely removed from the student dashboard
-    expect(firstContext.queryByLabelText('Capstone section')).not.toBeInTheDocument();
-    expect(firstContext.queryByRole('button', { name: /Switch section/i })).not.toBeInTheDocument();
+    // A single workspace is selected automatically without an extra picker.
+    expect(firstContext.queryByRole('combobox', { name: 'Workspace' })).not.toBeInTheDocument();
 
     // Simulate backend response
     mockResponses.push({
@@ -290,6 +289,5 @@ describe('cross-browser persistence verification journey (Ticket 12)', () => {
     expect(await adminContext.findByRole('heading', { name: 'Welcome to WildTrack' })).toBeInTheDocument();
   });
 });
-
 
 

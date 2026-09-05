@@ -132,8 +132,17 @@ function successfulResponse(overrides = {}) {
 }
 
 describe('public submission form', () => {
+  it('accepts the workspace from a form link even when it matches the unconfirmed default', async () => {
+    workflow.needsWorkspaceChoice = true;
+    renderForm('/w/workspace-it/submit/week-9-srs');
+    await waitFor(() => expect(workflow.switchWorkspace).toHaveBeenCalledWith('workspace-it'));
+    expect(await screen.findByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Workspace' })).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     workflow.state = createState();
+    workflow.needsWorkspaceChoice = false;
     workflow.switchWorkspace.mockReset();
     workflow.switchWorkspace.mockResolvedValue({ ok: true });
     workflow.authenticateGoogleAccount.mockReset();

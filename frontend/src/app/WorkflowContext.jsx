@@ -16,6 +16,7 @@ import {
   importPublicClassRecord,
   importPublicSheetSource,
   loadActiveWorkspaceId,
+  loadSavedWorkspaceId,
   loadStudentAccounts,
   loadWorkflowState,
   loadWorkspaceCatalog,
@@ -58,7 +59,10 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
   const [workspaces, setWorkspaces] = useState(() => loadWorkspaceCatalog());
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(loadWorkspaceCatalog()));
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0] || null;
-  const needsWorkspaceChoice = false;
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(() => loadSavedWorkspaceId(loadWorkspaceCatalog()));
+  const [workspaceCatalogStatus, setWorkspaceCatalogStatus] = useState('loading');
+  const [workspaceCatalogError, setWorkspaceCatalogError] = useState('');
+  const needsWorkspaceChoice = workspaces.length > 1 && selectedWorkspaceId !== activeWorkspaceId;
   const effectiveWorkspaceId = activeWorkspaceId || activeWorkspace?.id || null;
   const [state, setState] = useState(() => loadWorkflowState(effectiveWorkspaceId, activeWorkspace));
   const [session, setSession] = useState(null);
@@ -80,6 +84,7 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
   const refreshBackendData = useCallback(async ({ silent = false } = {}) => {
     try {
       const workspaceId = activeWorkspaceRef.current;
+      if (!workspaceId) return { ok: false, error: 'Choose a workspace first.' };
       const snapshot = await getBackendSnapshot(workspaceId);
       if (activeWorkspaceRef.current !== workspaceId) return { ok: false, error: 'Workspace changed while data was loading.' };
       const failureMessage = describeSnapshotFailures(snapshot.failures);
@@ -106,37 +111,43 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     }
   }, []);
 
+  const refreshWorkspaceCatalog = useCallback(async () => {
+    setWorkspaceCatalogStatus('loading');
+    setWorkspaceCatalogError('');
+    try {
+      const backendWorkspaces = await getBackendWorkspaces();
+      setWorkspaces(backendWorkspaces);
+      saveWorkspaceCatalog(backendWorkspaces);
+      setSelectedWorkspaceId((current) => backendWorkspaces.some((workspace) => workspace.id === current)
+        ? current : backendWorkspaces.length === 1 ? backendWorkspaces[0].id : null);
+      if (backendWorkspaces.length === 1) saveActiveWorkspaceId(backendWorkspaces[0].id);
+      const currentExists = backendWorkspaces.some((workspace) => workspace.id === activeWorkspaceRef.current);
+      if (!currentExists) {
+        const nextId = backendWorkspaces[0]?.id || null;
+        activeWorkspaceRef.current = nextId;
+        setActiveWorkspaceId(nextId);
+        setState((current) => materializeStudentSession({
+          ...loadWorkflowState(nextId, backendWorkspaces[0]),
+          studentAccounts: current.studentAccounts || [],
+          activeAccountEmail: current.activeAccountEmail || ''
+        }, nextId));
+      }
+      setWorkspaceCatalogStatus('ready');
+      if (backendWorkspaces.length) await refreshBackendData({ silent: true });
+    } catch (error) {
+      setWorkspaceCatalogStatus('error');
+      setWorkspaceCatalogError(error.message || 'Workspaces could not be loaded.');
+    }
+  }, [refreshBackendData]);
+
+  useEffect(() => {
+    if (session?.authenticated || (session && import.meta.env.DEV)) refreshWorkspaceCatalog();
+  }, [session?.authenticated, refreshWorkspaceCatalog]);
+
   useEffect(() => {
     refreshSession();
     if (backendBootstrapped.current) return;
     backendBootstrapped.current = true;
-    getBackendWorkspaces()
-      .then((backendWorkspaces) => {
-        if (!backendWorkspaces.length) return;
-        setWorkspaces(backendWorkspaces);
-        saveWorkspaceCatalog(backendWorkspaces);
-        const currentExists = backendWorkspaces.some((workspace) => workspace.id === activeWorkspaceRef.current);
-        if (!currentExists) {
-            const nextId = backendWorkspaces[0].id;
-            activeWorkspaceRef.current = nextId;
-            setActiveWorkspaceId(nextId);
-            saveActiveWorkspaceId(nextId);
-            setState((current) => ({
-              ...loadWorkflowState(nextId, backendWorkspaces[0]),
-              studentAccounts: current.studentAccounts || [],
-              activeAccountEmail: current.activeAccountEmail || ''
-            }));
-            getBackendSnapshot(nextId)
-              .then((snapshot) => {
-                setState((current) => applyBackendSnapshot(current, snapshot, {
-                  status: 'Backend data loaded.',
-                  enabled: true
-                }));
-              })
-              .catch(() => {});
-        }
-      })
-      .catch(() => {});
     refreshBackendData({ silent: true });
   }, [refreshBackendData, refreshSession]);
 
@@ -179,14 +190,20 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     }
     if (!target) return { ok: false, error: 'Workspace was not found.' };
     const workspaceId = target.id;
+    setSelectedWorkspaceId(workspaceId);
+    saveActiveWorkspaceId(workspaceId);
     if (workspaceId === activeWorkspaceRef.current && state.deliverables?.length) return { ok: true, workspace: target };
 
     saveWorkflowState(state, activeWorkspaceRef.current);
     activeWorkspaceRef.current = workspaceId;
     setActiveWorkspaceId(workspaceId);
-    saveActiveWorkspaceId(workspaceId);
     const localState = loadWorkflowState(workspaceId, target);
-    setState(localState);
+    setState((current) => materializeStudentSession({
+      ...localState,
+      studentAccounts: current.studentAccounts,
+      activeAccountEmail: current.activeAccountEmail,
+      backendSync: { ...localState.backendSync, status: 'Loading workspace data.', lastLoadedAt: null, enabled: true }
+    }, workspaceId));
 
     try {
       const snapshot = await getBackendSnapshot(workspaceId);
@@ -479,32 +496,7 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
       ...accounts.filter((item) => item.id !== account.id && item.googleSubject !== googleSubject && item.email.toLowerCase() !== email)
     ];
 
-    let targetWorkspaceId = activeWorkspaceRef.current;
-    if (!account.workspaceClaims?.[targetWorkspaceId]) {
-      const existingClaimedWorkspaceId = Object.keys(account.workspaceClaims || {})[0];
-      if (existingClaimedWorkspaceId && workspaces?.some((w) => w.id === existingClaimedWorkspaceId)) {
-        targetWorkspaceId = existingClaimedWorkspaceId;
-      } else {
-        const currentMatch = (state.students || []).some((s) => (s.institutionalEmail || s.email || '').toLowerCase() === email);
-        if (!currentMatch && Array.isArray(workspaces)) {
-          for (const ws of workspaces) {
-            if (ws.id === targetWorkspaceId) continue;
-            const wsState = loadWorkflowState(ws.id, ws);
-            const found = (wsState.students || []).some((s) => (s.institutionalEmail || s.email || '').toLowerCase() === email);
-            if (found) {
-              targetWorkspaceId = ws.id;
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    if (targetWorkspaceId !== activeWorkspaceRef.current) {
-      activeWorkspaceRef.current = targetWorkspaceId;
-      setActiveWorkspaceId(targetWorkspaceId);
-      saveActiveWorkspaceId(targetWorkspaceId);
-    }
+    const targetWorkspaceId = activeWorkspaceRef.current;
 
     const claim = account.workspaceClaims?.[targetWorkspaceId];
 
@@ -524,7 +516,7 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     }, targetWorkspaceId));
 
     return { ok: true, account };
-  }, [refreshSession, state.studentAccounts, state.students, workspaces]);
+  }, [refreshSession, state.studentAccounts, workspaces]);
 
   const logoutStudentAccount = useCallback(() => {
     disableGoogleAutoSelect();
@@ -1119,6 +1111,9 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     activeWorkspace,
     activeWorkspaceId,
     needsWorkspaceChoice,
+    workspaceCatalogStatus,
+    workspaceCatalogError,
+    refreshWorkspaceCatalog,
     createWorkspace,
     switchWorkspace,
     addTrackerColumn,
@@ -1151,7 +1146,7 @@ export function WorkflowProvider({ children, allowLocalImportFallback = import.m
     archiveAttempt,
     archiveAttempts,
     reset
-  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, authenticateGoogleAccount, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStaffSession, logoutStudentAccount, markAccepted, needsWorkspaceChoice, publishDeliverable, refreshBackendData, refreshSession, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, session, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
+  }), [activeWorkspace, activeWorkspaceId, addTrackerColumn, archiveAttempt, archiveAttempts, authenticateGoogleAccount, claimStudentNumber, connectClassRecord, connectSheetSource, createWorkspace, disconnectStudentNumber, generateFormsFromSuggestions, loginStudentAccount, logoutStaffSession, logoutStudentAccount, markAccepted, needsWorkspaceChoice, publishDeliverable, refreshBackendData, refreshSession, refreshWorkspaceCatalog, workspaceCatalogStatus, workspaceCatalogError, registerStudentAccount, removeDeliverable, removeTemplate, reset, revokeAcceptance, runAiReview, runDocumentCheck, runDocumentChecks, saveFeedback, saveTemplate, session, setActiveStudentNumber, state, submitPublicForm, switchWorkspace, updateTrackerColumn, workspaces]);
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>;
 }
@@ -1437,8 +1432,4 @@ function normalizeBackendDueAt(value) {
   if (/[zZ]|[+-]\d\d:\d\d$/.test(text)) return text;
   return `${text.length === 16 ? `${text}:00` : text}+08:00`;
 }
-
-
-
-
 

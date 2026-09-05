@@ -1,6 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkflowProvider, useWorkflow } from './WorkflowContext.jsx';
+import { seedWorkspaces } from '../lib/seedData.js';
+import { getWorkspacePublicKey } from '../lib/workflow.js';
+import { browserStorageKeys } from '../lib/browserStorage.js';
 
 const api = vi.hoisted(() => ({
   getBackendSnapshot: vi.fn(),
@@ -65,13 +68,107 @@ function renderProvider(props = {}) {
   );
 }
 
+describe('student workspace selection', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    Object.values(api).forEach((mock) => mock.mockReset());
+    api.getCurrentSession.mockResolvedValue({ authenticated: true, roles: [] });
+    api.getWorkspaces.mockResolvedValue(seedWorkspaces);
+    api.getBackendSnapshot.mockResolvedValue(emptySnapshot());
+    api.logout.mockResolvedValue(undefined);
+  });
+
+  it('does not treat the initial fallback workspace as an explicit choice', async () => {
+    renderProvider();
+    await waitFor(() => expect(captured.workspaceCatalogStatus).toBe('ready'));
+    expect(captured.needsWorkspaceChoice).toBe(true);
+    expect(localStorage.getItem(browserStorageKeys.activeWorkspace)).toBeNull();
+    await act(async () => { await captured.switchWorkspace(seedWorkspaces[0].id); });
+    expect(captured.needsWorkspaceChoice).toBe(false);
+    expect(localStorage.getItem(browserStorageKeys.activeWorkspace)).toBe(seedWorkspaces[0].id);
+  });
+
+  it('restores a remembered workspace on the next visit', async () => {
+    localStorage.setItem(browserStorageKeys.activeWorkspace, seedWorkspaces[1].id);
+    renderProvider();
+    await waitFor(() => expect(captured.workspaceCatalogStatus).toBe('ready'));
+    expect(captured.activeWorkspaceId).toBe(seedWorkspaces[1].id);
+    expect(captured.needsWorkspaceChoice).toBe(false);
+  });
+
+  it('selects the sole workspace automatically', async () => {
+    api.getWorkspaces.mockResolvedValue([seedWorkspaces[1]]);
+    renderProvider();
+    await waitFor(() => expect(captured.workspaceCatalogStatus).toBe('ready'));
+    expect(captured.activeWorkspaceId).toBe(seedWorkspaces[1].id);
+    expect(captured.needsWorkspaceChoice).toBe(false);
+    expect(localStorage.getItem(browserStorageKeys.activeWorkspace)).toBe(seedWorkspaces[1].id);
+  });
+
+  it('asks again when the remembered workspace was removed', async () => {
+    localStorage.setItem(browserStorageKeys.activeWorkspace, seedWorkspaces[0].id);
+    api.getWorkspaces.mockResolvedValue([seedWorkspaces[1], { id: 'new-workspace', name: 'New class' }]);
+    renderProvider();
+    await waitFor(() => expect(captured.workspaceCatalogStatus).toBe('ready'));
+    expect(captured.needsWorkspaceChoice).toBe(true);
+  });
+
+  it('preserves the signed-in account and clears the previous student claim when switching', async () => {
+    renderProvider();
+    await waitFor(() => expect(captured.workspaceCatalogStatus).toBe('ready'));
+    await act(async () => {
+      captured.authenticateGoogleAccount({ email: 'student@example.edu', subject: 'google-student' });
+    });
+    await act(async () => { await captured.switchWorkspace(seedWorkspaces[1].id); });
+    expect(captured.state.activeAccountEmail).toBe('student@example.edu');
+    expect(captured.state.studentAccounts[0].googleSubject).toBe('google-student');
+    expect(captured.state.activeStudentNumber).toBe('');
+    expect(captured.state.workspaceId).toBe(seedWorkspaces[1].id);
+    expect(api.getBackendSnapshot).toHaveBeenLastCalledWith(seedWorkspaces[1].id);
+  });
+
+  it('keeps a form-link workspace through sign-in even when another workspace has a matching roster email', async () => {
+    localStorage.setItem(browserStorageKeys.workspacePrefix + seedWorkspaces[0].id, JSON.stringify({
+      workspaceId: seedWorkspaces[0].id,
+      students: [{ studentNumber: '123', name: 'Student', email: 'student@example.edu' }]
+    }));
+    renderProvider();
+    await waitFor(() => expect(captured.workspaceCatalogStatus).toBe('ready'));
+    await act(async () => { await captured.switchWorkspace(getWorkspacePublicKey(seedWorkspaces[1])); });
+    await act(async () => {
+      captured.authenticateGoogleAccount({ email: 'student@example.edu', subject: 'google-student' });
+    });
+    expect(captured.activeWorkspaceId).toBe(seedWorkspaces[1].id);
+    expect(captured.needsWorkspaceChoice).toBe(false);
+  });
+
+  it('reloads the workspace catalog after anonymous access fails and the student signs in', async () => {
+    api.getCurrentSession.mockResolvedValue({ authenticated: false, roles: [] });
+    api.getWorkspaces.mockRejectedValueOnce(new Error('Sign in required.'));
+    renderProvider();
+    await waitFor(() => expect(captured.workspaceCatalogStatus).toBe('error'));
+    api.getCurrentSession.mockResolvedValue({ authenticated: true, roles: [] });
+    await act(async () => { await captured.refreshSession(); });
+    await waitFor(() => expect(captured.workspaceCatalogStatus).toBe('ready'));
+    expect(captured.workspaces).toEqual(seedWorkspaces);
+  });
+
+  it('does not show seed workspaces when the server catalog is empty', async () => {
+    api.getWorkspaces.mockResolvedValue([]);
+    renderProvider();
+    await waitFor(() => expect(captured.workspaceCatalogStatus).toBe('ready'));
+    expect(captured.workspaces).toEqual([]);
+    expect(captured.activeWorkspaceId).toBeNull();
+  });
+});
+
 describe('backend failure visibility', () => {
   beforeEach(() => {
     localStorage.clear();
     captured = null;
     Object.values(api).forEach((mock) => mock.mockReset());
     api.getCurrentSession.mockResolvedValue({ authenticated: false, roles: [] });
-    api.getWorkspaces.mockResolvedValue([]);
+    api.getWorkspaces.mockResolvedValue(seedWorkspaces);
     api.getBackendSnapshot.mockResolvedValue(emptySnapshot());
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => 'NAME OF STUDENT,TEAM FORMATION,MEMBER#\nDOE JANE,IT-01,1' }));
   });
@@ -140,7 +237,7 @@ describe('staff sign-out', () => {
     localStorage.clear();
     captured = null;
     Object.values(api).forEach((mock) => mock.mockReset());
-    api.getWorkspaces.mockResolvedValue([]);
+    api.getWorkspaces.mockResolvedValue(seedWorkspaces);
     api.getBackendSnapshot.mockResolvedValue(emptySnapshot());
     api.logout.mockResolvedValue(undefined);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => '' }));
