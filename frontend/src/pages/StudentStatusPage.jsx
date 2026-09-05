@@ -27,7 +27,10 @@ import { confirmStudentAssociation, getMyAssociation, disconnectStudentAssociati
 export function StudentStatusPage() {
   const {
     state,
+    workspaces,
     activeWorkspace,
+    activeWorkspaceId,
+    switchWorkspace,
     claimStudentNumber,
     disconnectStudentNumber,
     authenticateGoogleAccount,
@@ -115,7 +118,8 @@ export function StudentStatusPage() {
   }, [activeAccount, state, student]);
   const syncStatus = String(state.backendSync?.status || '');
   const associationLoading = Boolean(associationKey && associationLoadedFor !== associationKey);
-  const isLoading = associationLoading || state.dashboardStatus === 'loading' || /^loading\b/i.test(syncStatus);
+  const isSyncLoading = !state.backendSync?.lastLoadedAt && state.backendSync?.enabled !== false;
+  const isLoading = associationLoading || isSyncLoading || state.dashboardStatus === 'loading' || /^loading\b/i.test(syncStatus);
   const loadError = state.dashboardStatus === 'error'
     ? state.dashboardError || 'Student records could not be loaded.'
     : state.backendSync?.lastError || '';
@@ -258,6 +262,19 @@ export function StudentStatusPage() {
           <Badge variant="light" color="wildtrackMaroon" size="sm">
             {activeWorkspace?.program || 'Capstone'} · {activeWorkspace?.courseCode || activeWorkspace?.name}
           </Badge>
+          {workspaces && workspaces.length > 1 ? (
+            <Button
+              variant="subtle"
+              size="xs"
+              color="wildtrackMaroon"
+              onClick={() => {
+                const other = workspaces.find((w) => w.id !== activeWorkspaceId);
+                if (other) switchWorkspace(other.id);
+              }}
+            >
+              Switch section
+            </Button>
+          ) : null}
         </div>
         <Title order={1}>Student Dashboard</Title>
         <Text c="dimmed">Your submissions, adviser feedback, and class-record progress in one place.</Text>

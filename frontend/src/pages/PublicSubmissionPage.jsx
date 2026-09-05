@@ -34,7 +34,7 @@ import {
   getWorkspacePublicKey,
   normalizeStudentNumber
 } from '../lib/workflow.js';
-import { ApiError, clearDraft, getDraft, getMyAssociation, getPublicSubmissionForm, saveDraft, submitResponse } from '../lib/api.js';
+import { ApiError, clearDraft, getDraft, getMyAssociation, getMyResponse, getPublicSubmissionForm, saveDraft, submitResponse } from '../lib/api.js';
 
 function FormUnavailable({ deliverable }) {
   return (
@@ -140,12 +140,13 @@ export function PublicSubmissionPage() {
   const [formError, setFormError] = useState('');
   const [result, setResult] = useState(null);
   const student = useMemo(() => findStudent(state.students, identity.studentNumber), [identity.studentNumber, state.students]);
+  const [myServerResponse, setMyServerResponse] = useState(null);
   const ownedResponse = useMemo(() => findOwnedResponse(state.attempts, {
     deliverableId: deliverable?.id,
     studentNumber: identity.studentNumber,
     googleSubject: activeAccount?.googleSubject,
     googleEmail: activeAccount?.email
-  }), [activeAccount?.email, activeAccount?.googleSubject, deliverable?.id, identity.studentNumber, state.attempts]);
+  }) || myServerResponse, [activeAccount?.email, activeAccount?.googleSubject, deliverable?.id, identity.studentNumber, state.attempts, myServerResponse]);
   const sameStudentResponseExists = useMemo(() => {
     if (!deliverable || !identity.studentNumber) return false;
     return state.attempts.some((response) => normalizeStudentNumber(response.studentNumber) === normalizeStudentNumber(identity.studentNumber) && response.deliverableId === deliverable.id);
@@ -222,13 +223,42 @@ export function PublicSubmissionPage() {
         const matched = findStudent(identityStudents, association.studentNumber);
         setIdentity({
           studentNumber: association.studentNumber,
-          studentName: association.studentName || matched?.name || '',
+          studentName: matched?.name || association.studentName || '',
           teamCode: association.teamCode || matched?.teamCode || ''
         });
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [activeWorkspaceId, activeAccount?.email, identityStudents]);
+
+  // Ticket 05: fetch student's own existing submission from server if not already in state.attempts
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeWorkspaceId || !deliverable?.id || !activeAccount?.googleSubject) {
+      setMyServerResponse(null);
+      return undefined;
+    }
+    getMyResponse(activeWorkspaceId, deliverable.id)
+      .then((res) => {
+        if (cancelled || !res?.id || !res?.valuesJson) return;
+        try {
+          const vals = typeof res.valuesJson === 'string' ? JSON.parse(res.valuesJson) : res.valuesJson;
+          setMyServerResponse({
+            id: res.id,
+            deliverableId: deliverable.id,
+            studentNumber: identity.studentNumber || activeAccount.studentNumber,
+            values: vals,
+            googleSubject: activeAccount.googleSubject,
+            googleEmail: activeAccount.email
+          });
+        } catch {
+          // ignore json parse error
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeWorkspaceId, deliverable?.id, activeAccount?.googleSubject, identity.studentNumber]);
+
   // Ticket 05: restore any saved draft once the deliverable is known.
   useEffect(() => {
     let cancelled = false;
@@ -437,7 +467,7 @@ export function PublicSubmissionPage() {
                             onChange={(event) => updateField(field.id, event.currentTarget.value)}
                           />
                         ))}
-                        {formError && !Object.values(fieldErrors).some(Boolean) && !Object.values(identityErrors).some(Boolean) ? (
+                        {formError ? (
                           <Alert color="red" variant="light" icon={<WarningCircle size={20} />} role="alert">{formError}</Alert>
                         ) : null}
                       </Stack>

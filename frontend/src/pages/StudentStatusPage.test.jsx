@@ -457,6 +457,28 @@ describe('student dashboard', () => {
     expect(screen.queryByRole('button', { name: /Switch section/i })).not.toBeInTheDocument();
   });
 
+  it('renders a loading dashboard while backend sync is hydrating (ticket 03)', () => {
+    workflow.state.backendSync = { lastLoadedAt: null, enabled: true };
+    renderDashboard();
+
+    // Renders skeleton/loading without premature "Student records are not available yet"
+    expect(screen.queryByText(/Student records are not available yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No student records are available to connect/i)).not.toBeInTheDocument();
+  });
+
+  it('offers a section switcher when multiple workspaces exist (ticket 03)', () => {
+    workflow.workspaces = [
+      { id: 'workspace-it', name: 'IT Capstone' },
+      { id: 'workspace-cs', name: 'CS Capstone' }
+    ];
+    renderDashboard();
+
+    const switchBtn = screen.getByRole('button', { name: /Switch section/i });
+    expect(switchBtn).toBeInTheDocument();
+    fireEvent.click(switchBtn);
+    expect(workflow.switchWorkspace).toHaveBeenCalledWith('workspace-cs');
+  });
+
   it('persists a confirmed connection to the server association', async () => {
     const { confirmStudentAssociation } = await import('../lib/api.js');
     confirmStudentAssociation.mockResolvedValue({
@@ -596,5 +618,4 @@ describe('student dashboard', () => {
     await waitFor(() => expect(confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1002-002'));
   });
 });
-
 

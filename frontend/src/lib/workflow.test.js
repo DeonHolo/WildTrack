@@ -362,13 +362,13 @@ describe('production empty initial state (ticket 07)', () => {
     });
   });
 
-  it('loadActiveWorkspaceId returns null when no preference is stored', () => {
+  it('loadActiveWorkspaceId falls back to first workspace when no preference is stored', () => {
     localStorage.clear();
     const workspaces = [
       { id: 'ws-a', name: 'A' },
       { id: 'ws-b', name: 'B' }
     ];
     const result = loadActiveWorkspaceId(workspaces);
-    expect(result).toBeNull();
+    expect(result).toBe('ws-a');
   });
 });
