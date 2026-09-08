@@ -32,11 +32,24 @@ import {
   WarningCircle,
   XCircle
 } from '@phosphor-icons/react';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { StatusIndicator } from '../components/ui.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../hooks/useApplicationRole.js';
 import { getStoredPreviewAdviser, setStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
+import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
+import {
+  acceptResponse,
+  applyDocumentCheck,
+  applyReviewMutation,
+  emptyReviewDesk,
+  loadReviewDesk,
+  revokeAcceptance,
+  runDocumentCheck as runReviewDocumentCheck,
+  runDocumentChecks as runReviewDocumentChecks,
+  saveFeedback as saveReviewFeedback
+} from '../lib/reviewDeskClient.js';
 import {
   deliverableUsesDocumentCheck,
   firstSubmissionLink,
@@ -54,29 +67,31 @@ import {
 } from '../lib/workflow.js';
 
 export function AdviserViewPage() {
-  const {
-    state,
-    markAccepted,
-    revokeAcceptance,
-    saveFeedback,
-    runDocumentCheck,
-    runDocumentChecks
-  } = useWorkflow();
+  const { activeWorkspaceId } = useWorkspaceSession();
+  const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
+  const { data: state, setData: setState, status: reviewStatus, error: reviewError } = useWorkspaceResource(
+    activeWorkspaceId,
+    loadReviewDesk,
+    emptyReviewDesk
+  );
   const role = useApplicationRole();
   const isAdmin = role === APPLICATION_ROLES.ADMIN;
   const adviserOptions = useMemo(() => getAdviserOptions(state), [state]);
-  const [adviserName, setAdviserName] = useState(() => resolveInitialAdviser(adviserOptions));
+  const [adviserName, setAdviserName] = useState('');
   const [query, setQuery] = useState('');
   const [selectedTeamCode, setSelectedTeamCode] = useState('');
   const [selectedDeliverableId, setSelectedDeliverableId] = useState('');
   const [selectedOutputIds, setSelectedOutputIds] = useState({});
   const [feedback, setFeedback] = useState('');
+  const [feedbackError, setFeedbackError] = useState(null);
   const [checkDialogId, setCheckDialogId] = useState('');
   const [batchProgress, setBatchProgress] = useState(null);
+  const [checkingIds, setCheckingIds] = useState(new Set());
 
   const teams = useMemo(
-    () => buildAdviserTeams(state, adviserName, query),
-    [adviserName, query, state]
+    () => buildAdviserTeams(state, isAdmin ? adviserName : null, query)
+      .filter((team) => isAdmin || (state.scopeTeamCodes || []).includes(team.teamCode)),
+    [adviserName, isAdmin, query, state]
   );
   const selectedTeam = teams.find((team) => team.teamCode === selectedTeamCode) || teams[0] || null;
   const deliverableRows = useMemo(
@@ -91,11 +106,20 @@ export function AdviserViewPage() {
   const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
 
   useEffect(() => {
-    if (adviserOptions.includes(adviserName)) return;
+    setBatchProgress(null);
+    setCheckingIds(new Set());
+    setFeedbackError(null);
+    setFeedback('');
+    setCheckDialogId('');
+    setSelectedOutputIds({});
+  }, [isCurrentScope]);
+
+  useEffect(() => {
+    if (reviewStatus !== 'ready' || adviserOptions.includes(adviserName)) return;
     const nextAdviser = resolveInitialAdviser(adviserOptions);
     setAdviserName(nextAdviser);
     setStoredPreviewAdviser(nextAdviser);
-  }, [adviserName, adviserOptions]);
+  }, [adviserName, adviserOptions, reviewStatus]);
 
   useEffect(() => {
     if (!selectedTeamCode && teams[0]) setSelectedTeamCode(teams[0].teamCode);
@@ -132,34 +156,71 @@ export function AdviserViewPage() {
     setSelectedOutputIds((current) => ({ ...current, [selectedRow.deliverable.id]: outputId }));
   }
 
-  function submitFeedback(event) {
+  async function submitFeedback(event) {
     event.preventDefault();
     const note = feedback.trim();
     if (!selectedResponse || !note) return;
-    saveFeedback(selectedResponse.id, {
-      note,
-      author: adviserName || 'Adviser',
-      visibility: 'Student'
-    });
+    setFeedbackError(null);
+    try {
+      const serverState = await saveReviewFeedback(selectedResponse.id, { note, visibility: 'Student' });
+      if (!isCurrentScope()) return;
+      setState((current) => ({
+        ...current,
+        attempts: current.attempts.map((response) => response.id === selectedResponse.id ? applyReviewMutation(response, serverState) : response)
+      }));
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      setFeedbackError({ responseId: selectedResponse.id, workspaceId: activeWorkspaceId, message: error.message || 'Feedback could not be saved. Please try again.' });
+    }
   }
 
   async function openDocumentCheck() {
     if (!selectedResponse) return;
-    if (!isDocumentCheckCurrent(selectedResponse)) await runDocumentCheck(selectedResponse.id);
-    setCheckDialogId(selectedResponse.id);
+    if (!isDocumentCheckCurrent(selectedResponse)) {
+      const result = await runDocumentCheck(selectedResponse.id);
+      if (!result.ok) return;
+    }
+    if (isCurrentScope()) setCheckDialogId(selectedResponse.id);
   }
 
   async function checkPendingResponses() {
-    if (!selectedRow) return;
+    if (!selectedRow || !isCurrentScope()) return;
     const candidates = selectedRow.responses.filter((response) => (
       response.fileCheckStatus !== 'Checking' && !isDocumentCheckCurrent(response)
     ));
     if (!candidates.length) return;
     setBatchProgress({ completed: 0, total: candidates.length, failed: 0, done: false });
-    const result = await runDocumentChecks(candidates.map((response) => response.id), {
-      onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total }))
+    const result = await runReviewDocumentChecks(activeWorkspaceId, candidates, state.deliverables, {
+      shouldContinue: isCurrentScope,
+      onProgress: ({ completed, total }) => {
+        if (isCurrentScope()) setBatchProgress((current) => ({ ...current, completed, total }));
+      }
     });
+    if (!isCurrentScope()) return;
+    setState((current) => ({
+      ...current,
+      attempts: current.attempts.map((attempt) => {
+        const completed = result.results?.find((item) => item.attemptId === attempt.id && item.ok);
+        return completed?.report ? applyDocumentCheck(attempt, completed.report) : attempt;
+      })
+    }));
     setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, done: true });
+  }
+
+  async function changeAcceptance(action) {
+    if (!isCurrentScope()) return;
+    setFeedbackError(null);
+    try {
+      const serverState = await action(selectedResponse.id);
+      if (!isCurrentScope()) return;
+      setState((current) => ({
+        ...current,
+        attempts: current.attempts.map((response) => response.id === selectedResponse.id ? applyReviewMutation(response, serverState) : response)
+      }));
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      setFeedbackError({ responseId: selectedResponse.id, workspaceId: activeWorkspaceId, message: error.message || 'The review decision could not be saved. Please try again.' });
+    }
   }
 
   function confirmAccept() {
@@ -173,11 +234,7 @@ export function AdviserViewPage() {
       ),
       labels: { confirm: 'Confirm acceptance', cancel: 'Cancel' },
       confirmProps: { color: 'wildtrackMaroon' },
-      onConfirm: () => markAccepted(selectedResponse.id, {
-        name: adviserName || 'Adviser',
-        role: 'Adviser',
-        scope: 'Group output'
-      })
+      onConfirm: () => changeAcceptance(acceptResponse)
     });
   }
 
@@ -188,8 +245,34 @@ export function AdviserViewPage() {
       children: <Text size="sm">The selected group output returns to the review queue. Its member responses and feedback remain recorded.</Text>,
       labels: { confirm: 'Confirm revoke', cancel: 'Keep accepted' },
       confirmProps: { color: 'red' },
-      onConfirm: () => revokeAcceptance(selectedResponse.id)
+      onConfirm: () => changeAcceptance(revokeAcceptance)
     });
+  }
+
+  async function runDocumentCheck(responseId) {
+    if (!isCurrentScope() || checkingIds.has(responseId)) return { ok: false };
+    const response = state.attempts.find((item) => item.id === responseId);
+    if (!response) return { ok: false, error: 'The selected response was not found.' };
+    const deliverable = state.deliverables.find((item) => item.id === response.deliverableId);
+    setFeedbackError(null);
+    setCheckingIds((current) => new Set([...current, responseId]));
+    let result;
+    try {
+      result = await runReviewDocumentCheck(activeWorkspaceId, response, deliverable);
+    } catch (error) {
+      result = { ok: false, error: error?.message || 'Document Check could not finish.' };
+    }
+    if (!isCurrentScope()) return { ok: false };
+    setCheckingIds((current) => new Set([...current].filter(id => id !== responseId)));
+    if (result.ok) {
+      setState((current) => ({
+        ...current,
+        attempts: current.attempts.map((item) => item.id === responseId ? applyDocumentCheck(item, result.report) : item)
+      }));
+    } else {
+      setFeedbackError({ responseId, workspaceId: activeWorkspaceId, message: result.error || 'Document Check could not finish. Please try again.' });
+    }
+    return result;
   }
 
   return (
@@ -209,6 +292,12 @@ export function AdviserViewPage() {
           className="wt-adviser-search"
         />
       </Group>
+
+      {reviewStatus === 'loading' ? <Alert color="blue">Loading assigned-team review…</Alert> : null}
+      {reviewStatus === 'error' ? <Alert color="red" role="alert">{reviewError}</Alert> : null}
+      {feedbackError?.responseId === selectedResponse?.id && feedbackError?.workspaceId === activeWorkspaceId ? (
+        <Alert color="red" role="alert">{feedbackError.message}</Alert>
+      ) : null}
 
       <Paper withBorder radius="md" className="wt-adviser-workbench">
         <aside className="wt-adviser-team-rail" aria-label="Assigned teams">
@@ -347,6 +436,7 @@ export function AdviserViewPage() {
                   outputId={selectedOutput?.id || ''}
                   feedback={feedback}
                   batchProgress={batchProgress}
+                  checking={checkingIds.has(selectedResponse?.id)}
                   onSelectOutput={selectOutput}
                   onFeedbackChange={setFeedback}
                   onSubmitFeedback={submitFeedback}
@@ -371,7 +461,8 @@ export function AdviserViewPage() {
         open={Boolean(checkDialogResponse)}
         response={checkDialogResponse}
         fileLink={firstSubmissionLink(checkDialogResponse?.values)}
-        rechecking={checkDialogResponse?.fileCheckStatus === 'Checking'}
+        rechecking={checkingIds.has(checkDialogResponse?.id) || checkDialogResponse?.fileCheckStatus === 'Checking'}
+        error={feedbackError?.responseId === checkDialogResponse?.id ? feedbackError?.message : ''}
         onClose={() => setCheckDialogId('')}
         onRecheck={() => runDocumentCheck(checkDialogResponse.id)}
       />
@@ -387,6 +478,7 @@ function SelectedGroupOutput({
   outputId,
   feedback,
   batchProgress,
+  checking,
   onSelectOutput,
   onFeedbackChange,
   onSubmitFeedback,
@@ -417,7 +509,7 @@ function SelectedGroupOutput({
             </Button>
           ) : null}
           {deliverableUsesDocumentCheck(row.deliverable) && response ? (
-            <Button variant="default" leftSection={<MagnifyingGlass size={17} aria-hidden="true" />} onClick={onOpenDocumentCheck}>
+            <Button variant="default" loading={checking} leftSection={<MagnifyingGlass size={17} aria-hidden="true" />} onClick={onOpenDocumentCheck}>
               {isDocumentCheckCurrent(response) ? 'View Document Check' : 'Check document'}
             </Button>
           ) : null}
@@ -549,7 +641,7 @@ export function buildAdviserTeams(state, adviserName, query = '') {
       )).length;
       return { teamCode, members, project, assignedAdviser, responseCount };
     })
-    .filter((team) => team.assignedAdviser === adviserName)
+    .filter((team) => adviserName == null || team.assignedAdviser === adviserName)
     .filter((team) => !needle || `${team.teamCode} ${team.project?.projectTitle || ''} ${team.project?.softwareName || ''}`.toLowerCase().includes(needle));
 }
 

@@ -1,9 +1,9 @@
-import { Badge, Modal } from '@mantine/core';
+import { Alert, Badge, Modal } from '@mantine/core';
 import { ArrowSquareOut, CheckCircle, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
 import { Button, StatusIndicator } from '../ui.jsx';
 import { formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 
-export function DocumentCheckDialog({ response, fileLink, open, onClose, onRecheck, rechecking = false }) {
+export function DocumentCheckDialog({ response, fileLink, open, onClose, onRecheck, rechecking = false, error = '' }) {
   if (!response) return null;
   const report = response.documentCheck;
   const metadata = report?.metadata;
@@ -34,6 +34,7 @@ export function DocumentCheckDialog({ response, fileLink, open, onClose, onReche
       classNames={{ content: 'document-check-dialog', body: 'document-check-body', header: 'document-check-header' }}
       closeButtonProps={{ 'aria-label': 'Close Document Check details' }}
     >
+      {error ? <Alert color="red" role="alert">{error}</Alert> : null}
       <div className={`document-check-overview ${report?.redFlags?.length ? 'attention' : ''}`}>
         {successful && !report?.redFlags?.length ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
         <div>

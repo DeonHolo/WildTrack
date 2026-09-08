@@ -1,12 +1,13 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { wildTrackTheme } from '../app/theme.js';
 import { WorkspacePage } from './WorkspacePage.jsx';
 
 const workflow = vi.hoisted(() => ({
+  session: { authenticated: true, email: 'admin@school.edu' },
   activeWorkspace: { id: 'workspace-it', name: 'IT Capstone - IT332', program: 'IT', courseCode: 'IT332', semester: 'Semester 2', academicYear: '2025-26' },
   activeWorkspaceId: 'workspace-it',
   workspaces: [
@@ -26,7 +27,45 @@ const workflow = vi.hoisted(() => ({
   removeTemplate: vi.fn()
 }));
 
-vi.mock('../app/WorkflowContext.jsx', () => ({ useWorkflow: () => workflow }));
+vi.mock('../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => ({
+    session: workflow.session,
+    activeWorkspace: workflow.activeWorkspace,
+    activeWorkspaceId: workflow.activeWorkspaceId,
+    workspaces: workflow.workspaces,
+    switchWorkspace: workflow.switchWorkspace,
+    createWorkspace: workflow.createWorkspace,
+    refreshWorkspaceCatalog: vi.fn()
+  })
+}));
+
+vi.mock('../hooks/useWorkspaceResource.js', async () => {
+  const { useState } = await import('react');
+  return { useWorkspaceResource: () => {
+    const [data, setData] = useState(() => workflow.state);
+    return {
+    data,
+    setData,
+    status: 'ready',
+    error: '',
+    reload: workflow.refreshBackendData
+    };
+  } };
+});
+
+vi.mock('../lib/workspaceAdminClient.js', () => ({
+  emptyWorkspaceAdmin: () => ({}),
+  loadWorkspaceAdmin: vi.fn(),
+  importWorkspaceSheet: (_workspaceId, sourceType, payload) => workflow.connectSheetSource(sourceType, payload),
+  publishSuggestedForms: (...args) => workflow.generateFormsFromSuggestions(...args),
+  addTrackerColumn: (_workspaceId, column) => workflow.addTrackerColumn(column),
+  updateTrackerColumn: (...args) => workflow.updateTrackerColumn(...args)
+}));
+
+vi.mock('../lib/submissionClient.js', () => ({
+  saveSubmissionTemplate: (_workspaceId, template) => workflow.saveTemplate(template),
+  removeSubmissionTemplate: (_workspaceId, templateId) => workflow.removeTemplate(templateId)
+}));
 vi.mock('../lib/api.js', () => ({
   getDriveConnectionStatus: vi.fn().mockResolvedValue({ configured: true, message: 'Google Drive connected.' }),
   getDocumentTemplateFileUrl: vi.fn(() => '/api/templates/template/file'),
@@ -74,8 +113,84 @@ function createState() {
   };
 }
 
+// Exercise the real hook independently of the page's synchronous resource fixture.
+const { useWorkspaceResource: useRealWorkspaceResource } = await vi.importActual('../hooks/useWorkspaceResource.js');
+const makeEmpty = () => ({ rows: [] });
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+describe('workspace resource isolation', () => {
+  beforeEach(() => { workflow.session = { authenticated: true, email: 'admin@school.edu' }; });
+
+  it('lets the latest reload win and ignores an older rejection', async () => {
+    const first = deferred(), second = deferred();
+    const load = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { result } = renderHook(() => useRealWorkspaceResource('it', load, makeEmpty));
+    let reload;
+    act(() => { reload = result.current.reload(); });
+    await act(async () => { second.resolve({ rows: ['new'] }); await reload; });
+    await act(async () => { first.reject(new Error('old failure')); });
+    expect(result.current).toMatchObject({ data: { rows: ['new'] }, status: 'ready', error: '' });
+  });
+
+  it.each(['workspace', 'account', 'logout'])('clears data and rejects old callbacks after a %s change', async (change) => {
+    const pending = deferred();
+    const load = vi.fn().mockResolvedValueOnce({ rows: ['private'] }).mockReturnValue(pending.promise);
+    const { result, rerender } = renderHook(({ id }) => useRealWorkspaceResource(id, load, makeEmpty), { initialProps: { id: 'it' } });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const previous = result.current;
+    if (change === 'account') workflow.session = { authenticated: true, email: 'other@school.edu' };
+    if (change === 'logout') workflow.session = { authenticated: false };
+    rerender({ id: change === 'workspace' ? 'cs' : change === 'logout' ? '' : 'it' });
+    expect(result.current.data).toEqual({ rows: [] });
+    await act(async () => {
+      previous.setData({ rows: ['stale mutation'] });
+      expect(await previous.reload()).toBeNull();
+    });
+    expect(load).toHaveBeenCalledTimes(change === 'logout' ? 1 : 2);
+    expect(result.current.data).toEqual({ rows: [] });
+    if (change !== 'logout') {
+      await act(async () => { pending.resolve({ rows: ['current'] }); });
+      expect(result.current.data.rows).toEqual(['current']);
+    } else expect(result.current.status).toBe('idle');
+  });
+
+  it('ignores pending results from the previous workspace and after unmount', async () => {
+    const old = deferred(), current = deferred();
+    const load = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    const { result, rerender, unmount } = renderHook(({ id }) => useRealWorkspaceResource(id, load, makeEmpty), { initialProps: { id: 'it' } });
+    rerender({ id: 'cs' });
+    await act(async () => { old.resolve({ rows: ['old'] }); });
+    expect(result.current).toMatchObject({ data: { rows: [] }, status: 'loading' });
+    const previous = result.current;
+    unmount();
+    await act(async () => {
+      current.resolve({ rows: ['unmounted'] });
+      previous.setData({ rows: ['late'] });
+      expect(await previous.reload()).toBeNull();
+    });
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a current failure and recovers on retry', async () => {
+    const load = vi.fn().mockRejectedValueOnce(new Error('Unavailable')).mockResolvedValue({ rows: ['recovered'] });
+    const { result } = renderHook(() => useRealWorkspaceResource('it', load, makeEmpty));
+    await waitFor(() => expect(result.current.error).toBe('Unavailable'));
+    expect(result.current.status).toBe('error');
+    await act(async () => { await result.current.reload(); });
+    expect(result.current).toMatchObject({ data: { rows: ['recovered'] }, status: 'ready', error: '' });
+  });
+});
+
 function renderPage(initialEntry = '/workspace', pageProps = {}) {
-  return render(
+  return render(workspaceTree(initialEntry, pageProps));
+}
+
+function workspaceTree(initialEntry = '/workspace', pageProps = {}) {
+  return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
         <MemoryRouter initialEntries={[initialEntry]} future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
@@ -88,8 +203,24 @@ function renderPage(initialEntry = '/workspace', pageProps = {}) {
 
 describe('workspace operations', () => {
   beforeEach(() => {
+    workflow.activeWorkspaceId = 'workspace-it';
+    workflow.session = { authenticated: true, email: 'admin@school.edu' };
     workflow.state = createState();
     Object.values(workflow).forEach((value) => value?.mockReset?.());
+  });
+
+  it.each(['workspace', 'account'])('discards a late import summary after the %s changes', async (changed) => {
+    let finish;
+    workflow.connectSheetSource.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const view = renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Import Tracker' }));
+    if (changed === 'workspace') workflow.activeWorkspaceId = 'workspace-cs';
+    else workflow.session = { authenticated: true, email: 'other@school.edu' };
+    view.rerender(workspaceTree());
+    await act(async () => finish({ ok: true, state: createState(), importSummary: { sourceType: 'Tracker', suggestedForms: [], mappings: [] } }));
+    expect(screen.queryByRole('dialog', { name: 'Tracker import summary' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Tracker imported.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import Tracker' })).toBeEnabled();
   });
 
   it('renders equal source controls with responsibilities and accurate state labels', () => {
@@ -120,6 +251,7 @@ describe('workspace operations', () => {
   it('shows source-specific mapping, missing, optional, unrecognized, skipped, and deadline details', async () => {
     workflow.connectSheetSource.mockResolvedValue({
       ok: true,
+      state: createState(),
       importSummary: {
         sourceType: 'Tracker',
         resultStatus: 'Imported with warnings',
@@ -152,14 +284,19 @@ describe('workspace operations', () => {
     expect(within(dialog).getByText(/Row 10/)).toBeInTheDocument();
   });
 
-  it('keeps deliverable columns collapsible and editable', () => {
+  it('keeps edits local until blur and saves the edited column to its workspace', async () => {
+    workflow.updateTrackerColumn.mockImplementation(async (_id, column, updates) => ({ ...column, ...updates }));
     renderPage();
     const toggle = screen.getByRole('button', { name: /Deliverable columns/ });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     fireEvent.change(screen.getByLabelText('SRS display name'), { target: { value: 'Requirements' } });
-    expect(workflow.updateTrackerColumn).toHaveBeenCalledWith('col-srs', { label: 'Requirements' });
+    expect(workflow.updateTrackerColumn).not.toHaveBeenCalled();
+    fireEvent.blur(screen.getByLabelText('Requirements display name'));
+    await waitFor(() => expect(workflow.updateTrackerColumn).toHaveBeenCalledWith(
+      'workspace-it', expect.objectContaining({ id: 'col-srs', label: 'Requirements' }), {}
+    ));
   });
 
   it('adds uploaded or Drive-linked templates from a focused dialog', async () => {
@@ -221,7 +358,7 @@ describe('workspace operations', () => {
   });
 
   it('reports a failed Sheet import instead of claiming success', async () => {
-    workflow.connectSheetSource.mockResolvedValue({ ok: false, error: 'Request failed with status 401' });
+    workflow.connectSheetSource.mockRejectedValue(new Error('Request failed with status 401'));
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Import Tracker' }));
 

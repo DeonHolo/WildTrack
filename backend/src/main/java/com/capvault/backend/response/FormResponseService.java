@@ -25,6 +25,8 @@ import com.capvault.backend.student.StudentAssociationService;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class FormResponseService {
@@ -35,6 +37,7 @@ public class FormResponseService {
     private final DeliverableRepository deliverableRepository;
     private final FileCheckService fileCheckService;
     private final Clock clock;
+    private final DomainEventRecorder events;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public FormResponseService(
@@ -43,7 +46,8 @@ public class FormResponseService {
         StudentAssociationService associationService,
         DeliverableRepository deliverableRepository,
         FileCheckService fileCheckService,
-        Clock clock
+        Clock clock,
+        DomainEventRecorder events
     ) {
         this.responseRepository = responseRepository;
         this.versionRepository = versionRepository;
@@ -51,6 +55,7 @@ public class FormResponseService {
         this.deliverableRepository = deliverableRepository;
         this.fileCheckService = fileCheckService;
         this.clock = clock;
+        this.events = events;
     }
 
     public record SaveResult(
@@ -65,13 +70,18 @@ public class FormResponseService {
         UUID deliverableId,
         String googleSubject,
         String googleEmail,
-        Map<String, Object> values
+        Map<String, Object> values,
+        Long revision
     ) {
+        public SubmitCommand(UUID workspaceId, UUID deliverableId, String googleSubject, String googleEmail, Map<String, Object> values) {
+            this(workspaceId, deliverableId, googleSubject, googleEmail, values, null);
+        }
     }
 
     @Transactional
     public SaveResult submit(SubmitCommand command) {
         Deliverable deliverable = deliverableRepository.findById(command.deliverableId())
+            .filter(item -> command.workspaceId().equals(item.getWorkspaceId()))
             .orElseThrow(() -> new IllegalArgumentException("Deliverable not found."));
         if (deliverable.getStatus() != DeliverableStatus.PUBLISHED) {
             throw new IllegalStateException("This form is no longer accepting responses.");
@@ -82,9 +92,12 @@ public class FormResponseService {
 
         if (existing.isPresent()) {
             FormResponse response = existing.get();
+            if (!java.util.Objects.equals(command.revision(), response.getRevision())) {
+                throw new ConcurrentModificationException();
+            }
             String currentJson = response.getValuesJson();
             String nextJson = toJson(command.values());
-            if (currentJson.equals(nextJson)) {
+            if (fromJson(currentJson).equals(command.values())) {
                 return new SaveResult(false, response, response.getRevision()); // identical resave: untouched
             }
             archiveVersion(response);
@@ -96,11 +109,13 @@ public class FormResponseService {
             } catch (OptimisticLockingFailureException e) {
                 throw new ConcurrentModificationException();
             }
+            events.responseSaved(response);
             triggerAsyncDocumentCheck(command.workspaceId(), deliverable, response, command.values());
             return new SaveResult(true, response, response.getRevision());
         }
 
         // First submission: require an active association (ticket 03) and snapshot the roster record.
+        if (command.revision() != null) throw new ConcurrentModificationException();
         StudentAssociationService.AssociationView association = associationService
             .activeAssociation(command.workspaceId(), command.googleSubject())
             .orElseThrow(() -> new IllegalStateException("Connect your Student Record before submitting."));
@@ -118,7 +133,8 @@ public class FormResponseService {
             now,
             now
         );
-        created = responseRepository.save(created);
+        created = responseRepository.saveAndFlush(created);
+        events.responseSaved(created);
         triggerAsyncDocumentCheck(command.workspaceId(), deliverable, created, command.values());
         return new SaveResult(true, created, created.getRevision());
     }
@@ -139,13 +155,23 @@ public class FormResponseService {
             ? response.getUpdatedAt().toString()
             : response.getSubmittedAt().toString();
 
-        CompletableFuture.runAsync(() -> {
+        Runnable scheduleCheck = () -> CompletableFuture.runAsync(() -> {
             try {
                 fileCheckService.check(workspaceId, new FileCheckRequest(responseId, deliverableKey, link, updatedAt));
             } catch (Exception ignored) {
                 // Failure or network error during document check must never fail or roll back the submission
             }
         });
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    scheduleCheck.run();
+                }
+            });
+        } else {
+            scheduleCheck.run();
+        }
     }
 
     private static String extractFirstLink(Map<String, Object> values) {

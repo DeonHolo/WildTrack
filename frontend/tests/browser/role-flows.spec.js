@@ -1,18 +1,19 @@
 import { expect, test } from '@playwright/test';
+import { installApiFixtures } from './api-fixtures.js';
 
-const roleKey = 'wildtrack.v2.preview-role';
 const artworkViewports = [
   { label: 'desktop', width: 1280, height: 720 },
   { label: 'mobile', width: 390, height: 844 }
 ];
 
 async function openAs(page, role, path) {
-  await page.addInitScript(({ key, value }) => localStorage.setItem(key, value), {
-    key: roleKey,
-    value: role
-  });
+  page.apiFixture = await installApiFixtures(page, { role, connected: true, submitted: true });
   await page.goto(path);
 }
+
+test.afterEach(async ({ page }) => {
+  page.apiFixture?.assertRequestsHandled();
+});
 
 async function expectNoPageOverflow(page) {
   const overflows = await page.evaluate(() => (
@@ -23,7 +24,7 @@ async function expectNoPageOverflow(page) {
 
 async function expectStatusIndicatorsReadable(page) {
   const indicators = page.locator('.wt-status-indicator');
-  expect(await indicators.count()).toBeGreaterThan(0);
+  await expect(indicators.first()).toBeVisible();
   const clippedLabels = await indicators.locator('.wt-status-indicator-label').evaluateAll((labels) => (
     labels.filter((label) => label.scrollWidth > label.clientWidth + 1).map((label) => label.textContent)
   ));
@@ -46,17 +47,8 @@ async function expectRenderedArtwork(locator, expectedFile) {
   expect(result.hasSize).toBe(true);
 }
 
-async function useVerifiedGoogleIdentity(page) {
-  await page.addInitScript(() => {
-    const email = 'student.browser-test@gmail.com';
-    localStorage.setItem('wildtrack.v2.student-accounts', JSON.stringify([{
-      email,
-      googleSubject: 'browser-test-google-subject',
-      displayName: 'Browser Test Student',
-      workspaceClaims: {}
-    }]));
-    localStorage.setItem('wildtrack.v2.active-student-account', email);
-  });
+async function useVerifiedGoogleIdentity(page, program = 'IT') {
+  page.apiFixture = await installApiFixtures(page, { program });
 }
 for (const viewport of artworkViewports) {
   test('public submission form renders approved artwork on ' + viewport.label, async ({ page }) => {
@@ -92,7 +84,7 @@ test('approved student artwork assets are served from the root public directory'
 
 test('submission success stays aligned and shows the submitted Student Number', async ({ page }) => {
   await page.setViewportSize({ width: 690, height: 912 });
-  await useVerifiedGoogleIdentity(page);
+  await useVerifiedGoogleIdentity(page, 'CS');
   await page.goto('/w/cs-cs-capstone-2025-26-semester-2/submit/week-9-srs');
 
   const studentNumber = page.getByLabel('Student Number');
@@ -120,6 +112,7 @@ test('submission success stays aligned and shows the submitted Student Number', 
   await expectNoPageOverflow(page);
 });
 test('signed-out public submission requires Google verification before showing response fields', async ({ page }) => {
+  page.apiFixture = await installApiFixtures(page, { role: 'anonymous' });
   await page.goto('/w/it-it332-2025-26-semester-2/submit/week-9-srs');
 
   await expect(page.getByText('Use your Google account before entering your student and submission details.')).toBeVisible();
@@ -183,21 +176,6 @@ test('adviser lands on assigned-team review', async ({ page }) => {
 for (const viewport of artworkViewports) {
   test('student dashboard renders the normal welcome artwork on ' + viewport.label, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    await page.addInitScript(() => {
-      const email = 'student.browser-test@gmail.com';
-      localStorage.setItem('wildtrack.v2.student-accounts', JSON.stringify([{
-        email,
-        googleSubject: 'browser-test-student',
-        workspaceClaims: {
-          '11111111-1111-1111-1111-111111111111': {
-            studentNumber: '22-1001-001',
-            studentName: 'DELA CRUZ, JUAN CARLOS M.',
-            teamCode: '2526-sem2-it332-11'
-          }
-        }
-      }]));
-      localStorage.setItem('wildtrack.v2.active-student-account', email);
-    });
     await openAs(page, 'student', '/student');
 
     await expect(page.locator('main')).toBeVisible();

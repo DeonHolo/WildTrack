@@ -1,7 +1,7 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { Notifications } from '@mantine/notifications';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { Notifications, notifications } from '@mantine/notifications';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
@@ -24,17 +24,19 @@ const workspaceSession = vi.hoisted(() => ({
 }));
 
 const submissionClient = vi.hoisted(() => ({
-  listDeliverables: vi.fn(),
   saveDeliverable: vi.fn(),
   unpublishDeliverable: vi.fn()
 }));
 
-vi.mock('../app/WorkflowContext.jsx', () => ({
-  useWorkflow: () => workflow
-}));
+const monitoringClient = vi.hoisted(() => ({ loadMonitoringState: vi.fn() }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
   useWorkspaceSession: () => workspaceSession
+}));
+
+vi.mock('../lib/monitoringClient.js', () => ({
+  emptyMonitoringState: () => ({ trackerColumns: [], deliverables: [], attempts: [] }),
+  loadMonitoringState: (...args) => monitoringClient.loadMonitoringState(...args)
 }));
 
 vi.mock('../lib/submissionClient.js', () => submissionClient);
@@ -94,6 +96,8 @@ function renderPage() {
 
 describe('forms management', () => {
   beforeEach(() => {
+    notifications.clean();
+    workspaceSession.session = { authenticated: true, email: 'admin@example.com' };
     workflow.state = createState();
     workspaceSession.activeWorkspace = {
       id: 'workspace-it',
@@ -104,7 +108,7 @@ describe('forms management', () => {
       academicYear: '2025-26'
     };
     workspaceSession.activeWorkspaceId = 'workspace-it';
-    submissionClient.listDeliverables.mockReset().mockImplementation(async () => workflow.state.deliverables);
+    monitoringClient.loadMonitoringState.mockReset().mockImplementation(async () => workflow.state);
     submissionClient.saveDeliverable.mockReset().mockImplementation(async (_workspaceId, payload) => ({
       ...payload,
       id: payload.id || 'deliverable-created'
@@ -118,7 +122,7 @@ describe('forms management', () => {
     renderPage();
 
     const table = await screen.findByRole('table', { name: 'Published submission forms' });
-    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(3));
     within(table).getAllByText('Published').forEach((label) => {
       expect(label.closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'success');
     });
@@ -132,12 +136,12 @@ describe('forms management', () => {
     expect(screen.getByRole('status')).toHaveTextContent('SRS form link copied');
   });
 
-  it('renders deliverables returned by the server even when the workflow mirror is empty', async () => {
+  it('renders deliverables returned by server monitoring without a local workflow mirror', async () => {
     workflow.state.deliverables = [];
-    submissionClient.listDeliverables.mockResolvedValue([{
+    monitoringClient.loadMonitoringState.mockResolvedValue({ ...createState(), deliverables: [{
       ...createState().deliverables[0],
       title: 'Server SRS'
-    }]);
+    }] });
 
     renderPage();
 
@@ -173,14 +177,28 @@ describe('forms management', () => {
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
 
-    expect(await screen.findByText('Server rejected the form update.')).toBeInTheDocument();
+    expect(await screen.findByRole('alert', { name: 'Form error' })).toHaveTextContent('Server rejected the form update.');
     expect(screen.getByText('Software Requirements Specification')).toBeInTheDocument();
     expect(screen.queryByText('Rejected SRS Title')).not.toBeInTheDocument();
   });
 
+  it('discards a private form failure after the signed-in account changes', async () => {
+    let fail;
+    submissionClient.saveDeliverable.mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject; }));
+    const view = renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit SRS form' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    workspaceSession.session = { authenticated: true, email: 'other@example.com' };
+    view.rerender(<PageHarness />);
+    await act(async () => { fail(new Error('Private previous account form failure')); });
+    expect(screen.queryAllByText('Private previous account form failure')).toHaveLength(0);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit SRS form' })).not.toBeInTheDocument());
+  });
+
   it('creates the first unconfigured deliverable with an 11:59 PM deadline by default', async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: 'Publish form' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish form' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish form' }));
 
     const dialog = screen.getByRole('dialog', { name: 'Publish a form' });
     expect(within(dialog).getByRole('textbox', { name: /Deliverable/ })).toHaveValue('Source Code');
@@ -234,16 +252,16 @@ describe('forms management', () => {
     renderPage();
 
     const table = await screen.findByRole('table', { name: 'Published submission forms' });
-    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(3));
     expect(within(table).getAllByRole('link', { name: /submission form$/ })).toHaveLength(2);
   });
 
   it('ignores a deliverable load that finishes after the user switches workspaces', async () => {
     let resolveOldWorkspace;
-    submissionClient.listDeliverables
+    monitoringClient.loadMonitoringState
       .mockReset()
       .mockImplementationOnce(() => new Promise((resolve) => { resolveOldWorkspace = resolve; }))
-      .mockResolvedValueOnce([{
+      .mockResolvedValueOnce({ ...createState(), deliverables: [{
         id: 'deliverable-code',
         slug: 'source-code',
         title: 'CS Source Code',
@@ -253,10 +271,10 @@ describe('forms management', () => {
         instructions: 'Submit the repository link.',
         status: 'Published',
         fields: [{ id: 'primaryLink', label: 'Submission Link', pdfRequired: false }]
-      }]);
+      }] });
 
     const view = renderPage();
-    await waitFor(() => expect(submissionClient.listDeliverables).toHaveBeenCalledWith('workspace-it'));
+    await waitFor(() => expect(monitoringClient.loadMonitoringState).toHaveBeenCalledWith('workspace-it'));
 
     workspaceSession.activeWorkspace = {
       ...workspaceSession.activeWorkspace,
@@ -269,10 +287,10 @@ describe('forms management', () => {
     view.rerender(<PageHarness />);
 
     expect(await screen.findByText('CS Source Code')).toBeInTheDocument();
-    resolveOldWorkspace([{
+    await act(async () => resolveOldWorkspace({ ...createState(), deliverables: [{
       ...createState().deliverables[0],
       title: 'Stale IT SRS'
-    }]);
+    }] }));
 
     await waitFor(() => expect(screen.queryByText('Stale IT SRS')).not.toBeInTheDocument());
     expect(screen.getByText('CS Source Code')).toBeInTheDocument();

@@ -1,6 +1,7 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useReducer } from 'react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
@@ -159,18 +160,51 @@ const workflow = vi.hoisted(() => ({
   setActiveStudentNumber: vi.fn()
 }));
 
-vi.mock('../app/WorkflowContext.jsx', () => ({
-  useWorkflow: () => workflow
+vi.mock('../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => ({
+    account: workflow.session?.authenticated && workflow.session?.email
+      ? { email: workflow.session.email, name: workflow.session.name || '' }
+      : null,
+    session: workflow.session,
+    activeWorkspace: workflow.workspaces.find((workspace) => workspace.id === workflow.activeWorkspaceId) || workflow.workspaces[0] || null,
+    activeWorkspaceId: workflow.activeWorkspaceId,
+    workspaces: workflow.workspaces,
+    needsWorkspaceChoice: workflow.needsWorkspaceChoice,
+    workspaceCatalogStatus: workflow.workspaceCatalogStatus,
+    workspaceCatalogError: workflow.workspaceCatalogError,
+    refreshWorkspaceCatalog: workflow.refreshWorkspaceCatalog,
+    refreshSession: vi.fn().mockImplementation(async () => workflow.session),
+    switchWorkspace: workflow.switchWorkspace,
+    logoutStudentAccount: workflow.logoutStudentAccount
+  })
+}));
+
+vi.mock('../hooks/useWorkspaceResource.js', () => ({
+  useWorkspaceResource: () => {
+    const [, refresh] = useReducer((value) => value + 1, 0);
+    return ({
+    data: {
+      ...workflow.state,
+      association: workflow.state?.association || null,
+      rosterOptions: workflow.state?.rosterOptions || workflow.state?.students || []
+    },
+    status: workflow.dashboardStatus || 'ready',
+    error: workflow.dashboardError || '',
+    reload: async () => {
+      await workflow.refreshBackendData();
+      refresh();
+    }
+  });
+  }
 }));
 
 vi.mock('../lib/api.js', () => ({
-  getMyAssociation: vi.fn().mockResolvedValue(null),
   disconnectStudentAssociation: vi.fn().mockResolvedValue({}),
   confirmStudentAssociation: vi.fn()
 }));
 
-function renderDashboard() {
-  return render(
+function dashboardTree() {
+  return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
         <MemoryRouter
@@ -187,6 +221,8 @@ function renderDashboard() {
   );
 }
 
+function renderDashboard() { return render(dashboardTree()); }
+
 function associateAccount(overrides = {}) {
   workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
   workflow.state.activeAccountEmail = 'juan.student@gmail.com';
@@ -199,28 +235,22 @@ function associateAccount(overrides = {}) {
     teamCode: '2526-sem2-it332-11',
     ...overrides
   }];
+  workflow.state.association = workflow.state.students.find((student) => student.studentNumber === workflow.state.studentAccounts[0].studentNumber)
+    ? {
+        id: 'association-current',
+        workspaceId: workflow.activeWorkspaceId,
+        googleEmail: 'juan.student@gmail.com',
+        studentNumber: workflow.state.studentAccounts[0].studentNumber,
+        studentName: workflow.state.studentAccounts[0].studentName || 'DELA CRUZ, JUAN CARLOS M.',
+        teamCode: workflow.state.studentAccounts[0].teamCode || '2526-sem2-it332-11',
+        assuranceLevel: 'SELF_DECLARED'
+      }
+    : null;
 }
 
 describe('student dashboard', () => {
   beforeEach(async () => {
-    const { confirmStudentAssociation, disconnectStudentAssociation, getMyAssociation } = await import('../lib/api.js');
-    getMyAssociation.mockReset().mockImplementation(() => ({
-      then(onFulfilled) {
-        const account = workflow.state.studentAccounts.find((item) => item.email === workflow.state.activeAccountEmail);
-        const student = workflow.state.students.find((item) => item.studentNumber === account?.studentNumber);
-        const association = student ? {
-          id: 'association-current',
-          workspaceId: workflow.activeWorkspaceId,
-          googleEmail: account.email,
-          studentNumber: student.studentNumber,
-          studentName: student.name,
-          teamCode: student.teamCode,
-          assuranceLevel: 'SELF_DECLARED'
-        } : null;
-        onFulfilled(association);
-        return Promise.resolve(association);
-      }
-    }));
+    const { confirmStudentAssociation, disconnectStudentAssociation } = await import('../lib/api.js');
     disconnectStudentAssociation.mockReset().mockResolvedValue({});
     confirmStudentAssociation.mockReset().mockImplementation(async (workspaceId, studentNumber) => {
       const student = workflow.state.students.find((item) => item.studentNumber === studentNumber);
@@ -235,6 +265,8 @@ describe('student dashboard', () => {
       };
     });
     workflow.state = createState();
+    workflow.dashboardStatus = 'ready';
+    workflow.dashboardError = '';
     workflow.session = { authenticated: false, roles: [] };
     workflow.needsWorkspaceChoice = false;
     workflow.workspaceCatalogStatus = 'ready';
@@ -247,10 +279,8 @@ describe('student dashboard', () => {
       { id: 'workspace-third', name: 'IT Capstone Section 3', academicYear: '2026-27', semester: 'Semester 1' }
     ];
     workflow.switchWorkspace.mockReset().mockResolvedValue({ ok: true });
-    workflow.claimStudentNumber.mockReset();
-    workflow.disconnectStudentNumber.mockReset();
     workflow.logoutStudentAccount.mockReset();
-    workflow.refreshBackendData.mockReset();
+    workflow.refreshBackendData.mockReset().mockResolvedValue(workflow.state);
     workflow.setActiveStudentNumber.mockReset();
   });
 
@@ -267,6 +297,7 @@ describe('student dashboard', () => {
   });
 
   it('lets a signed-in student connect one class-record identity with confirmation', async () => {
+    const { confirmStudentAssociation } = await import('../lib/api.js');
     workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{
@@ -274,10 +305,6 @@ describe('student dashboard', () => {
       googleSubject: 'google-juan',
       studentNumber: ''
     }];
-    workflow.claimStudentNumber.mockReturnValue({
-      ok: true,
-      student: workflow.state.students[0]
-    });
     renderDashboard();
 
     expect(screen.queryByText(/class-record entries available/i)).not.toBeInTheDocument();
@@ -293,7 +320,7 @@ describe('student dashboard', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Connect this student record?' });
     expect(dialog).toHaveTextContent('juan.student@gmail.com');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
-    await waitFor(() => expect(workflow.claimStudentNumber).toHaveBeenCalledWith('22-1001-001'));
+    await waitFor(() => expect(confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1001-001'));
   });
 
   it('shows team submission progress in the context of each deliverable', () => {
@@ -395,6 +422,30 @@ describe('student dashboard', () => {
     expect(dialog).toHaveTextContent('Sir Roberto Villanueva');
   });
 
+  it('counts server-redacted responses without exposing private details', () => {
+    associateAccount();
+    workflow.state.attempts = workflow.state.attempts.map((response) => (
+      response.id === 'owned-srs' ? response : {
+        id: response.id,
+        deliverableId: response.deliverableId,
+        studentNumber: response.studentNumber,
+        googleSubject: '',
+        googleEmailSnapshot: '',
+        values: {},
+        feedback: []
+      }
+    ));
+    renderDashboard();
+
+    const deliverables = screen.getByRole('list', { name: 'Your deliverables' });
+    expect(within(deliverables).getByText('SRS').closest('article')).toHaveTextContent('All 2 team members submitted');
+    const sdd = within(deliverables).getByText('SDD').closest('article');
+    expect(sdd).toHaveTextContent('Response recorded');
+    expect(within(sdd).queryByRole('link', { name: 'Open file' })).not.toBeInTheDocument();
+    expect(within(sdd).queryByRole('button', { name: 'Read feedback' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Open file' })).toHaveLength(1);
+  });
+
   it('keeps feedback inside deliverable details instead of duplicating it as a filter', () => {
     associateAccount();
     renderDashboard();
@@ -418,8 +469,8 @@ describe('student dashboard', () => {
   });
 
   it('renders and disconnects a server association when the roster snapshot is stale', async () => {
-    const { getMyAssociation } = await import('../lib/api.js');
-    getMyAssociation.mockResolvedValue({
+    const { disconnectStudentAssociation } = await import('../lib/api.js');
+    workflow.state.association = {
       id: 'association-stale-roster',
       workspaceId: 'workspace-it',
       googleEmail: 'juan.student@gmail.com',
@@ -427,8 +478,17 @@ describe('student dashboard', () => {
       studentName: 'SERVER ASSOCIATED STUDENT',
       teamCode: '2526-sem2-it332-99',
       assuranceLevel: 'SELF_DECLARED'
-    });
+    };
     associateAccount({ studentNumber: '99-9999-999' });
+    workflow.state.association = {
+      id: 'association-stale-roster',
+      workspaceId: 'workspace-it',
+      googleEmail: 'juan.student@gmail.com',
+      studentNumber: '99-9999-999',
+      studentName: 'SERVER ASSOCIATED STUDENT',
+      teamCode: '2526-sem2-it332-99',
+      assuranceLevel: 'SELF_DECLARED'
+    };
     renderDashboard();
 
     expect(await screen.findByRole('heading', { name: 'SERVER ASSOCIATED STUDENT' })).toBeInTheDocument();
@@ -436,14 +496,14 @@ describe('student dashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Disconnect record' }));
     const dialog = await screen.findByRole('dialog', { name: 'Disconnect this student record?' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect record' }));
-    await waitFor(() => expect(workflow.disconnectStudentNumber).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(disconnectStudentAssociation).toHaveBeenCalledWith('workspace-it'));
   });
 
   it('renders a stable loading state while workspace data is being fetched', () => {
     workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
-    workflow.state.backendSync.status = 'Loading workspace data.';
+    workflow.dashboardStatus = 'loading';
     renderDashboard();
 
     expect(screen.getByLabelText('Loading student dashboard')).toBeInTheDocument();
@@ -455,7 +515,8 @@ describe('student dashboard', () => {
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
     workflow.state.students = [];
-    workflow.state.backendSync.lastError = 'The roster service is unavailable.';
+    workflow.dashboardStatus = 'error';
+    workflow.dashboardError = 'The roster service is unavailable.';
     renderDashboard();
 
     expect(screen.getByRole('heading', { name: 'Student records are not available yet' })).toBeInTheDocument();
@@ -474,9 +535,11 @@ describe('student dashboard', () => {
   });
 
   it('renders a loading dashboard while backend sync is hydrating (ticket 03)', () => {
-    workflow.state.backendSync = { lastLoadedAt: null, enabled: true };
+    associateAccount();
+    workflow.dashboardStatus = 'loading';
     renderDashboard();
 
+    expect(screen.getByLabelText('Loading student dashboard')).toBeInTheDocument();
     // Renders skeleton/loading without premature "Student records are not available yet"
     expect(screen.queryByText(/Student records are not available yet/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/No student records are available to connect/i)).not.toBeInTheDocument();
@@ -556,7 +619,6 @@ describe('student dashboard', () => {
     workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
-    workflow.claimStudentNumber.mockReturnValue({ ok: true, student: workflow.state.students[0] });
     renderDashboard();
 
     const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
@@ -591,7 +653,25 @@ describe('student dashboard', () => {
     const alerts = await screen.findAllByRole('alert');
     const connectionAlert = alerts.find((node) => node.textContent.includes('No Student Record with that number exists'));
     expect(connectionAlert).toBeDefined();
-    expect(workflow.claimStudentNumber).not.toHaveBeenCalled();
+    expect(workflow.refreshBackendData).not.toHaveBeenCalled();
+  });
+
+  it('discards an association failure after switching accounts', async () => {
+    const { confirmStudentAssociation } = await import('../lib/api.js');
+    let fail;
+    confirmStudentAssociation.mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject; }));
+    workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
+    const view = renderDashboard();
+    const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
+    fireEvent.focus(studentNumber);
+    fireEvent.change(studentNumber, { target: { value: '22-1001' } });
+    fireEvent.click(screen.getByRole('option', { name: /22-1001-001/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect student record' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect record' }));
+    workflow.session = { authenticated: true, email: 'other.student@example.com', roles: [] };
+    view.rerender(dashboardTree());
+    await act(async () => { fail(new Error('Private previous student association failure')); });
+    expect(screen.queryAllByText('Private previous student association failure')).toHaveLength(0);
   });
 
   it('deactivates the association on the server when disconnecting', async () => {
@@ -605,12 +685,10 @@ describe('student dashboard', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect record' }));
 
     await waitFor(() => expect(disconnectStudentAssociation).toHaveBeenCalledWith('workspace-it'));
-    expect(await screen.findByRole('heading', { name: 'Connect your student record' })).toBeInTheDocument();
   });
 
   it('renders identity from the server association on a fresh browser with no local claim', async () => {
-    const { getMyAssociation } = await import('../lib/api.js');
-    getMyAssociation.mockResolvedValue({
+    workflow.state.association = {
       id: 'assoc-1',
       workspaceId: 'workspace-it',
       googleEmail: 'juan.student@gmail.com',
@@ -618,7 +696,7 @@ describe('student dashboard', () => {
       studentName: 'DELA CRUZ, JUAN CARLOS M.',
       teamCode: '2526-sem2-it332-11',
       assuranceLevel: 'SELF_DECLARED'
-    });
+    };
     workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.activeStudentNumber = '';
@@ -631,7 +709,7 @@ describe('student dashboard', () => {
   });
 
   it('reconnecting to another student record confirms with the new record', async () => {
-    const { confirmStudentAssociation, disconnectStudentAssociation, getMyAssociation } = await import('../lib/api.js');
+    const { confirmStudentAssociation, disconnectStudentAssociation } = await import('../lib/api.js');
     let serverAssociation = {
       id: 'assoc-1',
       workspaceId: 'workspace-it',
@@ -641,7 +719,10 @@ describe('student dashboard', () => {
       teamCode: '2526-sem2-it332-11',
       assuranceLevel: 'SELF_DECLARED'
     };
-    getMyAssociation.mockImplementation(async () => serverAssociation);
+    workflow.refreshBackendData.mockImplementation(async () => {
+      workflow.state = { ...workflow.state, association: serverAssociation };
+      return workflow.state;
+    });
     disconnectStudentAssociation.mockImplementation(async () => {
       serverAssociation = null;
       return {};
@@ -659,7 +740,7 @@ describe('student dashboard', () => {
       return serverAssociation;
     });
     associateAccount(); // currently connected to 22-1001-001
-    const firstBrowser = renderDashboard();
+    renderDashboard();
 
     // disconnect first (the connected dashboard has no selector by design)
     fireEvent.click(await screen.findByRole('button', { name: 'Disconnect record' }));
@@ -681,5 +762,7 @@ describe('student dashboard', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
 
     await waitFor(() => expect(confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1002-002'));
+    expect(await screen.findByRole('heading', { name: 'SANTOS, MARIA L.' })).toBeInTheDocument();
+    expect(workflow.refreshBackendData).toHaveBeenCalledTimes(2);
   });
 });

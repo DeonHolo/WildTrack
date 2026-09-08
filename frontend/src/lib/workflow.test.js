@@ -1,19 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  createWorkspaceInitialState,
   dedupeDeliverables,
   findOwnedResponse,
   getResponseOwnerKey,
   hasResponseConflict,
-  importPublicSheetSource,
-  loadActiveWorkspaceId,
-  loadWorkflowState,
   mergeDeliverables,
-  resetWorkflowState,
-  saveWorkflowState,
   sortDeliverables,
   upsertDeliverable
 } from './workflow.js';
+import { importPublicSheetSource } from './devPublicSheetImport.js';
 
 const responses = [
   {
@@ -184,53 +179,6 @@ describe('workspace Sheet imports', () => {
   });
 });
 
-describe('workspace data isolation', () => {
-  it('migrates workspace data from the retired browser-storage namespace', () => {
-    localStorage.clear();
-    const workspaceId = 'workspace-it-test';
-    const previousBrand = ['cap', 'vault'].join('');
-    const previousKey = `${previousBrand}.v2.workspace.${workspaceId}`;
-    localStorage.setItem(previousKey, JSON.stringify({ workspaceId, marker: 'Imported records' }));
-
-    const loaded = loadWorkflowState(workspaceId, {
-      id: workspaceId,
-      name: 'IT Test',
-      program: 'IT',
-      courseCode: 'IT332'
-    });
-
-    expect(loaded.marker).toBe('Imported records');
-    expect(localStorage.getItem(`wildtrack.v2.workspace.${workspaceId}`)).toContain('Imported records');
-    expect(localStorage.getItem(previousKey)).toBeNull();
-  });
-
-  it('resets only the selected workspace and preserves another workspace state', () => {
-    localStorage.clear();
-    saveWorkflowState({ workspaceId: 'workspace-it-test', marker: 'IT imported data' }, 'workspace-it-test');
-    saveWorkflowState({ workspaceId: 'workspace-cs-test', marker: 'CS imported data' }, 'workspace-cs-test');
-
-    resetWorkflowState('workspace-it-test', {
-      id: 'workspace-it-test',
-      name: 'IT Test',
-      program: 'IT',
-      courseCode: 'IT332'
-    });
-
-    expect(loadWorkflowState('workspace-cs-test', {
-      id: 'workspace-cs-test',
-      name: 'CS Test',
-      program: 'CS',
-      courseCode: 'CS342'
-    }).marker).toBe('CS imported data');
-    expect(loadWorkflowState('workspace-it-test', {
-      id: 'workspace-it-test',
-      name: 'IT Test',
-      program: 'IT',
-      courseCode: 'IT332'
-    }).marker).toBeUndefined();
-  });
-});
-
 describe('deliverable identity dedupe', () => {
   const trackerColumns = [
     { id: 'column-prob', key: 'ProbExploration', label: 'Problem Exploration', sourceColumn: 'ProbExploration', active: true },
@@ -258,26 +206,21 @@ describe('deliverable identity dedupe', () => {
     instructions: ''
   };
 
-  it('collapses duplicate columns to the backend record when loading saved state', () => {
-    localStorage.clear();
-    const workspaceId = 'workspace-dedupe';
-    const workspace = { id: workspaceId, name: 'IT Dedupe', program: 'IT', courseCode: 'IT332' };
-    saveWorkflowState({
-      workspaceId,
-      trackerColumns,
-      deliverables: [clientProb, backendProb, { ...clientProb, id: 'deliv-generated-1780000000001' }]
-    }, workspaceId);
+  it('collapses duplicate columns to the backend record', () => {
+    const deduped = dedupeDeliverables([
+      clientProb,
+      backendProb,
+      { ...clientProb, id: 'deliv-generated-1780000000001' }
+    ]);
 
-    const loaded = loadWorkflowState(workspaceId, workspace);
-
-    expect(loaded.deliverables).toHaveLength(1);
-    expect(loaded.deliverables[0]).toMatchObject({
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0]).toMatchObject({
       id: '11111111-1111-4111-8111-111111111111',
       slug: 'probexploration',
       title: 'Problem Exploration',
       trackerColumn: 'ProbExploration'
     });
-    expect(loaded.deliverables[0].instructions).toBe('Submit the problem exploration as a PDF Drive file.');
+    expect(deduped[0].instructions).toBe('Submit the problem exploration as a PDF Drive file.');
   });
 
   it('collapses pre-existing duplicates instead of appending when merging a backend snapshot', () => {
@@ -325,50 +268,5 @@ describe('deliverable identity dedupe', () => {
 
     expect(sorted.map((item) => item.trackerColumn)).toEqual(['ProbExploration', 'SRS', 'SDD']);
   expect(sorted[0].id).toBe('11111111-1111-4111-8111-111111111111');
-  });
-});
-
-describe('production empty initial state (ticket 07)', () => {
-  it('creates a workspace initial state with zero students, deliverables, and attempts', () => {
-    const workspace = { id: 'workspace-fresh', name: 'Fresh Workspace', program: 'IT', courseCode: 'IT332' };
-    const state = createWorkspaceInitialState(workspace);
-    expect(state.students).toEqual([]);
-    expect(state.deliverables).toEqual([]);
-    expect(state.attempts).toEqual([]);
-    expect(state.projectMetadata).toEqual([]);
-    expect(state.activity).toEqual([]);
-  });
-
-  it('creates a default workspace initial state with zero students', () => {
-    const workspace = { id: '11111111-1111-1111-1111-111111111111', name: 'IT Capstone', program: 'IT', courseCode: 'IT332' };
-    const state = createWorkspaceInitialState(workspace);
-    expect(state.students).toEqual([]);
-    expect(state.deliverables).toEqual([]);
-    expect(state.attempts).toEqual([]);
-  });
-
-  it('preserves structural trackerColumns in the empty initial state', () => {
-    const workspace = { id: 'workspace-test', name: 'Test', program: 'IT', courseCode: 'IT332' };
-    const state = createWorkspaceInitialState(workspace);
-    expect(state.trackerColumns.length).toBeGreaterThan(0);
-    expect(state.trackerColumns[0]).toHaveProperty('key');
-  });
-
-  it('sets all source statuses to Not connected in initial state', () => {
-    const workspace = { id: 'workspace-test', name: 'Test', program: 'IT', courseCode: 'IT332' };
-    const state = createWorkspaceInitialState(workspace);
-    Object.values(state.classRecord.sources).forEach((source) => {
-      expect(source.status).toBe('Not connected');
-    });
-  });
-
-  it('loadActiveWorkspaceId falls back to first workspace when no preference is stored', () => {
-    localStorage.clear();
-    const workspaces = [
-      { id: 'ws-a', name: 'A' },
-      { id: 'ws-b', name: 'B' }
-    ];
-    const result = loadActiveWorkspaceId(workspaces);
-    expect(result).toBe('ws-a');
   });
 });

@@ -1,6 +1,7 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { Notifications, notifications } from '@mantine/notifications';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
 import { StaffManagementPanel } from './StaffManagementPanel.jsx';
@@ -21,10 +22,16 @@ vi.mock('../../lib/api.js', () => ({
   revokeStaffAccess: api.revokeStaffAccess
 }));
 
-function renderPanel(props = {}) {
-  return render(
+const scope = vi.hoisted(() => ({ email: 'admin@example.com' }));
+vi.mock('../../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => ({ session: { authenticated: true, email: scope.email } })
+}));
+
+function panelTree(props = {}) {
+  return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
+        <Notifications />
         <StaffManagementPanel
           workspaceId="ws-123"
           students={[
@@ -41,8 +48,14 @@ function renderPanel(props = {}) {
   );
 }
 
+function renderPanel(props = {}) {
+  return render(panelTree(props));
+}
+
 describe('StaffManagementPanel', () => {
   beforeEach(() => {
+    notifications.clean();
+    scope.email = 'admin@example.com';
     Object.values(api).forEach((fn) => fn.mockReset());
     api.getStaffProfiles.mockResolvedValue([
       {
@@ -64,6 +77,19 @@ describe('StaffManagementPanel', () => {
     ]);
   });
 
+  it.each(['workspace', 'account'])('discards a late staff list after changing %s', async (change) => {
+    let resolveOld;
+    api.getStaffProfiles.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
+    const view = renderPanel();
+    if (change === 'account') scope.email = 'other@example.com';
+    view.rerender(panelTree({ workspaceId: change === 'workspace' ? 'ws-new' : 'ws-123' }));
+    await act(async () => {
+      resolveOld([{ googleSubject: 'old', googleEmail: 'obsolete@example.com', roles: ['ADMIN'] }]);
+    });
+    expect(screen.queryByText('obsolete@example.com')).not.toBeInTheDocument();
+    expect(await screen.findByText('ralph@example.com')).toBeInTheDocument();
+  });
+
   it('renders staff members with role badges and assigned teams', async () => {
     renderPanel();
 
@@ -72,6 +98,16 @@ describe('StaffManagementPanel', () => {
     expect(screen.getByText('adviser@example.com')).toBeInTheDocument();
     expect(screen.getByText('Adviser')).toBeInTheDocument();
     expect(screen.getByText('2526-sem2-it332-01')).toBeInTheDocument();
+  });
+
+  it('shows a recoverable staff load error instead of claiming the workspace has no staff', async () => {
+    api.getStaffProfiles.mockRejectedValueOnce(new Error('Staff access expired. Sign in again.'));
+    renderPanel();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Staff access expired. Sign in again.');
+    expect(screen.queryByText(/No staff or advisers registered/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry staff load' }));
+    expect(await screen.findByText('ralph@example.com')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('opens add staff dialog and submits new adviser with selected teams', async () => {
@@ -106,6 +142,18 @@ describe('StaffManagementPanel', () => {
     await waitFor(() => {
       expect(api.unassignAdviserTeam).toHaveBeenCalledWith('ws-123', 'sub-adviser', '2526-sem2-it332-01');
     });
+  });
+
+  it('does not publish an old staff-save result into a new workspace', async () => {
+    let finish;
+    api.upsertStaffEmail.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const view = renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /Add staff \/ adviser/i }));
+    fireEvent.change(await screen.findByLabelText(/Google Email/i), { target: { value: 'private-old@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save staff member/i }));
+    view.rerender(panelTree({ workspaceId: 'ws-new' }));
+    await act(async () => { finish({ googleSubject: 'old-adviser' }); });
+    expect(screen.queryByText(/private-old@example.com is now assigned/)).not.toBeInTheDocument();
   });
 
   it('revokes staff access with confirmation', async () => {

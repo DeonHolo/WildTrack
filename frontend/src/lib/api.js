@@ -77,6 +77,92 @@ export async function getDeliverables(workspaceId) {
   return request(withWorkspace('/deliverables', workspaceId));
 }
 
+export async function getStudents(workspaceId) {
+  return request(withWorkspace('/students', workspaceId));
+}
+
+export async function getProjects(workspaceId) {
+  return request(withWorkspace('/projects', workspaceId));
+}
+
+export async function getTrackerColumns(workspaceId) {
+  return request(withWorkspace('/tracker/columns', workspaceId));
+}
+
+export async function getTrackerRows(workspaceId) {
+  return request(withWorkspace('/tracker/rows', workspaceId));
+}
+
+export async function createTrackerColumn(workspaceId, payload) {
+  return request(withWorkspace('/tracker/columns', workspaceId), { method: 'POST', body: payload });
+}
+
+export async function updateTrackerColumn(workspaceId, columnId, payload) {
+  return request(withWorkspace(`/tracker/columns/${encodeURIComponent(columnId)}`, workspaceId), { method: 'PUT', body: payload });
+}
+
+export async function getTemplates(workspaceId) {
+  return request(withWorkspace('/templates', workspaceId));
+}
+
+export async function getWorkspaceSources(workspaceId) {
+  return request(withWorkspace('/workspace/sources', workspaceId));
+}
+
+export async function getStaffResponses(workspaceId) {
+  return request(withWorkspace('/workspace/responses/staff', workspaceId));
+}
+
+export async function getScopedResponses(workspaceId) {
+  return request(withWorkspace('/workspace/responses/my-team', workspaceId));
+}
+
+export async function getStudentDashboard(workspaceId) {
+  return request(withWorkspace('/workspace/students/dashboard', workspaceId));
+}
+
+export async function getStaffMonitoring(workspaceId) {
+  return request(withWorkspace('/monitoring', workspaceId));
+}
+
+export async function getArchiveRecords(workspaceId) {
+  return request(withWorkspace('/archive', workspaceId));
+}
+
+export async function archiveResponses(workspaceId, responseIds) {
+  return request(withWorkspace('/archive', workspaceId), {
+    method: 'POST',
+    body: { responseIds }
+  });
+}
+
+export async function getReviewScope(workspaceId) {
+  return request(withWorkspace('/workspace/responses/staff-scope', workspaceId));
+}
+
+export async function getReviewState(responseId) {
+  return request(`/workspace/responses/${encodeURIComponent(responseId)}/review-state`);
+}
+
+export async function saveReviewFeedback(responseId, payload) {
+  return request(`/workspace/responses/${encodeURIComponent(responseId)}/feedback`, {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function acceptReviewResponse(responseId) {
+  return request(`/workspace/responses/${encodeURIComponent(responseId)}/accept`, { method: 'POST' });
+}
+
+export async function revokeReviewResponse(responseId) {
+  return request(`/workspace/responses/${encodeURIComponent(responseId)}/revoke`, { method: 'POST' });
+}
+
+export async function getLatestFileCheck(workspaceId, responseId) {
+  return request(withWorkspace(`/file-checks/${encodeURIComponent(responseId)}`, workspaceId));
+}
+
 export function toApiSourceType(sourceType) {
   return SOURCE_TYPE_TO_API[sourceType] || sourceType;
 }
@@ -255,7 +341,9 @@ export async function request(path, options = {}) {
     return null;
   }
 
-  return response.json();
+  // Optional resources also return an empty 200 when no record exists.
+  const text = await response.text();
+  return text.trim() ? JSON.parse(text) : null;
 }
 
 async function requestForm(path, options = {}) {
@@ -319,7 +407,7 @@ export async function getMyResponse(workspaceId, deliverableId) {
   return request(`/workspace/responses/mine?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`);
 }
 
-export async function submitResponse(workspaceId, deliverableId, values) {
+export async function submitResponse(workspaceId, deliverableId, values, revision) {
   await ensureCsrfToken();
   const response = await fetch(`${API_BASE_URL}/workspace/responses/submit?workspaceId=${encodeURIComponent(workspaceId)}`, {
     method: 'POST',
@@ -330,7 +418,7 @@ export async function submitResponse(workspaceId, deliverableId, values) {
       'Content-Type': 'application/json',
       ...csrfHeader()
     },
-    body: JSON.stringify({ deliverableId, valuesJson: JSON.stringify(values) })
+    body: JSON.stringify({ deliverableId, valuesJson: JSON.stringify(values), revision: revision ?? null })
   });
   if (response.status === 409) {
     return { conflict: true };

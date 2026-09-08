@@ -3,8 +3,7 @@ import { DevelopmentRolePreview } from '../components/layout/DevelopmentRolePrev
 import { StaffApplicationShell } from '../components/layout/StaffApplicationShell.jsx';
 import { StudentApplicationShell } from '../components/layout/StudentApplicationShell.jsx';
 import { APPLICATION_ROLES, getRoleHome, useApplicationRole } from '../hooks/useApplicationRole.js';
-import { WorkflowProvider } from './WorkflowContext.jsx';
-import { useWorkspaceSession } from './WorkspaceSession.jsx';
+import { WorkspaceSessionProvider, useWorkspaceSession } from './WorkspaceSession.jsx';
 import { RoleBoundary } from './RoleBoundary.jsx';
 import { ArchivePage } from '../pages/ArchivePage.jsx';
 import { AdviserViewPage } from '../pages/AdviserViewPage.jsx';
@@ -19,7 +18,7 @@ import { WorkspacePage } from '../pages/WorkspacePage.jsx';
 
 export default function App() {
   return (
-    <WorkflowProvider>
+    <WorkspaceSessionProvider>
       <Routes>
         <Route path="/w/:workspaceKey/submit/:slug" element={<PublicSubmissionPage />} />
         <Route path="/submit/:slug" element={<PublicSubmissionPage />} />
@@ -68,7 +67,7 @@ export default function App() {
         <Route path="*" element={<RoleHomeRedirect />} />
       </Routes>
       <DevelopmentRolePreview enabled={import.meta.env.DEV} />
-    </WorkflowProvider>
+    </WorkspaceSessionProvider>
   );
 }
 

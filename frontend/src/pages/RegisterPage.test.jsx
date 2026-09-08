@@ -7,13 +7,8 @@ import { wildTrackTheme } from '../app/theme.js';
 import '../styles/index.css';
 import '../styles/wildtrack.css';
 
-const workflow = vi.hoisted(() => ({
-  authenticateGoogleAccount: vi.fn(),
-  state: { activeAccountEmail: '' }
-}));
-
-vi.mock('../app/WorkflowContext.jsx', () => ({
-  useWorkflow: () => workflow
+vi.mock('../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => ({ refreshSession: vi.fn() })
 }));
 
 describe('RegisterPage layout & responsiveness (ticket 02)', () => {

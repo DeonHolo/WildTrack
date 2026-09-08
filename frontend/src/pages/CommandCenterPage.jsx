@@ -13,9 +13,18 @@ import {
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { CheckCircle, Files, MagnifyingGlass, Warning } from '@phosphor-icons/react';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { WorkQueueTable } from '../components/command/WorkQueueTable.jsx';
+import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
+import { archiveAttempts as archiveServerAttempts } from '../lib/archiveClient.js';
 import { decideIdentityConflict, getIdentityConflicts } from '../lib/api.js';
+import { emptyMonitoringState, loadMonitoringState } from '../lib/monitoringClient.js';
+import {
+  applyDocumentCheck,
+  runDocumentCheck as runReviewDocumentCheck,
+  runDocumentChecks as runReviewDocumentChecks
+} from '../lib/reviewDeskClient.js';
 import {
   deliverableUsesDocumentCheck,
   findStudent,
@@ -34,7 +43,12 @@ const QUEUE_FILTERS = [
 ];
 
 export function CommandCenterPage() {
-  const { state, activeWorkspaceId, runDocumentCheck, runDocumentChecks, archiveAttempt, refreshBackendData } = useWorkflow();
+  const { activeWorkspaceId } = useWorkspaceSession();
+  const { data: state, setData: setState, status, error, reload } = useWorkspaceResource(
+    activeWorkspaceId,
+    loadMonitoringState,
+    emptyMonitoringState
+  );
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -43,8 +57,17 @@ export function CommandCenterPage() {
   const [batchProgress, setBatchProgress] = useState(null);
   const [openConflicts, setOpenConflicts] = useState([]);
   const [conflictError, setConflictError] = useState(null);
-  // The active workspace lives at the workflow-context root, not inside state.
+  // The active workspace is session state, while monitoring data stays resource-scoped.
   const workspaceId = activeWorkspaceId;
+  const isCurrentScope = useWorkspaceScope(workspaceId);
+
+  useEffect(() => {
+    setRunningIds(new Set());
+    setResolvedTaskIds(new Set());
+    setBatchProgress(null);
+    setOpenConflicts([]);
+    setConflictError(null);
+  }, [isCurrentScope]);
 
   // Ticket 05: identity conflicts are server-owned, so Today's work reads the open queue
   // from the backend instead of inferring conflicts from this browser's submissions.
@@ -55,21 +78,20 @@ export function CommandCenterPage() {
       setConflictError(null);
       return undefined;
     }
-    refreshBackendData?.({ silent: true })?.catch?.(() => {});
     getIdentityConflicts(workspaceId)
       .then((conflicts) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrentScope()) return;
         setConflictError(null);
         setOpenConflicts(Array.isArray(conflicts) ? conflicts.filter((item) => item.status === 'OPEN') : []);
       })
       .catch((error) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrentScope()) return;
         setOpenConflicts([]);
         // A failed fetch must not read as "All clear": say the queue is incomplete.
         setConflictError(error?.message || 'Identity conflicts could not be loaded.');
       });
     return () => { cancelled = true; };
-  }, [workspaceId, refreshBackendData]);
+  }, [workspaceId, isCurrentScope]);
 
   const allTasks = useMemo(() => buildWorkQueue(state, openConflicts), [state, openConflicts]);
   const openTasks = useMemo(
@@ -106,8 +128,10 @@ export function CommandCenterPage() {
   }
 
   async function checkDocument(task) {
+    if (!isCurrentScope()) return;
     setRunningIds((current) => withId(current, task.response.id));
     const result = await runDocumentCheck(task.response.id);
+    if (!isCurrentScope()) return;
     setRunningIds((current) => withoutId(current, task.response.id));
     if (result?.ok) {
       setResolvedTaskIds((current) => withId(current, task.id));
@@ -143,12 +167,24 @@ export function CommandCenterPage() {
   }
 
   async function runAllDocumentChecks() {
+    if (!isCurrentScope()) return;
     const tasks = pendingDocumentTasks;
     const ids = tasks.map((task) => task.response.id);
     setBatchProgress({ completed: 0, total: ids.length, failed: 0, done: false });
-    const result = await runDocumentChecks(ids, {
-      onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total }))
+    const result = await runReviewDocumentChecks(workspaceId, tasks.map((task) => task.response), state.deliverables, {
+      shouldContinue: isCurrentScope,
+      onProgress: ({ completed, total }) => {
+        if (isCurrentScope()) setBatchProgress((current) => ({ ...current, completed, total }));
+      }
     });
+    if (!isCurrentScope()) return;
+    setState((current) => ({
+      ...current,
+      attempts: current.attempts.map((attempt) => {
+        const completed = result.results?.find((item) => item.attemptId === attempt.id && item.ok);
+        return completed?.report ? applyDocumentCheck(attempt, completed.report) : attempt;
+      })
+    }));
     const successfulAttemptIds = new Set((result.results || []).filter((item) => item.ok).map((item) => item.attemptId));
     if (!result.results?.length && result.failed === 0) ids.forEach((id) => successfulAttemptIds.add(id));
     setResolvedTaskIds((current) => {
@@ -164,10 +200,26 @@ export function CommandCenterPage() {
     });
   }
 
+  async function runDocumentCheck(responseId) {
+    const response = state.attempts.find((item) => item.id === responseId);
+    if (!response) return { ok: false, error: 'The selected response was not found.' };
+    const deliverable = state.deliverables.find((item) => item.id === response.deliverableId);
+    const result = await runReviewDocumentCheck(workspaceId, response, deliverable);
+    if (result.ok && isCurrentScope()) {
+      setState((current) => ({
+        ...current,
+        attempts: current.attempts.map((item) => item.id === responseId ? applyDocumentCheck(item, result.report) : item)
+      }));
+    }
+    return result;
+  }
+
   const decideConflict = useCallback(async (task, decision) => {
+    if (!isCurrentScope()) return;
     setRunningIds((current) => withId(current, task.id));
     try {
       await decideIdentityConflict(workspaceId, task.conflict.id, decision);
+      if (!isCurrentScope()) return;
       setOpenConflicts((current) => current.filter((item) => item.id !== task.conflict.id));
       notifications.show({
         color: 'green',
@@ -175,15 +227,16 @@ export function CommandCenterPage() {
         message: 'The decision was recorded for ' + (task.conflict.studentNumber || 'this Student Record') + '.'
       });
     } catch (error) {
+      if (!isCurrentScope()) return;
       notifications.show({
         color: 'red',
         title: 'Decision not recorded',
         message: error?.message || 'The identity conflict is still open.'
       });
     } finally {
-      setRunningIds((current) => withoutId(current, task.id));
+      if (isCurrentScope()) setRunningIds((current) => withoutId(current, task.id));
     }
-  }, [workspaceId]);
+  }, [workspaceId, isCurrentScope]);
 
   function confirmArchive(task) {
     modals.openConfirmModal({
@@ -197,8 +250,15 @@ export function CommandCenterPage() {
       confirmProps: { color: 'wildtrackMaroon' },
       centered: true,
       onConfirm: async () => {
+        if (!isCurrentScope()) return;
         setRunningIds((current) => withId(current, task.response.id));
-        const result = await archiveAttempt(task.response.id);
+        let result;
+        try {
+          result = await archiveServerAttempts(workspaceId, [task.response.id]);
+        } catch (error) {
+          result = { ok: false, error: error?.message || 'The archive record could not be created.' };
+        }
+        if (!isCurrentScope()) return;
         setRunningIds((current) => withoutId(current, task.response.id));
         if (result?.ok) {
           setResolvedTaskIds((current) => withId(current, task.id));
@@ -241,6 +301,13 @@ export function CommandCenterPage() {
           </Button>
         ) : null}
       </header>
+
+      {status === 'loading' ? <Alert color="blue">Loading today&apos;s work…</Alert> : null}
+      {status === 'error' ? (
+        <Alert color="red" role="alert" title="Work queue could not be loaded">
+          <Stack gap="xs" align="flex-start"><Text size="sm">{error}</Text><Button variant="outline" onClick={reload}>Retry</Button></Stack>
+        </Alert>
+      ) : null}
 
       <Paper withBorder className="wt-command-workbench">
         <div className="wt-command-workbench-head">

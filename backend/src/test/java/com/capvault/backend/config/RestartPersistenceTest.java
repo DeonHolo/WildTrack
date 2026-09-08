@@ -94,7 +94,7 @@ class RestartPersistenceTest {
         // Edit (creates history)
         responseService.submit(new FormResponseService.SubmitCommand(
             workspaceId, deliverableId, subject, email,
-            Map.of("driveLink", "https://drive.example.test/edited")));
+            Map.of("driveLink", "https://drive.example.test/edited"), submitResult.clientRevision()));
 
         // Review feedback. Saved as ADMIN because staff notes are now team-scoped and this test
         // exercises persistence, not authorization.

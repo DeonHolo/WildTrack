@@ -47,9 +47,14 @@ const workflow = vi.hoisted(() => ({
   logoutStudentAccount: vi.fn()
 }));
 
-vi.mock('./WorkflowContext.jsx', () => ({
-  WorkflowProvider: ({ children }) => children,
-  useWorkflow: () => workflow
+vi.mock('./WorkspaceSession.jsx', () => ({
+  WorkspaceSessionProvider: ({ children }) => children,
+  useWorkspaceSession: () => ({
+    ...workflow,
+    account: workflow.session?.authenticated && workflow.session?.email
+      ? { email: workflow.session.email, name: workflow.session.name || '' }
+      : null
+  })
 }));
 
 vi.mock('../pages/ArchivePage.jsx', () => ({ ArchivePage: () => <h1>Archive page</h1> }));
@@ -86,6 +91,7 @@ describe('role-specific application shells', () => {
     workflow.session = { authenticated: false, roles: [] };
     workflow.sessionStatus = 'ready';
     workflow.sessionError = '';
+    workflow.needsWorkspaceChoice = false;
     workflow.state = {
       studentAccounts: [],
       activeAccountEmail: '',

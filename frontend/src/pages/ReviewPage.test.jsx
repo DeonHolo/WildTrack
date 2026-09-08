@@ -1,14 +1,18 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { Notifications } from '@mantine/notifications';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
 import { ReviewPage } from './ReviewPage.jsx';
+import { applyReviewState } from '../lib/backendDomain.js';
+import { useReducer } from 'react';
 
 const workflow = vi.hoisted(() => ({
   state: null,
+  workspaceId: 'workspace-it',
+  session: { authenticated: true, email: 'admin@school.edu' },
   runDocumentCheck: vi.fn(),
   runDocumentChecks: vi.fn(),
   runAiReview: vi.fn(),
@@ -17,8 +21,45 @@ const workflow = vi.hoisted(() => ({
   archiveAttempt: vi.fn()
 }));
 
-vi.mock('../app/WorkflowContext.jsx', () => ({
-  useWorkflow: () => workflow
+vi.mock('../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => ({ activeWorkspaceId: workflow.workspaceId, session: workflow.session })
+}));
+
+vi.mock('../hooks/useWorkspaceResource.js', () => ({
+  useWorkspaceResource: () => {
+    const [, rerender] = useReducer((value) => value + 1, 0);
+    return {
+    data: workflow.state,
+    setData: (next) => {
+      workflow.state = typeof next === 'function' ? next(workflow.state) : next;
+      rerender();
+    },
+    status: 'ready',
+    error: ''
+    };
+  }
+}));
+
+vi.mock('../lib/api.js', () => ({
+  getIdentityConflicts: vi.fn().mockResolvedValue([])
+}));
+
+vi.mock('../lib/reviewDeskClient.js', () => ({
+  emptyReviewDesk: () => ({}),
+  loadReviewDesk: vi.fn(),
+  applyDocumentCheck: (response, report) => ({ ...response, documentCheck: report }),
+  applyReviewMutation: (response, mutation) => applyReviewState(response, mutation),
+  runDocumentCheck: (_workspaceId, response) => workflow.runDocumentCheck(response.id),
+  runDocumentChecks: (_workspaceId, responses, _deliverables, options) => (
+    workflow.runDocumentChecks(responses.map((response) => response.id), options)
+  ),
+  runAiReview: (...args) => workflow.runAiReview(...args),
+  acceptResponse: (...args) => workflow.markAccepted(...args),
+  revokeAcceptance: (...args) => workflow.revokeAcceptance(...args)
+}));
+
+vi.mock('../lib/archiveClient.js', () => ({
+  archiveAttempts: (_workspaceId, responseIds) => workflow.archiveAttempt(responseIds[0])
 }));
 
 const checkedAt = '2026-04-20T10:00:00+08:00';
@@ -184,6 +225,8 @@ function renderPage(initialEntry = '/review') {
 
 describe('deliverable-first submission review', () => {
   beforeEach(() => {
+    workflow.workspaceId = 'workspace-it';
+    workflow.session = { authenticated: true, email: 'admin@school.edu' };
     workflow.state = createState();
     Object.values(workflow).forEach((value) => value?.mockReset?.());
     workflow.runDocumentCheck.mockResolvedValue({ ok: true });
@@ -193,6 +236,37 @@ describe('deliverable-first submission review', () => {
     });
     workflow.runAiReview.mockResolvedValue({ ok: false, unavailable: true });
     workflow.archiveAttempt.mockResolvedValue({ ok: true, archived: 1 });
+    workflow.markAccepted.mockImplementation(async (id) => ({
+      feedback: [],
+      acceptance: {
+        acceptedBy: 'teacher@example.edu',
+        acceptedByRole: 'Teacher/Admin',
+        acceptedAt: checkedAt,
+        sourceResponseUpdatedAt: workflow.state.attempts.find((attempt) => attempt.id === id).updatedAt
+      }
+    }));
+  });
+
+  it('shows pending and failed single document checks without opening a success report', async () => {
+    let finish;
+    workflow.runDocumentCheck.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    renderPage('/review?response=response-muriel-srs');
+    const check = screen.getByRole('button', { name: 'Check document', exact: true });
+    fireEvent.click(check);
+    expect(check).toBeDisabled();
+    await act(async () => finish({ ok: false, error: 'Document service unavailable. Try again.' }));
+    expect(await screen.findByText('Document service unavailable. Try again.')).toBeVisible();
+    expect(check).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Close Document Check details' })).not.toBeInTheDocument();
+  });
+
+  it('explains unavailable AI review without inventing a saved AI report', async () => {
+    const response = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
+    response.documentCheck = currentDocumentCheck(response.updatedAt);
+    renderPage('/review?response=response-muriel-srs');
+    fireEvent.click(screen.getByRole('button', { name: 'Run AI Review' }));
+    expect(await screen.findByText('AI Review is not connected yet')).toBeInTheDocument();
+    expect(screen.getByText('No current AI Review is available for this response.')).toBeInTheDocument();
   });
 
   it('starts with a compact deliverable queue and only pending SRS responses', () => {
@@ -324,6 +398,28 @@ describe('deliverable-first submission review', () => {
     expect(requestedIds).toContain('unchecked-62');
   });
 
+  it.each(['workspace', 'account'])('discards batch progress and private failures after the %s changes', async (change) => {
+    let finish, progress;
+    workflow.runDocumentChecks.mockImplementation((_ids, options) => {
+      progress = options.onProgress;
+      return new Promise(resolve => { finish = resolve; });
+    });
+    const view = renderPage();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select all visible responses' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check selected' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Document Check' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Checking documents');
+    if (change === 'workspace') workflow.workspaceId = 'workspace-cs';
+    else workflow.session = { authenticated: true, email: 'other@school.edu' };
+    view.rerender(pageTree('/review'));
+    await act(async () => {
+      progress({ completed: 2, total: 2 });
+      finish({ completed: 2, total: 2, failed: 1, results: [{ attemptId: 'response-ron-srs', ok: false, error: 'Old workspace private failure' }] });
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Old workspace private failure/)).not.toBeInTheDocument();
+  });
+
   it('keeps 318 responses in one compact submissions table instead of creating response cards', () => {
     const students = Array.from({ length: 318 }, (_, index) => ({
       id: `student-${index + 1}`,
@@ -362,19 +458,12 @@ describe('deliverable-first submission review', () => {
   });
 
   it('removes an accepted response from the active queue and confirms one archive record honestly', async () => {
-    const view = renderPage();
+    renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Review Pacio, Muriel D. response' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).getByRole('button', { name: 'Accept response' }));
-    expect(workflow.markAccepted).toHaveBeenCalledWith('response-muriel-srs', expect.objectContaining({ role: 'Teacher/Admin' }));
+    expect(workflow.markAccepted).toHaveBeenCalledWith('response-muriel-srs');
 
-    workflow.state = {
-      ...workflow.state,
-      attempts: workflow.state.attempts.map((attempt) => attempt.id === 'response-muriel-srs'
-        ? { ...attempt, reviewStatus: 'Accepted', primaryStatus: 'Accepted', flags: [...attempt.flags, 'Accepted'] }
-        : attempt)
-    };
-    view.rerender(pageTree());
-    expect(within(screen.getByRole('table', { name: 'SRS submissions' })).queryByText('Pacio, Muriel D.')).not.toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByRole('table', { name: 'SRS submissions' })).queryByText('Pacio, Muriel D.')).not.toBeInTheDocument());
     expect(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).toBeInTheDocument();
     expect(within(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).getByRole('button', { name: 'Archive response' })).toBeEnabled();
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).getByRole('button', { name: 'Archive response' }));
@@ -388,9 +477,9 @@ describe('deliverable-first submission review', () => {
     expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Pacio, Muriel D.')).toBeInTheDocument();
     expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Barangan, Mark Lorenz L.')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Archived' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'Archived' }));
     expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Barangan, Mark Lorenz L.')).toBeInTheDocument();
-    expect(within(screen.getByRole('table', { name: 'SRS submissions' })).queryByText('Pacio, Muriel D.')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Pacio, Muriel D.')).toBeInTheDocument();
   });
 
   it('counts received students uniquely so duplicate responses do not hide missing work', () => {
@@ -452,6 +541,17 @@ describe('deliverable-first submission review', () => {
 
     expect(screen.getByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'SRS submissions' })).toBeInTheDocument();
+  });
+
+  it('opens a linked response after its server data arrives', async () => {
+    const loaded = workflow.state;
+    workflow.state = { ...loaded, attempts: [], deliverables: [] };
+    const entry = '/review?response=response-ron-srs';
+    const view = renderPage(entry);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    workflow.state = loaded;
+    view.rerender(pageTree(entry));
+    expect(await screen.findByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' })).toBeInTheDocument();
   });
 
   it('lists one queue row per deliverable when saved state still holds duplicate copies', () => {

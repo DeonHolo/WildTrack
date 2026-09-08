@@ -1,7 +1,7 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { Notifications } from '@mantine/notifications';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { Notifications, notifications } from '@mantine/notifications';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
@@ -17,8 +17,29 @@ const workflow = vi.hoisted(() => ({
   refreshArchive: vi.fn()
 }));
 
-vi.mock('../app/WorkflowContext.jsx', () => ({
-  useWorkflow: () => workflow
+vi.mock('../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => ({
+    activeWorkspace: workflow.activeWorkspace,
+    activeWorkspaceId: workflow.activeWorkspace?.id || '',
+    workspaces: workflow.workspaces
+  })
+}));
+
+vi.mock('../hooks/useWorkspaceResource.js', () => ({
+  useWorkspaceResource: () => ({
+    data: workflow.state,
+    status: workflow.state?.archiveLoadStatus === 'loading'
+      ? 'loading'
+      : workflow.state?.archiveLoadStatus === 'error' ? 'error' : 'ready',
+    error: workflow.state?.archiveLoadError || '',
+    reload: workflow.refreshArchive
+  })
+}));
+
+vi.mock('../lib/archiveClient.js', () => ({
+  archiveAttempts: (...args) => workflow.archiveAttempts(...args),
+  emptyArchiveState: () => ({ archives: [], attempts: [] }),
+  loadArchiveState: vi.fn()
 }));
 
 const archivedAt = '2026-06-18T10:15:00+08:00';
@@ -81,6 +102,7 @@ function renderPage(initialEntry = '/archive') {
 
 describe('archive index', () => {
   beforeEach(() => {
+    notifications.clean();
     sessionStorage.clear();
     workflow.state = makeState();
     workflow.activeWorkspace = { id: 'workspace-it', name: 'IT Capstone - IT332' };
@@ -171,7 +193,7 @@ describe('archive index', () => {
   });
 
 
-  it('enables stored-file actions and keeps storage retry separate from integrity verification', () => {
+  it('allows an existing stored download but disables unsupported server storage mutations', () => {
     workflow.state = {
       ...makeState([
         makeArchive(0, {
@@ -188,8 +210,8 @@ describe('archive index', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Software 001 archive details' }));
     let drawer = screen.getByRole('dialog', { name: 'Archive record details' });
     expect(within(drawer).getByRole('link', { name: 'Download archived PDF' })).toHaveAttribute('href', 'https://archive.example.edu/final.pdf');
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Verify integrity' }));
-    expect(workflow.verifyArchive).toHaveBeenCalledWith('archive-1');
+    expect(within(drawer).getByRole('button', { name: 'Verify integrity' })).toBeDisabled();
+    expect(within(drawer).getByRole('button', { name: 'Retry archive' })).toBeDisabled();
 
     view.unmount();
     workflow.state = {
@@ -200,8 +222,8 @@ describe('archive index', () => {
     expect(within(screen.getByRole('table', { name: 'Archive records' })).getByText('Storage failed')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Open Software 001 archive details' }));
     drawer = screen.getByRole('dialog', { name: 'Archive record details' });
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Retry archive' }));
-    expect(workflow.retryArchive).toHaveBeenCalledWith('archive-1');
+    expect(within(drawer).getByRole('button', { name: 'Retry archive' })).toBeDisabled();
+    expect(within(drawer).getByRole('button', { name: 'Verify integrity' })).toBeDisabled();
   });
   it('confirms the exact accepted-response scope before creating archive records', async () => {
     renderPage();
@@ -213,7 +235,21 @@ describe('archive index', () => {
     expect(confirmation).toHaveTextContent('does not create independent PDF copies');
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Archive 2 finals' }));
 
-    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledWith(['accepted-1', 'accepted-2']));
+    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledWith('workspace-it', ['accepted-1', 'accepted-2']));
+    await waitFor(() => expect(workflow.refreshArchive).toHaveBeenCalledTimes(1));
+  });
+
+  it('discards a late archive failure after switching workspace', async () => {
+    let fail;
+    workflow.archiveAttempts.mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject; }));
+    const view = renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive 2 finals' }));
+    workflow.activeWorkspace = { id: 'workspace-cs', name: 'CS Capstone' };
+    view.rerender(pageTree());
+    await act(async () => { fail(new Error('Private old archive failure')); });
+    expect(screen.queryByText('Private old archive failure')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Archive accepted finals (2)' })).toBeEnabled();
   });
 
   it('renders complete loading, error, empty, failed, retrying, and verified states', () => {

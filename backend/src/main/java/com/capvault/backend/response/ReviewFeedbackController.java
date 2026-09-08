@@ -1,6 +1,7 @@
 package com.capvault.backend.response;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -91,7 +92,7 @@ public class ReviewFeedbackController {
         var session = security.requireSession(http);
         String role = requireStaffRole(session.googleSubject());
         feedbackService.requireStaffTeamAccess(responseId, session.googleSubject(), role);
-        feedbackService.revoke(responseId);
+        feedbackService.revoke(responseId, session.googleSubject(), role);
         return ResponseEntity.noContent().build();
     }
 
@@ -99,16 +100,46 @@ public class ReviewFeedbackController {
     public List<Map<String, Object>> feedbackHistory(@PathVariable UUID responseId, HttpServletRequest http) {
         var session = security.requireSession(http);
         // Students may read their own feedback; staff are scoped to their assigned teams.
-        if (!feedbackService.isOwnedBy(responseId, session.googleSubject())) {
+        boolean owned = feedbackService.isOwnedBy(responseId, session.googleSubject());
+        if (!owned) {
             String role = requireStaffRole(session.googleSubject());
             feedbackService.requireStaffTeamAccess(responseId, session.googleSubject(), role);
         }
         return feedbackService.feedbackFor(responseId).stream()
+            .filter(f -> !owned || f.isStudentVisible())
             .map(f -> Map.<String, Object>of(
                 "note", f.getNote(),
                 "visibility", f.getVisibility(),
                 "authorRole", f.getAuthorRole(),
                 "updatedAt", f.getUpdatedAt().toString()))
             .toList();
+    }
+
+    @GetMapping("/{responseId}/review-state")
+    public Map<String, Object> reviewState(@PathVariable UUID responseId, HttpServletRequest http) {
+        var session = security.requireSession(http);
+        boolean owned = feedbackService.isOwnedBy(responseId, session.googleSubject());
+        if (!owned) {
+            String role = requireStaffRole(session.googleSubject());
+            feedbackService.requireStaffTeamAccess(responseId, session.googleSubject(), role);
+        }
+
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("feedback", feedbackService.feedbackFor(responseId).stream()
+            .filter(f -> !owned || f.isStudentVisible())
+            .map(f -> Map.<String, Object>of(
+                "note", f.getNote(),
+                "visibility", f.getVisibility(),
+                "author", f.getAuthorEmail(),
+                "authorRole", f.getAuthorRole(),
+                "updatedAt", f.getUpdatedAt().toString()))
+            .toList());
+        feedbackService.activeAcceptance(responseId).ifPresent(acceptance -> state.put("acceptance", Map.of(
+            "acceptedAt", acceptance.getAcceptedAt().toString(),
+            "acceptedBy", acceptance.getAcceptedByEmail(),
+            "acceptedByRole", acceptance.getAcceptedByRole(),
+            "sourceResponseUpdatedAt", acceptance.getSourceResponseUpdatedAt().toString()
+        )));
+        return state;
     }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
 
   Alert,
@@ -18,7 +18,6 @@ import {
 } from '@mantine/core';
 import { CalendarBlank, Clock, FilePdf, LinkSimple, PaperPlaneTilt, WarningCircle } from '@phosphor-icons/react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 import { FormArtwork } from '../components/public/FormArtwork.jsx';
@@ -42,6 +41,7 @@ import {
   openPublicSubmission,
   saveSubmissionDraft
 } from '../lib/submissionClient.js';
+import { getRosterOptions } from '../lib/api.js';
 
 function FormUnavailable({ deliverable }) {
   return (
@@ -99,17 +99,13 @@ export function PublicSubmissionPage() {
   const { slug, workspaceKey } = useParams();
   const [searchParams] = useSearchParams();
   const {
-    state,
-    authenticateGoogleAccount,
-    refreshBackendData
-  } = useWorkflow();
-  const {
     session,
     account: activeAccount,
     activeWorkspace,
     activeWorkspaceId,
     needsWorkspaceChoice,
-    switchWorkspace
+    switchWorkspace,
+    refreshSession
   } = useWorkspaceSession();
   const activeWorkspaceKey = getWorkspacePublicKey(activeWorkspace);
   const [workspaceStatus, setWorkspaceStatus] = useState('loading');
@@ -124,17 +120,23 @@ export function PublicSubmissionPage() {
   const [fieldErrors, setFieldErrors] = useState({});
   const [draftStatus, setDraftStatus] = useState(''); // '', 'saving', 'saved', 'error'
   const draftRevisionRef = useRef(null);
+  const privateScope = useRef(0);
   const [identityErrors, setIdentityErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [result, setResult] = useState(null);
-  const student = useMemo(() => findStudent(state.students, identity.studentNumber), [identity.studentNumber, state.students]);
+  const [identityStudents, setIdentityStudents] = useState([]);
+  const student = useMemo(() => findStudent(identityStudents, identity.studentNumber), [identity.studentNumber, identityStudents]);
   const [serverAssociation, setServerAssociation] = useState(null);
   const [myServerResponse, setMyServerResponse] = useState(null);
   const ownedResponse = myServerResponse;
-  const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
   const requiresPdf = Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    privateScope.current += 1;
+    setSubmitting(false);
+    setFormError('');
+    setIdentityErrors({});
+    setFieldErrors({});
     setValues({});
     setServerAssociation(null);
     setMyServerResponse(null);
@@ -144,7 +146,8 @@ export function PublicSubmissionPage() {
     if (session?.authenticated) {
       setIdentity({ studentNumber: '', studentName: '', teamCode: '' });
     }
-  }, [activeAccount?.email, deliverable?.id, publicFormPayload?.workspace?.id, session?.authenticated]);
+    return () => { privateScope.current += 1; };
+  }, [activeAccount?.email, activeWorkspaceId, deliverable?.id, publicFormPayload?.workspace?.id, session?.authenticated]);
 
   useEffect(() => {
     let active = true;
@@ -204,9 +207,36 @@ export function PublicSubmissionPage() {
   }, [activeWorkspaceId, needsWorkspaceChoice, publicFormPayload?.workspace?.id, session?.authenticated, switchWorkspace]);
 
   useEffect(() => {
+    let cancelled = false;
+    const workspaceId = publicFormPayload?.workspace?.id;
+    if (!session?.authenticated || !workspaceId || workspaceId !== activeWorkspaceId) {
+      setIdentityStudents([]);
+      return () => { cancelled = true; };
+    }
+    getRosterOptions(workspaceId)
+      .then((rows) => {
+        if (cancelled) return;
+        setIdentityStudents(getIdentityStudents((rows || []).map((row) => ({
+          rowKey: row.id,
+          studentNumber: row.studentNumber || '',
+          name: row.studentName || '',
+          teamCode: row.teamCode || '',
+          memberNumber: row.memberNumber || '',
+          section: row.sectionName || '',
+          adviser: row.adviserName || '',
+          email: row.institutionalEmail || '',
+          milestones: {}
+        }))));
+      })
+      .catch((error) => {
+        if (!cancelled) setFormError(error?.message || 'The class roster could not be loaded.');
+      });
+    return () => { cancelled = true; };
+  }, [activeWorkspaceId, publicFormPayload?.workspace?.id, session?.authenticated]);
+
+  useEffect(() => {
     const targetStudentNumber = queryStudent;
-    if (session?.authenticated) return;
-    if (!targetStudentNumber) return;
+    if (!targetStudentNumber || serverAssociation) return;
     const matched = findStudent(identityStudents, targetStudentNumber);
     if (matched) {
       setIdentity((current) => ({
@@ -215,7 +245,17 @@ export function PublicSubmissionPage() {
         teamCode: matched.teamCode || current.teamCode
       }));
     }
-  }, [identityStudents, queryStudent, session?.authenticated]);
+  }, [identityStudents, queryStudent, serverAssociation]);
+
+  useEffect(() => {
+    const matched = findStudent(identityStudents, serverAssociation?.studentNumber);
+    if (!matched) return;
+    setIdentity((current) => current.studentNumber === matched.studentNumber ? {
+      ...current,
+      studentName: matched.name,
+      teamCode: serverAssociation.teamCode || matched.teamCode || ''
+    } : current);
+  }, [identityStudents, serverAssociation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -230,11 +270,10 @@ export function PublicSubmissionPage() {
         if (cancelled) return;
         setServerAssociation(association || null);
         if (association?.studentNumber) {
-          const matched = findStudent(identityStudents, association.studentNumber);
           setIdentity({
             studentNumber: association.studentNumber,
-            studentName: matched?.name || association.studentName || '',
-            teamCode: association.teamCode || matched?.teamCode || ''
+            studentName: association.studentName || '',
+            teamCode: association.teamCode || ''
           });
         }
         const owned = response ? {
@@ -255,7 +294,7 @@ export function PublicSubmissionPage() {
         setFormError(describeSubmissionError(error));
       });
     return () => { cancelled = true; };
-  }, [activeAccount?.email, activeWorkspaceId, deliverable?.id, identityStudents, publicFormPayload?.workspace?.id, session?.authenticated]);
+  }, [activeAccount?.email, activeWorkspaceId, deliverable?.id, publicFormPayload?.workspace?.id, session?.authenticated]);
 
   useEffect(() => {
     if (!session?.authenticated || !activeWorkspaceId || activeWorkspaceId !== publicFormPayload?.workspace?.id || !deliverable?.id) return undefined;
@@ -296,13 +335,14 @@ export function PublicSubmissionPage() {
     setFormError('');
   }
 
-  function finishGoogleSignIn(googleIdentity) {
-    const response = authenticateGoogleAccount(googleIdentity);
-    if (!response.ok) setFormError(response.error);
+  async function finishGoogleSignIn() {
+    const current = await refreshSession();
+    if (!current?.authenticated) setFormError('Google sign-in completed, but the WildTrack session could not be opened.');
   }
 
   async function submit(event) {
     event.preventDefault();
+    const submittingScope = privateScope.current;
     setFormError('');
     setFieldErrors({});
     if (!activeAccount) {
@@ -336,18 +376,20 @@ export function PublicSubmissionPage() {
     try {
       if (serverAssociation?.studentNumber !== identity.studentNumber) {
         const association = await confirmSubmissionAssociation(activeWorkspaceId, identity.studentNumber);
+        if (submittingScope !== privateScope.current) return;
         setServerAssociation(association || null);
       }
-      const saved = await commitSubmission(activeWorkspaceId, deliverable.id, values);
+      const saved = await commitSubmission(activeWorkspaceId, deliverable.id, values, myServerResponse?.revision ?? null);
+      if (submittingScope !== privateScope.current) return;
       if (saved.conflict) {
         setFormError('A newer version was saved from another session. Reload the form to continue editing.');
         return;
       }
       clearSubmissionDraft(activeWorkspaceId, deliverable.id).catch(() => {});
-      refreshBackendData?.({ silent: true })?.catch?.(() => {});
+      setMyServerResponse((current) => ({ ...current, id: saved.responseId, revision: saved.revision, values }));
       setResult({
         ok: true,
-        updated: saved.changed && saved.revision > 1,
+        updated: saved.changed && Boolean(myServerResponse),
         unchanged: !saved.changed,
         attempt: { values, primaryStatus: 'Submitted', reviewStatus: 'PENDING_REVIEW' },
         student: { name: identity.studentName, studentNumber: identity.studentNumber, teamCode: identity.teamCode },
@@ -355,15 +397,16 @@ export function PublicSubmissionPage() {
         trackerSync: null
       });
     } catch (error) {
+      if (submittingScope !== privateScope.current) return;
       setFormError(describeSubmissionError(error));
     } finally {
-      setSubmitting(false);
+      if (submittingScope === privateScope.current) setSubmitting(false);
     }
   }
 
   return (
     <main className="wt-public-root">
-      <WildTrackPublicHeader subtitle={state.classRecord.name} />
+      <WildTrackPublicHeader subtitle={publicFormPayload?.workspace?.name || activeWorkspace?.name || 'WildTrack'} />
       <Container component="section" size="sm" py={{ base: 'lg', sm: 'xl' }}>
         {(workspaceStatus === 'loading' || (fetchingPublicForm && !deliverable)) ? <FormLoading /> : workspaceStatus === 'error' ? (
           <WorkspaceError message={workspaceError} />

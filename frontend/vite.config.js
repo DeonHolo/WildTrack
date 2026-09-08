@@ -16,7 +16,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.js',
     css: true,
-    exclude: [...configDefaults.exclude, 'tests/browser/**'],
+    exclude: [...configDefaults.exclude, 'tests/browser/**', 'tests/persistence/**'],
     testTimeout: 15000
   },
   server: {

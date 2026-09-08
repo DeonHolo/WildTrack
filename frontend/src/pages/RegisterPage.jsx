@@ -2,27 +2,21 @@ import { Alert, Box, Container, Paper, Stack, Text, Title } from '@mantine/core'
 import { LockSimple, WarningCircle } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
-import { getCurrentSession } from '../lib/api.js';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { GoogleSignInButton } from '../components/auth/GoogleSignInButton.jsx';
 import { STUDENT_ARTWORK } from '../lib/studentArtwork.js';
 
 export function RegisterPage() {
-  const { authenticateGoogleAccount } = useWorkflow();
+  const { refreshSession } = useWorkspaceSession();
   const navigate = useNavigate();
   const location = useLocation();
   const [error, setError] = useState('');
   const artwork = STUDENT_ARTWORK.loginHero || STUDENT_ARTWORK.dashboardWelcome;
 
-  async function finishGoogleSignIn(identity) {
+  async function finishGoogleSignIn() {
     setError('');
-    const response = authenticateGoogleAccount(identity);
-    if (!response.ok) {
-      setError(response.error);
-      return;
-    }
     try {
-      const sessionData = await getCurrentSession();
+      const sessionData = await refreshSession();
       const roles = (sessionData?.roles || []).map((r) => String(r).toUpperCase());
       if (roles.includes('ADMIN')) {
         navigate(location.state?.from || '/', { replace: true });
@@ -32,8 +26,9 @@ export function RegisterPage() {
         navigate(location.state?.from || '/adviser', { replace: true });
         return;
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      setError(error?.message || 'Your WildTrack session could not be loaded.');
+      return;
     }
     navigate(location.state?.from || '/student', { replace: true });
   }

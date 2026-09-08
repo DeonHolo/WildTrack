@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -13,6 +14,7 @@ const api = vi.hoisted(() => ({
   getPublicSubmissionForm: vi.fn(),
   getMyAssociation: vi.fn(),
   getMyResponse: vi.fn(),
+  getRosterOptions: vi.fn(),
   saveDraft: vi.fn(),
   submitResponse: vi.fn()
 }));
@@ -25,6 +27,7 @@ vi.mock('../lib/api.js', async (importOriginal) => ({
   getPublicSubmissionForm: api.getPublicSubmissionForm,
   getMyAssociation: api.getMyAssociation,
   getMyResponse: api.getMyResponse,
+  getRosterOptions: api.getRosterOptions,
   saveDraft: api.saveDraft,
   submitResponse: api.submitResponse
 }));
@@ -75,10 +78,6 @@ const workspaceSession = vi.hoisted(() => ({
   switchWorkspace: vi.fn()
 }));
 
-vi.mock('../app/WorkflowContext.jsx', () => ({
-  useWorkflow: () => workflow
-}));
-
 vi.mock('../app/WorkspaceSession.jsx', () => ({
   useWorkspaceSession: () => workspaceSession
 }));
@@ -95,7 +94,7 @@ function setAnonymousSession() {
 
 function FormHarness({ path = '/submit/week-9-srs' }) {
   return (
-    <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
+    <MantineProvider theme={wildTrackTheme} forceColorScheme="light" env="test">
       <ModalsProvider>
         <MemoryRouter
           initialEntries={[path]}
@@ -117,16 +116,16 @@ function renderForm(path = '/submit/week-9-srs') {
 
 async function selectStudent() {
   const studentNumber = await screen.findByRole('combobox', { name: /Student Number/i });
-  fireEvent.focus(studentNumber);
-  fireEvent.change(studentNumber, { target: { value: '22-1001' } });
-  fireEvent.click(screen.getByRole('option', { name: '22-1001-001' }));
+  await userEvent.click(studentNumber);
+  await userEvent.type(studentNumber, '22-1001');
+  fireEvent.click(await screen.findByRole('option', { name: '22-1001-001' }));
 }
 
 async function selectStudentByName(name = 'DELA CRUZ') {
   const studentName = await screen.findByRole('combobox', { name: /Student Name/i });
-  fireEvent.focus(studentName);
-  fireEvent.change(studentName, { target: { value: name } });
-  fireEvent.click(screen.getByRole('option', { name: /DELA CRUZ, JUAN CARLOS M\./i }));
+  await userEvent.click(studentName);
+  await userEvent.type(studentName, name);
+  fireEvent.click(await screen.findByRole('option', { name: /DELA CRUZ, JUAN CARLOS M\./i }));
 }
 
 describe('public submission form', () => {
@@ -165,6 +164,14 @@ describe('public submission form', () => {
       } : null;
     });
     api.getDraft.mockReset().mockResolvedValue({ present: false, values: null, revision: 0 });
+    api.getRosterOptions.mockReset().mockResolvedValue(createState().students.map((student, index) => ({
+      id: `student-${index + 1}`,
+      studentNumber: student.studentNumber,
+      studentName: student.name,
+      teamCode: student.teamCode,
+      memberNumber: student.memberNumber,
+      adviserName: student.adviser
+    })));
     api.getPublicSubmissionForm.mockReset();
     api.getPublicSubmissionForm.mockResolvedValue({
       workspace: workspaceSession.activeWorkspace,
@@ -233,8 +240,8 @@ describe('public submission form', () => {
 
     renderForm();
 
-    expect(await screen.findByRole('textbox', { name: /PDF Drive Link/i }))
-      .toHaveValue('https://drive.google.com/file/d/server-draft/view');
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /PDF Drive Link/i }))
+      .toHaveValue('https://drive.google.com/file/d/server-draft/view'));
     expect(api.getDraft).toHaveBeenCalledWith('workspace-it', 'deliv-srs');
   });
 
@@ -248,6 +255,7 @@ describe('public submission form', () => {
     renderForm();
 
     const input = await screen.findByRole('textbox', { name: /PDF Drive Link/i });
+    await waitFor(() => expect(input).toHaveValue('https://drive.google.com/file/d/server-draft/view'));
     fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/edited-draft/view' } });
 
     await waitFor(() => expect(api.saveDraft).toHaveBeenCalledWith(
@@ -274,6 +282,31 @@ describe('public submission form', () => {
     });
   });
 
+  it('preserves edits and the returning identity when roster options arrive late', async () => {
+    let resolveRoster;
+    api.getRosterOptions.mockImplementationOnce(() => new Promise((resolve) => { resolveRoster = resolve; }));
+    api.getMyAssociation.mockResolvedValue({
+      studentNumber: '22-1001-001',
+      studentName: 'Google display name',
+      teamCode: '2526-sem2-it332-11'
+    });
+    renderForm('/submit/week-9-srs?student=22-1002-002');
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /Student Number/i })).toHaveValue('22-1001-001'));
+    fireEvent.change(screen.getByRole('textbox', { name: /PDF Drive Link/i }), {
+      target: { value: 'https://drive.google.com/file/d/unsaved-edit/view' }
+    });
+    resolveRoster(createState().students.map((student, index) => ({
+      id: `student-${index + 1}`,
+      studentNumber: student.studentNumber,
+      studentName: student.name,
+      teamCode: student.teamCode
+    })));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.'));
+    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('https://drive.google.com/file/d/unsaved-edit/view');
+    expect(api.getMyResponse).toHaveBeenCalledTimes(1);
+    expect(api.getRosterOptions).toHaveBeenCalledWith('workspace-it');
+  });
+
   it('requires verified Google identity before class-record and submission fields are shown', async () => {
     setAnonymousSession();
     renderForm();
@@ -286,6 +319,7 @@ describe('public submission form', () => {
     expect(screen.queryByRole('combobox', { name: /Student Number/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /PDF Drive Link/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Submit response/i })).not.toBeInTheDocument();
+    expect(api.getRosterOptions).not.toHaveBeenCalled();
   });
 
   it('opens as one WildTrack form with accessible header artwork', async () => {
@@ -314,11 +348,11 @@ describe('public submission form', () => {
     renderForm();
 
     const studentNumber = await screen.findByRole('combobox', { name: /Student Number/i });
-    fireEvent.focus(studentNumber);
-    fireEvent.change(studentNumber, { target: { value: '22-1001' } });
+    await userEvent.click(studentNumber);
+    await userEvent.type(studentNumber, '22-1001');
 
     const numberListbox = screen.getByRole('listbox');
-    expect(within(numberListbox).getByRole('option', { name: '22-1001-001' })).toBeInTheDocument();
+    expect(await within(numberListbox).findByRole('option', { name: '22-1001-001' })).toBeInTheDocument();
     expect(within(numberListbox).queryByText('DELA CRUZ, JUAN CARLOS M.')).not.toBeInTheDocument();
     expect(within(numberListbox).queryByText('2526-sem2-it332-11')).not.toBeInTheDocument();
   });
@@ -477,6 +511,22 @@ describe('public submission form', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Submit response' })).toBeDisabled());
   });
 
+  it('discards a late submission result after the signed-in account changes', async () => {
+    let finishSave;
+    api.submitResponse.mockReturnValue(new Promise((resolve) => { finishSave = resolve; }));
+    const view = renderForm();
+    await selectStudent();
+    fireEvent.change(screen.getByRole('textbox', { name: /PDF Drive Link/i }), { target: { value: 'https://drive.google.com/file/d/old-private-link' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
+    await waitFor(() => expect(api.submitResponse).toHaveBeenCalled());
+    setServerSession('next-account@gmail.com');
+    view.rerender(<FormHarness />);
+    await act(async () => { finishSave({ changed: true, responseId: 'old-response', revision: 0 }); });
+    expect(screen.queryByRole('heading', { name: 'Response received' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('');
+    expect(api.clearDraft).not.toHaveBeenCalled();
+  });
+
   it('shows a backend submission failure without creating a local-only success', async () => {
     api.submitResponse.mockRejectedValue(new Error('Network unavailable.'));
     renderForm();
@@ -521,6 +571,9 @@ describe('public submission form', () => {
     [{ updated: true }, 'Response updated'],
     [{ unchanged: true }, 'No changes saved']
   ])('shows the complete result state after submission', async (overrides, expectedTitle) => {
+    if (overrides.updated || overrides.unchanged) {
+      api.getMyResponse.mockResolvedValue({ id: 'server-response', revision: 1, valuesJson: '{}' });
+    }
     api.submitResponse.mockResolvedValue({
       changed: !overrides.unchanged,
       responseId: 'server-response',
@@ -530,9 +583,11 @@ describe('public submission form', () => {
     renderForm();
     await selectStudent();
     fireEvent.change(screen.getByRole('textbox', { name: /PDF Drive Link/i }), { target: { value: 'https://drive.google.com/file/d/final-pdf' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
+    fireEvent.click(screen.getByRole('button', { name: overrides.updated || overrides.unchanged ? 'Save response changes' : 'Submit response' }));
 
     expect(await screen.findByRole('heading', { name: expectedTitle })).toBeInTheDocument();
+    expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', expect.any(Object),
+      overrides.updated || overrides.unchanged ? 1 : null);
     const successArtwork = screen.getByRole('img', { name: /WildTrack mascot celebrating a recorded submission/i });
     expect(successArtwork).toHaveStyle('background-image: url("/assets/Good%20Job.webp")');
     expect(successArtwork).toHaveStyle('background-size: auto 100%');

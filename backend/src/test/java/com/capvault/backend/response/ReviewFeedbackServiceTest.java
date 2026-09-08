@@ -80,6 +80,12 @@ class ReviewFeedbackServiceTest {
         return responseService.ownedResponse(workspaceId, deliverableId, "sub-student").orElseThrow().getId();
     }
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    @Autowired
+    private CanonicalResponseService canonical;
+
     @Test
     void staffSavesAndEditsOneCurrentFeedbackNote() {
         UUID rid = responseId();
@@ -91,6 +97,8 @@ class ReviewFeedbackServiceTest {
         var history = service.feedbackFor(rid);
         assertThat(history).hasSize(1);
         assertThat(history.get(0).getNote()).isEqualTo("Revise chapter 2.");
+        var audit = jdbc.queryForList("select details_json from domain_audit_events where target_id = ? and action = 'FEEDBACK_SAVED'", String.class, rid);
+        assertThat(audit).hasSize(2).anyMatch(value -> value.contains("Good structure.")).anyMatch(value -> value.contains("Revise chapter 2."));
     }
 
     @Test
@@ -107,6 +115,8 @@ class ReviewFeedbackServiceTest {
 
         assertThat(acceptance.getRevokedAt()).isNull();
         assertThat(service.activeAcceptance(rid)).isPresent();
+        var response = responseService.ownedResponse(workspaceId, deliverableId, "sub-student").orElseThrow();
+        assertThat(canonical.canonicalResponseId(workspaceId, deliverableId, response.getStudentRecordId())).contains(rid);
     }
 
     @Test
@@ -125,8 +135,9 @@ class ReviewFeedbackServiceTest {
     void revokeClearsAcceptance() {
         UUID rid = responseId();
         service.accept(rid, "sub-adviser", "adv@school.edu", "ADVISER");
-        service.revoke(rid);
+        service.revoke(rid, "sub-adviser", "ADVISER");
 
         assertThat(service.activeAcceptance(rid)).isEmpty();
+        assertThat(jdbc.queryForObject("select actor_subject from domain_audit_events where target_id = ? and action = 'ACCEPTANCE_REVOKED'", String.class, rid)).isEqualTo("sub-adviser");
     }
 }

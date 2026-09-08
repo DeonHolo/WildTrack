@@ -23,9 +23,12 @@ import {
   WarningCircle,
   X
 } from '@phosphor-icons/react';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { ArchiveIndexTable } from '../components/archive/ArchiveIndexTable.jsx';
 import { ArchiveRecordDrawer } from '../components/archive/ArchiveRecordDrawer.jsx';
+import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
+import { archiveAttempts as archiveServerAttempts, emptyArchiveState, loadArchiveState } from '../lib/archiveClient.js';
 import { getArchiveStatus, getArchiveVersion } from '../lib/archive.js';
 
 const PAGE_SIZE = 50;
@@ -45,23 +48,25 @@ const EMPTY_FILTERS = {
 };
 
 export function ArchivePage() {
-  const workflow = useWorkflow();
   const [searchParams] = useSearchParams();
   const linkedArchiveId = searchParams.get('record') || '';
-  const {
-    state,
-    activeWorkspace,
-    workspaces = [],
-    archiveAttempts,
-    verifyArchive,
-    retryArchive,
-    refreshArchive
-  } = workflow;
+  const { activeWorkspace, activeWorkspaceId, workspaces = [] } = useWorkspaceSession();
+  const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
+  const { data: state, status: archiveStatus, error: archiveError, reload: refreshArchive } = useWorkspaceResource(
+    activeWorkspaceId,
+    loadArchiveState,
+    emptyArchiveState
+  );
   const [filters, setFilters] = useState(loadArchiveFilters);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selectedArchiveId, setSelectedArchiveId] = useState(linkedArchiveId);
   const [page, setPage] = useState(1);
   const [archiving, setArchiving] = useState(false);
+
+  useEffect(() => {
+    setArchiving(false);
+    setSelectedArchiveId(linkedArchiveId);
+  }, [isCurrentScope, linkedArchiveId]);
 
   const archives = useMemo(
     () => [...(state.archives || [])].sort((a, b) => new Date(b.archivedAt) - new Date(a.archivedAt)),
@@ -125,8 +130,16 @@ export function ArchivePage() {
       labels: { confirm: `Archive ${candidates.length} finals`, cancel: 'Cancel' },
       confirmProps: { color: 'wildtrackMaroon', loading: archiving },
       onConfirm: async () => {
+        if (!isCurrentScope()) return;
         setArchiving(true);
-        const result = await archiveAttempts(candidates.map((attempt) => attempt.id));
+        let result;
+        try {
+          result = await archiveServerAttempts(activeWorkspaceId, candidates.map((attempt) => attempt.id));
+          await refreshArchive();
+        } catch (error) {
+          result = { ok: false, error: error?.message || 'The accepted finals could not be archived.' };
+        }
+        if (!isCurrentScope()) return;
         setArchiving(false);
         if (result?.ok) {
           const count = result.archived ?? candidates.length;
@@ -146,7 +159,7 @@ export function ArchivePage() {
     });
   }
 
-  const loadStatus = state.archiveLoadStatus || 'ready';
+  const loadStatus = archiveStatus === 'idle' ? 'ready' : archiveStatus;
 
   return (
     <div className="wt-archive-page">
@@ -188,7 +201,7 @@ export function ArchivePage() {
       ) : loadStatus === 'error' ? (
         <Alert role="alert" icon={<WarningCircle size={20} />} color="red" title="Archive records could not be loaded">
           <Stack gap="sm" align="flex-start">
-            <Text size="sm">{state.archiveLoadError || 'Try loading the archive again.'}</Text>
+            <Text size="sm">{archiveError || 'Try loading the archive again.'}</Text>
             {refreshArchive ? <Button variant="outline" color="red" onClick={refreshArchive}>Retry</Button> : null}
           </Stack>
         </Alert>
@@ -275,8 +288,6 @@ export function ArchivePage() {
         opened={Boolean(selectedArchive)}
         storageConfigured={storageConfigured}
         onClose={() => setSelectedArchiveId('')}
-        onVerify={verifyArchive}
-        onRetry={retryArchive}
       />
     </div>
   );
