@@ -1,3 +1,4 @@
+import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { Alert, Button, Container, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { ArrowClockwise, WarningCircle } from '@phosphor-icons/react';
@@ -45,7 +46,7 @@ export function StudentStatusPage() {
     status: dashboardStatus,
     error: dashboardError,
     reload: refreshDashboard
-  } = useWorkspaceResource(activeWorkspaceId, loadStudentDashboard, emptyStudentDashboardState);
+  } = useWorkspaceResource(activeWorkspaceId, loadStudentDashboard, emptyStudentDashboardState, 'student-dashboard');
   const [selectedNumber, setSelectedNumber] = useState('');
   const [connectionError, setConnectionError] = useState('');
   const [signInError, setSignInError] = useState('');
@@ -178,8 +179,8 @@ export function StudentStatusPage() {
       />
     );
   }
-  if (workspaceCatalogStatus === 'loading') return <LoadingDashboard />;
-  if (workspaceCatalogStatus === 'error' || !workspaces?.length || needsWorkspaceChoice) {
+  if (workspaceCatalogStatus === 'loading' && !activeWorkspaceId) return <LoadingDashboard />;
+  if ((workspaceCatalogStatus === 'error' && !activeWorkspaceId) || !workspaces?.length || needsWorkspaceChoice) {
     return (
       <DashboardContainer>
         <Paper className="wt-student-connect wt-student-connect-column" withBorder radius="sm" p="lg">
@@ -205,6 +206,7 @@ export function StudentStatusPage() {
     );
   }
   if (isLoading) return <LoadingDashboard />;
+  if (dashboardStatus === 'error') return <DashboardContainer><ResourceBoundary status={dashboardStatus} error={dashboardError} onRetry={refreshDashboard} /></DashboardContainer>;
 
   if (!studentNumber) {
     return (
@@ -216,6 +218,8 @@ export function StudentStatusPage() {
             <Text c="dimmed">Choose your Student Number once. WildTrack fills in the matching name and team details.</Text>
           </header>
           <StudentWorkspacePicker key={activeWorkspaceId} />
+          {dashboardError ? <ResourceBoundary status="ready" error={dashboardError} onRetry={refreshDashboard} /> : null}
+          {workspaceCatalogError ? <ResourceBoundary status="ready" error={workspaceCatalogError} onRetry={refreshWorkspaceCatalog} /> : null}
           {connectionError ? <Alert color="red" icon={<WarningCircle size={18} />} mb="md">{connectionError}</Alert> : null}
           {connectionOptions.length ? (
             <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
@@ -274,6 +278,8 @@ export function StudentStatusPage() {
       </header>
 
       <StudentWorkspacePicker key={activeWorkspaceId} />
+      {dashboardError ? <ResourceBoundary status="ready" error={dashboardError} onRetry={refreshDashboard} /> : null}
+      {workspaceCatalogError ? <ResourceBoundary status="ready" error={workspaceCatalogError} onRetry={refreshWorkspaceCatalog} /> : null}
 
       {connectionError ? <Alert color="red" icon={<WarningCircle size={18} />}>{connectionError}</Alert> : null}
       <StudentWelcomeBanner student={student} rows={deliverableRows} />

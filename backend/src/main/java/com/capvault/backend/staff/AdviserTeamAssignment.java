@@ -43,6 +43,7 @@ public class AdviserTeamAssignment {
     public UUID getId() { return id; }
     public UUID getWorkspaceId() { return workspaceId; }
     public String getGoogleSubject() { return googleSubject; }
+    public void setGoogleSubject(String subject) { googleSubject = subject; }
     public String getTeamCode() { return teamCode; }
     public Instant getCreatedAt() { return createdAt; }
 }

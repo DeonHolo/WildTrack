@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ResponseFeedbackRepository extends JpaRepository<ResponseFeedback, UUID> {
+    List<ResponseFeedback> findAllByResponseIdInOrderByUpdatedAtDesc(List<UUID> responseIds);
 
     List<ResponseFeedback> findAllByResponseIdOrderByUpdatedAtDesc(UUID responseId);
 

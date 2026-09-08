@@ -66,7 +66,7 @@ export async function installApiFixtures(page, { role = 'student', connected = f
       projects: association ? projects : [], trackerColumns: columns, trackerRows: association ? rows : [],
       deliverables, responses, reviewStates: {}, fileChecks: {}
     });
-    if (path === '/monitoring' && method === 'GET') return reply({ students: [student], projects, trackerColumns: columns, trackerRows: rows, deliverables, responses, teamCodes: [student.teamCode], allTeams: role === 'admin' });
+    if (path === '/monitoring' && method === 'GET') return reply({ students: [student], projects, trackerColumns: columns, trackerRows: rows, deliverables, responses, reviewStates: Object.fromEntries(responses.map(item => [item.id, { feedback: [], acceptance: null }])), fileChecks: {}, teamCodes: [student.teamCode], allTeams: role === 'admin' });
     const collections = { '/students': [student], '/projects': projects, '/tracker/columns': columns, '/tracker/rows': rows, '/deliverables': deliverables, '/templates': [], '/workspace/responses/my-team': responses,
       '/workspace/students/identity-conflicts': [], '/workspace/staff': [],
       '/workspace/sources': ['TEAM_FORMATION', 'TRACKER', 'PROJECT_MONITOR'].map((sourceType) => ({ sourceType, status: 'IMPORTED', displayName: sourceType, sheetUrl: 'https://docs.google.com/spreadsheets/d/browser-sheet/edit' })) };

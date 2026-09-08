@@ -60,10 +60,16 @@ export async function loadSubmissionState(workspaceId, deliverableId) {
     getDraft(workspaceId, deliverableId),
     getMyResponse(workspaceId, deliverableId)
   ]);
+  const ownedResponse = response ? { ...response, values: parseValues(response.valuesJson) } : null;
+  const savedDraft = draft?.present ? draft : null;
+  // A newer draft is unfinished work on the submitted response; an older draft
+  // must not roll back a submission made from another session.
+  const useDraft = savedDraft && (!response || Date.parse(savedDraft.updatedAt) >= Date.parse(response.updatedAt));
   return {
     association: association || null,
-    draft: draft?.present ? draft : null,
-    response: response ? { ...response, values: parseValues(response.valuesJson) } : null
+    draft: savedDraft,
+    response: ownedResponse,
+    values: useDraft ? savedDraft.values || {} : ownedResponse?.values || {}
   };
 }
 

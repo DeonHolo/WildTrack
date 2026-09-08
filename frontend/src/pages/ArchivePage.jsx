@@ -1,3 +1,4 @@
+import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -55,8 +56,7 @@ export function ArchivePage() {
   const { data: state, status: archiveStatus, error: archiveError, reload: refreshArchive } = useWorkspaceResource(
     activeWorkspaceId,
     loadArchiveState,
-    emptyArchiveState
-  );
+    emptyArchiveState, 'archive');
   const [filters, setFilters] = useState(loadArchiveFilters);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selectedArchiveId, setSelectedArchiveId] = useState(linkedArchiveId);
@@ -192,6 +192,7 @@ export function ArchivePage() {
         </Alert>
       ) : null}
 
+      {archiveError && loadStatus === 'ready' ? <ResourceBoundary status="ready" error={archiveError} onRetry={refreshArchive} /> : null}
       {loadStatus === 'loading' ? (
         <Paper withBorder className="wt-archive-loading" aria-live="polite">
           <Text fw={700}>Loading archive records</Text>

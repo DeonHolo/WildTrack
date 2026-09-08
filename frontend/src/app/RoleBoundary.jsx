@@ -13,11 +13,12 @@ export function RoleBoundary({ allow, children }) {
   const session = workspaceSession?.session;
 
   if (!import.meta.env.DEV && workspaceSession?.sessionStatus === 'error') {
-    return <div role="alert">{workspaceSession.sessionError || 'Session could not be loaded.'}</div>;
+    return <div role="alert">{workspaceSession.sessionError || 'Session could not be loaded.'}
+      <button onClick={workspaceSession.refreshSession}>Try again</button></div>;
   }
 
   // Avoid redirect flash while session authentication is resolving in production
-  if (!import.meta.env.DEV && (workspaceSession?.sessionStatus === 'loading' || session === null)) {
+  if (!import.meta.env.DEV && session === null) {
     return null;
   }
 

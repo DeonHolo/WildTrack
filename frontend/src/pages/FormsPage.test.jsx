@@ -28,15 +28,15 @@ const submissionClient = vi.hoisted(() => ({
   unpublishDeliverable: vi.fn()
 }));
 
-const monitoringClient = vi.hoisted(() => ({ loadMonitoringState: vi.fn() }));
+const formsClient = vi.hoisted(() => ({ loadFormsState: vi.fn() }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
   useWorkspaceSession: () => workspaceSession
 }));
 
-vi.mock('../lib/monitoringClient.js', () => ({
-  emptyMonitoringState: () => ({ trackerColumns: [], deliverables: [], attempts: [] }),
-  loadMonitoringState: (...args) => monitoringClient.loadMonitoringState(...args)
+vi.mock('../lib/formsClient.js', () => ({
+  emptyFormsState: () => ({ trackerColumns: [], deliverables: [], attempts: [] }),
+  loadFormsState: (...args) => formsClient.loadFormsState(...args)
 }));
 
 vi.mock('../lib/submissionClient.js', () => submissionClient);
@@ -108,7 +108,7 @@ describe('forms management', () => {
       academicYear: '2025-26'
     };
     workspaceSession.activeWorkspaceId = 'workspace-it';
-    monitoringClient.loadMonitoringState.mockReset().mockImplementation(async () => workflow.state);
+    formsClient.loadFormsState.mockReset().mockImplementation(async () => workflow.state);
     submissionClient.saveDeliverable.mockReset().mockImplementation(async (_workspaceId, payload) => ({
       ...payload,
       id: payload.id || 'deliverable-created'
@@ -136,9 +136,15 @@ describe('forms management', () => {
     expect(screen.getByRole('status')).toHaveTextContent('SRS form link copied');
   });
 
-  it('renders deliverables returned by server monitoring without a local workflow mirror', async () => {
+  it('does not claim there are zero forms while the first request is pending', () => {
+    formsClient.loadFormsState.mockReturnValue(new Promise(() => {}));
+    renderPage();
+    expect(screen.queryByText('0 forms')).not.toBeInTheDocument();
+  });
+
+  it('renders deliverables returned by the forms client without a local workflow mirror', async () => {
     workflow.state.deliverables = [];
-    monitoringClient.loadMonitoringState.mockResolvedValue({ ...createState(), deliverables: [{
+    formsClient.loadFormsState.mockResolvedValue({ ...createState(), deliverables: [{
       ...createState().deliverables[0],
       title: 'Server SRS'
     }] });
@@ -258,7 +264,7 @@ describe('forms management', () => {
 
   it('ignores a deliverable load that finishes after the user switches workspaces', async () => {
     let resolveOldWorkspace;
-    monitoringClient.loadMonitoringState
+    formsClient.loadFormsState
       .mockReset()
       .mockImplementationOnce(() => new Promise((resolve) => { resolveOldWorkspace = resolve; }))
       .mockResolvedValueOnce({ ...createState(), deliverables: [{
@@ -274,7 +280,7 @@ describe('forms management', () => {
       }] });
 
     const view = renderPage();
-    await waitFor(() => expect(monitoringClient.loadMonitoringState).toHaveBeenCalledWith('workspace-it'));
+    await waitFor(() => expect(formsClient.loadFormsState).toHaveBeenCalledWith('workspace-it'));
 
     workspaceSession.activeWorkspace = {
       ...workspaceSession.activeWorkspace,

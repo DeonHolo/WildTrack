@@ -1,3 +1,4 @@
+import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Group, Paper, Popover, Text, TextInput, Title } from '@mantine/core';
 import { CaretLeft, CaretRight, ChartBar, MagnifyingGlass, UsersThree } from '@phosphor-icons/react';
@@ -25,7 +26,7 @@ const COMPACT_LABELS = {
 
 export function TrackerPage() {
   const { activeWorkspaceId } = useWorkspaceSession();
-  const { data: state, status, error } = useWorkspaceResource(activeWorkspaceId, loadMonitoringState, emptyMonitoringState);
+  const { data: state, status, error, reload } = useWorkspaceResource(activeWorkspaceId, loadMonitoringState, emptyMonitoringState, 'monitoring');
   const role = useApplicationRole();
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState(state.activeStudentNumber || getStudentKey(state.students[0]) || '');
@@ -79,8 +80,7 @@ export function TrackerPage() {
         ) : null}
       />
 
-      {status === 'loading' ? <Alert color="blue">Loading tracker data…</Alert> : null}
-      {status === 'error' ? <Alert color="red" role="alert">{error}</Alert> : null}
+      <ResourceBoundary status={status} error={error} onRetry={reload}>
 
       <Paper className="wt-tracker-workbench" withBorder>
         {!state.students.length ? (
@@ -162,6 +162,7 @@ export function TrackerPage() {
           <TrackerGrid rows={pageRows} columns={activeColumns} selectedKey={getStudentKey(selected)} onSelect={(student) => setSelectedKey(getStudentKey(student))} />
         </section>
       </Paper>
+      </ResourceBoundary>
     </div>
   );
 }

@@ -46,6 +46,12 @@ test('student draft/submission and staff acceptance/archive survive clean-storag
     const response = await mine.json();
     expect(response.responseId).toBeTruthy();
 
+    // An unfinished edit must survive reload even when a submitted response exists.
+    await student.getByRole('textbox', { name: 'Submission Link', exact: true }).fill('https://example.test/unfinished-edit');
+    await expect(student.getByText('Draft saved', { exact: true })).toBeVisible();
+    await clearStorageAndReload(student);
+    await expect(student.getByRole('textbox', { name: 'Submission Link', exact: true })).toHaveValue('https://example.test/unfinished-edit');
+
     await signIn(staffContext, process.env.JOURNEY_ADMIN_SESSION);
     const staff = await staffContext.newPage();
     const reviewPath = `http://127.0.0.1:4181/review?response=${response.responseId}`;

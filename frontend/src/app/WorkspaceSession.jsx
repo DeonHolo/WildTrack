@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createWorkspaceResourceCache } from '../lib/workspaceResourceCache.js';
 import { createWorkspace as createBackendWorkspace, getCurrentSession, getWorkspaces, logout } from '../lib/api.js';
 import { browserStorageKeys } from '../lib/browserStorage.js';
 import { disableGoogleAutoSelect } from '../lib/googleIdentitySession.js';
@@ -6,6 +7,7 @@ import { disableGoogleAutoSelect } from '../lib/googleIdentitySession.js';
 const WorkspaceSessionContext = createContext(null);
 
 export function WorkspaceSessionProvider({ children }) {
+  const [resourceCache] = useState(createWorkspaceResourceCache);
   const [session, setSession] = useState(null);
   const [sessionStatus, setSessionStatus] = useState('loading');
   const [sessionError, setSessionError] = useState('');
@@ -17,6 +19,17 @@ export function WorkspaceSessionProvider({ children }) {
   const activeRef = useRef('');
   const sessionRequest = useRef(0);
   const catalogRequest = useRef(0);
+  const sessionIdentity = useRef('');
+
+  useLayoutEffect(() => {
+    resourceCache.clear();
+  }, [resourceCache, session?.authenticated, session?.email, session?.googleSubject, JSON.stringify(session?.roles || [])]);
+
+  useEffect(() => {
+    const invalidate = () => resourceCache.clear();
+    window.addEventListener('wildtrack:server-mutation', invalidate);
+    return () => window.removeEventListener('wildtrack:server-mutation', invalidate);
+  }, [resourceCache]);
 
   const refreshWorkspaceCatalog = useCallback(async () => {
     const request = ++catalogRequest.current;
@@ -39,15 +52,18 @@ export function WorkspaceSessionProvider({ children }) {
       return next;
     } catch (error) {
       if (request !== catalogRequest.current) return [];
-      setWorkspaces([]);
-      activeRef.current = '';
-      setActiveWorkspaceId('');
-      setSelectedWorkspaceId('');
+      if (error?.status === 401 || error?.status === 403) {
+        resourceCache.clear();
+        setWorkspaces([]);
+        activeRef.current = '';
+        setActiveWorkspaceId('');
+        setSelectedWorkspaceId('');
+      }
       setWorkspaceCatalogStatus('error');
       setWorkspaceCatalogError(error?.message || 'Workspaces could not be loaded.');
       return [];
     }
-  }, []);
+  }, [resourceCache]);
 
   const refreshSession = useCallback(async () => {
     const request = ++sessionRequest.current;
@@ -57,6 +73,14 @@ export function WorkspaceSessionProvider({ children }) {
     try {
       const current = await getCurrentSession();
       if (request !== sessionRequest.current) return null;
+      const identity = current?.authenticated ? JSON.stringify([current.email, current.googleSubject]) : '';
+      if (sessionIdentity.current && sessionIdentity.current !== identity) {
+        setWorkspaces([]);
+        activeRef.current = '';
+        setActiveWorkspaceId('');
+        setSelectedWorkspaceId('');
+      }
+      sessionIdentity.current = identity;
       setSession(current);
       setSessionStatus('ready');
       if (current?.authenticated) await refreshWorkspaceCatalog();
@@ -128,6 +152,8 @@ export function WorkspaceSessionProvider({ children }) {
   }, []);
 
   const logoutSession = useCallback(async () => {
+    resourceCache.clear();
+    sessionIdentity.current = '';
     sessionRequest.current += 1;
     catalogRequest.current += 1;
     disableGoogleAutoSelect();
@@ -147,6 +173,7 @@ export function WorkspaceSessionProvider({ children }) {
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0] || null;
   const value = useMemo(() => ({
+    resourceCache,
     session,
     sessionStatus,
     sessionError,

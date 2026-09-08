@@ -1,3 +1,4 @@
+import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowClockwise,
@@ -104,8 +105,7 @@ export function WorkspacePage() {
   const { data: state, setData: setState, status: workspaceStatus, error: workspaceError, reload } = useWorkspaceResource(
     activeWorkspaceId,
     loadWorkspaceAdmin,
-    emptyWorkspaceAdmin
-  );
+    emptyWorkspaceAdmin, 'workspace-admin');
   const [sources, setSources] = useState(() => sourceValues(state));
   const [workspaceName, setWorkspaceName] = useState(activeWorkspace?.name || '');
   const [trackerSheet, setTrackerSheet] = useState(`${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
@@ -352,7 +352,7 @@ export function WorkspacePage() {
         actions={<Button type="button" variant="secondary" icon={PlusCircle} onClick={() => setWorkspaceEditorOpen(true)}>New workspace</Button>}
       />
 
-      {workspaceStatus === 'error' ? <div role="alert" className="inline-alert danger">{workspaceError}</div> : null}
+      <ResourceBoundary status={workspaceStatus} error={workspaceError} onRetry={reload}>
 
       <section className="panel wt-workspace-switcher">
         <div className="workspace-selector-row">
@@ -621,6 +621,7 @@ export function WorkspacePage() {
         </form>
       </Modal>
 
+      </ResourceBoundary>
       <Modal opened={workspaceEditorOpen} onClose={() => setWorkspaceEditorOpen(false)} title="Create academic workspace" centered size="lg">
         <form className="form-grid workspace-modal" onSubmit={submitWorkspace} aria-label="Create academic workspace">
           <p className="muted-copy">Use one workspace for each program, course, semester, and academic year.</p>

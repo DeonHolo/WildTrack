@@ -47,6 +47,8 @@ public class StaffMonitoringController {
     private final DeliverableRepository deliverableRepository;
     private final FormResponseService responseService;
     private final ArchiveRecordRepository archiveRepository;
+    private final com.capvault.backend.response.ReviewFeedbackService reviews;
+    private final com.capvault.backend.filecheck.FileCheckService checks;
 
     public StaffMonitoringController(
         StudentAssociationSecurity security,
@@ -58,7 +60,9 @@ public class StaffMonitoringController {
         TrackerCellRepository cellRepository,
         DeliverableRepository deliverableRepository,
         FormResponseService responseService,
-        ArchiveRecordRepository archiveRepository
+        ArchiveRecordRepository archiveRepository,
+        com.capvault.backend.response.ReviewFeedbackService reviews,
+        com.capvault.backend.filecheck.FileCheckService checks
     ) {
         this.security = security;
         this.staffManagementService = staffManagementService;
@@ -70,6 +74,8 @@ public class StaffMonitoringController {
         this.deliverableRepository = deliverableRepository;
         this.responseService = responseService;
         this.archiveRepository = archiveRepository;
+        this.reviews = reviews;
+        this.checks = checks;
     }
 
     public record MonitoringResponse(
@@ -81,13 +87,16 @@ public class StaffMonitoringController {
         List<TrackerRowResponse> trackerRows,
         List<DeliverableResponse> deliverables,
         List<FormResponse> responses,
-        List<UUID> archivedResponseIds
+        List<UUID> archivedResponseIds,
+        java.util.Map<UUID, java.util.Map<String, Object>> reviewStates,
+        java.util.Map<String, com.capvault.backend.filecheck.FileCheckResponse> fileChecks
     ) {
     }
 
     @GetMapping
     @Transactional(readOnly = true)
-    public MonitoringResponse monitoring(@RequestParam UUID workspaceId, HttpServletRequest http) {
+    public MonitoringResponse monitoring(@RequestParam UUID workspaceId,
+            @RequestParam(defaultValue = "false") boolean includeReviews, HttpServletRequest http) {
         var session = security.requireSession(http);
         Set<StaffRole> roles = security.activeRoles(http);
         boolean allTeams = roles.contains(StaffRole.ADMIN);
@@ -106,6 +115,11 @@ public class StaffMonitoringController {
         var archivedResponseIds = archiveRepository.findAllByWorkspaceIdOrderByArchivedAtDesc(workspaceId).stream()
             .filter(record -> record.getSourceResponseUpdatedAt().equals(visibleVersions.get(record.getResponseId())))
             .map(record -> record.getResponseId()).distinct().toList();
+        var rows = rowRepository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
+            .filter(row -> allTeams || containsTeam(teams, row.getTeamCode())).toList();
+        var cells = rows.isEmpty() ? java.util.Map.<UUID, List<com.capvault.backend.tracker.TrackerCell>>of()
+            : cellRepository.findAllByTrackerRowIdIn(rows.stream().map(row -> row.getId()).toList()).stream()
+                .collect(Collectors.groupingBy(cell -> cell.getTrackerRow().getId()));
         return new MonitoringResponse(
             allTeams,
             teams,
@@ -120,9 +134,8 @@ public class StaffMonitoringController {
             columnRepository.findAllByWorkspaceIdOrderByDisplayOrderAscLabelAsc(workspaceId).stream()
                 .map(TrackerColumnResponse::from)
                 .toList(),
-            rowRepository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
-                .filter(row -> allTeams || containsTeam(teams, row.getTeamCode()))
-                .map(row -> TrackerRowResponse.from(row, cellRepository.findAllByTrackerRowId(row.getId()).stream()
+            rows.stream()
+                .map(row -> TrackerRowResponse.from(row, cells.getOrDefault(row.getId(), List.of()).stream()
                     .sorted(Comparator.comparing(cell -> cell.getTrackerColumn().getDisplayOrder()))
                     .toList()))
                 .toList(),
@@ -130,7 +143,9 @@ public class StaffMonitoringController {
                 .map(DeliverableResponse::from)
                 .toList(),
             responses,
-            archivedResponseIds
+            archivedResponseIds,
+            includeReviews ? reviews.statesFor(responses.stream().map(FormResponse::getId).toList()) : java.util.Map.of(),
+            includeReviews ? checks.latestForResponses(workspaceId, responses.stream().map(r -> r.getId().toString()).toList()) : java.util.Map.of()
         );
     }
 

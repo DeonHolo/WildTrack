@@ -25,6 +25,9 @@ public class StaffRoleAssignment {
     @Column(name = "google_email", nullable = false)
     private String googleEmail;
 
+    @Column(name = "adviser_name", length = 200)
+    private String adviserName;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private StaffRole role;
@@ -55,6 +58,9 @@ public class StaffRoleAssignment {
     public UUID getId() { return id; }
     public String getGoogleSubject() { return googleSubject; }
     public String getGoogleEmail() { return googleEmail; }
+    public String getAdviserName() { return adviserName; }
+    public void setAdviserName(String name) { adviserName = name; }
+    public void setGoogleSubject(String subject) { googleSubject = subject; }
     public StaffRole getRole() { return role; }
     public boolean isEnabled() { return enabled; }
     public Instant getCreatedAt() { return createdAt; }

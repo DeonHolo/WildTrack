@@ -1,377 +1,204 @@
-import { ActionIcon, Alert, Badge, Button, Card, CloseButton, Divider, Group, Menu, Modal, MultiSelect, Paper, Select, Stack, Table, Text, TextInput, ThemeIcon, Tooltip } from '@mantine/core';
-import { modals } from '@mantine/modals';
+import { ActionIcon, Alert, Autocomplete, Badge, Button, Checkbox, Group, Modal, MultiSelect, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { ArrowRight, Check, Plus, PlusCircle, ShieldCheck, Trash, User, UserPlus, UsersThree, Warning, WarningCircle, X } from '@phosphor-icons/react';
-import { useEffect, useMemo, useState } from 'react';
-import { assignTeam, loadStaffProfiles, revokeStaff, unassignTeam, addStaff } from '../../lib/staffAccessClient.js';
+import { PencilSimple, Trash, UserPlus, UsersThree } from '@phosphor-icons/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { emptyStaffAccess, loadStaffAccess, loadStaffDirectory, revokeStaff, saveStaff } from '../../lib/staffAccessClient.js';
+import { useWorkspaceResource } from '../../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../../hooks/useWorkspaceScope.js';
+import { ResourceBoundary } from '../ResourceBoundary.jsx';
+import { isUsableAdviserName } from '../../lib/workflow.js';
 
-export function StaffManagementPanel({ workspaceId, students = [], projectMetadata = [] }) {
+const normalize = value => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+const unique = values => [...new Map(values.filter(Boolean).map(value => [normalize(value), value])).values()].sort();
+const ownerSnapshot = profiles => Object.fromEntries(profiles.flatMap(p => (p.assignedTeams || []).map(team => [team, p.googleSubject])));
+
+export function StaffManagementPanel({ workspaceId, students, projectMetadata }) {
+  const hasImportedData = students !== undefined;
+  const { data, status, error: loadError, reload } = useWorkspaceResource(workspaceId,
+    hasImportedData ? loadStaffDirectory : loadStaffAccess, emptyStaffAccess, hasImportedData ? 'staff-directory' : 'staff-access');
+  const staffList = data.profiles;
   const isCurrentScope = useWorkspaceScope(workspaceId);
-  const [staffList, setStaffList] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('ADVISER');
+  const [name, setName] = useState('');
   const [selectedTeams, setSelectedTeams] = useState([]);
-  const [saving, setSaving] = useState(false);
+  const [teamsEdited, setTeamsEdited] = useState(false);
+  const [replacement, setReplacement] = useState(null);
+  const [owners, setOwners] = useState({});
+  const [reactivate, setReactivate] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState(null);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const busy = useRef(false);
 
-  const allTeamCodes = useMemo(() => {
-    const set = new Set();
-    (students || []).forEach((s) => { if (s.teamCode) set.add(s.teamCode); });
-    (projectMetadata || []).forEach((p) => { if (p.groupCode) set.add(p.groupCode); });
-    return [...set].sort();
-  }, [students, projectMetadata]);
-
-  const teamToAdviserMap = useMemo(() => {
-    const map = new Map();
-    (staffList || []).forEach((staff) => {
-      if (staff.enabled !== false) {
-        (staff.assignedTeams || []).forEach((team) => {
-          map.set(team.toLowerCase(), staff);
-        });
-      }
+  const imported = useMemo(() => {
+    const names = new Map();
+    const teams = [];
+    const add = (rawName, team, source) => {
+      if (team) teams.push(team);
+      if (!isUsableAdviserName(rawName)) return;
+      const clean = rawName.trim().replace(/\s+/g, ' ');
+      const key = normalize(clean);
+      const candidate = names.get(key) || { name: clean, bySource: {} };
+      candidate.bySource[source] ||= [];
+      if (team) candidate.bySource[source].push(team);
+      names.set(key, candidate);
+    };
+    (students || data.students || []).forEach(s => add(s.adviser || s.adviserName, s.teamCode, 'Class roster'));
+    (projectMetadata || data.projectMetadata || []).forEach(p => add(p.adviserName, p.groupCode, 'Project monitor'));
+    const advisers = [...names.values()].flatMap(item => {
+      const sources = Object.entries(item.bySource).map(([source, values]) => ({ source, teams: unique(values) }));
+      const ambiguous = new Set(sources.map(entry => JSON.stringify(entry.teams.map(normalize)))).size > 1;
+      return (ambiguous ? sources : [{ source: sources.map(entry => entry.source).join(', '), teams: sources[0].teams }])
+        .map(entry => ({ name: item.name, teams: entry.teams, ambiguous,
+          value: item.name + ' — ' + entry.source + ' · ' + (entry.teams.join(', ') || 'No teams') }));
     });
-    return map;
-  }, [staffList]);
-
-  async function loadStaff() {
-    if (!workspaceId || !isCurrentScope()) return;
-    setLoading(true);
-    setLoadError('');
-    try {
-      const data = await loadStaffProfiles(workspaceId);
-      if (!isCurrentScope()) return;
-      setStaffList(data);
-    } catch (err) {
-      if (isCurrentScope()) {
-        setStaffList([]);
-        setLoadError(err?.message || 'Staff profiles could not be loaded.');
-      }
-    } finally {
-      if (isCurrentScope()) setLoading(false);
-    }
-  }
-
+    return { teams: unique(teams), advisers };
+  }, [students, projectMetadata, data.students, data.projectMetadata]);
+  const holderFor = team => staffList.find(p => p.assignedTeams?.some(value => normalize(value) === normalize(team)));
+  const duplicate = !editing && staffList.find(p => normalize(p.googleEmail) === normalize(email));
+  const additions = selectedTeams.filter(team => !editing?.assignedTeams?.includes(team));
+  const removals = (editing?.assignedTeams || []).filter(team => !selectedTeams.includes(team));
+  const transfers = role === 'ADVISER' ? selectedTeams.filter(team => {
+    const holder = holderFor(team);
+    return holder && holder.googleEmail !== editing?.googleEmail;
+  }) : [];
+  const initialRole = editing?.roles?.includes('ADMIN') ? 'ADMIN' : 'ADVISER';
+  const roleChanged = editing && role !== initialRole;
+  const needsReview = transfers.length > 0 || removals.length > 0 || roleChanged || editing?.enabled === false;
+  const teamOptions = unique([...imported.teams, ...(editing?.assignedTeams || [])]).map(team => {
+    const holder = holderFor(team);
+    return { value: team, label: holder && holder.googleEmail !== editing?.googleEmail
+      ? team + ' — currently ' + (holder.adviserName || holder.googleEmail) : team };
+  });
   useEffect(() => {
-    setStaffList([]);
-    setModalOpen(false);
-    setEmail('');
-    setSelectedTeams([]);
-    setError('');
-    setSaving(false);
-    loadStaff();
-  }, [workspaceId, isCurrentScope]);
+    setOpened(false); setRevokeTarget(null); setEditing(null); setEmail(''); setName('');
+    setSelectedTeams([]); setError(''); setSaving(false); busy.current = false;
+  }, [isCurrentScope]);
+  useEffect(() => { if (status === 'error') { setOpened(false); setRevokeTarget(null); } }, [status]);
 
-  function handleOpenAdd() {
-    setEmail('');
-    setRole('ADVISER');
-    setSelectedTeams([]);
-    setError('');
-    setModalOpen(true);
+  function openEditor(profile = null) {
+    setEditing(profile); setEmail(profile?.googleEmail || '');
+    setRole(profile?.roles?.includes('ADMIN') ? 'ADMIN' : 'ADVISER');
+    setName(profile?.adviserName || ''); setSelectedTeams(profile?.assignedTeams || []);
+    setTeamsEdited(Boolean(profile)); setReplacement(null); setOwners(ownerSnapshot(staffList));
+    setReactivate(false); setReviewing(false); setError(''); setOpened(true);
   }
-
-  async function handleSaveStaff(e) {
-    e?.preventDefault?.();
-    if (!isCurrentScope()) return;
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail) {
-      setError('Please enter a Google email.');
-      return;
-    }
-    setSaving(true);
-    setError('');
+  function selectImported(value) {
+    const candidate = imported.advisers.find(item => item.value === value);
+    setName(candidate?.name || value); setReviewing(false);
+    if (!candidate) return;
+    const sharedName = staffList.filter(profile => normalize(profile.adviserName) === normalize(candidate.name)).length > 1;
+    if (teamsEdited || candidate.ambiguous || sharedName) setReplacement({ ...candidate, ambiguous: candidate.ambiguous || sharedName });
+    else { setSelectedTeams(candidate.teams); setReplacement(null); }
+  }
+  async function reloadLatest() {
+    const latest = await reload();
+    if (!latest || !isCurrentScope()) return;
+    const profile = latest.profiles.find(p => normalize(p.googleEmail) === normalize(email));
+    if (editing && profile) setEditing(profile);
+    setOwners(ownerSnapshot(latest.profiles)); setReviewing(false);
+    setError('Latest staff assignments loaded. Review your choices before saving.');
+  }
+  async function submit(event) {
+    event?.preventDefault();
+    if (busy.current || !isCurrentScope() || duplicate || !role) return;
+    if (editing?.enabled === false && !reactivate) { setError('Select Reactivate to restore access.'); return; }
+    if (needsReview && !reviewing) { setReviewing(true); return; }
+    busy.current = true; setSaving(true); setError('');
     try {
-      const profile = await addStaff(workspaceId, trimmedEmail, role);
+      await saveStaff(workspaceId, { googleEmail: email.trim().toLowerCase(), role: editing && !roleChanged ? null : role,
+        ...(role === 'ADVISER' ? { adviserName: name.trim(), teamCodes: selectedTeams, teamOwners: owners } : {}),
+        expectedRevision: editing?.revision || null, confirmTransfers: reviewing && transfers.length > 0, reactivate });
       if (!isCurrentScope()) return;
-      if (role === 'ADVISER' && selectedTeams.length > 0 && profile?.googleSubject) {
-        for (const teamCode of selectedTeams) {
-          const currentHolder = teamToAdviserMap.get(teamCode.toLowerCase());
-          if (currentHolder && currentHolder.googleSubject !== profile.googleSubject) {
-            await unassignTeam(workspaceId, currentHolder.googleSubject, teamCode);
-            if (!isCurrentScope()) return;
-          }
-          await assignTeam(workspaceId, profile.googleSubject, teamCode);
-          if (!isCurrentScope()) return;
-        }
-      }
-      notifications.show({
-        color: 'green',
-        title: 'Staff member added',
-        message: `${trimmedEmail} is now assigned as ${role === 'ADMIN' ? 'Administrator' : 'Adviser'}.`
-      });
-      setModalOpen(false);
-      loadStaff();
-    } catch (err) {
-      if (isCurrentScope()) setError(err?.message || 'Failed to save staff member.');
-    } finally {
-      if (isCurrentScope()) setSaving(false);
-    }
+      setOpened(false); notifications.show({ color: 'green', message: 'Staff access saved.' }); await reload();
+    } catch (failure) {
+      if (isCurrentScope()) { setError(failure.message || 'Staff access could not be saved.'); setReviewing(false); }
+    } finally { if (isCurrentScope()) { busy.current = false; setSaving(false); } }
   }
-
-  async function handleAssignTeam(staff, teamCode) {
-    if (!isCurrentScope()) return;
-    const currentHolder = teamToAdviserMap.get(teamCode.toLowerCase());
-    if (currentHolder && currentHolder.googleSubject !== staff.googleSubject) {
-      modals.openConfirmModal({
-        title: 'Transfer team assignment?',
-        children: (
-          <Text size="sm">
-            Team <strong>{teamCode}</strong> is currently assigned to <strong>{currentHolder.googleEmail}</strong>.
-            Transfer this team to <strong>{staff.googleEmail}</strong>?
-          </Text>
-        ),
-        labels: { confirm: 'Transfer team', cancel: 'Cancel' },
-        confirmProps: { color: 'wildtrackMaroon' },
-        onConfirm: async () => {
-          if (!isCurrentScope()) return;
-          try {
-            await unassignTeam(workspaceId, currentHolder.googleSubject, teamCode);
-            if (!isCurrentScope()) return;
-            await assignTeam(workspaceId, staff.googleSubject, teamCode);
-            if (!isCurrentScope()) return;
-            notifications.show({ color: 'green', message: `Team ${teamCode} transferred to ${staff.googleEmail}.` });
-            loadStaff();
-          } catch (err) {
-            if (!isCurrentScope()) return;
-            notifications.show({ color: 'red', message: err?.message || 'Failed to transfer team.' });
-          }
-        }
-      });
-      return;
-    }
-
+  async function revoke() {
+    if (busy.current || !isCurrentScope()) return;
+    busy.current = true; setSaving(true); setError('');
     try {
-      await assignTeam(workspaceId, staff.googleSubject, teamCode);
+      await revokeStaff(workspaceId, revokeTarget.googleSubject);
       if (!isCurrentScope()) return;
-      notifications.show({ color: 'green', message: `Team ${teamCode} assigned to ${staff.googleEmail}.` });
-      loadStaff();
-    } catch (err) {
-      if (!isCurrentScope()) return;
-      notifications.show({ color: 'red', message: err?.message || 'Failed to assign team.' });
-    }
+      setRevokeTarget(null); await reload();
+    } catch (failure) { if (isCurrentScope()) setError(failure.message || 'Access could not be revoked.'); }
+    finally { if (isCurrentScope()) { busy.current = false; setSaving(false); } }
   }
 
-  async function handleUnassignTeam(staff, teamCode) {
-    if (!isCurrentScope()) return;
-    try {
-      await unassignTeam(workspaceId, staff.googleSubject, teamCode);
-      if (!isCurrentScope()) return;
-      notifications.show({ color: 'gray', message: `Team ${teamCode} unassigned from ${staff.googleEmail}.` });
-      loadStaff();
-    } catch (err) {
-      if (!isCurrentScope()) return;
-      notifications.show({ color: 'red', message: err?.message || 'Failed to unassign team.' });
-    }
-  }
-
-  function handleRevokeAccess(staff) {
-    modals.openConfirmModal({
-      title: 'Revoke staff access?',
-      children: (
-        <Text size="sm">
-          Revoke all staff access and team assignments for <strong>{staff.googleEmail}</strong>?
-        </Text>
-      ),
-      labels: { confirm: 'Revoke access', cancel: 'Cancel' },
-      confirmProps: { color: 'red' },
-      onConfirm: async () => {
-        if (!isCurrentScope()) return;
-        try {
-          await revokeStaff(workspaceId, staff.googleSubject);
-          if (!isCurrentScope()) return;
-          notifications.show({ color: 'red', message: `Staff access revoked for ${staff.googleEmail}.` });
-          loadStaff();
-        } catch (err) {
-          if (!isCurrentScope()) return;
-          notifications.show({ color: 'red', message: err?.message || 'Failed to revoke staff access.' });
-        }
-      }
-    });
-  }
-
-  return (
-    <section className="panel wt-staff-panel" aria-label="Staff and advisers">
-      <div className="panel-header">
-        <div>
-          <Group gap="xs" align="center">
-            <UsersThree size={22} weight="duotone" aria-hidden="true" />
-            <h2>Staff & Advisers</h2>
-          </Group>
-          <p>Assign Google emails and capstone teams to instructors and advisers.</p>
-        </div>
-        <Button
-          variant="default"
-          leftSection={<UserPlus size={18} aria-hidden="true" />}
-          onClick={handleOpenAdd}
-        >
-          Add staff / adviser
-        </Button>
-      </div>
-
-      {loading ? <Text role="status">Loading staff profiles…</Text> : loadError ? (
-        <Alert color="red" role="alert">
-          <Stack gap="xs" align="flex-start">
-            <Text size="sm">{loadError}</Text>
-            <Button variant="default" onClick={loadStaff}>Retry staff load</Button>
-          </Stack>
-        </Alert>
-      ) : staffList.filter((s) => s.enabled !== false).length === 0 ? (
-        <Paper p="lg" withBorder radius="md" ta="center">
-          <Text c="dimmed" size="sm">No staff or advisers registered in this workspace yet.</Text>
-        </Paper>
-      ) : (
-        <Stack gap="sm">
-          {staffList.filter((s) => s.enabled !== false).map((staff) => {
-            const isAdmin = staff.roles?.includes('ADMIN');
-            const isPending = staff.googleSubject?.startsWith('pending:');
-            const assigned = staff.assignedTeams || [];
-            const unassignedTeams = allTeamCodes.filter((tc) => !assigned.includes(tc));
-
-            return (
-              <Paper key={staff.id || staff.googleSubject} p="md" withBorder radius="md" className="wt-staff-card">
-                <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
-                  <Stack gap={4}>
-                    <Group gap="xs" align="center">
-                      <Text fw={600} size="sm">{staff.googleEmail}</Text>
-                      <Badge
-                        size="sm"
-                        variant="light"
-                        color={isAdmin ? 'wildtrackMaroon' : 'blue'}
-                      >
-                        {isAdmin ? 'Administrator' : 'Adviser'}
-                      </Badge>
-                      {isPending ? (
-                        <Badge size="xs" variant="outline" color="orange">Pending first sign-in</Badge>
-                      ) : (
-                        <Badge size="xs" variant="dot" color="green">Active</Badge>
-                      )}
-                    </Group>
-                    <Text size="xs" c="dimmed">
-                      {isAdmin ? 'Institution-wide access to all workspace features and review.' : 'Scoped to review submissions for assigned capstone teams.'}
-                    </Text>
-                  </Stack>
-
-                  <Group gap="xs" align="center">
-                    {!isAdmin && !isPending && unassignedTeams.length > 0 ? (
-                      <Menu shadow="md" width={220} position="bottom-end">
-                        <Menu.Target>
-                          <Button variant="default" size="xs" leftSection={<Plus size={14} />}>
-                            Assign team
-                          </Button>
-                        </Menu.Target>
-                        <Menu.Dropdown>
-                          <Menu.Label>Available teams</Menu.Label>
-                          {unassignedTeams.map((teamCode) => {
-                            const currentHolder = teamToAdviserMap.get(teamCode.toLowerCase());
-                            return (
-                              <Menu.Item
-                                key={teamCode}
-                                onClick={() => handleAssignTeam(staff, teamCode)}
-                                rightSection={currentHolder ? <Text size="10px" c="orange">Held</Text> : null}
-                              >
-                                {teamCode}
-                              </Menu.Item>
-                            );
-                          })}
-                        </Menu.Dropdown>
-                      </Menu>
-                    ) : null}
-
-                    <Tooltip label="Revoke staff permissions">
-                      <ActionIcon
-                        variant="subtle"
-                        color="red"
-                        aria-label={`Revoke access for ${staff.googleEmail}`}
-                        onClick={() => handleRevokeAccess(staff)}
-                      >
-                        <Trash size={16} />
-                      </ActionIcon>
-                    </Tooltip>
-                  </Group>
-                </Group>
-
-                {!isAdmin ? (
-                  <>
-                    <Divider my="xs" />
-                    <Group gap={6} align="center" wrap="wrap">
-                      <Text size="xs" fw={500} c="dimmed" mr={4}>Assigned teams ({assigned.length}):</Text>
-                      {assigned.length === 0 ? (
-                        <Text size="xs" c="dimmed">No teams assigned yet.</Text>
-                      ) : (
-                        assigned.map((teamCode) => (
-                          <Badge
-                            key={teamCode}
-                            size="sm"
-                            variant="outline"
-                            color="blue"
-                            rightSection={
-                              <CloseButton
-                                size="xs"
-                                aria-label={`Unassign ${teamCode}`}
-                                onClick={() => handleUnassignTeam(staff, teamCode)}
-                              />
-                            }
-                          >
-                            {teamCode}
-                          </Badge>
-                        ))
-                      )}
-                    </Group>
-                  </>
-                ) : null}
-              </Paper>
-            );
-          })}
-        </Stack>
-      )}
-
-      <Modal
-        opened={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Add staff member or adviser"
-        centered
-      >
-        <form onSubmit={handleSaveStaff}>
-          <Stack gap="md">
-            {error ? <Text color="red" size="sm">{error}</Text> : null}
-            <TextInput
-              label="Google Email"
-              placeholder="adviser@gmail.com"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.currentTarget.value)}
-            />
-            <Select
-              label="Role"
-              required
-              value={role}
-              onChange={setRole}
-              data={[
-                { value: 'ADVISER', label: 'Adviser (team-scoped review)' },
-                { value: 'ADMIN', label: 'Administrator (full workspace access)' }
-              ]}
-            />
-            {role === 'ADVISER' ? (
-              <MultiSelect
-                label="Assign capstone teams"
-                placeholder="Select teams"
-                searchable
-                clearable
-                data={allTeamCodes}
-                value={selectedTeams}
-                onChange={setSelectedTeams}
-              />
-            ) : null}
-            <Group justify="flex-end" gap="xs" mt="sm">
-              <Button variant="default" onClick={() => setModalOpen(false)}>Cancel</Button>
-              <Button type="submit" loading={saving} color="wildtrackMaroon">Save staff member</Button>
-            </Group>
-          </Stack>
-        </form>
-      </Modal>
-    </section>
-  );
+  return <section className="panel wt-staff-panel" aria-label="Staff and advisers">
+    <div className="panel-header"><div><Group gap="xs"><UsersThree size={22} /><h2>Staff & Advisers</h2></Group>
+      <p>Add Google accounts and choose their capstone teams.</p></div>
+      <Button variant="default" leftSection={<UserPlus size={18} />} onClick={() => openEditor()} disabled={status !== 'ready'}>Add staff / adviser</Button>
+    </div>
+    <ResourceBoundary status={status} error={loadError} onRetry={reload}>
+      {!staffList.length ? <Text c="dimmed">No staff or advisers registered yet.</Text> :
+        <Stack gap="sm">{staffList.map(profile => <Paper key={profile.id} p="md" withBorder>
+          <Group justify="space-between" align="flex-start"><Stack gap={4}>
+            {profile.adviserName ? <Text fw={600}>{profile.adviserName}</Text> : null}<Text size="sm">{profile.googleEmail}</Text>
+            <Group gap="xs">{profile.roles.map(value => <Badge key={value} variant="light">{value === 'ADMIN' ? 'Administrator' : 'Adviser'}</Badge>)}
+              <Badge variant="outline" color={!profile.enabled ? 'gray' : profile.googleSubject.startsWith('pending:') ? 'orange' : 'green'}>
+                {!profile.enabled ? 'Disabled' : profile.googleSubject.startsWith('pending:') ? 'Pending sign-in' : 'Active'}</Badge></Group>
+            <Text size="xs" c="dimmed">{profile.roles.includes('ADMIN') ? 'Institution-wide administrator access.' :
+              profile.assignedTeams.length ? profile.assignedTeams.join(', ') : 'Pending assignment — no team review access.'}</Text>
+          </Stack><Group gap="xs"><Button size="xs" variant="default" leftSection={<PencilSimple size={14} />} onClick={() => openEditor(profile)}>Edit access</Button>
+            {profile.enabled ? <ActionIcon color="red" variant="subtle" aria-label={'Revoke access for ' + profile.googleEmail}
+              onClick={() => { setError(''); setRevokeTarget(profile); }}><Trash size={16} /></ActionIcon> : null}</Group></Group>
+          {profile.roles.includes('ADVISER') && imported.advisers.length ? <Button mt="xs" variant="subtle" size="xs"
+            onClick={() => openEditor(profile)}>Review imported adviser teams</Button> : null}
+        </Paper>)}</Stack>}
+    </ResourceBoundary>
+    <Modal opened={opened && status === 'ready'} onClose={() => { if (!busy.current) setOpened(false); }}
+      closeOnEscape={!saving} closeOnClickOutside={!saving} withCloseButton={!saving}
+      title={editing ? 'Edit staff access' : 'Add staff member or adviser'} centered>
+      <form onSubmit={submit}><Stack gap="md">
+        {error ? <Alert color="red"><Text size="sm">{error}</Text><Button size="xs" variant="subtle" onClick={reloadLatest} disabled={saving}>Reload latest assignments</Button></Alert> : null}
+        <TextInput label="Google Email" type="email" required value={email} disabled={saving || Boolean(editing)}
+          onChange={e => { setEmail(e.currentTarget.value); setReviewing(false); }} placeholder="adviser@gmail.com" />
+        <Select label="Role" required allowDeselect={false} value={role} disabled={saving}
+          onChange={value => { setRole(value); setReviewing(false); setReplacement(null); }}
+          data={[{ value: 'ADVISER', label: 'Adviser (assigned teams)' }, { value: 'ADMIN', label: 'Administrator (institution-wide)' }]} />
+        {duplicate ? <Alert color="orange"><Text size="sm">This email already has a staff record. Open it to change access.</Text>
+          <Button variant="default" size="xs" onClick={() => openEditor(duplicate)}>Edit existing staff member</Button></Alert> : null}
+        {role === 'ADVISER' ? <>
+          <Autocomplete label="Adviser name" value={name} maxLength={200} disabled={saving} comboboxProps={{ withinPortal: false }}
+            placeholder={imported.advisers.length ? 'Choose an imported name or type a name' : 'Enter a name (optional)'}
+            data={imported.advisers.map(item => item.value)}
+            onChange={value => { setName(imported.advisers.find(item => item.value === value)?.name || value); setReviewing(false); }} onOptionSubmit={selectImported}
+            description="Optional. Imported names suggest teams; they do not verify this Google account." />
+          {replacement ? <Alert color="blue">
+            {replacement.ambiguous ? <Text size="sm" fw={600}>This name has multiple matches or conflicting import details. Verify the source and teams before applying.</Text> : null}
+            <Text size="sm">{replacement.value}</Text><Text size="sm">Replace your team selection with {replacement.name}'s imported teams: {replacement.teams.join(', ') || 'none'}?</Text>
+            <Group mt="xs"><Button size="xs" onClick={() => { setSelectedTeams(replacement.teams); setReplacement(null); setTeamsEdited(true); }}>Replace teams</Button>
+              <Button size="xs" variant="default" onClick={() => setReplacement(null)}>Keep my teams</Button></Group></Alert> : null}
+          <MultiSelect label="Assigned capstone teams" searchable clearable data={teamOptions} value={selectedTeams} disabled={saving} comboboxProps={{ withinPortal: false }}
+            onChange={value => { setSelectedTeams(value); setTeamsEdited(true); setReviewing(false); }}
+            placeholder={imported.teams.length ? 'Select teams (optional)' : 'No teams imported yet'}
+            description={imported.teams.length ? 'Optional. No teams means no team review access.' : 'You can save now and assign teams after importing the class sheets.'} />
+        </> : <Text size="xs" c="dimmed">Administrators have institution-wide access. Adviser team assignments are removed if that role is changed.</Text>}
+        {editing?.enabled === false ? <Checkbox label="Reactivate this staff member" checked={reactivate}
+          onChange={event => { setReactivate(event.currentTarget.checked); setReviewing(false); }} disabled={saving} /> : null}
+        {reviewing ? <Alert color="orange" title="Review access changes"><Stack gap="xs">
+          {roleChanged ? <Text size="sm">Role: {initialRole} → {role}. This changes institution-wide staff permissions.</Text> : null}
+          {additions.length && role === 'ADVISER' ? <Text size="sm">Add: {additions.join(', ')}</Text> : null}
+          {removals.length && role === 'ADVISER' ? <Text size="sm">Remove: {removals.join(', ')}</Text> : null}
+          {transfers.map(team => <Text size="sm" key={team}>{team}: {holderFor(team)?.googleEmail} → {email}</Text>)}
+          {reactivate ? <Text size="sm">Restore this account's staff access.</Text> : null}</Stack></Alert> : null}
+        <Group justify="flex-end"><Button variant="default" disabled={saving} onClick={() => setOpened(false)}>Cancel</Button>
+          <Button type="submit" loading={saving} disabled={Boolean(duplicate) || Boolean(replacement)}>
+            {reviewing ? 'Confirm and save changes' : needsReview ? 'Review changes' : 'Save staff member'}</Button></Group>
+      </Stack></form>
+    </Modal>
+    <Modal opened={Boolean(revokeTarget) && status === 'ready'} onClose={() => { if (!busy.current) setRevokeTarget(null); }}
+      closeOnEscape={!saving} closeOnClickOutside={!saving} withCloseButton={!saving} title="Revoke staff access?" centered>
+      <Stack><Text>Revoke all staff roles and team assignments for {revokeTarget?.googleEmail}?</Text>
+        {error ? <Alert color="red">{error}</Alert> : null}<Group justify="flex-end">
+          <Button variant="default" disabled={saving} onClick={() => setRevokeTarget(null)}>Cancel</Button>
+          <Button color="red" loading={saving} onClick={revoke}>Revoke access</Button></Group></Stack>
+    </Modal>
+  </section>;
 }

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
+  Paper,
+  Skeleton,
   Stack,
   Text,
   Title,
@@ -17,7 +19,7 @@ import { FormEditorModal } from '../components/forms/FormEditorModal.jsx';
 import { PublishedFormsTable } from '../components/forms/PublishedFormsTable.jsx';
 import { buildDeliverableFormPayload, makeDeliverableFormDraft } from '../lib/forms.js';
 import { saveDeliverable, unpublishDeliverable } from '../lib/submissionClient.js';
-import { emptyMonitoringState, loadMonitoringState } from '../lib/monitoringClient.js';
+import { emptyFormsState, loadFormsState } from '../lib/formsClient.js';
 import {
   getActiveTrackerColumns,
   getTrackerColumn,
@@ -27,10 +29,11 @@ import {
 
 export function FormsPage() {
   const { activeWorkspace, activeWorkspaceId } = useWorkspaceSession();
-  const { data: state, setData: setState, status: formsStatus, error: loadError } = useWorkspaceResource(
+  const { data: state, setData: setState, status: formsStatus, error: loadError, reload } = useWorkspaceResource(
     activeWorkspaceId,
-    loadMonitoringState,
-    emptyMonitoringState
+    loadFormsState,
+    emptyFormsState,
+    'forms'
   );
   const deliverables = state.deliverables;
   const [formsError, setFormsError] = useState('');
@@ -47,6 +50,10 @@ export function FormsPage() {
     setEditor({ opened: false, form: null });
     setCopyStatus('');
   }, [isCurrentScope]);
+
+  useEffect(() => {
+    if (formsStatus === 'error') setEditor({ opened: false, form: null });
+  }, [formsStatus]);
 
   function formForColumn(columnKey) {
     const column = getTrackerColumn(state, columnKey) || activeColumns[0];
@@ -171,21 +178,32 @@ export function FormsPage() {
         </Button>
       </header>
 
-      {formsStatus === 'loading' ? <Alert color="blue">Loading published forms…</Alert> : null}
+      {formsStatus === 'loading' ? (
+        <Paper withBorder p="lg" role="status" aria-label="Loading published forms">
+          <Stack gap="md">
+            <Skeleton height={24} width="35%" animate={false} />
+            {[0, 1, 2].map((row) => <Skeleton key={row} height={56} animate={false} />)}
+          </Stack>
+        </Paper>
+      ) : null}
       {formsError || loadError ? <Alert color="red" role="alert" aria-label="Form error">{formsError || loadError}</Alert> : null}
+      {loadError ? <Stack gap="xs">
+        {formsStatus === 'ready' ? <Text size="sm">Showing previously loaded forms. Updates could not be checked.</Text> : null}
+        <Button variant="default" onClick={() => reload()}>Retry loading forms</Button>
+      </Stack> : null}
 
-      <PublishedFormsTable
+      {formsStatus === 'ready' ? <PublishedFormsTable
         deliverables={orderedDeliverables}
         workspaceKey={workspaceKey}
         onCopy={copyLink}
         onEdit={openEditor}
         onRepublish={republish}
         onUnpublish={confirmUnpublish}
-      />
+      /> : null}
       <VisuallyHidden role="status" aria-live="polite">{copyStatus}</VisuallyHidden>
 
       <FormEditorModal
-        opened={editor.opened}
+        opened={editor.opened && formsStatus === 'ready'}
         initialForm={editor.form}
         columns={columnOptions}
         workspaceKey={workspaceKey}

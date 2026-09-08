@@ -1,3 +1,4 @@
+import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -50,11 +51,10 @@ const REVIEW_PAGE_SIZE = 50;
 export function ReviewPage() {
   const { activeWorkspaceId } = useWorkspaceSession();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
-  const { data: state, setData: setState, status: reviewStatus, error: reviewError } = useWorkspaceResource(
+  const { data: state, setData: setState, status: reviewStatus, error: reviewError, reload } = useWorkspaceResource(
     activeWorkspaceId,
     loadReviewDesk,
-    emptyReviewDesk
-  );
+    emptyReviewDesk, 'monitoring');
   const [searchParams] = useSearchParams();
   const linkedResponseId = searchParams.get('response') || '';
   const linkedResponse = state.attempts.find((response) => response.id === linkedResponseId) || null;
@@ -373,8 +373,7 @@ export function ReviewPage() {
         </div>
       </header>
 
-      {reviewStatus === 'loading' ? <Alert color="blue">Loading the review desk…</Alert> : null}
-      {reviewStatus === 'error' ? <Alert color="red" role="alert">{reviewError}</Alert> : null}
+      <ResourceBoundary status={reviewStatus} error={reviewError} onRetry={reload}>
 
       <ReviewDeliverablesTable summaries={summaries} selectedId={activeDeliverableId} onSelect={chooseDeliverable} />
 
@@ -543,6 +542,7 @@ export function ReviewPage() {
         onClose={() => setCheckDialogId('')}
         onRecheck={recheckFromDialog}
       />
+      </ResourceBoundary>
     </Stack>
   );
 }

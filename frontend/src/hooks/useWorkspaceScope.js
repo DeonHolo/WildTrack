@@ -4,7 +4,7 @@ import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 // Capture this predicate with an operation; it expires on scope change or unmount.
 export function useWorkspaceScope(workspaceId) {
   const { session } = useWorkspaceSession();
-  const account = session?.authenticated ? session.email : '';
+  const account = session?.authenticated ? JSON.stringify([session.email, session.googleSubject, session.roles]) : '';
   const scope = useMemo(() => ({}), [workspaceId, account]);
   const current = useRef(null);
   useLayoutEffect(() => {

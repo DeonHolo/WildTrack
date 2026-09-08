@@ -13,19 +13,23 @@ public class StaffAccessService {
     private final StaffRoleAssignmentRepository repository;
     private final StaffBootstrapProperties bootstrapProperties;
     private final Clock clock;
+    private final StaffManagementService staffManagement;
 
     public StaffAccessService(
         StaffRoleAssignmentRepository repository,
         StaffBootstrapProperties bootstrapProperties,
-        Clock clock
+        Clock clock,
+        StaffManagementService staffManagement
     ) {
         this.repository = repository;
         this.bootstrapProperties = bootstrapProperties;
         this.clock = clock;
+        this.staffManagement = staffManagement;
     }
 
     @Transactional
     public void bindStaffRolesOnFirstLogin(String googleSubject, String googleEmail) {
+        staffManagement.bindPending(googleSubject, googleEmail);
         for (StaffRole role : StaffRole.values()) {
             boolean allowed = bootstrapProperties.contains(googleSubject, googleEmail, role);
             var existing = repository.findByGoogleSubjectAndRole(googleSubject, role);

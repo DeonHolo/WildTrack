@@ -1,3 +1,4 @@
+import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon,
@@ -69,11 +70,10 @@ import {
 export function AdviserViewPage() {
   const { activeWorkspaceId } = useWorkspaceSession();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
-  const { data: state, setData: setState, status: reviewStatus, error: reviewError } = useWorkspaceResource(
+  const { data: state, setData: setState, status: reviewStatus, error: reviewError, reload } = useWorkspaceResource(
     activeWorkspaceId,
     loadReviewDesk,
-    emptyReviewDesk
-  );
+    emptyReviewDesk, 'monitoring');
   const role = useApplicationRole();
   const isAdmin = role === APPLICATION_ROLES.ADMIN;
   const adviserOptions = useMemo(() => getAdviserOptions(state), [state]);
@@ -293,8 +293,7 @@ export function AdviserViewPage() {
         />
       </Group>
 
-      {reviewStatus === 'loading' ? <Alert color="blue">Loading assigned-team review…</Alert> : null}
-      {reviewStatus === 'error' ? <Alert color="red" role="alert">{reviewError}</Alert> : null}
+      <ResourceBoundary status={reviewStatus} error={reviewError} onRetry={reload}>
       {feedbackError?.responseId === selectedResponse?.id && feedbackError?.workspaceId === activeWorkspaceId ? (
         <Alert color="red" role="alert">{feedbackError.message}</Alert>
       ) : null}
@@ -466,6 +465,7 @@ export function AdviserViewPage() {
         onClose={() => setCheckDialogId('')}
         onRecheck={() => runDocumentCheck(checkDialogResponse.id)}
       />
+      </ResourceBoundary>
     </Stack>
   );
 }

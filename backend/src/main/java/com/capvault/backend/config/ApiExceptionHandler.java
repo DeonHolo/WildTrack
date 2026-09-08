@@ -17,6 +17,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    ResponseEntity<ApiErrorResponse> handleStatus(org.springframework.web.server.ResponseStatusException exception) {
+        return ResponseEntity.status(exception.getStatusCode()).body(ApiErrorResponse.of(
+            exception.getStatusCode().value(), exception.getReason()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ApiErrorResponse> handleValidation(MethodArgumentNotValidException exception) {
         Map<String, String> fieldErrors = new LinkedHashMap<>();

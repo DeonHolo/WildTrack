@@ -1,45 +1,17 @@
 import {
   acceptReviewResponse,
-  getLatestFileCheck,
   getReviewState,
-  getStaffMonitoring,
   revokeReviewResponse,
   runDocumentCheck as requestDocumentCheck,
   saveReviewFeedback
 } from './api.js';
 import {
   applyFileCheck,
-  applyReviewState,
-  emptyDomainState,
-  mapDeliverables,
-  mapProjects,
-  mapResponse,
-  mapStudents,
-  mapTrackerColumns
+  applyReviewState
 } from './backendDomain.js';
 import { firstSubmissionLink } from './workflow.js';
 
-export function emptyReviewDesk() {
-  return { ...emptyDomainState(), scopeTeamCodes: [], allTeams: false };
-}
-
-export async function loadReviewDesk(workspaceId) {
-  const scope = await getStaffMonitoring(workspaceId);
-  const responses = await Promise.all((scope.responses || []).map((item) => loadReviewResponse(workspaceId, item)));
-  return {
-    ...emptyDomainState(),
-    students: mapStudents(scope.students || [], scope.trackerRows || []),
-    projectMetadata: mapProjects(scope.projects || []),
-    trackerColumns: mapTrackerColumns(scope.trackerColumns || []),
-    deliverables: mapDeliverables(scope.deliverables || []),
-    attempts: responses.map(response => ({
-      ...response,
-      archiveStatus: (scope.archivedResponseIds || []).includes(response.id) ? 'Archived' : 'Not Archived'
-    })),
-    scopeTeamCodes: scope.teamCodes || [],
-    allTeams: Boolean(scope.allTeams)
-  };
-}
+export { emptyMonitoringState as emptyReviewDesk, loadMonitoringState as loadReviewDesk } from './monitoringClient.js';
 
 export async function saveFeedback(responseId, payload) {
   await saveReviewFeedback(responseId, {
@@ -115,18 +87,4 @@ export function applyReviewMutation(response, reviewState) {
 
 export function applyDocumentCheck(response, report) {
   return applyReviewState(applyFileCheck(response, report), { feedback: response.feedback || [], acceptance: response.acceptance || null });
-}
-
-async function loadReviewResponse(workspaceId, rawResponse) {
-  let response = mapResponse(rawResponse);
-  const reviewState = await getReviewState(response.id);
-  response = applyReviewState(response, reviewState);
-  try {
-    const report = await getLatestFileCheck(workspaceId, response.id);
-    response = applyFileCheck(response, report);
-    response = applyReviewState(response, reviewState);
-  } catch (error) {
-    if (error?.status !== 404) throw error;
-  }
-  return response;
 }
