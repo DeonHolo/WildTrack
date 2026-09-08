@@ -85,7 +85,7 @@ function RoleHomeRedirect() {
     return <div role="alert">{workspaceSession.sessionError || 'Session could not be loaded.'}</div>;
   }
 
-  if (!import.meta.env.DEV && (workspaceSession?.sessionStatus === 'loading' || session === null)) {
+  if (!import.meta.env.DEV && session === null) {
     return null;
   }
 

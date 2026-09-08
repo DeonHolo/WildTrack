@@ -2295,7 +2295,7 @@ html {
   padding: 14px 22px 18px;
   border-top: 1px solid var(--wt-border);
   background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(8px);
+  backdrop-filter: none;
 }
 
 @media (max-width: 980px) {
@@ -3263,4 +3263,11 @@ html {
   margin-bottom: 20px;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--wt-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mantine-Modal-overlay, .mantine-Modal-content, .mantine-Drawer-overlay, .mantine-Drawer-content {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
 }

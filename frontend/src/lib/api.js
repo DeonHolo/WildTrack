@@ -121,8 +121,12 @@ export async function getStudentDashboard(workspaceId) {
   return request(withWorkspace('/workspace/students/dashboard', workspaceId));
 }
 
-export async function getStaffMonitoring(workspaceId) {
-  return request(withWorkspace('/monitoring', workspaceId));
+export async function getStaffMonitoring(workspaceId, includeReviews = false) {
+  return request(withWorkspace('/monitoring', workspaceId) + (includeReviews ? '&includeReviews=true' : ''));
+}
+
+export function saveStaffProfile(workspaceId, payload) {
+  return request(withWorkspace('/workspace/staff/profile', workspaceId), { method: 'POST', body: payload });
 }
 
 export async function getArchiveRecords(workspaceId) {
@@ -337,6 +341,7 @@ export async function request(path, options = {}) {
     throw new ApiError(message, response.status);
   }
 
+  if (mutating) window.dispatchEvent(new Event('wildtrack:server-mutation'));
   if (response.status === 204) {
     return null;
   }
@@ -376,6 +381,7 @@ async function requestForm(path, options = {}) {
     }
     throw new ApiError(message, response.status);
   }
+  if (mutating) window.dispatchEvent(new Event('wildtrack:server-mutation'));
   if (response.status === 204) return null;
   return response.json();
 }
@@ -431,6 +437,7 @@ export async function submitResponse(workspaceId, deliverableId, values, revisio
     } catch {}
     throw new ApiError(message, response.status);
   }
+  window.dispatchEvent(new Event('wildtrack:server-mutation'));
   return response.json();
 }
 

@@ -43,7 +43,23 @@ it('refreshes visible data on focus and clears it if authorization has expired',
   rows = ['external update'];
   act(() => window.dispatchEvent(new Event('focus')));
   await waitFor(() => expect(result.current.data.rows).toEqual(['external update']));
-  failure = new Error('Access expired');
+  failure = Object.assign(new Error('Access expired'), { status: 401 });
   act(() => window.dispatchEvent(new Event('focus')));
   await waitFor(() => expect(result.current).toMatchObject({ data: { rows: [] }, status: 'error', error: 'Access expired' }));
+});
+
+it('keeps usable rows during a refresh failure and allows retry', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ authenticated: false }));
+  let rejectRefresh;
+  const load = vi.fn().mockResolvedValueOnce({ rows: ['saved row'] })
+    .mockImplementationOnce(() => new Promise((_, reject) => { rejectRefresh = reject; }))
+    .mockResolvedValueOnce({ rows: ['updated row'] });
+  const { result } = renderHook(() => useWorkspaceResource('workspace', load, empty), { wrapper });
+  await waitFor(() => expect(result.current.data.rows).toEqual(['saved row']));
+  act(() => { result.current.reload(); });
+  expect(result.current.data.rows).toEqual(['saved row']);
+  await act(async () => rejectRefresh(new Error('Connection interrupted')));
+  expect(result.current).toMatchObject({ data: { rows: ['saved row'] }, status: 'ready', error: 'Connection interrupted' });
+  await act(async () => { await result.current.reload(); });
+  expect(result.current).toMatchObject({ data: { rows: ['updated row'] }, status: 'ready', error: '' });
 });

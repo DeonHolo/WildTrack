@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AdviserTeamAssignmentRepository extends JpaRepository<AdviserTeamAssignment, UUID> {
+    List<AdviserTeamAssignment> findAllByGoogleSubject(String googleSubject);
 
     List<AdviserTeamAssignment> findAllByWorkspaceId(UUID workspaceId);
 

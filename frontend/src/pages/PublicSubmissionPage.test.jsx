@@ -214,6 +214,90 @@ describe('public submission form', () => {
     expect(api.getPublicSubmissionForm).toHaveBeenCalledWith('it-it332-2025-26-semester-2', 'week-9-srs');
   });
 
+  it('keeps a revealed linked form visible while sign-in resolves its private workspace', async () => {
+    setAnonymousSession();
+    const path = '/w/it-it332-2025-26-semester-2/submit/week-9-srs';
+    const view = renderForm(path);
+    await screen.findByRole('heading', { name: 'Week 9: Software Requirements Specification' });
+    setServerSession();
+    workspaceSession.needsWorkspaceChoice = true;
+    workspaceSession.switchWorkspace.mockReturnValue(new Promise(() => {}));
+    view.rerender(<FormHarness path={path} />);
+    await waitFor(() => expect(workspaceSession.switchWorkspace).toHaveBeenCalled());
+    expect(screen.getByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Opening submission form' })).not.toBeInTheDocument();
+  });
+
+  it('keeps editing disabled until a slow saved draft is restored', async () => {
+    let restore;
+    api.getDraft.mockReturnValue(new Promise(resolve => { restore = resolve; }));
+    renderForm();
+    const input = await screen.findByRole('textbox', { name: /PDF Drive Link/i });
+    expect(input).toBeDisabled();
+    await act(async () => restore({ present: true, values: { documentPdf: 'https://drive.google.com/file/d/saved' }, revision: 4 }));
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(input).toHaveValue('https://drive.google.com/file/d/saved');
+  });
+
+  it('keeps typed answers and the form visible through a same-scope session refresh', async () => {
+    const path = '/w/it-it332-2025-26-semester-2/submit/week-9-srs';
+    const view = renderForm(path);
+    const input = await screen.findByRole('textbox', { name: /PDF Drive Link/i });
+    await waitFor(() => expect(input).toBeEnabled());
+    fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/my-edit' } });
+    workspaceSession.activeWorkspace = { ...workspaceSession.activeWorkspace };
+    workspaceSession.switchWorkspace = vi.fn().mockResolvedValue({ ok: true });
+    setServerSession();
+    view.rerender(<FormHarness path={path} />);
+    await act(async () => {});
+    expect(input).toHaveValue('https://drive.google.com/file/d/my-edit');
+    expect(screen.queryByRole('heading', { name: 'Opening submission form' })).not.toBeInTheDocument();
+    expect(api.getPublicSubmissionForm).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries failed private hydration inside the visible form without enabling empty edits', async () => {
+    api.getDraft.mockRejectedValueOnce(new Error('Draft service unavailable'))
+      .mockResolvedValueOnce({ present: true, values: { documentPdf: 'https://drive.google.com/file/d/recovered' }, revision: 2 });
+    renderForm();
+    await screen.findByText('Draft service unavailable');
+    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading your response' }));
+    expect(screen.getByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('https://drive.google.com/file/d/recovered'));
+    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toBeEnabled();
+    expect(api.getPublicSubmissionForm).toHaveBeenCalledTimes(1);
+  });
+
+  it('distinguishes an HTTP not-found response from a retryable public load failure', async () => {
+    api.getPublicSubmissionForm.mockRejectedValueOnce(new Error('Connection interrupted'))
+      .mockRejectedValueOnce(Object.assign(new Error('Missing form'), { status: 404 }));
+    renderForm();
+    await screen.findByRole('heading', { name: 'Unable to open submission form' });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry opening form' }));
+    expect(await screen.findByRole('heading', { name: 'Submission form not found' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['2026-09-08T10:00:00Z', '2026-09-08T09:00:00Z', 'draft-edit'],
+    ['2026-09-08T08:00:00Z', '2026-09-08T09:00:00Z', 'submitted']
+  ])('restores the newest persisted values when a draft and owned response both exist (%s)', async (draftAt, responseAt, expected) => {
+    api.getDraft.mockResolvedValue({ present: true, values: { documentPdf: 'draft-edit' }, updatedAt: draftAt, revision: 2 });
+    api.getMyResponse.mockResolvedValue({ id: 'owned', valuesJson: JSON.stringify({ documentPdf: 'submitted' }), updatedAt: responseAt, revision: 3 });
+    renderForm();
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue(expected));
+  });
+
+  it('clears private response content when a late roster request denies access', async () => {
+    let deny;
+    api.getRosterOptions.mockReturnValue(new Promise((_, reject) => { deny = reject; }));
+    api.getMyResponse.mockResolvedValue({ id: 'owned', valuesJson: JSON.stringify({ documentPdf: 'private-answer' }) });
+    renderForm();
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('private-answer'));
+    await act(async () => deny(Object.assign(new Error('Access denied'), { status: 403 })));
+    expect(screen.queryByDisplayValue('private-answer')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save response changes' })).not.toBeInTheDocument();
+  });
+
   it('prefills existing server submission for authenticated owner and marks it ready to edit (ticket 05)', async () => {
     localStorage.clear();
     api.getMyResponse.mockResolvedValue({
@@ -292,6 +376,8 @@ describe('public submission form', () => {
     });
     renderForm('/submit/week-9-srs?student=22-1002-002');
     await waitFor(() => expect(screen.getByRole('combobox', { name: /Student Number/i })).toHaveValue('22-1001-001'));
+    expect(screen.getByRole('combobox', { name: /Student Number/i })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toBeEnabled();
     fireEvent.change(screen.getByRole('textbox', { name: /PDF Drive Link/i }), {
       target: { value: 'https://drive.google.com/file/d/unsaved-edit/view' }
     });
@@ -623,7 +709,7 @@ describe('public submission form', () => {
     expect(await screen.findByRole('heading', { name: 'Submission form not found' })).toBeInTheDocument();
   });
 
-  it('shows a loading state while switching to the form workspace', async () => {
+  it('shows public form structure with disabled inputs while switching to its workspace', async () => {
     api.getPublicSubmissionForm.mockResolvedValue({
       workspace: { ...workspaceSession.activeWorkspace, id: 'workspace-cs', program: 'CS' },
       deliverable: {
@@ -641,7 +727,8 @@ describe('public submission form', () => {
     renderForm('/w/workspace-cs/submit/week-9-srs');
 
     await waitFor(() => expect(workspaceSession.switchWorkspace).toHaveBeenCalledWith('workspace-cs'));
-    expect(screen.getByRole('heading', { name: 'Opening submission form' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toBeDisabled();
   });
 
   it('shows a recoverable error when the form workspace cannot be opened', async () => {

@@ -2,6 +2,7 @@ import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { Notifications, notifications } from '@mantine/notifications';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
 import { StaffManagementPanel } from './StaffManagementPanel.jsx';
@@ -9,6 +10,7 @@ import { StaffManagementPanel } from './StaffManagementPanel.jsx';
 const api = vi.hoisted(() => ({
   getStaffProfiles: vi.fn(),
   upsertStaffEmail: vi.fn(),
+  saveStaffProfile: vi.fn(),
   assignAdviserTeam: vi.fn(),
   unassignAdviserTeam: vi.fn(),
   revokeStaffAccess: vi.fn()
@@ -16,6 +18,7 @@ const api = vi.hoisted(() => ({
 
 vi.mock('../../lib/api.js', () => ({
   getStaffProfiles: api.getStaffProfiles,
+  saveStaffProfile: api.saveStaffProfile,
   upsertStaffEmail: api.upsertStaffEmail,
   assignAdviserTeam: api.assignAdviserTeam,
   unassignAdviserTeam: api.unassignAdviserTeam,
@@ -105,13 +108,13 @@ describe('StaffManagementPanel', () => {
     renderPanel();
     expect(await screen.findByRole('alert')).toHaveTextContent('Staff access expired. Sign in again.');
     expect(screen.queryByText(/No staff or advisers registered/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Retry staff load' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('ralph@example.com')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('opens add staff dialog and submits new adviser with selected teams', async () => {
-    api.upsertStaffEmail.mockResolvedValue({
+  it('allows an adviser to be saved with no teams', async () => {
+    api.saveStaffProfile.mockResolvedValue({
       id: 'staff-3',
       googleSubject: 'sub-new',
       googleEmail: 'new.adviser@example.com',
@@ -120,7 +123,8 @@ describe('StaffManagementPanel', () => {
     api.assignAdviserTeam.mockResolvedValue(undefined);
 
     renderPanel();
-    fireEvent.click(await screen.findByRole('button', { name: /Add staff \/ adviser/i }));
+    await screen.findByText('ralph@example.com');
+    fireEvent.click(screen.getByRole('button', { name: /Add staff \/ adviser/i }));
 
     const emailInput = await screen.findByLabelText(/Google Email/i);
     fireEvent.change(emailInput, { target: { value: 'new.adviser@example.com' } });
@@ -128,26 +132,33 @@ describe('StaffManagementPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save staff member/i }));
 
     await waitFor(() => {
-      expect(api.upsertStaffEmail).toHaveBeenCalledWith('ws-123', 'new.adviser@example.com', ['ADVISER']);
+      expect(api.saveStaffProfile).toHaveBeenCalledWith('ws-123', expect.objectContaining({ googleEmail: 'new.adviser@example.com', role: 'ADVISER', teamCodes: [] }));
     });
   });
 
-  it('unassigns a team when clicking the close button on a team pill', async () => {
-    api.unassignAdviserTeam.mockResolvedValue(undefined);
-    renderPanel();
-
-    const unassignBtn = await screen.findByRole('button', { name: 'Unassign 2526-sem2-it332-01' });
-    fireEvent.click(unassignBtn);
-
-    await waitFor(() => {
-      expect(api.unassignAdviserTeam).toHaveBeenCalledWith('ws-123', 'sub-adviser', '2526-sem2-it332-01');
-    });
+  it('prefills imported adviser teams and saves the whole assignment once', async () => {
+    const user = userEvent.setup();
+    renderPanel({ students: [{ teamCode: '2526-sem2-it332-02', adviserName: 'Dr. Rivera' }], projectMetadata: [] });
+    await screen.findByText('ralph@example.com');
+    fireEvent.click(screen.getByRole('button', { name: /Add staff \/ adviser/i }));
+    fireEvent.change(await screen.findByLabelText(/Google Email/i), { target: { value: 'rivera@example.com' } });
+    const nameInput = screen.getByRole('textbox', { name: 'Adviser name' });
+    await user.click(nameInput);
+    await user.type(nameInput, 'Rivera');
+    await user.click(await screen.findByText(/Dr. Rivera .* Class roster/));
+    expect(nameInput).toHaveValue('Dr. Rivera');
+    fireEvent.click(screen.getByRole('button', { name: 'Save staff member' }));
+    await waitFor(() => expect(api.saveStaffProfile).toHaveBeenCalledWith('ws-123', expect.objectContaining({
+      googleEmail: 'rivera@example.com', adviserName: 'Dr. Rivera', teamCodes: ['2526-sem2-it332-02']
+    })));
+    expect(api.assignAdviserTeam).not.toHaveBeenCalled();
   });
 
   it('does not publish an old staff-save result into a new workspace', async () => {
     let finish;
-    api.upsertStaffEmail.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    api.saveStaffProfile.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     const view = renderPanel();
+    await screen.findByText('ralph@example.com');
     fireEvent.click(screen.getByRole('button', { name: /Add staff \/ adviser/i }));
     fireEvent.change(await screen.findByLabelText(/Google Email/i), { target: { value: 'private-old@example.com' } });
     fireEvent.click(screen.getByRole('button', { name: /Save staff member/i }));

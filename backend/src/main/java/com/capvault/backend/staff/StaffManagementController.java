@@ -64,6 +64,13 @@ public class StaffManagementController {
         return ResponseEntity.ok(staffService.upsertStaffEmail(request.googleEmail(), roles, workspaceId));
     }
 
+    @PostMapping("/profile")
+    public StaffManagementService.StaffProfileView saveProfile(@RequestParam UUID workspaceId,
+            @RequestBody StaffManagementService.SaveRequest request, HttpServletRequest http) {
+        requireAdmin(http);
+        return staffService.saveProfile(workspaceId, request);
+    }
+
     @PostMapping("/assignments")
     public ResponseEntity<Void> assignTeam(
         @RequestParam UUID workspaceId,

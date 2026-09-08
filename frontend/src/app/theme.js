@@ -1,4 +1,4 @@
-import { Button, InputBase, Modal, NativeSelect, Paper, PasswordInput, SegmentedControl, Textarea, TextInput, createTheme } from '@mantine/core';
+import { Button, Drawer, InputBase, Modal, NativeSelect, Paper, PasswordInput, SegmentedControl, Skeleton, Textarea, TextInput, createTheme } from '@mantine/core';
 
 export const wildTrackTheme = createTheme({
   primaryColor: 'wildtrackMaroon',
@@ -79,8 +79,12 @@ export const wildTrackTheme = createTheme({
       defaultProps: { radius: 'sm', color: 'wildtrackMaroon' }
     }),
     Modal: Modal.extend({
-      defaultProps: { radius: 'md', overlayProps: { backgroundOpacity: 0.46, blur: 1 } }
+      defaultProps: { radius: 'md', overlayProps: { backgroundOpacity: 0.46, blur: 0 }, transitionProps: { transition: 'fade', duration: 120 } }
     }),
+    Drawer: Drawer.extend({
+      defaultProps: { overlayProps: { backgroundOpacity: 0.46, blur: 0 }, transitionProps: { duration: 140 } }
+    }),
+    Skeleton: Skeleton.extend({ defaultProps: { animate: false } }),
     Paper: Paper.extend({
       defaultProps: { radius: 'md' }
     })

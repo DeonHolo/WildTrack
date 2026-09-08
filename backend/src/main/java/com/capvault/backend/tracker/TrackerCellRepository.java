@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TrackerCellRepository extends JpaRepository<TrackerCell, UUID> {
+    List<TrackerCell> findAllByTrackerRowIdIn(List<UUID> trackerRowIds);
 
     List<TrackerCell> findAllByTrackerRowId(UUID trackerRowId);
 

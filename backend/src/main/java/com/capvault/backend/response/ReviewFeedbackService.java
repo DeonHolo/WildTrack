@@ -144,6 +144,28 @@ public class ReviewFeedbackService {
         return feedbackRepository.findAllByResponseIdOrderByUpdatedAtDesc(responseId);
     }
 
+    /** Call only with response IDs already authorized by the owning controller. */
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, java.util.Map<String, Object>> statesFor(List<UUID> ids) {
+        java.util.Map<UUID, java.util.Map<String, Object>> states = new java.util.LinkedHashMap<>();
+        if (ids.isEmpty()) return states;
+        ids.forEach(id -> {
+            var state = new java.util.LinkedHashMap<String, Object>();
+            state.put("feedback", new java.util.ArrayList<java.util.Map<String, Object>>());
+            states.put(id, state);
+        });
+        var feedback = feedbackRepository.findAllByResponseIdInOrderByUpdatedAtDesc(ids).stream()
+            .collect(java.util.stream.Collectors.groupingBy(f -> f.getResponse().getId()));
+        feedback.forEach((id, items) -> states.get(id).put("feedback", items.stream().map(f ->
+            java.util.Map.<String, Object>of("note", f.getNote(), "visibility", f.getVisibility(),
+                "author", f.getAuthorEmail(), "authorRole", f.getAuthorRole(), "updatedAt", f.getUpdatedAt().toString())).toList()));
+        acceptanceRepository.findAllByResponseIdInAndRevokedAtIsNull(ids).forEach(a ->
+            states.get(a.getResponse().getId()).put("acceptance", java.util.Map.of(
+                "acceptedAt", a.getAcceptedAt().toString(), "acceptedBy", a.getAcceptedByEmail(),
+                "acceptedByRole", a.getAcceptedByRole(), "sourceResponseUpdatedAt", a.getSourceResponseUpdatedAt().toString())));
+        return states;
+    }
+
     @Transactional(readOnly = true)
     public Optional<ResponseAcceptance> activeAcceptance(UUID responseId) {
         return acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId);

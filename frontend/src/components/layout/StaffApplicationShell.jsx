@@ -79,6 +79,7 @@ export function StaffApplicationShell({ children }) {
     activeWorkspaceId,
     workspaceCatalogStatus,
     workspaceCatalogError,
+    refreshWorkspaceCatalog,
     switchWorkspace,
     logoutStaffSession
   } = useWorkspaceSession();
@@ -189,7 +190,8 @@ export function StaffApplicationShell({ children }) {
       <MantineAppShell.Main id="wildtrack-main">
         <div className="wt-staff-main">
           {workspaceCatalogStatus === 'error' ? (
-            <Text role="alert" c="red" mb="md">{workspaceCatalogError || 'Workspaces could not be loaded.'}</Text>
+            <Group mb="md"><Text role="alert" c="red">{workspaceCatalogError || 'Workspaces could not be loaded.'}</Text>
+              <Button size="xs" variant="default" onClick={refreshWorkspaceCatalog}>Retry workspaces</Button></Group>
           ) : null}
           {children}
         </div>

@@ -1,3 +1,4 @@
+import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -47,8 +48,7 @@ export function CommandCenterPage() {
   const { data: state, setData: setState, status, error, reload } = useWorkspaceResource(
     activeWorkspaceId,
     loadMonitoringState,
-    emptyMonitoringState
-  );
+    emptyMonitoringState, 'monitoring');
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -302,13 +302,7 @@ export function CommandCenterPage() {
         ) : null}
       </header>
 
-      {status === 'loading' ? <Alert color="blue">Loading today&apos;s work…</Alert> : null}
-      {status === 'error' ? (
-        <Alert color="red" role="alert" title="Work queue could not be loaded">
-          <Stack gap="xs" align="flex-start"><Text size="sm">{error}</Text><Button variant="outline" onClick={reload}>Retry</Button></Stack>
-        </Alert>
-      ) : null}
-
+      <ResourceBoundary status={status} error={error} onRetry={reload}>
       <Paper withBorder className="wt-command-workbench">
         <div className="wt-command-workbench-head">
           <div>
@@ -416,6 +410,7 @@ export function CommandCenterPage() {
           </div>
         )}
       </Paper>
+      </ResourceBoundary>
     </Stack>
   );
 }

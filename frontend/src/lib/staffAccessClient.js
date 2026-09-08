@@ -3,13 +3,20 @@ import {
   getStaffMonitoring,
   getStaffProfiles,
   revokeStaffAccess,
+  saveStaffProfile,
   unassignAdviserTeam,
   upsertStaffEmail
 } from './api.js';
 
 export function emptyStaffAccess() {
-  return { profiles: [], teamCodes: [] };
+  return { profiles: [], teamCodes: [], students: [], projectMetadata: [] };
 }
+
+export async function loadStaffDirectory(workspaceId) {
+  return { ...emptyStaffAccess(), profiles: await loadStaffProfiles(workspaceId) };
+}
+
+export function saveStaff(workspaceId, payload) { return saveStaffProfile(workspaceId, payload); }
 
 export async function loadStaffProfiles(workspaceId) {
   const profiles = await getStaffProfiles(workspaceId);
@@ -23,6 +30,8 @@ export async function loadStaffAccess(workspaceId) {
   ]);
   return {
     profiles,
+    students: monitoring.students || [],
+    projectMetadata: monitoring.projects || [],
     teamCodes: [...new Set((monitoring.students || []).map((student) => student.teamCode).filter(Boolean))].sort()
   };
 }

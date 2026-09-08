@@ -1,4 +1,4 @@
-import { getLatestFileCheck, getReviewState, getStaffMonitoring } from './api.js';
+import { getStaffMonitoring } from './api.js';
 import {
   applyFileCheck,
   applyReviewState,
@@ -15,19 +15,13 @@ export function emptyMonitoringState() {
 }
 
 export async function loadMonitoringState(workspaceId) {
-  const payload = await getStaffMonitoring(workspaceId);
-  const attempts = await Promise.all((payload.responses || []).map(async (raw) => {
-    let response = mapResponse(raw);
-    const reviewState = await getReviewState(response.id);
-    response = applyReviewState(response, reviewState);
-    try {
-      const report = await getLatestFileCheck(workspaceId, response.id);
-      response = applyReviewState(applyFileCheck(response, report), reviewState);
-    } catch (error) {
-      if (error?.status !== 404) throw error;
-    }
-    return response;
-  }));
+  const payload = await getStaffMonitoring(workspaceId, true);
+  if ((payload.responses || []).some(raw => !Object.hasOwn(payload.reviewStates || {}, raw.id))) {
+    throw new Error('Review status is not available. Reload after the server update finishes.');
+  }
+  const attempts = (payload.responses || []).map(raw => applyReviewState(
+    applyFileCheck(mapResponse(raw), payload.fileChecks?.[raw.id]), payload.reviewStates?.[raw.id]
+  ));
   return {
     ...emptyDomainState(),
     students: mapStudents(payload.students || [], payload.trackerRows || []),

@@ -168,6 +168,14 @@ public class FileCheckService {
     }
 
     @Transactional(readOnly = true)
+    public java.util.Map<String, FileCheckResponse> latestForResponses(UUID workspaceId, List<String> ids) {
+        java.util.Map<String, FileCheckResponse> reports = new java.util.LinkedHashMap<>();
+        if (!ids.isEmpty()) repository.findLatestForResponses(workspaceId, ids)
+            .forEach(report -> reports.putIfAbsent(report.getExternalResponseId(), deserialize(report)));
+        return reports;
+    }
+
+    @Transactional(readOnly = true)
     public java.util.Optional<FileCheckResponse> findLatest(UUID workspaceId, String responseId) {
         return repository.findFirstByWorkspaceIdAndExternalResponseIdOrderByCheckedAtDesc(workspaceId, responseId)
             .map(this::deserialize);
