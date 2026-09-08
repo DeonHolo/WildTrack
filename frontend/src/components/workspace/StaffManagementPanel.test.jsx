@@ -145,7 +145,7 @@ describe('StaffManagementPanel', () => {
     const nameInput = screen.getByRole('textbox', { name: 'Adviser name' });
     await user.click(nameInput);
     await user.type(nameInput, 'Rivera');
-    await user.click(await screen.findByText(/Dr. Rivera .* Class roster/));
+    await user.click(await screen.findByText('Dr. Rivera'));
     expect(nameInput).toHaveValue('Dr. Rivera');
     fireEvent.click(screen.getByRole('button', { name: 'Save staff member' }));
     await waitFor(() => expect(api.saveStaffProfile).toHaveBeenCalledWith('ws-123', expect.objectContaining({

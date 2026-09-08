@@ -7,7 +7,6 @@ import {
   Container,
   Divider,
   Group,
-  Loader,
   Paper,
   Stack,
   Text,
@@ -42,6 +41,7 @@ import {
   saveSubmissionDraft
 } from '../lib/submissionClient.js';
 import { getRosterOptions } from '../lib/api.js';
+import { createWorkspaceResourceCache } from '../lib/workspaceResourceCache.js';
 
 function FormUnavailable({ deliverable }) {
   return (
@@ -58,20 +58,6 @@ function FormUnavailable({ deliverable }) {
               : 'This link does not match a published deliverable in the selected workspace.'}
           </Text>
           <Button component={Link} to="/student" variant="default">Open student dashboard</Button>
-        </Stack>
-      </Center>
-    </Paper>
-  );
-}
-
-function FormLoading() {
-  return (
-    <Paper className="wt-form-surface" radius="md" p="xl">
-      <Center mih={280}>
-        <Stack align="center" gap="md">
-          <Loader color="wildtrackMaroon" size="md" />
-          <Title order={1} size="h3">Opening submission form</Title>
-          <Text c="dimmed">Loading the academic workspace connected to this link.</Text>
         </Stack>
       </Center>
     </Paper>
@@ -117,7 +103,11 @@ export function PublicSubmissionPage() {
   const [workspaceStatus, setWorkspaceStatus] = useState('ready');
   const [workspaceError, setWorkspaceError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [publicResult, setPublicResult] = useState(null);
+  const [publicCache] = useState(() => createWorkspaceResourceCache({ storageKey: 'wildtrack.public-forms.v1' }));
+  const [publicResult, setPublicResult] = useState(() => {
+    const data = publicCache.read(formKey);
+    return data ? { key: formKey, status: 'refreshing', data } : null;
+  });
   const publicFormPayload = publicResult?.key === formKey ? publicResult.data : null;
   const fetchingPublicForm = publicResult?.key !== formKey || publicResult?.status === 'loading' || waitingForWorkspace;
   const publicError = publicResult?.key === formKey ? publicResult.error : '';
@@ -149,7 +139,8 @@ export function PublicSubmissionPage() {
   const [deniedAccess, setDeniedAccess] = useState(null);
   const accessDenied = deniedAccess?.key === hydrationKey;
   const privateReady = hydration.key === hydrationKey && hydration.status === 'ready'
-    && activeWorkspaceId === publicFormPayload?.workspace?.id && workspaceStatus === 'ready' && !accessDenied;
+    && activeWorkspaceId === publicFormPayload?.workspace?.id && workspaceStatus === 'ready' && !accessDenied
+    && publicResult?.status === 'ready';
   const requiresPdf = Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
 
   useLayoutEffect(() => {
@@ -182,14 +173,16 @@ export function PublicSubmissionPage() {
       setPublicResult({ key: formKey, status: 'ready', data: null });
       return () => { active = false; };
     }
-    setPublicResult({ key: formKey, status: 'loading', data: null });
-    openPublicSubmission(targetWorkspaceKey, slug)
+    const cached = publicCache.read(formKey);
+    setPublicResult({ key: formKey, status: cached ? 'refreshing' : 'loading', data: cached || null });
+    publicCache.load(formKey, () => openPublicSubmission(targetWorkspaceKey, slug))
       .then((data) => {
         if (!active) return;
         setPublicResult({ key: formKey, status: 'ready', data });
       })
       .catch((error) => {
         if (!active) return;
+        publicCache.remove(formKey);
         setPublicResult({ key: formKey, status: error?.status === 404 ? 'ready' : 'error', data: null,
           error: error?.status === 404 ? '' : error?.message || 'This submission form could not be opened.' });
       });
@@ -444,8 +437,8 @@ export function PublicSubmissionPage() {
   return (
     <main className="wt-public-root">
       <WildTrackPublicHeader subtitle={publicFormPayload?.workspace?.name || activeWorkspace?.name || 'WildTrack'} />
-      <Container component="section" size="sm" py={{ base: 'lg', sm: 'xl' }}>
-        {fetchingPublicForm ? <FormLoading /> : publicError || workspaceStatus === 'error' ? (
+      <Container component="section" size="sm" py={{ base: 'lg', sm: 'xl' }} aria-busy={fetchingPublicForm}>
+        {fetchingPublicForm ? null : publicError || workspaceStatus === 'error' ? (
           <WorkspaceError message={publicError || workspaceError} onRetry={() => publicError
             ? setRetry(value => value + 1) : setWorkspaceRetry(value => value + 1)} />
         ) : accessDenied ? (
@@ -482,7 +475,7 @@ export function PublicSubmissionPage() {
                     ) : null}
                   </Stack>
 
-                  {!activeAccount ? (
+                  {!activeAccount ? (sessionStatus === 'loading' ? null : (
                     <>
                       <Divider />
                       <GoogleIdentityAccess
@@ -493,11 +486,9 @@ export function PublicSubmissionPage() {
                         onAuthenticated={finishGoogleSignIn}
                       />
                     </>
-                  ) : (
+                  )) : (
                     <>
                       <Divider />
-                      {workspaceStatus === 'loading' ? <Text role="status" c="dimmed">Connecting to this form's workspace…</Text> : null}
-                      {!privateReady && workspaceStatus !== 'loading' && hydration.status !== 'error' ? <Text role="status" c="dimmed">Loading your student details and saved response…</Text> : null}
                       {hydration.key === hydrationKey && hydration.status === 'error' ? <Stack gap="xs">
                         <Alert color="red" role="alert">{formError}</Alert>
                         <Button variant="default" onClick={() => setPrivateRetry(value => value + 1)}>Retry loading your response</Button>
@@ -506,7 +497,6 @@ export function PublicSubmissionPage() {
                         <Alert color="red" role="alert">{roster.error}</Alert>
                         <Button variant="default" onClick={() => setRosterRetry(value => value + 1)}>Retry loading class roster</Button>
                       </Stack> : null}
-                      {privateReady && roster.status === 'loading' ? <Text role="status" c="dimmed">Loading the class roster. Your response can be edited while you wait.</Text> : null}
                       <fieldset disabled={!privateReady} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                       <Stack gap="xl">
                       <fieldset disabled={!rosterReady} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
