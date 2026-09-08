@@ -1,10 +1,11 @@
-import { ActionIcon, Alert, Autocomplete, Badge, Button, Checkbox, Group, Modal, MultiSelect, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Alert, Autocomplete, Button, Checkbox, Group, Modal, Paper, ScrollArea, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { PencilSimple, Trash, UserPlus, UsersThree } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { emptyStaffAccess, loadStaffAccess, loadStaffDirectory, revokeStaff, saveStaff } from '../../lib/staffAccessClient.js';
 import { useWorkspaceResource } from '../../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../../hooks/useWorkspaceScope.js';
+import { StatusIndicator } from '../ui.jsx';
 import { ResourceBoundary } from '../ResourceBoundary.jsx';
 import { isUsableAdviserName } from '../../lib/workflow.js';
 
@@ -25,6 +26,7 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
   const [name, setName] = useState('');
   const [selectedTeams, setSelectedTeams] = useState([]);
   const [teamsEdited, setTeamsEdited] = useState(false);
+  const [teamSearch, setTeamSearch] = useState('');
   const [replacement, setReplacement] = useState(null);
   const [owners, setOwners] = useState({});
   const [reactivate, setReactivate] = useState(false);
@@ -53,8 +55,8 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
       const sources = Object.entries(item.bySource).map(([source, values]) => ({ source, teams: unique(values) }));
       const ambiguous = new Set(sources.map(entry => JSON.stringify(entry.teams.map(normalize)))).size > 1;
       return (ambiguous ? sources : [{ source: sources.map(entry => entry.source).join(', '), teams: sources[0].teams }])
-        .map(entry => ({ name: item.name, teams: entry.teams, ambiguous,
-          value: item.name + ' — ' + entry.source + ' · ' + (entry.teams.join(', ') || 'No teams') }));
+        .map(entry => ({ name: item.name, source: entry.source, teams: entry.teams, ambiguous,
+          value: item.name + ' — ' + entry.source }));
     });
     return { teams: unique(teams), advisers };
   }, [students, projectMetadata, data.students, data.projectMetadata]);
@@ -81,6 +83,7 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
   useEffect(() => { if (status === 'error') { setOpened(false); setRevokeTarget(null); } }, [status]);
 
   function openEditor(profile = null) {
+    setTeamSearch('');
     setEditing(profile); setEmail(profile?.googleEmail || '');
     setRole(profile?.roles?.includes('ADMIN') ? 'ADMIN' : 'ADVISER');
     setName(profile?.adviserName || ''); setSelectedTeams(profile?.assignedTeams || []);
@@ -140,9 +143,8 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
         <Stack gap="sm">{staffList.map(profile => <Paper key={profile.id} p="md" withBorder>
           <Group justify="space-between" align="flex-start"><Stack gap={4}>
             {profile.adviserName ? <Text fw={600}>{profile.adviserName}</Text> : null}<Text size="sm">{profile.googleEmail}</Text>
-            <Group gap="xs">{profile.roles.map(value => <Badge key={value} variant="light">{value === 'ADMIN' ? 'Administrator' : 'Adviser'}</Badge>)}
-              <Badge variant="outline" color={!profile.enabled ? 'gray' : profile.googleSubject.startsWith('pending:') ? 'orange' : 'green'}>
-                {!profile.enabled ? 'Disabled' : profile.googleSubject.startsWith('pending:') ? 'Pending sign-in' : 'Active'}</Badge></Group>
+            <Group gap="md">{profile.roles.map(value => <Text key={value} size="xs">{value === 'ADMIN' ? 'Administrator' : 'Adviser'}</Text>)}
+              <StatusIndicator status={!profile.enabled ? 'Disabled' : profile.googleSubject.startsWith('pending:') ? 'Pending sign-in' : 'Active'} /></Group>
             <Text size="xs" c="dimmed">{profile.roles.includes('ADMIN') ? 'Institution-wide administrator access.' :
               profile.assignedTeams.length ? profile.assignedTeams.join(', ') : 'Pending assignment — no team review access.'}</Text>
           </Stack><Group gap="xs"><Button size="xs" variant="default" leftSection={<PencilSimple size={14} />} onClick={() => openEditor(profile)}>Edit access</Button>
@@ -154,7 +156,7 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
     </ResourceBoundary>
     <Modal opened={opened && status === 'ready'} onClose={() => { if (!busy.current) setOpened(false); }}
       closeOnEscape={!saving} closeOnClickOutside={!saving} withCloseButton={!saving}
-      title={editing ? 'Edit staff access' : 'Add staff member or adviser'} centered>
+      title={editing ? 'Edit staff access' : 'Add staff member or adviser'} centered size="lg" scrollAreaComponent={ScrollArea.Autosize}>
       <form onSubmit={submit}><Stack gap="md">
         {error ? <Alert color="red"><Text size="sm">{error}</Text><Button size="xs" variant="subtle" onClick={reloadLatest} disabled={saving}>Reload latest assignments</Button></Alert> : null}
         <TextInput label="Google Email" type="email" required value={email} disabled={saving || Boolean(editing)}
@@ -165,20 +167,40 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
         {duplicate ? <Alert color="orange"><Text size="sm">This email already has a staff record. Open it to change access.</Text>
           <Button variant="default" size="xs" onClick={() => openEditor(duplicate)}>Edit existing staff member</Button></Alert> : null}
         {role === 'ADVISER' ? <>
-          <Autocomplete label="Adviser name" value={name} maxLength={200} disabled={saving} comboboxProps={{ withinPortal: false }}
+          <Autocomplete label="Adviser name" value={name} maxLength={200} disabled={saving} maxDropdownHeight={160} comboboxProps={{ withinPortal: true }}
             placeholder={imported.advisers.length ? 'Choose an imported name or type a name' : 'Enter a name (optional)'}
             data={imported.advisers.map(item => item.value)}
+            renderOption={({ option }) => {
+              const candidate = imported.advisers.find(item => item.value === option.value);
+              return <div style={{ minWidth: 0 }}><Text size="sm" truncate>{candidate?.name}</Text>
+                <Text size="xs" c="dimmed">{candidate?.source} · {candidate?.teams.length} teams{candidate?.ambiguous ? ' · Check match' : ''}</Text></div>;
+            }}
             onChange={value => { setName(imported.advisers.find(item => item.value === value)?.name || value); setReviewing(false); }} onOptionSubmit={selectImported}
-            description="Optional. Imported names suggest teams; they do not verify this Google account." />
+            description="Optional. Choose an imported adviser to suggest their teams, or type a name." />
           {replacement ? <Alert color="blue">
             {replacement.ambiguous ? <Text size="sm" fw={600}>This name has multiple matches or conflicting import details. Verify the source and teams before applying.</Text> : null}
             <Text size="sm">{replacement.value}</Text><Text size="sm">Replace your team selection with {replacement.name}'s imported teams: {replacement.teams.join(', ') || 'none'}?</Text>
             <Group mt="xs"><Button size="xs" onClick={() => { setSelectedTeams(replacement.teams); setReplacement(null); setTeamsEdited(true); }}>Replace teams</Button>
               <Button size="xs" variant="default" onClick={() => setReplacement(null)}>Keep my teams</Button></Group></Alert> : null}
-          <MultiSelect label="Assigned capstone teams" searchable clearable data={teamOptions} value={selectedTeams} disabled={saving} comboboxProps={{ withinPortal: false }}
-            onChange={value => { setSelectedTeams(value); setTeamsEdited(true); setReviewing(false); }}
-            placeholder={imported.teams.length ? 'Select teams (optional)' : 'No teams imported yet'}
-            description={imported.teams.length ? 'Optional. No teams means no team review access.' : 'You can save now and assign teams after importing the class sheets.'} />
+          <Stack gap="xs">
+            <Group justify="space-between"><Text size="sm" fw={500} id="staff-teams-label">Assigned capstone teams <Text span c="dimmed" size="xs">(optional)</Text></Text>
+              <Group gap="sm"><Text size="xs" c="dimmed">{selectedTeams.length} selected</Text>
+                {selectedTeams.length ? <Button size="compact-xs" variant="subtle" disabled={saving} onClick={() => { setSelectedTeams([]); setTeamsEdited(true); setReviewing(false); }}>Clear selection</Button> : null}</Group></Group>
+            {teamOptions.length ? <>
+              <TextInput aria-label="Search capstone teams" placeholder="Search teams or adviser" value={teamSearch} onChange={event => setTeamSearch(event.currentTarget.value)} />
+              <Checkbox.Group aria-labelledby="staff-teams-label" value={selectedTeams} onChange={value => { setSelectedTeams(value); setTeamsEdited(true); setReviewing(false); }}>
+                <Paper withBorder p="sm" style={{ maxHeight: 176, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+                  <Stack gap="sm">{teamOptions.filter(team => normalize(team.label).includes(normalize(teamSearch))).map(team => (
+                    <Checkbox key={team.value} value={team.value} label={team.value} disabled={saving}
+                      description={team.label !== team.value ? team.label.slice(team.value.length + 3) : undefined} />
+                  ))}
+                    {!teamOptions.some(team => normalize(team.label).includes(normalize(teamSearch))) ? <Text size="sm" c="dimmed">No matching teams.</Text> : null}
+                  </Stack>
+                </Paper>
+              </Checkbox.Group>
+            </> : null}
+            <Text size="xs" c="dimmed">{teamOptions.length ? 'Select the teams this adviser can review. No selection means no team access.' : 'No teams imported yet. Save the adviser now and assign teams after importing.'}</Text>
+          </Stack>
         </> : <Text size="xs" c="dimmed">Administrators have institution-wide access. Adviser team assignments are removed if that role is changed.</Text>}
         {editing?.enabled === false ? <Checkbox label="Reactivate this staff member" checked={reactivate}
           onChange={event => { setReactivate(event.currentTarget.checked); setReviewing(false); }} disabled={saving} /> : null}

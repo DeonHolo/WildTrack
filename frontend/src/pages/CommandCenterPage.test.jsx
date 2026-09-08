@@ -25,17 +25,18 @@ vi.mock('../app/WorkspaceSession.jsx', () => ({
   useWorkspaceSession: () => ({ activeWorkspaceId: workflow.activeWorkspaceId, session: workflow.session })
 }));
 
-vi.mock('../hooks/useWorkspaceResource.js', () => ({
-  useWorkspaceResource: () => ({
-    data: workflow.state,
-    setData: (next) => {
-      workflow.state = typeof next === 'function' ? next(workflow.state) : next;
-    },
-    status: 'ready',
-    error: '',
-    reload: vi.fn()
-  })
-}));
+vi.mock('../hooks/useWorkspaceResource.js', async () => {
+  const { useReducer } = await import('react');
+  return { useWorkspaceResource: () => {
+    const [, renderAgain] = useReducer(value => value + 1, 0);
+    return {
+      data: workflow.state,
+      setData: next => { workflow.state = typeof next === 'function' ? next(workflow.state) : next; renderAgain(); },
+      status: workflow.error ? 'error' : 'ready', error: workflow.error || '', reload: vi.fn()
+    };
+  } };
+});
+beforeEach(() => { workflow.error = ''; notifications.clean(); });
 
 vi.mock('../lib/reviewDeskClient.js', () => ({
   applyDocumentCheck: (response, report) => ({ ...response, documentCheck: report }),
@@ -263,14 +264,13 @@ describe('identity conflicts from the server', () => {
     workflow.state = makeState([]);
     // The page must read the workspace from the workflow context root, as production does.
     workflow.activeWorkspaceId = 'workspace-1';
-    api.getIdentityConflicts.mockReset().mockResolvedValue([conflict]);
+    workflow.state.openConflicts = [conflict];
     api.decideIdentityConflict.mockReset().mockResolvedValue({ ...conflict, status: 'RESOLVED' });
   });
 
   it('renders each open conflict with its Student Record and both competing identities', async () => {
     renderPage();
 
-    await waitFor(() => expect(api.getIdentityConflicts).toHaveBeenCalledWith('workspace-1'));
     const queue = await screen.findByRole('table', { name: "Today's work queue" });
     expect(within(queue).getByText('Identity conflict')).toBeInTheDocument();
     expect(within(queue).getByText(/Deon Holo/)).toBeInTheDocument();
@@ -309,11 +309,11 @@ describe('identity conflicts from the server', () => {
   });
 
   it('says the queue is incomplete instead of all clear when conflicts cannot be loaded', async () => {
-    api.getIdentityConflicts.mockRejectedValue(new Error('Identity conflicts service is unavailable.'));
+    workflow.error = 'Identity conflicts service is unavailable.';
     renderPage();
 
-    expect(await screen.findByText('Identity conflicts could not be loaded')).toBeInTheDocument();
-    expect(screen.getByText('Work queue is incomplete')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Identity conflicts service is unavailable.');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(screen.queryByText('All clear for this workspace')).not.toBeInTheDocument();
   });
 });

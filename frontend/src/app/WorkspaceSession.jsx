@@ -22,7 +22,8 @@ export function WorkspaceSessionProvider({ children }) {
   const sessionIdentity = useRef('');
 
   useLayoutEffect(() => {
-    resourceCache.clear();
+    if (session !== null) resourceCache.retainAccount(session?.authenticated
+      ? JSON.stringify([session.email, session.googleSubject, session.roles]) : '');
   }, [resourceCache, session?.authenticated, session?.email, session?.googleSubject, JSON.stringify(session?.roles || [])]);
 
   useEffect(() => {
@@ -36,7 +37,18 @@ export function WorkspaceSessionProvider({ children }) {
     setWorkspaceCatalogStatus('loading');
     setWorkspaceCatalogError('');
     try {
-      const list = await getWorkspaces();
+      const key = JSON.stringify([sessionIdentity.current, '', 'workspace-catalog']);
+      const cached = resourceCache.read(key);
+      if (!activeRef.current && Array.isArray(cached) && cached.length) {
+        const selected = cached.find(workspace => workspace.id === readActiveWorkspaceId())?.id || '';
+        const nextActive = selected || cached[0].id;
+        setWorkspaces(cached);
+        activeRef.current = nextActive;
+        setActiveWorkspaceId(nextActive);
+        setSelectedWorkspaceId(selected || (cached.length === 1 ? nextActive : ''));
+        setWorkspaceCatalogStatus('ready');
+      }
+      const list = await resourceCache.load(key, getWorkspaces);
       if (request !== catalogRequest.current) return [];
       const next = Array.isArray(list) ? list : [];
       setWorkspaces(next);
@@ -73,7 +85,7 @@ export function WorkspaceSessionProvider({ children }) {
     try {
       const current = await getCurrentSession();
       if (request !== sessionRequest.current) return null;
-      const identity = current?.authenticated ? JSON.stringify([current.email, current.googleSubject]) : '';
+      const identity = current?.authenticated ? JSON.stringify([current.email, current.googleSubject, current.roles]) : '';
       if (sessionIdentity.current && sessionIdentity.current !== identity) {
         setWorkspaces([]);
         activeRef.current = '';

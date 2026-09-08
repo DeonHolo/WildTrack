@@ -43,20 +43,25 @@ const QUEUE_FILTERS = [
   { value: 'archive', label: 'Archive' }
 ];
 
+function emptyWorkQueue() { return { ...emptyMonitoringState(), openConflicts: [] }; }
+async function loadWorkQueue(workspaceId) {
+  const [monitoring, conflicts] = await Promise.all([loadMonitoringState(workspaceId), getIdentityConflicts(workspaceId)]);
+  return { ...monitoring, openConflicts: (conflicts || []).filter(item => item.status === 'OPEN') };
+}
+
 export function CommandCenterPage() {
   const { activeWorkspaceId } = useWorkspaceSession();
   const { data: state, setData: setState, status, error, reload } = useWorkspaceResource(
     activeWorkspaceId,
-    loadMonitoringState,
-    emptyMonitoringState, 'monitoring');
+    loadWorkQueue,
+    emptyWorkQueue, 'work-queue');
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [runningIds, setRunningIds] = useState(new Set());
   const [resolvedTaskIds, setResolvedTaskIds] = useState(new Set());
   const [batchProgress, setBatchProgress] = useState(null);
-  const [openConflicts, setOpenConflicts] = useState([]);
-  const [conflictError, setConflictError] = useState(null);
+  const openConflicts = state.openConflicts || [];
   // The active workspace is session state, while monitoring data stays resource-scoped.
   const workspaceId = activeWorkspaceId;
   const isCurrentScope = useWorkspaceScope(workspaceId);
@@ -65,33 +70,7 @@ export function CommandCenterPage() {
     setRunningIds(new Set());
     setResolvedTaskIds(new Set());
     setBatchProgress(null);
-    setOpenConflicts([]);
-    setConflictError(null);
   }, [isCurrentScope]);
-
-  // Ticket 05: identity conflicts are server-owned, so Today's work reads the open queue
-  // from the backend instead of inferring conflicts from this browser's submissions.
-  useEffect(() => {
-    let cancelled = false;
-    if (!workspaceId) {
-      setOpenConflicts([]);
-      setConflictError(null);
-      return undefined;
-    }
-    getIdentityConflicts(workspaceId)
-      .then((conflicts) => {
-        if (cancelled || !isCurrentScope()) return;
-        setConflictError(null);
-        setOpenConflicts(Array.isArray(conflicts) ? conflicts.filter((item) => item.status === 'OPEN') : []);
-      })
-      .catch((error) => {
-        if (cancelled || !isCurrentScope()) return;
-        setOpenConflicts([]);
-        // A failed fetch must not read as "All clear": say the queue is incomplete.
-        setConflictError(error?.message || 'Identity conflicts could not be loaded.');
-      });
-    return () => { cancelled = true; };
-  }, [workspaceId, isCurrentScope]);
 
   const allTasks = useMemo(() => buildWorkQueue(state, openConflicts), [state, openConflicts]);
   const openTasks = useMemo(
@@ -220,7 +199,7 @@ export function CommandCenterPage() {
     try {
       await decideIdentityConflict(workspaceId, task.conflict.id, decision);
       if (!isCurrentScope()) return;
-      setOpenConflicts((current) => current.filter((item) => item.id !== task.conflict.id));
+      setState(current => ({ ...current, openConflicts: current.openConflicts.filter(item => item.id !== task.conflict.id) }));
       notifications.show({
         color: 'green',
         title: decision === 'DISMISSED' ? 'Conflict dismissed' : 'Conflict resolved',
@@ -279,7 +258,7 @@ export function CommandCenterPage() {
   }
 
   const emptyTitle = filter === 'all' && !query
-    ? (conflictError ? 'Work queue is incomplete' : 'All clear for this workspace')
+    ? 'All clear for this workspace'
     : 'No ' + (filter === 'all' ? 'matching' : QUEUE_FILTERS.find((item) => item.value === filter)?.label.toLowerCase()) + ' work';
 
   return (
@@ -364,19 +343,6 @@ export function CommandCenterPage() {
               </Text>
               <Progress value={(batchProgress.completed / Math.max(batchProgress.total, 1)) * 100} color="wildtrackMaroon" size="sm" />
             </Stack>
-          </Alert>
-        ) : null}
-
-        {conflictError ? (
-          <Alert
-            role="status"
-            color="orange"
-            variant="light"
-            title="Identity conflicts could not be loaded"
-            icon={<Warning size={19} />}
-            className="wt-command-batch-progress"
-          >
-            <Text size="sm">{conflictError} This queue may be missing identity work.</Text>
           </Alert>
         ) : null}
 
