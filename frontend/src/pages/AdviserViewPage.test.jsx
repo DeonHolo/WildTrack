@@ -1,6 +1,6 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
@@ -8,6 +8,8 @@ import { AdviserViewPage } from './AdviserViewPage.jsx';
 
 const workflow = vi.hoisted(() => ({
   state: null,
+  workspaceId: 'workspace-it',
+  session: { authenticated: true, email: 'adviser@school.edu' },
   markAccepted: vi.fn(),
   revokeAcceptance: vi.fn(),
   saveFeedback: vi.fn(),
@@ -15,8 +17,30 @@ const workflow = vi.hoisted(() => ({
   runDocumentChecks: vi.fn()
 }));
 
-vi.mock('../app/WorkflowContext.jsx', () => ({
-  useWorkflow: () => workflow
+vi.mock('../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => ({ activeWorkspaceId: workflow.workspaceId, session: workflow.session })
+}));
+
+vi.mock('../hooks/useWorkspaceResource.js', () => ({
+  useWorkspaceResource: () => ({
+    data: workflow.state,
+    setData: (next) => {
+      workflow.state = typeof next === 'function' ? next(workflow.state) : next;
+    },
+    status: 'ready',
+    error: ''
+  })
+}));
+
+vi.mock('../lib/reviewDeskClient.js', () => ({
+  emptyReviewDesk: () => ({}),
+  loadReviewDesk: vi.fn(),
+  applyReviewMutation: (response, mutation) => ({ ...response, ...mutation }),
+  acceptResponse: (...args) => workflow.markAccepted(...args),
+  revokeAcceptance: (...args) => workflow.revokeAcceptance(...args),
+  saveFeedback: (...args) => workflow.saveFeedback(...args),
+  runDocumentCheck: (...args) => workflow.runDocumentCheck(...args),
+  runDocumentChecks: (...args) => workflow.runDocumentChecks(...args)
 }));
 
 const TEAM_A = '2526-sem2-it332-01';
@@ -24,6 +48,7 @@ const TEAM_B = '2526-sem2-it332-02';
 
 function createState({ conflicting = false, accepted = false } = {}) {
   return {
+    scopeTeamCodes: [TEAM_A],
     students: [
       { studentNumber: '22-1001-001', name: 'ALPHA, ANA', teamCode: TEAM_A, memberNumber: 1, adviser: 'Dr. Elena Mercado' },
       { studentNumber: '22-1002-002', name: 'BETA, BEN', teamCode: TEAM_A, memberNumber: 2, adviser: 'Dr. Elena Mercado' },
@@ -94,7 +119,11 @@ function createState({ conflicting = false, accepted = false } = {}) {
 function renderPage(role = 'adviser') {
   localStorage.setItem('wildtrack.v2.preview-role', role);
   localStorage.setItem('wildtrack.v2.preview-adviser', 'Dr. Elena Mercado');
-  return render(
+  return render(adviserTree());
+}
+
+function adviserTree() {
+  return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
         <MemoryRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
@@ -107,11 +136,28 @@ function renderPage(role = 'adviser') {
 
 describe('adviser My advised teams review', () => {
   beforeEach(() => {
+    workflow.workspaceId = 'workspace-it';
+    workflow.session = { authenticated: true, email: 'adviser@school.edu' };
     localStorage.clear();
     workflow.state = createState();
     Object.values(workflow).filter((value) => typeof value === 'function').forEach((mock) => mock.mockReset());
     workflow.runDocumentCheck.mockResolvedValue({ ok: true });
     workflow.runDocumentChecks.mockResolvedValue({ ok: true, completed: 0, total: 0, failed: 0 });
+  });
+
+  it.each(['workspace', 'account'])('discards late adviser batch results after %s change', async (change) => {
+    let finish, progress;
+    workflow.runDocumentChecks.mockImplementation((_workspace, _responses, _deliverables, options) => {
+      progress = options.onProgress;
+      return new Promise(resolve => { finish = resolve; });
+    });
+    const view = renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /Check .*unchecked member response/ }));
+    if (change === 'workspace') workflow.workspaceId = 'workspace-cs';
+    else workflow.session = { authenticated: true, email: 'other@school.edu' };
+    view.rerender(adviserTree());
+    await act(async () => { progress({ completed: 2, total: 2 }); finish({ completed: 2, total: 2, failed: 1 }); });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('limits a regular adviser to assigned teams and groups equivalent member submissions', () => {
@@ -155,9 +201,46 @@ describe('adviser My advised teams review', () => {
 
     expect(workflow.saveFeedback).toHaveBeenCalledWith('response-a2', {
       note: 'Clarify the acceptance criteria before the next consultation.',
-      author: 'Dr. Elena Mercado',
       visibility: 'Student'
     });
+  });
+
+  it('keeps unsaved feedback and explains a rejected save', async () => {
+    workflow.saveFeedback.mockRejectedValue(new Error('Permission changed. Reload and try again.'));
+    renderPage();
+    const editor = screen.getByRole('textbox', { name: 'Feedback for student' });
+    fireEvent.change(editor, { target: { value: 'Keep this unsaved note.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save feedback' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Permission changed. Reload and try again.');
+    expect(editor).toHaveValue('Keep this unsaved note.');
+  });
+
+  it.each([false, true])('explains a rejected acceptance change (accepted=%s)', async (accepted) => {
+    workflow.state = createState({ accepted });
+    (accepted ? workflow.revokeAcceptance : workflow.markAccepted).mockRejectedValue(new Error('Review access expired. Reload to continue.'));
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: accepted ? 'Revoke acceptance' : 'Accept group output' }));
+    fireEvent.click(await screen.findByRole('button', { name: accepted ? 'Confirm revoke' : 'Confirm acceptance' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Review access expired. Reload to continue.');
+    expect(workflow.state.attempts.find((item) => item.id === 'response-a2').reviewStatus).toBe(accepted ? 'Accepted' : 'Received');
+  });
+
+  it('disables duplicate document checks until the server responds', async () => {
+    let finish;
+    workflow.runDocumentCheck.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    renderPage();
+    const button = screen.getByRole('button', { name: 'Check document', exact: true });
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    await act(async () => finish({ ok: false, error: 'Try again later.' }));
+    expect(button).toBeEnabled();
+  });
+
+  it('explains an unavailable document check', async () => {
+    workflow.runDocumentCheck.mockResolvedValue({ ok: false, error: 'Document provider unavailable. Try again later.' });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Check document', exact: true }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Document provider unavailable. Try again later.');
   });
 
   it('edits the current student feedback instead of rendering a message history', () => {
@@ -179,7 +262,6 @@ describe('adviser My advised teams review', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Update feedback' }));
     expect(workflow.saveFeedback).toHaveBeenCalledWith('response-a2', {
       note: 'Clarify the revised acceptance criteria.',
-      author: 'Dr. Elena Mercado',
       visibility: 'Student'
     });
   });
@@ -189,11 +271,7 @@ describe('adviser My advised teams review', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Accept group output' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm acceptance' }));
-    expect(workflow.markAccepted).toHaveBeenCalledWith('response-a2', {
-      name: 'Dr. Elena Mercado',
-      role: 'Adviser',
-      scope: 'Group output'
-    });
+    expect(workflow.markAccepted).toHaveBeenCalledWith('response-a2');
 
     unmount();
     workflow.state = createState({ accepted: true });

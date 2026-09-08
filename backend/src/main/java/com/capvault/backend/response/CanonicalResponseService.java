@@ -13,17 +13,20 @@ public class CanonicalResponseService {
 
     private final CanonicalResponseSelectionRepository selectionRepository;
     private final FormResponseRepository responseRepository;
+    private final com.capvault.backend.student.StudentRecordRepository students;
 
     private final Clock clock;
 
     public CanonicalResponseService(
         CanonicalResponseSelectionRepository selectionRepository,
         FormResponseRepository responseRepository,
-        Clock clock
+        Clock clock,
+        com.capvault.backend.student.StudentRecordRepository students
     ) {
         this.selectionRepository = selectionRepository;
         this.responseRepository = responseRepository;
         this.clock = clock;
+        this.students = students;
     }
 
     /**
@@ -32,6 +35,8 @@ public class CanonicalResponseService {
      */
     @Transactional
     public void recordAcceptanceIfFirst(FormResponse response, String acceptingSubject) {
+        // Serialize competing acceptances for the same roster record before deciding "first".
+        students.lockById(response.getStudentRecordId()).orElseThrow(() -> new IllegalArgumentException("Student Record not found."));
         boolean alreadySelected = selectionRepository.findFirstByWorkspaceIdAndDeliverableIdAndStudentRecordIdOrderByCreatedAtDesc(
             response.getWorkspaceId(), response.getDeliverableId(), response.getStudentRecordId()).isPresent();
         if (!alreadySelected) {
@@ -58,6 +63,10 @@ public class CanonicalResponseService {
         if (!target.getWorkspaceId().equals(workspaceId)) {
             throw new IllegalArgumentException("Response belongs to a different workspace.");
         }
+        if (!target.getDeliverableId().equals(deliverableId) || !target.getStudentRecordId().equals(studentRecordId)) {
+            throw new IllegalArgumentException("Response does not belong to this student record and deliverable.");
+        }
+        students.lockById(studentRecordId).orElseThrow(() -> new IllegalArgumentException("Student Record not found."));
         Optional<CanonicalResponseSelection> previous = selectionRepository
             .findFirstByWorkspaceIdAndDeliverableIdAndStudentRecordIdOrderByCreatedAtDesc(workspaceId, deliverableId, studentRecordId);
         return selectionRepository.save(new CanonicalResponseSelection(
@@ -82,7 +91,7 @@ public class CanonicalResponseService {
 
     @Transactional(readOnly = true)
     public List<CanonicalResponseSelection> correctionHistory(UUID workspaceId, UUID deliverableId, UUID studentRecordId) {
-        // Full audit history: all selections newest-first is derivable from the table; expose via repo later if needed.
-        return List.of(); // placeholder until a findAll query is needed by UI
+        return selectionRepository.findAllByWorkspaceIdAndDeliverableIdAndStudentRecordIdOrderByCreatedAtDesc(
+            workspaceId, deliverableId, studentRecordId);
     }
 }

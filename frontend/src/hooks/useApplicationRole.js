@@ -1,5 +1,5 @@
 import { usePreviewRole } from './usePreviewRole.js';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 
 export const APPLICATION_ROLES = Object.freeze({
   ADMIN: 'admin',
@@ -10,26 +10,22 @@ export const APPLICATION_ROLES = Object.freeze({
 
 export function useApplicationRole() {
   const previewRole = usePreviewRole();
-  let workflow = null;
+  let workspaceSession = null;
   try {
-    workflow = useWorkflow();
+    workspaceSession = useWorkspaceSession();
   } catch {
-    // outside workflow provider
+    // outside workspace session boundary
   }
 
   if (import.meta.env.DEV) {
     return previewRole;
   }
 
-  const session = workflow?.session;
+  const session = workspaceSession?.session;
   if (session?.authenticated) {
     const roles = (session.roles || []).map((r) => String(r).toUpperCase());
     if (roles.includes('ADMIN')) return APPLICATION_ROLES.ADMIN;
     if (roles.includes('ADVISER')) return APPLICATION_ROLES.ADVISER;
-    return APPLICATION_ROLES.STUDENT;
-  }
-
-  if (workflow?.state?.activeAccountEmail) {
     return APPLICATION_ROLES.STUDENT;
   }
 

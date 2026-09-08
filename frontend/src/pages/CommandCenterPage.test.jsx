@@ -1,7 +1,7 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { Notifications } from '@mantine/notifications';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { Notifications, notifications } from '@mantine/notifications';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
@@ -10,6 +10,7 @@ import { CommandCenterPage } from './CommandCenterPage.jsx';
 const workflow = vi.hoisted(() => ({
   state: null,
   activeWorkspaceId: null,
+  session: { authenticated: true, email: 'admin@example.com' },
   runDocumentCheck: vi.fn(),
   runDocumentChecks: vi.fn(),
   archiveAttempt: vi.fn()
@@ -20,8 +21,30 @@ const api = vi.hoisted(() => ({
   decideIdentityConflict: vi.fn()
 }));
 
-vi.mock('../app/WorkflowContext.jsx', () => ({
-  useWorkflow: () => workflow
+vi.mock('../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => ({ activeWorkspaceId: workflow.activeWorkspaceId, session: workflow.session })
+}));
+
+vi.mock('../hooks/useWorkspaceResource.js', () => ({
+  useWorkspaceResource: () => ({
+    data: workflow.state,
+    setData: (next) => {
+      workflow.state = typeof next === 'function' ? next(workflow.state) : next;
+    },
+    status: 'ready',
+    error: '',
+    reload: vi.fn()
+  })
+}));
+
+vi.mock('../lib/reviewDeskClient.js', () => ({
+  applyDocumentCheck: (response, report) => ({ ...response, documentCheck: report }),
+  runDocumentCheck: (_workspaceId, response) => workflow.runDocumentCheck(response.id),
+  runDocumentChecks: (...args) => workflow.runDocumentChecks(...args)
+}));
+
+vi.mock('../lib/archiveClient.js', () => ({
+  archiveAttempts: (_workspaceId, responseIds) => workflow.archiveAttempt(responseIds[0])
 }));
 
 vi.mock('../lib/api.js', () => api);
@@ -81,8 +104,8 @@ function makeState(attempts = []) {
   };
 }
 
-function renderPage() {
-  return render(
+function pageTree() {
+  return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
         <Notifications />
@@ -94,8 +117,12 @@ function renderPage() {
   );
 }
 
+function renderPage() { return render(pageTree()); }
+
 describe("today's work queues", () => {
   beforeEach(() => {
+    notifications.clean();
+    workflow.session = { authenticated: true, email: 'admin@example.com' };
     workflow.state = makeState([
       response('unchecked-001'),
       checkedResponse('review-002'),
@@ -114,6 +141,20 @@ describe("today's work queues", () => {
     workflow.activeWorkspaceId = null;
     api.getIdentityConflicts.mockReset().mockResolvedValue([]);
     api.decideIdentityConflict.mockReset().mockResolvedValue({ status: 'RESOLVED' });
+  });
+
+  it.each(['workspace', 'account'])('discards old command results after a %s change', async (change) => {
+    let finish;
+    workflow.activeWorkspaceId = 'ws-old';
+    workflow.runDocumentCheck.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const view = renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Check Student unchecked-001 document' }));
+    if (change === 'workspace') workflow.activeWorkspaceId = 'ws-new';
+    else workflow.session = { authenticated: true, email: 'other@example.com' };
+    view.rerender(pageTree());
+    await act(async () => { finish({ ok: false, error: 'Private old document failure' }); });
+    expect(screen.queryByText('Private old document failure')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check Student unchecked-001 document' })).toBeEnabled();
   });
 
   it('shows only unresolved operational work without metric cards or recent activity', () => {

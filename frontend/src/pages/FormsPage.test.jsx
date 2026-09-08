@@ -1,13 +1,17 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { Notifications } from '@mantine/notifications';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { Notifications, notifications } from '@mantine/notifications';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
 import { FormsPage } from './FormsPage.jsx';
 
 const workflow = vi.hoisted(() => ({
+  state: null
+}));
+
+const workspaceSession = vi.hoisted(() => ({
   activeWorkspace: {
     id: 'workspace-it',
     name: 'IT Capstone - IT332',
@@ -16,15 +20,26 @@ const workflow = vi.hoisted(() => ({
     semester: 'Semester 2',
     academicYear: '2025-26'
   },
-  state: null,
-  publishDeliverable: vi.fn(),
-  removeDeliverable: vi.fn(),
-  generateFormsFromSuggestions: vi.fn()
+  activeWorkspaceId: 'workspace-it'
 }));
 
-vi.mock('../app/WorkflowContext.jsx', () => ({
-  useWorkflow: () => workflow
+const submissionClient = vi.hoisted(() => ({
+  saveDeliverable: vi.fn(),
+  unpublishDeliverable: vi.fn()
 }));
+
+const monitoringClient = vi.hoisted(() => ({ loadMonitoringState: vi.fn() }));
+
+vi.mock('../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => workspaceSession
+}));
+
+vi.mock('../lib/monitoringClient.js', () => ({
+  emptyMonitoringState: () => ({ trackerColumns: [], deliverables: [], attempts: [] }),
+  loadMonitoringState: (...args) => monitoringClient.loadMonitoringState(...args)
+}));
+
+vi.mock('../lib/submissionClient.js', () => submissionClient);
 
 function createState() {
   return {
@@ -62,8 +77,8 @@ function createState() {
   };
 }
 
-function renderPage() {
-  return render(
+function PageHarness() {
+  return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
         <Notifications />
@@ -75,10 +90,30 @@ function renderPage() {
   );
 }
 
+function renderPage() {
+  return render(<PageHarness />);
+}
+
 describe('forms management', () => {
   beforeEach(() => {
+    notifications.clean();
+    workspaceSession.session = { authenticated: true, email: 'admin@example.com' };
     workflow.state = createState();
-    Object.values(workflow).forEach((value) => value?.mockReset?.());
+    workspaceSession.activeWorkspace = {
+      id: 'workspace-it',
+      name: 'IT Capstone - IT332',
+      program: 'IT',
+      courseCode: 'IT332',
+      semester: 'Semester 2',
+      academicYear: '2025-26'
+    };
+    workspaceSession.activeWorkspaceId = 'workspace-it';
+    monitoringClient.loadMonitoringState.mockReset().mockImplementation(async () => workflow.state);
+    submissionClient.saveDeliverable.mockReset().mockImplementation(async (_workspaceId, payload) => ({
+      ...payload,
+      id: payload.id || 'deliverable-created'
+    }));
+    submissionClient.unpublishDeliverable.mockReset().mockImplementation(async (_workspaceId, item) => ({ ...item, status: 'Unpublished' }));
   });
 
   it('renders scalable rows with an opening link and a separate accessible copy action', async () => {
@@ -86,8 +121,8 @@ describe('forms management', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     renderPage();
 
-    const table = screen.getByRole('table', { name: 'Published submission forms' });
-    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    const table = await screen.findByRole('table', { name: 'Published submission forms' });
+    await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(3));
     within(table).getAllByText('Published').forEach((label) => {
       expect(label.closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'success');
     });
@@ -101,9 +136,22 @@ describe('forms management', () => {
     expect(screen.getByRole('status')).toHaveTextContent('SRS form link copied');
   });
 
-  it('edits an existing form in a prefilled dialog and preserves its identity in the payload', () => {
+  it('renders deliverables returned by server monitoring without a local workflow mirror', async () => {
+    workflow.state.deliverables = [];
+    monitoringClient.loadMonitoringState.mockResolvedValue({ ...createState(), deliverables: [{
+      ...createState().deliverables[0],
+      title: 'Server SRS'
+    }] });
+
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit SRS form' }));
+
+    expect(await screen.findByText('Server SRS')).toBeInTheDocument();
+    expect(screen.queryByText('Software Requirements Specification')).not.toBeInTheDocument();
+  });
+
+  it('edits an existing form in a prefilled dialog and preserves its identity in the payload', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit SRS form' }));
 
     const dialog = screen.getByRole('dialog', { name: 'Edit SRS form' });
     const title = within(dialog).getByRole('textbox', { name: 'Form title' });
@@ -111,15 +159,45 @@ describe('forms management', () => {
     fireEvent.change(title, { target: { value: 'Revised SRS Submission' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
 
-    expect(workflow.publishDeliverable).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalledWith('workspace-it', expect.objectContaining({
       id: 'deliverable-srs',
       slug: 'week-9-srs',
       title: 'Revised SRS Submission'
-    }));
+    })));
   });
 
-  it('creates the first unconfigured deliverable with an 11:59 PM deadline by default', () => {
+  it('shows a rejected server mutation without replacing the authoritative form row', async () => {
+    submissionClient.saveDeliverable.mockRejectedValue(new Error('Server rejected the form update.'));
     renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit SRS form' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Edit SRS form' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Form title' }), {
+      target: { value: 'Rejected SRS Title' }
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByRole('alert', { name: 'Form error' })).toHaveTextContent('Server rejected the form update.');
+    expect(screen.getByText('Software Requirements Specification')).toBeInTheDocument();
+    expect(screen.queryByText('Rejected SRS Title')).not.toBeInTheDocument();
+  });
+
+  it('discards a private form failure after the signed-in account changes', async () => {
+    let fail;
+    submissionClient.saveDeliverable.mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject; }));
+    const view = renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit SRS form' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    workspaceSession.session = { authenticated: true, email: 'other@example.com' };
+    view.rerender(<PageHarness />);
+    await act(async () => { fail(new Error('Private previous account form failure')); });
+    expect(screen.queryAllByText('Private previous account form failure')).toHaveLength(0);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit SRS form' })).not.toBeInTheDocument());
+  });
+
+  it('creates the first unconfigured deliverable with an 11:59 PM deadline by default', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish form' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Publish form' }));
 
     const dialog = screen.getByRole('dialog', { name: 'Publish a form' });
@@ -128,26 +206,25 @@ describe('forms management', () => {
     expect(within(dialog).getByLabelText('Due time')).toHaveValue('23:59');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Publish form' }));
 
-    expect(workflow.publishDeliverable).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalledWith('workspace-it', expect.objectContaining({
       id: '',
       trackerColumn: 'SourceCode',
       dueAt: expect.stringMatching(/T23:59:00\+08:00$/)
-    }));
+    })));
   });
 
   it('unpublishes only the selected form after explaining that responses remain', async () => {
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Unpublish SRS form' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Unpublish SRS form' }));
 
     const confirmation = await screen.findByRole('dialog', { name: 'Unpublish SRS?' });
     expect(confirmation).toHaveTextContent('1 existing response will remain recorded');
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Unpublish form' }));
 
-    expect(workflow.removeDeliverable).toHaveBeenCalledOnce();
-    expect(workflow.removeDeliverable).toHaveBeenCalledWith('deliverable-srs');
+    await waitFor(() => expect(submissionClient.unpublishDeliverable).toHaveBeenCalledWith('workspace-it', expect.objectContaining({ id: 'deliverable-srs' })));
   });
 
-  it('shows one row per real deliverable when saved state still holds duplicate copies', () => {
+  it('shows one row per real deliverable when saved state still holds duplicate copies', async () => {
     workflow.state.deliverables = [
       ...workflow.state.deliverables,
       {
@@ -174,9 +251,49 @@ describe('forms management', () => {
 
     renderPage();
 
-    const table = screen.getByRole('table', { name: 'Published submission forms' });
-    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    const table = await screen.findByRole('table', { name: 'Published submission forms' });
+    await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(3));
     expect(within(table).getAllByRole('link', { name: /submission form$/ })).toHaveLength(2);
+  });
+
+  it('ignores a deliverable load that finishes after the user switches workspaces', async () => {
+    let resolveOldWorkspace;
+    monitoringClient.loadMonitoringState
+      .mockReset()
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOldWorkspace = resolve; }))
+      .mockResolvedValueOnce({ ...createState(), deliverables: [{
+        id: 'deliverable-code',
+        slug: 'source-code',
+        title: 'CS Source Code',
+        shortTitle: 'Source Code',
+        trackerColumn: 'SourceCode',
+        dueAt: '2026-05-01T23:59:00+08:00',
+        instructions: 'Submit the repository link.',
+        status: 'Published',
+        fields: [{ id: 'primaryLink', label: 'Submission Link', pdfRequired: false }]
+      }] });
+
+    const view = renderPage();
+    await waitFor(() => expect(monitoringClient.loadMonitoringState).toHaveBeenCalledWith('workspace-it'));
+
+    workspaceSession.activeWorkspace = {
+      ...workspaceSession.activeWorkspace,
+      id: 'workspace-cs',
+      name: 'CS Capstone - CS332',
+      program: 'CS',
+      courseCode: 'CS332'
+    };
+    workspaceSession.activeWorkspaceId = 'workspace-cs';
+    view.rerender(<PageHarness />);
+
+    expect(await screen.findByText('CS Source Code')).toBeInTheDocument();
+    await act(async () => resolveOldWorkspace({ ...createState(), deliverables: [{
+      ...createState().deliverables[0],
+      title: 'Stale IT SRS'
+    }] }));
+
+    await waitFor(() => expect(screen.queryByText('Stale IT SRS')).not.toBeInTheDocument());
+    expect(screen.getByText('CS Source Code')).toBeInTheDocument();
   });
 
 });

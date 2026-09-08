@@ -18,10 +18,20 @@ import {
 import { Badge, Button as MantineButton, Checkbox, Collapse, Input, Modal, NativeSelect, Tabs, TextInput, Tooltip } from '@mantine/core';
 import { useSearchParams } from 'react-router-dom';
 import { Button, ConfirmDialog, PageHeader, StatusIndicator } from '../components/ui.jsx';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
+import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/workflow.js';
-import { setStoredPreviewRole } from '../hooks/usePreviewRole.js';
 import { getDocumentTemplateFileUrl, getDriveConnectionStatus } from '../lib/api.js';
+import { removeSubmissionTemplate, saveSubmissionTemplate } from '../lib/submissionClient.js';
+import {
+  addTrackerColumn as addServerTrackerColumn,
+  emptyWorkspaceAdmin,
+  importWorkspaceSheet,
+  loadWorkspaceAdmin,
+  publishSuggestedForms,
+  updateTrackerColumn as updateServerTrackerColumn
+} from '../lib/workspaceAdminClient.js';
 import { StaffManagementPanel } from '../components/workspace/StaffManagementPanel.jsx';
 
 const SOURCE_CONFIG = [
@@ -80,28 +90,25 @@ const EMPTY_TEMPLATE = {
   replacing: null
 };
 
-export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV }) {
+export function WorkspacePage() {
   const [searchParams] = useSearchParams();
   const linkedSource = searchParams.get('source') || '';
   const {
-    state,
     workspaces,
     activeWorkspace,
     activeWorkspaceId,
     switchWorkspace,
-    createWorkspace,
-    connectSheetSource,
-    generateFormsFromSuggestions,
-    refreshBackendData,
-    reset,
-    updateTrackerColumn,
-    addTrackerColumn,
-    saveTemplate,
-    removeTemplate
-  } = useWorkflow();
+    createWorkspace
+  } = useWorkspaceSession();
+  const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
+  const { data: state, setData: setState, status: workspaceStatus, error: workspaceError, reload } = useWorkspaceResource(
+    activeWorkspaceId,
+    loadWorkspaceAdmin,
+    emptyWorkspaceAdmin
+  );
   const [sources, setSources] = useState(() => sourceValues(state));
-  const [workspaceName, setWorkspaceName] = useState(state.classRecord.name);
-  const [trackerSheet, setTrackerSheet] = useState(state.classRecord.trackerSheet);
+  const [workspaceName, setWorkspaceName] = useState(activeWorkspace?.name || '');
+  const [trackerSheet, setTrackerSheet] = useState(`${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
   const [newColumn, setNewColumn] = useState('');
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
@@ -116,7 +123,6 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
   const [importing, setImporting] = useState('');
   const [refreshingBackend, setRefreshingBackend] = useState(false);
   const [maintenanceAction, setMaintenanceAction] = useState('');
-  const [resetConfirmation, setResetConfirmation] = useState('');
   const [workspaceEditorOpen, setWorkspaceEditorOpen] = useState(false);
   const [workspaceForm, setWorkspaceForm] = useState({
     name: '',
@@ -127,11 +133,12 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
   });
 
   const activeColumns = getActiveTrackerColumns(state);
+  const classRecord = state.classRecord;
   const sourceStatuses = useMemo(() => SOURCE_CONFIG.map((source) => ({
     ...source,
-    ...(state.classRecord.sources?.[source.key] || {})
-  })), [state.classRecord.sources]);
-  const pendingSuggestions = state.classRecord.pendingFormSuggestions || state.classRecord.importSummary?.suggestedForms || [];
+    ...(classRecord.sources?.[source.key] || {})
+  })), [classRecord.sources]);
+  const pendingSuggestions = classRecord.pendingFormSuggestions || classRecord.importSummary?.suggestedForms || [];
   const importedCount = sourceStatuses.filter((item) => item.status === 'Imported').length;
   const backendSyncError = state.backendSync?.lastError || '';
 
@@ -144,17 +151,24 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
         projectMonitor: current.projectMonitor || incoming.projectMonitor
       };
     });
-  }, [state.classRecord.sources, state.classRecord.sheetUrl]);
+  }, [state.classRecord?.sources, state.classRecord?.sheetUrl]);
 
   useEffect(() => {
     setSources(sourceValues(state));
-    setWorkspaceName(activeWorkspace?.name || state.classRecord.name);
-    setTrackerSheet(state.classRecord.trackerSheet || `${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
+    setWorkspaceName(activeWorkspace?.name || '');
+    setTrackerSheet(`${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
     setSummary(null);
     setMessage('');
     setColumnsOpen(false);
     setTemplateModalOpen(false);
-  }, [activeWorkspaceId]);
+    setMappingDraft({});
+    setImporting('');
+    setTemplateSaving(false);
+    setTemplateToRemove(null);
+    setTemplateError('');
+    setRefreshingBackend(false);
+    setWorkspaceEditorOpen(false);
+  }, [isCurrentScope]);
 
   useEffect(() => {
     getDriveConnectionStatus()
@@ -163,14 +177,23 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
   }, [activeWorkspaceId]);
 
   async function importSource(sourceType, mappingOverrides = null) {
+    if (!isCurrentScope()) return;
     setImporting(sourceType);
     setMessage('');
-    const result = await connectSheetSource(sourceType, {
+    let result;
+    try {
+      result = await importWorkspaceSheet(activeWorkspaceId, sourceType, {
       name: workspaceName,
       trackerSheet,
       sheetUrl: sources[sourceType],
       mappingOverrides
-    });
+      });
+      if (!isCurrentScope()) return;
+      setState(result.state);
+    } catch (error) {
+      result = { ok: false, error: error?.message || 'Sheet import failed.' };
+    }
+    if (!isCurrentScope()) return;
     setImporting('');
     const nextSummary = result.importSummary
       ? { ...result.importSummary, sourceKey: sourceType }
@@ -185,10 +208,17 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
     importSource(summary.sourceKey, mappingDraft);
   }
 
-  function submitColumn(event) {
+  async function submitColumn(event) {
     event.preventDefault();
-    addTrackerColumn(newColumn);
-    setNewColumn('');
+    try {
+      const saved = await addServerTrackerColumn(activeWorkspaceId, newColumn, state.trackerColumns);
+      if (!isCurrentScope()) return;
+      setState((current) => ({ ...current, trackerColumns: [...current.trackerColumns, saved] }));
+      setNewColumn('');
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      setMessage(error?.message || 'Tracker column could not be added.');
+    }
   }
 
   function openTemplateModal(item = null) {
@@ -224,7 +254,15 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
       return;
     }
     setTemplateSaving(true);
-    const result = await saveTemplate(template);
+    let result;
+    try {
+      await saveSubmissionTemplate(activeWorkspaceId, template);
+      await reload();
+      result = { ok: true, template: { name: template.name || 'Official template' } };
+    } catch (error) {
+      result = { ok: false, error: error?.message || 'Template could not be saved.' };
+    }
+    if (!isCurrentScope()) return;
     setTemplateSaving(false);
     if (!result.ok) {
       setTemplateError(result.error);
@@ -237,22 +275,38 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
   }
 
   async function confirmRemoveTemplate() {
-    if (!templateToRemove) return;
-    const result = await removeTemplate(templateToRemove.id);
+    if (!templateToRemove || !isCurrentScope()) return;
+    let result;
+    try {
+      await removeSubmissionTemplate(activeWorkspaceId, templateToRemove.id);
+      await reload();
+      result = { ok: true };
+    } catch (error) {
+      result = { ok: false, error: error?.message || 'Template could not be removed.' };
+    }
+    if (!isCurrentScope()) return;
     setTemplateToRemove(null);
     setMessage(result.ok ? 'Template removed.' : result.error);
   }
 
-  function generateSuggestedForms(suggestions = summary?.suggestedForms || pendingSuggestions) {
-    generateFormsFromSuggestions(suggestions);
-    setSummary(null);
-    setMessage(`Generated or updated ${suggestions.length} deliverable form${suggestions.length === 1 ? '' : 's'}.`);
+  async function generateSuggestedForms(suggestions = summary?.suggestedForms || pendingSuggestions) {
+    try {
+      const deliverables = await publishSuggestedForms(activeWorkspaceId, state, suggestions);
+      await reload();
+      if (!isCurrentScope()) return;
+      setSummary(null);
+      setMessage(`Generated or updated ${deliverables.length} deliverable form${deliverables.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      setMessage(error?.message || 'Suggested forms could not be generated.');
+      return;
+    }
   }
 
   async function submitWorkspace(event) {
     event.preventDefault();
     const result = await createWorkspace(workspaceForm);
-    if (!result.ok) return;
+    if (!result.ok || !isCurrentScope()) return;
     setWorkspaceEditorOpen(false);
     setWorkspaceForm({ name: '', program: 'IT', courseCode: '', semester: 'Semester 1', academicYear: '2026-27' });
   }
@@ -260,20 +314,34 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
   async function refreshFromBackend() {
     setRefreshingBackend(true);
     setMessage('');
-    const result = await refreshBackendData();
+    const result = await reload();
+    if (!isCurrentScope()) return;
     setRefreshingBackend(false);
     setMaintenanceAction('');
-    setMessage(result.ok ? 'Backend data refreshed.' : `Backend unavailable: ${result.error}`);
+    setMessage(result ? 'Backend data refreshed.' : 'Backend data could not be refreshed.');
   }
 
-  function restoreStarterData() {
-    setStoredPreviewRole('admin');
-    reset();
-    setMaintenanceAction('');
-    setResetConfirmation('');
-    setSources({ teamFormation: '', tracker: '', projectMonitor: '' });
-    setSummary(null);
-    setMessage(`${activeWorkspace?.name || 'Workspace'} starter data restored.`);
+  function editTrackerColumn(columnId, updates) {
+    setState((current) => ({
+      ...current,
+      trackerColumns: current.trackerColumns.map((column) => column.id === columnId ? { ...column, ...updates } : column)
+    }));
+  }
+
+  async function persistTrackerColumn(columnId, updates = {}) {
+    const column = state.trackerColumns.find((item) => item.id === columnId);
+    if (!column) return;
+    try {
+      const saved = await updateServerTrackerColumn(activeWorkspaceId, column, updates);
+      setState((current) => ({
+        ...current,
+        trackerColumns: current.trackerColumns.map((item) => item.id === columnId ? saved : item)
+      }));
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      setMessage(error?.message || 'Tracker column change could not be saved.');
+      await reload();
+    }
   }
 
   return (
@@ -283,6 +351,8 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
         description="Manage the class sources, deliverables, and document templates for the selected academic workspace."
         actions={<Button type="button" variant="secondary" icon={PlusCircle} onClick={() => setWorkspaceEditorOpen(true)}>New workspace</Button>}
       />
+
+      {workspaceStatus === 'error' ? <div role="alert" className="inline-alert danger">{workspaceError}</div> : null}
 
       <section className="panel wt-workspace-switcher">
         <div className="workspace-selector-row">
@@ -414,16 +484,18 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
                     label="Display name"
                     aria-label={`${column.label} display name`}
                     value={column.label}
-                    onChange={(event) => updateTrackerColumn(column.id, { label: event.currentTarget.value })}
+                    onChange={(event) => editTrackerColumn(column.id, { label: event.currentTarget.value })}
+                    onBlur={() => persistTrackerColumn(column.id)}
                   />
                   <TextInput
                     label="Source column"
                     aria-label={`${column.label} source column`}
                     value={column.sourceColumn}
-                    onChange={(event) => updateTrackerColumn(column.id, { sourceColumn: event.currentTarget.value })}
+                    onChange={(event) => editTrackerColumn(column.id, { sourceColumn: event.currentTarget.value })}
+                    onBlur={() => persistTrackerColumn(column.id)}
                   />
-                  <Checkbox label="Active" checked={column.active !== false} onChange={(event) => updateTrackerColumn(column.id, { active: event.currentTarget.checked })} />
-                  <Checkbox label="PDF" checked={Boolean(column.pdfRequired)} onChange={(event) => updateTrackerColumn(column.id, { pdfRequired: event.currentTarget.checked })} />
+                  <Checkbox label="Active" checked={column.active !== false} onChange={(event) => { const active = event.currentTarget.checked; editTrackerColumn(column.id, { active }); persistTrackerColumn(column.id, { active }); }} />
+                  <Checkbox label="PDF" checked={Boolean(column.pdfRequired)} onChange={(event) => { const pdfRequired = event.currentTarget.checked; editTrackerColumn(column.id, { pdfRequired }); persistTrackerColumn(column.id, { pdfRequired }); }} />
                 </div>
               ))}
             </div>
@@ -590,23 +662,6 @@ export function WorkspacePage({ developmentToolsEnabled = import.meta.env.DEV })
         <strong>{templateToRemove?.name}</strong><span>{templateToRemove?.deliverable}</span>
       </ConfirmDialog>
 
-      {developmentToolsEnabled && (
-        <ConfirmDialog
-          open={maintenanceAction === 'reset'}
-          title={`Restore ${activeWorkspace?.name || 'workspace'} starter data?`}
-          description={`Only ${activeWorkspace?.name || 'the selected workspace'} will be reset. Other academic workspaces are not changed.`}
-          confirmLabel="Restore starter data"
-          confirmText="RESET"
-          confirmationValue={resetConfirmation}
-          onConfirmationValueChange={setResetConfirmation}
-          onClose={() => { setMaintenanceAction(''); setResetConfirmation(''); }}
-          onConfirm={restoreStarterData}
-          intent="danger"
-        >
-          <strong>Type RESET exactly as shown</strong>
-          <span>Imported sources, forms, responses, feedback, and archive examples in this workspace will be replaced.</span>
-        </ConfirmDialog>
-      )}
     </div>
   );
 }
@@ -704,10 +759,11 @@ function MetricMini({ label, value }) {
 }
 
 function sourceValues(state) {
+  const classRecord = state.classRecord;
   return {
-    teamFormation: state.classRecord.sources?.teamFormation?.sheetUrl || '',
-    tracker: state.classRecord.sources?.tracker?.sheetUrl || state.classRecord.sheetUrl || '',
-    projectMonitor: state.classRecord.sources?.projectMonitor?.sheetUrl || ''
+    teamFormation: classRecord.sources?.teamFormation?.sheetUrl || '',
+    tracker: classRecord.sources?.tracker?.sheetUrl || classRecord.sheetUrl || '',
+    projectMonitor: classRecord.sources?.projectMonitor?.sheetUrl || ''
   };
 }
 

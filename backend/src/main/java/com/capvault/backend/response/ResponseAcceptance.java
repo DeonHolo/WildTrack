@@ -58,6 +58,7 @@ public class ResponseAcceptance {
     public UUID getId() { return id; }
     public FormResponse getResponse() { return response; }
     public String getAcceptedBySubject() { return acceptedBySubject; }
+    public String getAcceptedByEmail() { return acceptedByEmail; }
     public String getAcceptedByRole() { return acceptedByRole; }
     public Instant getSourceResponseUpdatedAt() { return sourceResponseUpdatedAt; }
     public Instant getAcceptedAt() { return acceptedAt; }

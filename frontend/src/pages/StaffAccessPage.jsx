@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Badge,
   Button,
+  Center,
   Container,
   Group,
   Loader,
@@ -17,17 +19,24 @@ import {
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { UsersThree, UserPlus, LinkSimple } from '@phosphor-icons/react';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
+import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import {
-  assignAdviserTeam,
-  getStaffProfiles,
-  unassignAdviserTeam,
-  upsertStaffEmail
-} from '../lib/api.js';
+  addStaff,
+  assignTeam,
+  emptyStaffAccess,
+  loadStaffAccess,
+  revokeStaff,
+  unassignTeam
+} from '../lib/staffAccessClient.js';
 
 export function StaffAccessPage() {
-  const { state, activeWorkspace } = useWorkflow();
-  const [profiles, setProfiles] = useState(null);
+  const { activeWorkspaceId: workspaceId } = useWorkspaceSession();
+  const isCurrentScope = useWorkspaceScope(workspaceId);
+  const { data, setData, status, error: loadError, reload } = useWorkspaceResource(workspaceId, loadStaffAccess, emptyStaffAccess);
+  const profiles = data.profiles;
+  const teamCodes = data.teamCodes;
   const [addOpen, setAddOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(null); // profile being assigned teams
   const [newEmail, setNewEmail] = useState('');
@@ -35,56 +44,83 @@ export function StaffAccessPage() {
   const [selectedTeam, setSelectedTeam] = useState('');
   const [error, setError] = useState('');
 
-  const workspaceId = activeWorkspace?.id;
-  const teamCodes = useMemo(
-    () => [...new Set(state.students.map((student) => student.teamCode).filter(Boolean))].sort(),
-    [state.students]
-  );
-
   useEffect(() => {
-    let cancelled = false;
-    if (!workspaceId) return undefined;
-    getStaffProfiles(workspaceId)
-      .then((list) => { if (!cancelled) setProfiles(Array.isArray(list) ? list : []); })
-      .catch(() => { if (!cancelled) setProfiles([]); });
-    return () => { cancelled = true; };
-  }, [workspaceId]);
+    setAddOpen(false);
+    setLinkOpen(null);
+    setNewEmail('');
+    setSelectedTeam('');
+    setError('');
+  }, [isCurrentScope]);
 
   async function handleAdd(event) {
     event.preventDefault();
+    if (!isCurrentScope()) return;
     setError('');
     try {
-      const updated = await upsertStaffEmail(workspaceId, newEmail.trim(), [newRole]);
-      setProfiles((current) => [...(current || []).filter((p) => p.googleSubject !== updated.googleSubject), updated]);
+      const updated = await addStaff(workspaceId, newEmail.trim(), newRole);
+      if (!isCurrentScope()) return;
+      setData((current) => ({
+        ...current,
+        profiles: [...current.profiles.filter((p) => p.googleSubject !== updated.googleSubject), updated]
+      }));
       setAddOpen(false);
       setNewEmail('');
     } catch (saveError) {
+      if (!isCurrentScope()) return;
       setError(saveError.message || 'Could not save the staff email.');
     }
   }
 
   async function handleAssign(profile) {
-    if (!selectedTeam || !profile.googleSubject?.startsWith('pending:') === false) return; // only bound subjects get teams
+    if (!isCurrentScope() || !selectedTeam || profile.googleSubject?.startsWith('pending:')) return;
     try {
-      await assignAdviserTeam(workspaceId, profile.googleSubject, selectedTeam);
-      setProfiles((current) => (current || []).map((p) => (
+      await assignTeam(workspaceId, profile.googleSubject, selectedTeam);
+      if (!isCurrentScope()) return;
+      setData((current) => ({ ...current, profiles: current.profiles.map((p) => (
         p.googleSubject === profile.googleSubject && !p.assignedTeams.includes(selectedTeam)
-          ? { ...p, assignedTeams: [...p.assignedTeams, selectedTeam] }
-          : p
-      )));
+          ? { ...p, assignedTeams: [...p.assignedTeams, selectedTeam] } : p
+      )) }));
       setSelectedTeam('');
     } catch (assignError) {
+      if (!isCurrentScope()) return;
       setError(assignError.message || 'Could not assign the team.');
     }
   }
 
   async function handleUnassign(profile, teamCode) {
-    await unassignAdviserTeam(workspaceId, profile.googleSubject, teamCode);
-    setProfiles((current) => (current || []).map((p) => (
-      p.googleSubject === profile.googleSubject
-        ? { ...p, assignedTeams: p.assignedTeams.filter((t) => t !== teamCode) }
-        : p
-    )));
+    if (!isCurrentScope()) return;
+    setError('');
+    try {
+      await unassignTeam(workspaceId, profile.googleSubject, teamCode);
+      if (!isCurrentScope()) return;
+      setData((current) => ({ ...current, profiles: current.profiles.map((p) => (
+        p.googleSubject === profile.googleSubject
+          ? { ...p, assignedTeams: p.assignedTeams.filter((t) => t !== teamCode) } : p
+      )) }));
+    } catch (saveError) {
+      if (!isCurrentScope()) return;
+      setError(saveError.message || 'Could not remove the team assignment.');
+    }
+  }
+
+  function confirmRevoke(profile) {
+    modals.openConfirmModal({
+      title: 'Revoke this staff account?',
+      children: <Text size="sm">This removes active WildTrack staff access for {profile.googleEmail}.</Text>,
+      labels: { confirm: 'Revoke access', cancel: 'Cancel' },
+      confirmProps: { color: 'red' },
+      onConfirm: async () => {
+        if (!isCurrentScope()) return;
+        setError('');
+        try {
+          await revokeStaff(workspaceId, profile.googleSubject);
+          await reload();
+        } catch (saveError) {
+          if (!isCurrentScope()) return;
+          setError(saveError.message || 'Could not revoke staff access.');
+        }
+      }
+    });
   }
 
   return (
@@ -106,8 +142,11 @@ export function StaffAccessPage() {
             </Button>
           </Group>
 
-          {profiles === null ? (
+          {error && !addOpen && !linkOpen ? <Alert color="red" role="alert">{error}</Alert> : null}
+          {status === 'loading' ? (
             <Center mih={200}><Loader size="sm" aria-label="Loading staff profiles" /></Center>
+          ) : status === 'error' ? (
+            <Paper withBorder radius="sm" p="xl"><Stack gap="sm" align="flex-start"><Text c="red">{loadError}</Text><Button variant="default" onClick={reload}>Try again</Button></Stack></Paper>
           ) : profiles.length === 0 ? (
             <Paper withBorder radius="sm" p="xl">
               <Text c="dimmed">No staff configured yet. Add the first Google email to grant access.</Text>
@@ -163,6 +202,7 @@ export function StaffAccessPage() {
                       </Table.Td>
                       <Table.Td>
                         {!profile.googleSubject.startsWith('pending:') && (
+                          <Group gap="xs">
                           <Button
                             variant="subtle"
                             size="compact-sm"
@@ -172,6 +212,8 @@ export function StaffAccessPage() {
                           >
                             Assign teams
                           </Button>
+                          <Button color="red" variant="subtle" size="compact-sm" onClick={() => confirmRevoke(profile)}>Revoke</Button>
+                          </Group>
                         )}
                       </Table.Td>
                     </Table.Tr>

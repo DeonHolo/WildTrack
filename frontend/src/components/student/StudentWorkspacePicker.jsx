@@ -1,9 +1,9 @@
 import { Alert, NativeSelect, Stack, Text } from '@mantine/core';
 import { useState } from 'react';
-import { useWorkflow } from '../../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 
 export function StudentWorkspacePicker() {
-  const { workspaces, activeWorkspaceId, needsWorkspaceChoice, switchWorkspace } = useWorkflow();
+  const { workspaces, activeWorkspaceId, needsWorkspaceChoice, switchWorkspace } = useWorkspaceSession();
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState('');
 

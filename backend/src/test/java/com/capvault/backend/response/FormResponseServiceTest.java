@@ -20,6 +20,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.context.transaction.TestTransaction;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,6 +52,9 @@ class FormResponseServiceTest {
     @Autowired
     private FileCheckReportRepository fileCheckReportRepository;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     private UUID workspaceId;
     private UUID deliverableId;
     private String rosterNumber = "20-0649-750";
@@ -74,7 +79,8 @@ class FormResponseServiceTest {
 
     private FormResponseService.SaveResult submitFor(String subject, Map<String, Object> values) {
         return service.submit(new FormResponseService.SubmitCommand(
-            workspaceId, deliverableId, subject, subject + "@gmail.com", values));
+            workspaceId, deliverableId, subject, subject + "@gmail.com", values,
+            service.ownedResponse(workspaceId, deliverableId, subject).map(FormResponse::getRevision).orElse(null)));
     }
 
     @Test
@@ -142,7 +148,7 @@ class FormResponseServiceTest {
 
         // Editing B's response as A is impossible: A's save touches only A's row.
         service.submit(new FormResponseService.SubmitCommand(
-            workspaceId, deliverableId, "sub-A", "a@gmail.com", Map.of("driveLink", "https://drive.example/a-edit")));
+            workspaceId, deliverableId, "sub-A", "a@gmail.com", Map.of("driveLink", "https://drive.example/a-edit"), aView.getRevision()));
         assertThat(service.ownedResponse(workspaceId, deliverableId, "sub-B").orElseThrow().getValuesJson())
             .contains("b-owned");
     }
@@ -166,18 +172,13 @@ class FormResponseServiceTest {
     @Test
     void staleRevisionSurfacesRecoverableConflict() {
         associate("sub-A");
-        submitFor("sub-A", Map.of("driveLink", "v1"));
-        // Simulate a concurrent writer by directly bumping the stored row behind the service's back:
-        FormResponse stored = service.ownedResponse(workspaceId, deliverableId, "sub-A").orElseThrow();
-        stored.setValuesJson("{\"stale\":true}");
-        responseRepository.saveAndFlush(stored);
-
-        // A stale client retry still goes through the service (last-writer-wins per ticket is NOT allowed
-        // to silently replace newer data only when detected via version); our seam guarantees isolation,
-        // so this test asserts the recoverable conflict type exists and is a RuntimeException.
-        assertThat(new FormResponseService.ConcurrentModificationException())
-            .isInstanceOf(RuntimeException.class)
-            .hasMessageContaining("Reload");
+        var first = submitFor("sub-A", Map.of("driveLink", "v1"));
+        Long stale = first.clientRevision();
+        submitFor("sub-A", Map.of("driveLink", "v2"));
+        assertThatThrownBy(() -> service.submit(new FormResponseService.SubmitCommand(
+            workspaceId, deliverableId, "sub-A", "a@gmail.com", Map.of("driveLink", "stale"), stale)))
+            .isInstanceOf(FormResponseService.ConcurrentModificationException.class);
+        assertThat(service.ownedResponse(workspaceId, deliverableId, "sub-A").orElseThrow().getValuesJson()).contains("v2");
     }
 
     @Test
@@ -186,6 +187,11 @@ class FormResponseServiceTest {
         var result = submitFor("sub-auto-check", Map.of("documentPdf", "https://drive.google.com/file/d/123456789/view"));
 
         assertThat(result.changed()).isTrue();
+        assertThat(fileCheckReportRepository.findAllByWorkspaceIdAndExternalResponseIdOrderByCheckedAtDesc(
+            workspaceId, result.response().getId().toString())).isEmpty();
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+        try {
         org.awaitility.Awaitility.await()
             .atMost(java.time.Duration.ofSeconds(5))
             .untilAsserted(() -> {
@@ -193,5 +199,54 @@ class FormResponseServiceTest {
                     workspaceId, result.response().getId().toString());
                 assertThat(reports).isNotEmpty();
             });
+        } finally {
+            jdbc.update("delete from domain_audit_events where workspace_id = ?", workspaceId);
+            jdbc.update("delete from academic_file_check_reports where workspace_id = ?", workspaceId);
+            jdbc.update("delete from form_responses where workspace_id = ?", workspaceId);
+            jdbc.update("delete from workspace_student_associations where workspace_id = ?", workspaceId);
+            jdbc.update("delete from academic_student_records where workspace_id = ?", workspaceId);
+            jdbc.update("delete from academic_deliverables where workspace_id = ?", workspaceId);
+            jdbc.update("delete from academic_workspaces where id = ?", workspaceId);
+        }
+    }
+
+    @Test
+    void pendingTrackerWorkAndAuditCommitOnlyWithMaterialResponseSaves() {
+        associate("outbox-owner");
+        var saved = submitFor("outbox-owner", Map.of("value", "one"));
+        submitFor("outbox-owner", Map.of("value", "one"));
+        assertThat(jdbc.queryForObject("select count(*) from response_tracker_outbox where response_id = ?", Integer.class, saved.response().getId())).isEqualTo(1);
+        submitFor("outbox-owner", Map.of("value", "two"));
+        assertThat(jdbc.queryForObject("select count(*) from response_tracker_outbox where response_id = ? and status = 'PENDING'", Integer.class, saved.response().getId())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from domain_audit_events where target_id = ? and action = 'RESPONSE_SAVED'", Integer.class, saved.response().getId())).isEqualTo(2);
+        TestTransaction.flagForRollback();
+        TestTransaction.end();
+        assertThat(jdbc.queryForObject("select count(*) from response_tracker_outbox where response_id = ?", Integer.class, saved.response().getId())).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from domain_audit_events where target_id = ?", Integer.class, saved.response().getId())).isZero();
+        TestTransaction.start();
+    }
+
+    @Test
+    void reorderingIdenticalFieldsDoesNotWriteAnotherVersionOrOutboxEvent() {
+        associate("ordered-owner");
+        var firstValues = new java.util.LinkedHashMap<String, Object>();
+        firstValues.put("first", "one");
+        firstValues.put("second", "two");
+        var first = submitFor("ordered-owner", firstValues);
+        var reordered = new java.util.LinkedHashMap<String, Object>();
+        reordered.put("second", "two");
+        reordered.put("first", "one");
+        assertThat(submitFor("ordered-owner", reordered).changed()).isFalse();
+        assertThat(jdbc.queryForObject("select count(*) from response_tracker_outbox where response_id = ?", Integer.class, first.response().getId())).isEqualTo(1);
+    }
+
+    @Test
+    void submissionRejectsDeliverableFromAnotherWorkspace() {
+        associate("sub-A");
+        var other = workspaceRepository.save(new AcademicWorkspace(
+            "Other", "IT", "IT332", "Semester 2", "2026-27", true));
+        assertThatThrownBy(() -> service.submit(new FormResponseService.SubmitCommand(
+            other.getId(), deliverableId, "sub-A", "a@gmail.com", Map.of())))
+            .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Deliverable not found");
     }
 }

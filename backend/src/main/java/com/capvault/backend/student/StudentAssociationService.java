@@ -21,17 +21,20 @@ public class StudentAssociationService {
     private final StudentIdentityConflictRepository conflictRepository;
     private final StudentRecordRepository studentRecordRepository;
     private final Clock clock;
+    private final com.capvault.backend.response.DomainEventRecorder events;
 
     public StudentAssociationService(
         WorkspaceStudentAssociationRepository associationRepository,
         StudentIdentityConflictRepository conflictRepository,
         StudentRecordRepository studentRecordRepository,
-        Clock clock
+        Clock clock,
+        com.capvault.backend.response.DomainEventRecorder events
     ) {
         this.associationRepository = associationRepository;
         this.conflictRepository = conflictRepository;
         this.studentRecordRepository = studentRecordRepository;
         this.clock = clock;
+        this.events = events;
     }
 
     public record AssociationView(
@@ -149,6 +152,8 @@ public class StudentAssociationService {
                 now,
                 now
             )));
+        events.record(workspaceId, saved.getId(), googleSubject, "ASSOCIATION_CONFIRMED",
+            java.util.Map.of("studentRecordId", record.getId(), "assurance", ASSURANCE_SELF_DECLARED, "identityConflict", otherIdentityHoldsRecord));
         return toView(saved).orElseThrow();
     }
 
@@ -179,6 +184,7 @@ public class StudentAssociationService {
 
         String trimmedNote = note == null || note.isBlank() ? null : note.trim();
         conflict.decide(normalized, decidedBySubject, decidedByEmail, trimmedNote, clock.instant());
+        events.record(workspaceId, conflictId, decidedBySubject, "IDENTITY_CONFLICT_DECIDED", java.util.Map.of("decision", normalized));
         return toDetail(conflictRepository.save(conflict));
     }
 
@@ -220,6 +226,7 @@ public class StudentAssociationService {
                 association.setActive(false);
                 association.setUpdatedAt(clock.instant());
                 associationRepository.save(association);
+                events.record(workspaceId, association.getId(), googleSubject, "ASSOCIATION_DISCONNECTED", java.util.Map.of());
             });
     }
 
@@ -237,7 +244,6 @@ public class StudentAssociationService {
             ));
     }
 }
-
 
 
 

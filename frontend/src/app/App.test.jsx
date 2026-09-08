@@ -16,6 +16,9 @@ const workflow = vi.hoisted(() => ({
     academicYear: '2025-26'
   },
   activeWorkspaceId: 'workspace-it',
+  session: null,
+  sessionStatus: 'ready',
+  sessionError: '',
   workspaces: [
     {
       id: 'workspace-it',
@@ -44,9 +47,14 @@ const workflow = vi.hoisted(() => ({
   logoutStudentAccount: vi.fn()
 }));
 
-vi.mock('./WorkflowContext.jsx', () => ({
-  WorkflowProvider: ({ children }) => children,
-  useWorkflow: () => workflow
+vi.mock('./WorkspaceSession.jsx', () => ({
+  WorkspaceSessionProvider: ({ children }) => children,
+  useWorkspaceSession: () => ({
+    ...workflow,
+    account: workflow.session?.authenticated && workflow.session?.email
+      ? { email: workflow.session.email, name: workflow.session.name || '' }
+      : null
+  })
 }));
 
 vi.mock('../pages/ArchivePage.jsx', () => ({ ArchivePage: () => <h1>Archive page</h1> }));
@@ -80,6 +88,10 @@ function renderApp(path) {
 describe('role-specific application shells', () => {
   beforeEach(() => {
     localStorage.clear();
+    workflow.session = { authenticated: false, roles: [] };
+    workflow.sessionStatus = 'ready';
+    workflow.sessionError = '';
+    workflow.needsWorkspaceChoice = false;
     workflow.state = {
       studentAccounts: [],
       activeAccountEmail: '',
@@ -150,6 +162,7 @@ describe('role-specific application shells', () => {
     const originalDev = import.meta.env.DEV;
     import.meta.env.DEV = false;
     workflow.session = null;
+    workflow.sessionStatus = 'loading';
     try {
       const { container } = renderApp('/workspace');
       expect(screen.queryByRole('heading', { name: 'Student access page' })).not.toBeInTheDocument();
@@ -157,6 +170,24 @@ describe('role-specific application shells', () => {
     } finally {
       import.meta.env.DEV = originalDev;
       workflow.session = { authenticated: true, roles: ['ADMIN'] };
+      workflow.sessionStatus = 'ready';
+    }
+  });
+
+  it('shows a session load failure instead of treating backend unavailability as anonymous', () => {
+    const originalDev = import.meta.env.DEV;
+    import.meta.env.DEV = false;
+    workflow.session = { authenticated: false, roles: [] };
+    workflow.sessionStatus = 'error';
+    workflow.sessionError = 'Session service is temporarily unavailable.';
+    try {
+      renderApp('/workspace');
+      expect(screen.getByRole('alert')).toHaveTextContent('Session service is temporarily unavailable.');
+      expect(screen.queryByRole('heading', { name: 'Student access page' })).not.toBeInTheDocument();
+    } finally {
+      import.meta.env.DEV = originalDev;
+      workflow.sessionStatus = 'ready';
+      workflow.sessionError = '';
     }
   });
 
@@ -182,6 +213,7 @@ describe('role-specific application shells', () => {
 
   it('makes the signed-in student account and sign-out action clear', async () => {
     setRole('student');
+    workflow.session = { authenticated: true, email: 'student@gmail.com', roles: [] };
     workflow.state = {
       studentAccounts: [{ email: 'student@gmail.com', googleSubject: 'google-student' }],
       activeAccountEmail: 'student@gmail.com',

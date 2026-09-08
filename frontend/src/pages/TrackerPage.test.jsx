@@ -8,8 +8,12 @@ import '../styles/wildtrack.css';
 
 const workflow = vi.hoisted(() => ({ state: null }));
 
-vi.mock('../app/WorkflowContext.jsx', () => ({
-  useWorkflow: () => workflow
+vi.mock('../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => ({ activeWorkspaceId: 'workspace-it' })
+}));
+
+vi.mock('../hooks/useWorkspaceResource.js', () => ({
+  useWorkspaceResource: () => ({ data: workflow.state, status: 'ready', error: '' })
 }));
 
 function createState() {

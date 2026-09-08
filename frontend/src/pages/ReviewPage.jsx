@@ -16,12 +16,26 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { CheckCircle, Files, MagnifyingGlass, Sparkle, X } from '@phosphor-icons/react';
 import { getIdentityConflicts } from '../lib/api.js';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
+import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
+import { archiveAttempts as archiveServerAttempts } from '../lib/archiveClient.js';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { ReviewDeliverablesTable } from '../components/review/ReviewDeliverablesTable.jsx';
 import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
 import { ReviewSubmissionsTable } from '../components/review/ReviewSubmissionsTable.jsx';
 import { buildDeliverableReviewSummaries, filterReviewResponses, REVIEW_FILTERS } from '../lib/review.js';
+import {
+  acceptResponse,
+  applyDocumentCheck,
+  applyReviewMutation,
+  emptyReviewDesk,
+  loadReviewDesk,
+  revokeAcceptance,
+  runAiReview,
+  runDocumentCheck as runReviewDocumentCheck,
+  runDocumentChecks as runReviewDocumentChecks
+} from '../lib/reviewDeskClient.js';
 import {
   deliverableUsesDocumentCheck,
   findStudent,
@@ -34,16 +48,13 @@ import {
 const REVIEW_PAGE_SIZE = 50;
 
 export function ReviewPage() {
-  const {
-    state,
+  const { activeWorkspaceId } = useWorkspaceSession();
+  const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
+  const { data: state, setData: setState, status: reviewStatus, error: reviewError } = useWorkspaceResource(
     activeWorkspaceId,
-    runDocumentCheck,
-    runDocumentChecks,
-    runAiReview,
-    markAccepted,
-    revokeAcceptance,
-    archiveAttempt
-  } = useWorkflow();
+    loadReviewDesk,
+    emptyReviewDesk
+  );
   const [searchParams] = useSearchParams();
   const linkedResponseId = searchParams.get('response') || '';
   const linkedResponse = state.attempts.find((response) => response.id === linkedResponseId) || null;
@@ -73,7 +84,23 @@ export function ReviewPage() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [checkDialogId, setCheckDialogId] = useState('');
   const [batchProgress, setBatchProgress] = useState(null);
+  const [checkingIds, setCheckingIds] = useState(new Set());
+  const [checkError, setCheckError] = useState(null);
   const [page, setPage] = useState(1);
+  useEffect(() => {
+    setBatchProgress(null);
+    setCheckingIds(new Set());
+    setCheckError(null);
+    setCheckDialogId('');
+    setSelectedIds(new Set());
+    setSelectedResponseId('');
+    setConflictStudentNumbers([]);
+  }, [isCurrentScope]);
+  useEffect(() => {
+    if (!linkedResponse?.id) return;
+    setSelectedDeliverableId(linkedResponse.deliverableId);
+    setSelectedResponseId(linkedResponse.id);
+  }, [isCurrentScope, linkedResponse?.id, linkedResponse?.deliverableId]);
   const batchRunning = Boolean(batchProgress && !batchProgress.done);
 
   const visibleResponses = useMemo(() => filterReviewResponses({
@@ -164,7 +191,11 @@ export function ReviewPage() {
   }
 
   async function openOrRunDocumentCheck(response) {
-    if (!isDocumentCheckCurrent(response)) await runDocumentCheck(response.id);
+    if (!isDocumentCheckCurrent(response)) {
+      const result = await runDocumentCheck(response.id);
+      if (!result.ok) return;
+    }
+    if (!isCurrentScope()) return;
     setCheckDialogId(response.id);
   }
 
@@ -191,10 +222,23 @@ export function ReviewPage() {
   }
 
   async function runDocumentCheckBatch(ids) {
+    if (!isCurrentScope()) return;
+    const responses = ids.map((id) => state.attempts.find((attempt) => attempt.id === id)).filter(Boolean);
     setBatchProgress({ completed: 0, total: ids.length, failed: 0, done: false });
-    const result = await runDocumentChecks(ids, {
-      onProgress: ({ completed, total }) => setBatchProgress((current) => ({ ...current, completed, total }))
+    const result = await runReviewDocumentChecks(activeWorkspaceId, responses, state.deliverables, {
+      shouldContinue: isCurrentScope,
+      onProgress: ({ completed, total }) => {
+        if (isCurrentScope()) setBatchProgress((current) => ({ ...current, completed, total }));
+      }
     });
+    if (!isCurrentScope()) return;
+    setState((current) => ({
+      ...current,
+      attempts: current.attempts.map((attempt) => {
+        const completed = result.results?.find((item) => item.attemptId === attempt.id && item.ok);
+        return completed?.report ? applyDocumentCheck(attempt, completed.report) : attempt;
+      })
+    }));
     const failures = (result.results || [])
       .filter((item) => !item.ok)
       .map((item) => {
@@ -211,6 +255,7 @@ export function ReviewPage() {
 
   async function requestAiReview(ids) {
     const result = await runAiReview(ids);
+    if (!isCurrentScope()) return;
     if (result?.unavailable || result?.ok === false) {
       notifications.show({
         color: 'wildtrackMaroon',
@@ -220,10 +265,21 @@ export function ReviewPage() {
     }
   }
 
-  function acceptResponse(response) {
-    markAccepted(response.id, { name: 'Sir Ralph Laviste', role: 'Teacher/Admin', scope: 'Individual response' });
-    setSelectedIds((current) => withoutId(current, response.id));
-    notifications.show({ color: 'green', title: 'Response accepted', message: 'The response left the Pending queue. You can archive it from the open details.' });
+  async function acceptReview(response) {
+    if (!isCurrentScope()) return;
+    try {
+      const serverState = await acceptResponse(response.id);
+      if (!isCurrentScope()) return;
+      setState((current) => ({
+        ...current,
+        attempts: current.attempts.map((attempt) => attempt.id === response.id ? applyReviewMutation(attempt, serverState) : attempt)
+      }));
+      setSelectedIds((current) => withoutId(current, response.id));
+      notifications.show({ color: 'green', title: 'Response accepted', message: 'The response left the Pending queue. You can archive it from the open details.' });
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      notifications.show({ color: 'red', title: 'Response not accepted', message: error?.message || 'The acceptance could not be saved.' });
+    }
   }
 
   function confirmRevoke(response) {
@@ -233,11 +289,48 @@ export function ReviewPage() {
       labels: { confirm: 'Revoke acceptance', cancel: 'Keep accepted' },
       confirmProps: { color: 'red' },
       centered: true,
-      onConfirm: () => {
-        revokeAcceptance(response.id);
-        setSelectedResponseId('');
+      onConfirm: async () => {
+        if (!isCurrentScope()) return;
+        try {
+          const serverState = await revokeAcceptance(response.id);
+          if (!isCurrentScope()) return;
+          setState((current) => ({
+            ...current,
+            attempts: current.attempts.map((attempt) => attempt.id === response.id ? applyReviewMutation(attempt, serverState) : attempt)
+          }));
+          setSelectedResponseId('');
+        } catch (error) {
+          if (!isCurrentScope()) return;
+          notifications.show({ color: 'red', title: 'Acceptance not revoked', message: error?.message || 'The response could not be updated.' });
+        }
       }
     });
+  }
+
+  async function runDocumentCheck(attemptId) {
+    if (!isCurrentScope() || checkingIds.has(attemptId)) return { ok: false };
+    const response = state.attempts.find((attempt) => attempt.id === attemptId);
+    if (!response) return { ok: false, error: 'The selected response was not found.' };
+    const deliverable = state.deliverables.find((item) => item.id === response.deliverableId);
+    setCheckingIds((current) => new Set([...current, attemptId]));
+    setCheckError(null);
+    let result;
+    try {
+      result = await runReviewDocumentCheck(activeWorkspaceId, response, deliverable);
+    } catch (error) {
+      result = { ok: false, error: error?.message || 'Document Check could not finish.' };
+    }
+    if (!isCurrentScope()) return { ok: false };
+    setCheckingIds((current) => withoutId(current, attemptId));
+    if (result.ok) {
+      setState((current) => ({
+        ...current,
+        attempts: current.attempts.map((attempt) => attempt.id === attemptId ? applyDocumentCheck(attempt, result.report) : attempt)
+      }));
+    } else {
+      setCheckError({ attemptId, message: result.error || 'Document Check could not finish. Please try again.' });
+    }
+    return result;
   }
 
   function confirmArchive(response) {
@@ -248,7 +341,19 @@ export function ReviewPage() {
       confirmProps: { color: 'wildtrackMaroon' },
       centered: true,
       onConfirm: async () => {
-        const result = await archiveAttempt(response.id);
+        if (!isCurrentScope()) return;
+        let result;
+        try {
+          result = await archiveServerAttempts(activeWorkspaceId, [response.id]);
+          if (!isCurrentScope()) return;
+          setState((current) => ({
+            ...current,
+            attempts: current.attempts.map((attempt) => attempt.id === response.id ? { ...attempt, archiveStatus: 'Archived' } : attempt)
+          }));
+        } catch (error) {
+          result = { ok: false, error: error?.message || 'The archive record could not be created.' };
+        }
+        if (!isCurrentScope()) return;
         notifications.show({
           color: result?.ok ? 'green' : 'red',
           title: result?.ok ? 'Archive record created' : 'Archive failed',
@@ -267,6 +372,9 @@ export function ReviewPage() {
           <Text c="dimmed">Start with a deliverable, work through its pending responses, and open details only when needed.</Text>
         </div>
       </header>
+
+      {reviewStatus === 'loading' ? <Alert color="blue">Loading the review desk…</Alert> : null}
+      {reviewStatus === 'error' ? <Alert color="red" role="alert">{reviewError}</Alert> : null}
 
       <ReviewDeliverablesTable summaries={summaries} selectedId={activeDeliverableId} onSelect={chooseDeliverable} />
 
@@ -416,10 +524,12 @@ export function ReviewPage() {
         state={state}
         deliverable={selectedDeliverable}
         documentCheckEnabled={documentCheckEnabled}
+        checking={checkingIds.has(selectedResponse?.id)}
+        checkError={checkError?.attemptId === selectedResponse?.id ? checkError?.message : ''}
         onClose={() => setSelectedResponseId('')}
         onDocumentCheck={() => openOrRunDocumentCheck(selectedResponse)}
         onAiReview={() => requestAiReview([selectedResponse.id])}
-        onAccept={() => acceptResponse(selectedResponse)}
+        onAccept={() => acceptReview(selectedResponse)}
         onRevoke={() => confirmRevoke(selectedResponse)}
         onArchive={() => confirmArchive(selectedResponse)}
       />
@@ -428,7 +538,8 @@ export function ReviewPage() {
         open={Boolean(checkDialogResponse)}
         response={checkDialogResponse}
         fileLink={firstSubmissionLink(checkDialogResponse?.values)}
-        rechecking={checkDialogResponse?.fileCheckStatus === 'Checking'}
+        rechecking={checkingIds.has(checkDialogResponse?.id) || checkDialogResponse?.fileCheckStatus === 'Checking'}
+        error={checkError?.attemptId === checkDialogResponse?.id ? checkError?.message : ''}
         onClose={() => setCheckDialogId('')}
         onRecheck={recheckFromDialog}
       />

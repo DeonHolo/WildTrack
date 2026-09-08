@@ -1,10 +1,5 @@
 export const browserStorageKeys = Object.freeze({
-  workflow: 'wildtrack.v2.workflow',
-  workspacePrefix: 'wildtrack.v2.workspace.',
-  workspaceCatalog: 'wildtrack.v2.workspaces',
   activeWorkspace: 'wildtrack.v2.active-workspace',
-  studentAccounts: 'wildtrack.v2.student-accounts',
-  activeStudentAccount: 'wildtrack.v2.active-student-account',
   previewRole: 'wildtrack.v2.preview-role',
   previewAdviser: 'wildtrack.v2.preview-adviser',
   developmentPreviewOpen: 'wildtrack.v2.dev-preview-open'
@@ -35,12 +30,4 @@ function findPriorKey(currentKey, previousSuffix, validate) {
     if (candidateValue !== null && validate(candidateValue)) return candidateKey;
   }
   return null;
-}
-
-export function isJsonStorageValue(value) {
-  try {
-    return Boolean(JSON.parse(value));
-  } catch {
-    return false;
-  }
 }

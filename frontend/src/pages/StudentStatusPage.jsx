@@ -9,9 +9,10 @@ import { StudentProfileSummary } from '../components/student/StudentProfileSumma
 import { StudentProgressPanel } from '../components/student/StudentProgressPanel.jsx';
 import { StudentWelcomeBanner } from '../components/student/StudentWelcomeBanner.jsx';
 import { StudentWorkspacePicker } from '../components/student/StudentWorkspacePicker.jsx';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
+import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import {
-  findOwnedResponse,
   findStudent,
   firstSubmissionLink,
   getActiveTrackerColumns,
@@ -23,11 +24,12 @@ import {
   isUsableAdviserName,
   normalizeStudentNumber
 } from '../lib/workflow.js';
-import { confirmStudentAssociation, getMyAssociation, disconnectStudentAssociation } from '../lib/api.js';
+import { confirmStudentAssociation, disconnectStudentAssociation } from '../lib/api.js';
+import { emptyStudentDashboardState, loadStudentDashboard } from '../lib/studentDashboardClient.js';
 
 export function StudentStatusPage() {
   const {
-    state,
+    account: sessionAccount,
     workspaces,
     activeWorkspace,
     activeWorkspaceId,
@@ -35,49 +37,23 @@ export function StudentStatusPage() {
     workspaceCatalogStatus,
     workspaceCatalogError,
     refreshWorkspaceCatalog,
-    claimStudentNumber,
-    disconnectStudentNumber,
-    authenticateGoogleAccount,
-    refreshBackendData
-  } = useWorkflow();
+    refreshSession
+  } = useWorkspaceSession();
+  const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
+  const {
+    data: state,
+    status: dashboardStatus,
+    error: dashboardError,
+    reload: refreshDashboard
+  } = useWorkspaceResource(activeWorkspaceId, loadStudentDashboard, emptyStudentDashboardState);
   const [selectedNumber, setSelectedNumber] = useState('');
   const [connectionError, setConnectionError] = useState('');
   const [signInError, setSignInError] = useState('');
-  const [backendAssociation, setBackendAssociation] = useState(null);
-  const [associationLoadedFor, setAssociationLoadedFor] = useState('');
-  const associationKey = !needsWorkspaceChoice && activeWorkspace?.id && state.activeAccountEmail
-    ? `${activeWorkspace.id}:${String(state.activeAccountEmail).toLowerCase()}`
-    : '';
-  // Ticket 03: the dashboard identity section is composed from the backend association.
-  useEffect(() => {
-    let cancelled = false;
-    if (!associationKey) {
-      setBackendAssociation(null);
-      setAssociationLoadedFor('');
-      return undefined;
-    }
-    getMyAssociation(activeWorkspace.id)
-      .then((association) => {
-        if (!cancelled) {
-          setBackendAssociation(association || null);
-          setAssociationLoadedFor(associationKey);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setBackendAssociation(null);
-          setAssociationLoadedFor(associationKey);
-        }
-      });
-    return () => { cancelled = true; };
-  }, [activeWorkspace?.id, associationKey]);
-  const activeAccount = useMemo(() => state.studentAccounts.find(
-    (account) => account.googleSubject && String(account.email || '').toLowerCase() === String(state.activeAccountEmail || '').toLowerCase()
-  ) || null, [state.activeAccountEmail, state.studentAccounts]);
-  const identityStudents = useMemo(() => getIdentityStudents(state.students), [state.students]);
+  const activeAccount = sessionAccount;
+  const identityStudents = useMemo(() => getIdentityStudents(state.rosterOptions), [state.rosterOptions]);
   const connectionOptions = useMemo(() => getStudentOptions(identityStudents), [identityStudents]);
   const selectedStudent = useMemo(() => findStudent(identityStudents, selectedNumber), [identityStudents, selectedNumber]);
-  const currentAssociation = associationLoadedFor === associationKey ? backendAssociation : null;
+  const currentAssociation = state.association;
   const studentNumber = currentAssociation?.studentNumber || '';
   const student = useMemo(() => findStudent(state.students, studentNumber) || (currentAssociation ? {
     studentNumber: currentAssociation.studentNumber,
@@ -103,12 +79,13 @@ export function StudentStatusPage() {
     ));
 
     return [...published, ...historical].map((deliverable) => {
-      const ownedResponse = findOwnedResponse(state.attempts, {
-        deliverableId: deliverable.id,
-        studentNumber: student.studentNumber,
-        googleSubject: activeAccount.googleSubject,
-        googleEmail: activeAccount.email
-      });
+      // The scoped endpoint redacts owner identities and values on private responses.
+      // Session accounts expose email, while response owner keys prefer subject.
+      const ownedResponse = state.attempts.find((response) => (
+        response.deliverableId === deliverable.id &&
+        normalizeStudentNumber(response.studentNumber) === normalizeStudentNumber(student.studentNumber) &&
+        response.googleEmailSnapshot?.trim().toLowerCase() === activeAccount.email.trim().toLowerCase()
+      ));
       const recorded = state.attempts.some((response) => (
         response.deliverableId === deliverable.id &&
         normalizeStudentNumber(response.studentNumber) === normalizeStudentNumber(student.studentNumber)
@@ -121,18 +98,14 @@ export function StudentStatusPage() {
       );
     });
   }, [activeAccount, state, student]);
-  const syncStatus = String(state.backendSync?.status || '');
-  const associationLoading = Boolean(associationKey && associationLoadedFor !== associationKey);
-  const isSyncLoading = !state.backendSync?.lastLoadedAt && state.backendSync?.enabled !== false;
-  const isLoading = associationLoading || isSyncLoading || state.dashboardStatus === 'loading' || /^loading\b/i.test(syncStatus);
-  const loadError = state.dashboardStatus === 'error'
-    ? state.dashboardError || 'Student records could not be loaded.'
-    : state.backendSync?.lastError || '';
+  const isLoading = dashboardStatus === 'loading';
+  const loadError = dashboardError;
 
   useEffect(() => {
     setSelectedNumber('');
     setConnectionError('');
-  }, [activeWorkspaceId]);
+    setSignInError('');
+  }, [isCurrentScope]);
 
   function connectSelectedRecord() {
     setConnectionError('');
@@ -154,13 +127,14 @@ export function StudentStatusPage() {
       confirmProps: { color: 'wildtrackMaroon' },
       centered: true,
       onConfirm: async () => {
+        if (!isCurrentScope()) return;
         try {
-          const association = await confirmStudentAssociation(activeWorkspace.id, selectedStudent.studentNumber);
-          setBackendAssociation(association);
-          setAssociationLoadedFor(associationKey);
-          claimStudentNumber(association?.studentNumber || selectedStudent.studentNumber);
+          await confirmStudentAssociation(activeWorkspace.id, selectedStudent.studentNumber);
+          await refreshDashboard();
+          if (!isCurrentScope()) return;
           setConnectionError('');
         } catch (confirmError) {
+          if (!isCurrentScope()) return;
           setConnectionError(confirmError.message || 'The connection could not be saved. Try again.');
         }
       }
@@ -179,16 +153,15 @@ export function StudentStatusPage() {
       confirmProps: { color: 'red' },
       centered: true,
       onConfirm: async () => {
+        if (!isCurrentScope()) return;
         try {
           await disconnectStudentAssociation(activeWorkspace.id);
         } catch (disconnectError) {
+          if (!isCurrentScope()) return;
           setConnectionError(disconnectError.message || 'The disconnection could not be saved. Try again.');
           return;
         }
-        setBackendAssociation(null);
-        setAssociationLoadedFor(associationKey);
-        const result = disconnectStudentNumber();
-        if (result && !result.ok) setConnectionError(result.error);
+        await refreshDashboard();
       }
     });
   }
@@ -197,10 +170,10 @@ export function StudentStatusPage() {
     return (
       <SignedOutDashboard
         error={signInError}
-        onAuthenticated={(identity) => {
+        onAuthenticated={async () => {
           setSignInError('');
-          const response = authenticateGoogleAccount(identity);
-          if (!response.ok) setSignInError(response.error);
+          const current = await refreshSession();
+          if (!current?.authenticated) setSignInError('Google sign-in could not be verified. Try again.');
         }}
       />
     );
@@ -271,7 +244,7 @@ export function StudentStatusPage() {
             </Paper>
           ) : (
             <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
-              <StudentDataUnavailable error={loadError} onRetry={refreshBackendData} />
+              <StudentDataUnavailable error={loadError} onRetry={refreshDashboard} />
             </Paper>
           )}
         </div>

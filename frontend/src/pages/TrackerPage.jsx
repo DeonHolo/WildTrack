@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Group, Paper, Popover, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Group, Paper, Popover, Text, TextInput, Title } from '@mantine/core';
 import { CaretLeft, CaretRight, ChartBar, MagnifyingGlass, UsersThree } from '@phosphor-icons/react';
 import { EmptyState, PageHeader } from '../components/ui.jsx';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
+import { APPLICATION_ROLES, useApplicationRole } from '../hooks/useApplicationRole.js';
+import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+import { emptyMonitoringState, loadMonitoringState } from '../lib/monitoringClient.js';
 import {
   formatDateTime,
   getActiveTrackerColumns,
@@ -12,7 +15,7 @@ import {
   isUsableAdviserName,
   normalizeStudentNumber
 } from '../lib/workflow.js';
-import { getStoredPreviewAdviser, usePreviewRole } from '../hooks/usePreviewRole.js';
+import { getStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
 
 const PAGE_SIZE = 25;
 const COMPACT_LABELS = {
@@ -21,8 +24,9 @@ const COMPACT_LABELS = {
 };
 
 export function TrackerPage() {
-  const { state } = useWorkflow();
-  const previewRole = usePreviewRole();
+  const { activeWorkspaceId } = useWorkspaceSession();
+  const { data: state, status, error } = useWorkspaceResource(activeWorkspaceId, loadMonitoringState, emptyMonitoringState);
+  const role = useApplicationRole();
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState(state.activeStudentNumber || getStudentKey(state.students[0]) || '');
   const [page, setPage] = useState(1);
@@ -30,14 +34,14 @@ export function TrackerPage() {
   const [showAllRows, setShowAllRows] = useState(false);
   const activeColumns = getActiveTrackerColumns(state);
   const adviserOptions = useMemo(() => getAdviserOptions(state), [state]);
-  const adviserName = previewRole === 'adviser'
+  const adviserName = role === APPLICATION_ROLES.ADVISER
     ? adviserOptions.includes(getStoredPreviewAdviser()) ? getStoredPreviewAdviser() : adviserOptions[0] || 'Unassigned'
     : '';
   const scopeStudents = useMemo(
-    () => previewRole === 'adviser'
+    () => role === APPLICATION_ROLES.ADVISER && import.meta.env.DEV
       ? state.students.filter((student) => getTeamAdviser(state, student.teamCode) === adviserName)
       : state.students,
-    [adviserName, previewRole, state]
+    [adviserName, role, state]
   );
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -50,7 +54,7 @@ export function TrackerPage() {
   const pageRows = showAllRows ? rows : rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const selected = pageRows.find((student) => getStudentKey(student) === selectedKey || student.studentNumber === selectedKey) || pageRows[0] || rows[0];
   const selectedProject = selected ? getProjectMetadata(state, selected.teamCode) : null;
-  const selectedAdviser = previewRole === 'adviser'
+  const selectedAdviser = role === APPLICATION_ROLES.ADVISER
     ? adviserName
     : isUsableAdviserName(selectedProject?.adviserName)
       ? selectedProject.adviserName
@@ -67,13 +71,16 @@ export function TrackerPage() {
     <div className="page-stack wt-tracker-page">
       <PageHeader
         title="Tracker"
-        description={previewRole === 'adviser'
+        description={role === APPLICATION_ROLES.ADVISER
           ? 'Read-only class-record values for teams assigned to the selected adviser.'
           : 'Raw class-record values stay visible as days-late numbers, dates, blanks, or Sheet values.'}
-        actions={previewRole === 'adviser' ? (
+        actions={role === APPLICATION_ROLES.ADVISER ? (
           <div className="role-scope-note"><UsersThree aria-hidden="true" /><span>Adviser scope</span><strong>{adviserName}</strong></div>
         ) : null}
       />
+
+      {status === 'loading' ? <Alert color="blue">Loading tracker data…</Alert> : null}
+      {status === 'error' ? <Alert color="red" role="alert">{error}</Alert> : null}
 
       <Paper className="wt-tracker-workbench" withBorder>
         {!state.students.length ? (
@@ -108,7 +115,7 @@ export function TrackerPage() {
         <section className="wt-tracker-table-region" role="region" aria-label="Class-wide tracker table">
           <header className="wt-tracker-table-title">
             <div>
-              <Text component="span" className="wt-tracker-eyebrow">{previewRole === 'adviser' ? 'Assigned teams' : 'Class-wide tracker'}</Text>
+              <Text component="span" className="wt-tracker-eyebrow">{role === APPLICATION_ROLES.ADVISER ? 'Assigned teams' : 'Class-wide tracker'}</Text>
               <Title order={3}>Student progress</Title>
             </div>
             <Text size="sm" fw={750} className="wt-tabular">{rows.length} rows</Text>

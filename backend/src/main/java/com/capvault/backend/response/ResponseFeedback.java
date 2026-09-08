@@ -16,6 +16,10 @@ import jakarta.persistence.UniqueConstraint;
     uniqueConstraints = @UniqueConstraint(name = "uq_feedback_one_current", columnNames = {"response_id", "author_subject"}))
 public class ResponseFeedback {
 
+    public boolean isStudentVisible() {
+        return "Student".equalsIgnoreCase(visibility) || "STUDENT_VISIBLE".equalsIgnoreCase(visibility);
+    }
+
     @Id
     private UUID id;
 

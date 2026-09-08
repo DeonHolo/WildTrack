@@ -19,19 +19,25 @@ public class ReviewFeedbackService {
     private final ResponseAcceptanceRepository acceptanceRepository;
     private final AdviserTeamAssignmentRepository adviserTeamRepository;
     private final Clock clock;
+    private final DomainEventRecorder events;
+    private final CanonicalResponseService canonical;
 
     public ReviewFeedbackService(
         FormResponseRepository responseRepository,
         ResponseFeedbackRepository feedbackRepository,
         ResponseAcceptanceRepository acceptanceRepository,
         AdviserTeamAssignmentRepository adviserTeamRepository,
-        Clock clock
+        Clock clock,
+        DomainEventRecorder events,
+        CanonicalResponseService canonical
     ) {
         this.responseRepository = responseRepository;
         this.feedbackRepository = feedbackRepository;
         this.acceptanceRepository = acceptanceRepository;
         this.adviserTeamRepository = adviserTeamRepository;
         this.clock = clock;
+        this.events = events;
+        this.canonical = canonical;
     }
 
     /** Staff can create or update ONE current student-visible note per response (edits in place). */
@@ -44,6 +50,8 @@ public class ReviewFeedbackService {
             throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
         }
         requireTeamAccess(response, subject, role, "comment on");
+        events.record(response.getWorkspaceId(), responseId, subject, "FEEDBACK_SAVED",
+            java.util.Map.of("role", role, "note", note, "visibility", visibility));
         Instant now = clock.instant();
         Optional<ResponseFeedback> existing = feedbackRepository.findByResponseIdAndAuthorSubject(responseId, subject);
         if (existing.isPresent()) {
@@ -66,6 +74,9 @@ public class ReviewFeedbackService {
         FormResponse response = responseRepository.findById(responseId)
             .orElseThrow(() -> new IllegalArgumentException("Response not found."));
         requireTeamAccess(response, subject, role, "accept");
+        events.record(response.getWorkspaceId(), responseId, subject, "RESPONSE_ACCEPTED",
+            java.util.Map.of("role", role, "revision", response.getRevision()));
+        canonical.recordAcceptanceIfFirst(response, subject);
         Instant now = clock.instant();
         // Replace any prior acceptance row for the same response (re-accept after revoke).
         acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId)
@@ -116,6 +127,16 @@ public class ReviewFeedbackService {
                 acceptance.setRevokedAt(clock.instant());
                 acceptanceRepository.save(acceptance);
             });
+    }
+
+    @Transactional
+    public void revoke(UUID responseId, String subject, String role) {
+        var response = responseRepository.findById(responseId).orElseThrow(() -> new IllegalArgumentException("Response not found."));
+        requireTeamAccess(response, subject, role, "revoke");
+        if (acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId).isPresent()) {
+            events.record(response.getWorkspaceId(), responseId, subject, "ACCEPTANCE_REVOKED", java.util.Map.of("role", role));
+            revoke(responseId);
+        }
     }
 
     @Transactional(readOnly = true)

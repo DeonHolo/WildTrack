@@ -163,9 +163,14 @@ public class FileCheckService {
 
     @Transactional(readOnly = true)
     public FileCheckResponse latest(UUID workspaceId, String responseId) {
-        return repository.findFirstByWorkspaceIdAndExternalResponseIdOrderByCheckedAtDesc(workspaceId, responseId)
-            .map(this::deserialize)
+        return findLatest(workspaceId, responseId)
             .orElseThrow(() -> new IllegalArgumentException("No Document Check exists for this response."));
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<FileCheckResponse> findLatest(UUID workspaceId, String responseId) {
+        return repository.findFirstByWorkspaceIdAndExternalResponseIdOrderByCheckedAtDesc(workspaceId, responseId)
+            .map(this::deserialize);
     }
 
     @Transactional(readOnly = true)

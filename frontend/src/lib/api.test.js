@@ -1,8 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, describeSnapshotFailures, getApiBaseUrl, getBackendSnapshot, getCurrentSession, logout } from './api.js';
+import { ApiError, describeSnapshotFailures, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getMyResponse, logout, submitResponse } from './api.js';
 import { fetchCurrentSession, logoutSession } from './session.js';
 
 describe('production API delivery', () => {
+  it('treats the backend empty 200 for an absent owned response as no response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+    await expect(getMyResponse('workspace', 'form')).resolves.toBeNull();
+  });
+  it('sends the loaded response revision and preserves a stale-tab conflict', async () => {
+    document.cookie = 'XSRF-TOKEN=test-csrf; path=/';
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 409 }));
+    await expect(submitResponse('workspace', 'form', { value: 'edit' }, 7)).resolves.toEqual({ conflict: true });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ deliverableId: 'form', valuesJson: '{"value":"edit"}', revision: 7 });
+  });
   beforeEach(() => {
     vi.restoreAllMocks();
     document.cookie = 'XSRF-TOKEN=; Max-Age=0; path=/';

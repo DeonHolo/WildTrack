@@ -46,7 +46,8 @@ public class FormResponseController {
 
     public record SubmitRequest(
         @NotNull UUID deliverableId,
-        @NotBlank String valuesJson
+        @NotBlank String valuesJson,
+        Long revision
     ) {
     }
 
@@ -58,6 +59,43 @@ public class FormResponseController {
         String submittedAt,
         String updatedAt
     ) {
+    }
+
+    public record StaffScopeResponse(
+        List<FormResponse> responses,
+        List<String> teamCodes,
+        boolean allTeams
+    ) {
+    }
+
+    public record ScopedResponse(
+        UUID id,
+        UUID deliverableId,
+        String studentNumber,
+        String studentName,
+        String teamCode,
+        String googleSubject,
+        String googleEmail,
+        String valuesJson,
+        String submittedAt,
+        String updatedAt,
+        boolean owned
+    ) {
+        public static ScopedResponse from(FormResponse response, boolean includePrivate) {
+            return new ScopedResponse(
+                response.getId(),
+                response.getDeliverableId(),
+                response.getStudentNumber(),
+                response.getStudentName(),
+                response.getTeamCode(),
+                includePrivate ? response.getGoogleSubject() : "",
+                includePrivate ? response.getGoogleEmail() : "",
+                includePrivate ? response.getValuesJson() : "",
+                response.getSubmittedAt().toString(),
+                response.getUpdatedAt().toString(),
+                includePrivate
+            );
+        }
     }
 
     private static SubmitResponse toSubmitResponse(FormResponseService.SaveResult result) {
@@ -87,7 +125,7 @@ public class FormResponseController {
         }
         try {
             return ResponseEntity.ok(toSubmitResponse(responseService.submit(new FormResponseService.SubmitCommand(
-                workspaceId, request.deliverableId(), session.googleSubject(), session.googleEmail(), values))));
+                workspaceId, request.deliverableId(), session.googleSubject(), session.googleEmail(), values, request.revision()))));
         } catch (FormResponseService.ConcurrentModificationException e) {
             return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
                 .header("X-WildTrack-Conflict", "stale-revision")
@@ -140,24 +178,47 @@ public class FormResponseController {
         throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
     }
 
+    @GetMapping("/staff-scope")
+    public StaffScopeResponse staffScope(@RequestParam UUID workspaceId, HttpServletRequest http) {
+        var session = security.requireSession(http);
+        var roles = security.activeRoles(http);
+        if (roles.contains(StaffRole.ADMIN)) {
+            return new StaffScopeResponse(responseService.responsesForWorkspace(workspaceId), List.of(), true);
+        }
+        if (roles.contains(StaffRole.ADVISER)) {
+            var teams = staffManagementService.assignedTeams(session.googleSubject(), workspaceId);
+            return new StaffScopeResponse(responseService.responsesForTeams(workspaceId, teams), teams, false);
+        }
+        throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
+    }
+
     /**
      * Role-scoped response list accessible to students, advisers, and admins.
      */
     @GetMapping("/my-team")
-    public List<FormResponse> myTeamView(@RequestParam UUID workspaceId, HttpServletRequest http) {
+    public List<ScopedResponse> myTeamView(@RequestParam UUID workspaceId, HttpServletRequest http) {
         var session = security.requireSession(http);
         var roles = security.activeRoles(http);
         if (roles.contains(StaffRole.ADMIN)) {
-            return responseService.responsesForWorkspace(workspaceId);
+            return responseService.responsesForWorkspace(workspaceId).stream()
+                .map(response -> ScopedResponse.from(response, true))
+                .toList();
         }
         if (roles.contains(StaffRole.ADVISER)) {
             return responseService.responsesForTeams(
-                workspaceId, staffManagementService.assignedTeams(session.googleSubject(), workspaceId));
+                workspaceId, staffManagementService.assignedTeams(session.googleSubject(), workspaceId)).stream()
+                .map(response -> ScopedResponse.from(response, true))
+                .toList();
         }
         var assoc = associationService.activeAssociation(workspaceId, session.googleSubject());
         if (assoc.isPresent() && assoc.get().teamCode() != null && !assoc.get().teamCode().isBlank()) {
-            return responseService.responsesForTeams(workspaceId, List.of(assoc.get().teamCode()));
+            return responseService.responsesForTeams(workspaceId, List.of(assoc.get().teamCode())).stream()
+                .map(response -> ScopedResponse.from(
+                    response, response.getGoogleSubject().equals(session.googleSubject())))
+                .toList();
         }
-        return responseService.responsesForSubject(workspaceId, session.googleSubject());
+        return responseService.responsesForSubject(workspaceId, session.googleSubject()).stream()
+            .map(response -> ScopedResponse.from(response, true))
+            .toList();
     }
 }

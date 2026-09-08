@@ -1,4 +1,5 @@
 import {
+  Alert,
   Badge,
   Button,
   Divider,
@@ -35,6 +36,8 @@ export function ReviewResponseDrawer({
   state,
   deliverable,
   documentCheckEnabled,
+  checking = false,
+  checkError = '',
   onClose,
   onDocumentCheck,
   onAiReview,
@@ -49,7 +52,7 @@ export function ReviewResponseDrawer({
   const aiReport = response.aiReport;
   const accepted = response.reviewStatus === 'Accepted';
   const archived = response.archiveStatus === 'Archived';
-  const checkRunning = response.fileCheckStatus === 'Checking';
+  const checkRunning = checking || response.fileCheckStatus === 'Checking';
   const missingPreview = compactMissingSections(report?.missingSections, 4);
 
   return (
@@ -63,6 +66,7 @@ export function ReviewResponseDrawer({
       classNames={{ content: 'wt-review-drawer', header: 'wt-review-drawer-header', body: 'wt-review-drawer-body' }}
     >
       <Stack gap="lg">
+        {checkError ? <Alert color="red" role="alert">{checkError}</Alert> : null}
         <section className="wt-review-drawer-identity">
           <Group justify="space-between" align="flex-start" wrap="nowrap">
             <div>

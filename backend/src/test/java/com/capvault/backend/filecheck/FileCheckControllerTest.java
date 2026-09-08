@@ -38,6 +38,12 @@ class FileCheckControllerTest {
     }
 
     @Test
+    void absentDocumentCheckReturnsNotFound() throws Exception {
+        mockMvc.perform(get("/api/file-checks/not-checked-yet").with(session()))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
     void reportsHonestUnconfiguredStateAndPersistsAttempt() throws Exception {
         mockMvc.perform(get("/api/file-checks/status").with(session()))
             .andExpect(status().isOk())
@@ -69,5 +75,4 @@ class FileCheckControllerTest {
             .andExpect(jsonPath("$.status").value("UNAVAILABLE"));
     }
 }
-
 

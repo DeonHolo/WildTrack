@@ -1,13 +1,16 @@
-import { ActionIcon, Badge, Button, Card, CloseButton, Divider, Group, Menu, Modal, MultiSelect, Paper, Select, Stack, Table, Text, TextInput, ThemeIcon, Tooltip } from '@mantine/core';
+import { ActionIcon, Alert, Badge, Button, Card, CloseButton, Divider, Group, Menu, Modal, MultiSelect, Paper, Select, Stack, Table, Text, TextInput, ThemeIcon, Tooltip } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { ArrowRight, Check, Plus, PlusCircle, ShieldCheck, Trash, User, UserPlus, UsersThree, Warning, WarningCircle, X } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
-import { assignAdviserTeam, getStaffProfiles, revokeStaffAccess, unassignAdviserTeam, upsertStaffEmail } from '../../lib/api.js';
+import { assignTeam, loadStaffProfiles, revokeStaff, unassignTeam, addStaff } from '../../lib/staffAccessClient.js';
+import { useWorkspaceScope } from '../../hooks/useWorkspaceScope.js';
 
 export function StaffManagementPanel({ workspaceId, students = [], projectMetadata = [] }) {
+  const isCurrentScope = useWorkspaceScope(workspaceId);
   const [staffList, setStaffList] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('ADVISER');
@@ -35,21 +38,32 @@ export function StaffManagementPanel({ workspaceId, students = [], projectMetada
   }, [staffList]);
 
   async function loadStaff() {
-    if (!workspaceId) return;
+    if (!workspaceId || !isCurrentScope()) return;
     setLoading(true);
+    setLoadError('');
     try {
-      const data = await getStaffProfiles(workspaceId);
-      setStaffList(Array.isArray(data) ? data : []);
+      const data = await loadStaffProfiles(workspaceId);
+      if (!isCurrentScope()) return;
+      setStaffList(data);
     } catch (err) {
-      setStaffList([]);
+      if (isCurrentScope()) {
+        setStaffList([]);
+        setLoadError(err?.message || 'Staff profiles could not be loaded.');
+      }
     } finally {
-      setLoading(false);
+      if (isCurrentScope()) setLoading(false);
     }
   }
 
   useEffect(() => {
+    setStaffList([]);
+    setModalOpen(false);
+    setEmail('');
+    setSelectedTeams([]);
+    setError('');
+    setSaving(false);
     loadStaff();
-  }, [workspaceId]);
+  }, [workspaceId, isCurrentScope]);
 
   function handleOpenAdd() {
     setEmail('');
@@ -61,6 +75,7 @@ export function StaffManagementPanel({ workspaceId, students = [], projectMetada
 
   async function handleSaveStaff(e) {
     e?.preventDefault?.();
+    if (!isCurrentScope()) return;
     const trimmedEmail = email.trim().toLowerCase();
     if (!trimmedEmail) {
       setError('Please enter a Google email.');
@@ -69,14 +84,17 @@ export function StaffManagementPanel({ workspaceId, students = [], projectMetada
     setSaving(true);
     setError('');
     try {
-      const profile = await upsertStaffEmail(workspaceId, trimmedEmail, [role]);
+      const profile = await addStaff(workspaceId, trimmedEmail, role);
+      if (!isCurrentScope()) return;
       if (role === 'ADVISER' && selectedTeams.length > 0 && profile?.googleSubject) {
         for (const teamCode of selectedTeams) {
           const currentHolder = teamToAdviserMap.get(teamCode.toLowerCase());
           if (currentHolder && currentHolder.googleSubject !== profile.googleSubject) {
-            await unassignAdviserTeam(workspaceId, currentHolder.googleSubject, teamCode);
+            await unassignTeam(workspaceId, currentHolder.googleSubject, teamCode);
+            if (!isCurrentScope()) return;
           }
-          await assignAdviserTeam(workspaceId, profile.googleSubject, teamCode);
+          await assignTeam(workspaceId, profile.googleSubject, teamCode);
+          if (!isCurrentScope()) return;
         }
       }
       notifications.show({
@@ -87,13 +105,14 @@ export function StaffManagementPanel({ workspaceId, students = [], projectMetada
       setModalOpen(false);
       loadStaff();
     } catch (err) {
-      setError(err?.message || 'Failed to save staff member.');
+      if (isCurrentScope()) setError(err?.message || 'Failed to save staff member.');
     } finally {
-      setSaving(false);
+      if (isCurrentScope()) setSaving(false);
     }
   }
 
   async function handleAssignTeam(staff, teamCode) {
+    if (!isCurrentScope()) return;
     const currentHolder = teamToAdviserMap.get(teamCode.toLowerCase());
     if (currentHolder && currentHolder.googleSubject !== staff.googleSubject) {
       modals.openConfirmModal({
@@ -107,12 +126,16 @@ export function StaffManagementPanel({ workspaceId, students = [], projectMetada
         labels: { confirm: 'Transfer team', cancel: 'Cancel' },
         confirmProps: { color: 'wildtrackMaroon' },
         onConfirm: async () => {
+          if (!isCurrentScope()) return;
           try {
-            await unassignAdviserTeam(workspaceId, currentHolder.googleSubject, teamCode);
-            await assignAdviserTeam(workspaceId, staff.googleSubject, teamCode);
+            await unassignTeam(workspaceId, currentHolder.googleSubject, teamCode);
+            if (!isCurrentScope()) return;
+            await assignTeam(workspaceId, staff.googleSubject, teamCode);
+            if (!isCurrentScope()) return;
             notifications.show({ color: 'green', message: `Team ${teamCode} transferred to ${staff.googleEmail}.` });
             loadStaff();
           } catch (err) {
+            if (!isCurrentScope()) return;
             notifications.show({ color: 'red', message: err?.message || 'Failed to transfer team.' });
           }
         }
@@ -121,20 +144,25 @@ export function StaffManagementPanel({ workspaceId, students = [], projectMetada
     }
 
     try {
-      await assignAdviserTeam(workspaceId, staff.googleSubject, teamCode);
+      await assignTeam(workspaceId, staff.googleSubject, teamCode);
+      if (!isCurrentScope()) return;
       notifications.show({ color: 'green', message: `Team ${teamCode} assigned to ${staff.googleEmail}.` });
       loadStaff();
     } catch (err) {
+      if (!isCurrentScope()) return;
       notifications.show({ color: 'red', message: err?.message || 'Failed to assign team.' });
     }
   }
 
   async function handleUnassignTeam(staff, teamCode) {
+    if (!isCurrentScope()) return;
     try {
-      await unassignAdviserTeam(workspaceId, staff.googleSubject, teamCode);
+      await unassignTeam(workspaceId, staff.googleSubject, teamCode);
+      if (!isCurrentScope()) return;
       notifications.show({ color: 'gray', message: `Team ${teamCode} unassigned from ${staff.googleEmail}.` });
       loadStaff();
     } catch (err) {
+      if (!isCurrentScope()) return;
       notifications.show({ color: 'red', message: err?.message || 'Failed to unassign team.' });
     }
   }
@@ -150,11 +178,14 @@ export function StaffManagementPanel({ workspaceId, students = [], projectMetada
       labels: { confirm: 'Revoke access', cancel: 'Cancel' },
       confirmProps: { color: 'red' },
       onConfirm: async () => {
+        if (!isCurrentScope()) return;
         try {
-          await revokeStaffAccess(workspaceId, staff.googleSubject);
+          await revokeStaff(workspaceId, staff.googleSubject);
+          if (!isCurrentScope()) return;
           notifications.show({ color: 'red', message: `Staff access revoked for ${staff.googleEmail}.` });
           loadStaff();
         } catch (err) {
+          if (!isCurrentScope()) return;
           notifications.show({ color: 'red', message: err?.message || 'Failed to revoke staff access.' });
         }
       }
@@ -180,7 +211,14 @@ export function StaffManagementPanel({ workspaceId, students = [], projectMetada
         </Button>
       </div>
 
-      {staffList.filter((s) => s.enabled !== false).length === 0 ? (
+      {loading ? <Text role="status">Loading staff profiles…</Text> : loadError ? (
+        <Alert color="red" role="alert">
+          <Stack gap="xs" align="flex-start">
+            <Text size="sm">{loadError}</Text>
+            <Button variant="default" onClick={loadStaff}>Retry staff load</Button>
+          </Stack>
+        </Alert>
+      ) : staffList.filter((s) => s.enabled !== false).length === 0 ? (
         <Paper p="lg" withBorder radius="md" ta="center">
           <Text c="dimmed" size="sm">No staff or advisers registered in this workspace yet.</Text>
         </Paper>

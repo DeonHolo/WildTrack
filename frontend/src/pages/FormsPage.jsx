@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
-  Group,
   Stack,
   Text,
   Title,
@@ -10,11 +9,15 @@ import {
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
-import { CheckCircle, PlusCircle } from '@phosphor-icons/react';
-import { useWorkflow } from '../app/WorkflowContext.jsx';
+import { PlusCircle } from '@phosphor-icons/react';
+import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
+import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { FormEditorModal } from '../components/forms/FormEditorModal.jsx';
 import { PublishedFormsTable } from '../components/forms/PublishedFormsTable.jsx';
 import { buildDeliverableFormPayload, makeDeliverableFormDraft } from '../lib/forms.js';
+import { saveDeliverable, unpublishDeliverable } from '../lib/submissionClient.js';
+import { emptyMonitoringState, loadMonitoringState } from '../lib/monitoringClient.js';
 import {
   getActiveTrackerColumns,
   getTrackerColumn,
@@ -23,30 +26,37 @@ import {
 } from '../lib/workflow.js';
 
 export function FormsPage() {
-  const {
-    state,
-    activeWorkspace,
-    publishDeliverable,
-    removeDeliverable,
-    generateFormsFromSuggestions
-  } = useWorkflow();
+  const { activeWorkspace, activeWorkspaceId } = useWorkspaceSession();
+  const { data: state, setData: setState, status: formsStatus, error: loadError } = useWorkspaceResource(
+    activeWorkspaceId,
+    loadMonitoringState,
+    emptyMonitoringState
+  );
+  const deliverables = state.deliverables;
+  const [formsError, setFormsError] = useState('');
+  const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
   const activeColumns = useMemo(() => getActiveTrackerColumns(state), [state]);
-  const orderedDeliverables = useMemo(() => sortDeliverables(state, state.deliverables), [state]);
-  const pendingSuggestions = state.classRecord.pendingFormSuggestions || state.classRecord.importSummary?.suggestedForms || [];
+  const orderedDeliverables = useMemo(() => sortDeliverables(state, deliverables), [deliverables, state]);
   const workspaceKey = getWorkspacePublicKey(activeWorkspace);
   const [editor, setEditor] = useState({ opened: false, form: null });
   const [copyStatus, setCopyStatus] = useState('');
   const columnOptions = activeColumns.map((column) => ({ value: column.key, label: column.label }));
 
+  useEffect(() => {
+    setFormsError('');
+    setEditor({ opened: false, form: null });
+    setCopyStatus('');
+  }, [isCurrentScope]);
+
   function formForColumn(columnKey) {
     const column = getTrackerColumn(state, columnKey) || activeColumns[0];
-    const existing = state.deliverables.find((item) => item.trackerColumn === column?.key);
+    const existing = deliverables.find((item) => item.trackerColumn === column?.key);
     return existing ? editableForm(existing) : makeDeliverableFormDraft(state, column?.key || columnKey);
   }
 
   function openCreate() {
     const firstUnpublishedColumn = activeColumns.find((column) => (
-      !state.deliverables.some((deliverable) => deliverable.trackerColumn === column.key)
+      !deliverables.some((deliverable) => deliverable.trackerColumn === column.key)
     ));
     const column = firstUnpublishedColumn || activeColumns[0];
     setEditor({ opened: true, form: formForColumn(column?.key || 'SRS') });
@@ -60,15 +70,30 @@ export function FormsPage() {
     setEditor({ opened: false, form: null });
   }
 
-  function saveForm(source) {
+  async function saveForm(source) {
+    if (!isCurrentScope()) return;
     const payload = buildDeliverableFormPayload(state, source);
-    publishDeliverable(payload);
-    notifications.show({
-      color: 'green',
-      title: source.id ? 'Form updated' : 'Form published',
-      message: `${payload.shortTitle} keeps one stable public link.`
-    });
-    closeEditor();
+    const workspaceId = activeWorkspaceId;
+    setFormsError('');
+    try {
+      const saved = await saveDeliverable(workspaceId, payload);
+      if (!isCurrentScope()) return;
+      setState((current) => ({
+        ...current,
+        deliverables: [...current.deliverables.filter((item) => item.id !== saved.id), saved]
+      }));
+      notifications.show({
+        color: 'green',
+        title: source.id ? 'Form updated' : 'Form published',
+        message: `${payload.shortTitle} keeps one stable public link.`
+      });
+      closeEditor();
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      const message = error.message || 'The form could not be saved.';
+      setFormsError(message);
+      notifications.show({ color: 'red', title: 'Form not saved', message });
+    }
   }
 
   async function copyLink(item, path) {
@@ -76,9 +101,11 @@ export function FormsPage() {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
       await navigator.clipboard.writeText(absoluteLink);
+      if (!isCurrentScope()) return;
       setCopyStatus(`${item.shortTitle} form link copied`);
       notifications.show({ color: 'green', message: `${item.shortTitle} form link copied.` });
     } catch {
+      if (!isCurrentScope()) return;
       setCopyStatus(`Could not copy the ${item.shortTitle} form link`);
       notifications.show({ color: 'red', message: 'The form link could not be copied.' });
     }
@@ -99,13 +126,36 @@ export function FormsPage() {
       labels: { confirm: 'Unpublish form', cancel: 'Keep published' },
       confirmProps: { color: 'red' },
       centered: true,
-      onConfirm: () => removeDeliverable(item.id)
+      onConfirm: () => setPublishedStatus(item, false)
     });
   }
 
+  async function setPublishedStatus(item, published) {
+    if (!isCurrentScope()) return;
+    const workspaceId = activeWorkspaceId;
+    setFormsError('');
+    try {
+      const saved = published
+        ? await saveDeliverable(workspaceId, { ...item, status: 'Published' })
+        : await unpublishDeliverable(workspaceId, item);
+      if (!isCurrentScope()) return;
+      setState((current) => ({
+        ...current,
+        deliverables: current.deliverables.map((currentItem) => currentItem.id === saved.id ? saved : currentItem)
+      }));
+      notifications.show({ color: 'green', message: published
+        ? `${item.shortTitle} is accepting responses again.`
+        : `${item.shortTitle} is no longer accepting responses.` });
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      const message = error.message || 'The form status could not be changed.';
+      setFormsError(message);
+      notifications.show({ color: 'red', title: 'Form not updated', message });
+    }
+  }
+
   function republish(item) {
-    publishDeliverable({ ...item, status: 'Published' });
-    notifications.show({ color: 'green', message: `${item.shortTitle} is accepting responses again.` });
+    return setPublishedStatus(item, true);
   }
 
   return (
@@ -121,26 +171,8 @@ export function FormsPage() {
         </Button>
       </header>
 
-      {pendingSuggestions.length ? (
-        <Alert
-          color="wildtrackGold"
-          variant="light"
-          title={`${pendingSuggestions.length} suggested form${pendingSuggestions.length === 1 ? '' : 's'} ready`}
-          icon={<CheckCircle size={19} />}
-        >
-          <Group justify="space-between" gap="md">
-            <Text size="sm">WildTrack detected deliverable deadlines in the connected Tracker.</Text>
-            <Button
-              size="sm"
-              variant="light"
-              color="wildtrackMaroon"
-              onClick={() => generateFormsFromSuggestions(pendingSuggestions)}
-            >
-              Generate suggested forms
-            </Button>
-          </Group>
-        </Alert>
-      ) : null}
+      {formsStatus === 'loading' ? <Alert color="blue">Loading published forms…</Alert> : null}
+      {formsError || loadError ? <Alert color="red" role="alert" aria-label="Form error">{formsError || loadError}</Alert> : null}
 
       <PublishedFormsTable
         deliverables={orderedDeliverables}

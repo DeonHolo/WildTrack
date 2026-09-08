@@ -3,7 +3,7 @@ import { DevelopmentRolePreview } from '../components/layout/DevelopmentRolePrev
 import { StaffApplicationShell } from '../components/layout/StaffApplicationShell.jsx';
 import { StudentApplicationShell } from '../components/layout/StudentApplicationShell.jsx';
 import { APPLICATION_ROLES, getRoleHome, useApplicationRole } from '../hooks/useApplicationRole.js';
-import { WorkflowProvider } from './WorkflowContext.jsx';
+import { WorkspaceSessionProvider, useWorkspaceSession } from './WorkspaceSession.jsx';
 import { RoleBoundary } from './RoleBoundary.jsx';
 import { ArchivePage } from '../pages/ArchivePage.jsx';
 import { AdviserViewPage } from '../pages/AdviserViewPage.jsx';
@@ -18,7 +18,7 @@ import { WorkspacePage } from '../pages/WorkspacePage.jsx';
 
 export default function App() {
   return (
-    <WorkflowProvider>
+    <WorkspaceSessionProvider>
       <Routes>
         <Route path="/w/:workspaceKey/submit/:slug" element={<PublicSubmissionPage />} />
         <Route path="/submit/:slug" element={<PublicSubmissionPage />} />
@@ -67,21 +67,25 @@ export default function App() {
         <Route path="*" element={<RoleHomeRedirect />} />
       </Routes>
       <DevelopmentRolePreview enabled={import.meta.env.DEV} />
-    </WorkflowProvider>
+    </WorkspaceSessionProvider>
   );
 }
 
 function RoleHomeRedirect() {
   const role = useApplicationRole();
-  let session = null;
+  let workspaceSession = null;
   try {
-    const workflow = useWorkflow();
-    session = workflow?.session;
+    workspaceSession = useWorkspaceSession();
   } catch {
-    // outside workflow context
+    // outside workspace session boundary
+  }
+  const session = workspaceSession?.session;
+
+  if (!import.meta.env.DEV && workspaceSession?.sessionStatus === 'error') {
+    return <div role="alert">{workspaceSession.sessionError || 'Session could not be loaded.'}</div>;
   }
 
-  if (!import.meta.env.DEV && session === null) {
+  if (!import.meta.env.DEV && (workspaceSession?.sessionStatus === 'loading' || session === null)) {
     return null;
   }
 
