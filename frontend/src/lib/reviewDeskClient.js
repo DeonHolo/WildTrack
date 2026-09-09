@@ -87,11 +87,27 @@ export async function runAiReview(workspaceId, responseId, retryAcknowledged = f
       review = { ...await getSavedAiReview(workspaceId, responseId), reused };
     }
     return { ok: review.status === 'COMPLETED', unavailable: review.status === 'UNAVAILABLE',
+      pauseBatch: review.status === 'UNAVAILABLE' || review.status === 'RUNNING'
+        || ['RATE_LIMITED', 'API_KEY_REJECTED', 'NOT_CONFIGURED', 'QUEUE_FULL',
+          'PROVIDER_TIMEOUT', 'PROVIDER_CONNECTION_FAILED', 'MODEL_UNAVAILABLE'].includes(review.failureCode),
       pending: review.status === 'RUNNING', uncertain: review.status === 'UNCERTAIN', review,
       error: review.status === 'COMPLETED' ? '' : review.status === 'RUNNING'
         ? 'The review is still running. Its saved result will appear when ready; no new AI request was sent.' : review.message };
   } catch (error) {
-    return { ok: false, error: error?.message || 'AI Review could not finish.' };
+    return { ok: false, pauseBatch: true, error: error?.message || 'AI Review could not finish.' };
+  }
+}
+
+export async function runAiReviews(workspaceId, ids, options = {}) {
+  const shouldContinue = options.shouldContinue || (() => true);
+  for (const id of ids) {
+    if (!shouldContinue()) break;
+    const result = await runAiReview(workspaceId, id, options.retryAcknowledged || false,
+      options.retryTokens?.[id] || null, shouldContinue);
+    if (!shouldContinue() || result.cancelled) break;
+    options.onResult?.(id, result);
+    // Document-specific failures remain available for explicit retry, but do not block other documents.
+    if (result.pauseBatch) break;
   }
 }
 

@@ -85,7 +85,7 @@ class GeminiAiReviewProviderTest {
 
     @Test void timeoutDoesNotRetryAnUncertainGeneration() {
         server.expect(requestTo(GENERATE)).andRespond(withException(new java.net.SocketTimeoutException("timeout")));
-        assertThatThrownBy(() -> provider.review(input())).hasMessage("PROVIDER_OUTCOME_UNKNOWN");
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("PROVIDER_TIMEOUT");
         server.verify();
     }
 

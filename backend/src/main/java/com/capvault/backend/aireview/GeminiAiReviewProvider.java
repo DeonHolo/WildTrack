@@ -103,7 +103,13 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         } catch (Failure failure) {
             throw failure;
         } catch (RestClientException failure) {
-            throw new Failure("PROVIDER_OUTCOME_UNKNOWN");
+            Throwable cause = failure;
+            while (cause != null) {
+                if (cause instanceof java.net.http.HttpTimeoutException || cause instanceof java.net.SocketTimeoutException)
+                    throw new Failure("PROVIDER_TIMEOUT");
+                cause = cause.getCause();
+            }
+            throw new Failure("PROVIDER_CONNECTION_FAILED");
         } catch (Exception failure) {
             throw new Failure("INVALID_RESPONSE");
         } finally {
