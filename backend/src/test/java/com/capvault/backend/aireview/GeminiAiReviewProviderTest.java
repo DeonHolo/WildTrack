@@ -18,7 +18,7 @@ import org.springframework.web.client.RestClient;
 
 class GeminiAiReviewProviderTest {
     private static final String ORIGIN = "https://generativelanguage.googleapis.com";
-    private static final String GENERATE = ORIGIN + "/v1beta/models/gemini-2.5-flash-lite:generateContent";
+    private static final String GENERATE = ORIGIN + "/v1beta/models/gemini-3.1-flash-lite:generateContent";
     private final ObjectMapper json = new ObjectMapper();
     private RestClient client;
     private MockRestServiceServer server;
@@ -47,7 +47,8 @@ class GeminiAiReviewProviderTest {
     @Test void sendsOnePdfWithBoundedStructuredOutputAndNoDuplicatedText() throws Exception {
         server.expect(requestTo(GENERATE)).andExpect(method(HttpMethod.POST))
             .andExpect(header("x-goog-api-key", "test-key"))
-            .andExpect(jsonPath("$.generationConfig.thinkingConfig.thinkingBudget").value(0))
+            .andExpect(jsonPath("$.generationConfig.thinkingConfig.thinkingLevel").value("MINIMAL"))
+            .andExpect(jsonPath("$.generationConfig.thinkingConfig.thinkingBudget").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.maxOutputTokens").value(2048))
             .andExpect(jsonPath("$.generationConfig.responseMimeType").value("application/json"))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required.length()").value(4))
@@ -57,7 +58,7 @@ class GeminiAiReviewProviderTest {
         var result = provider.review(input());
         assertThat(result.flags()).hasSize(1);
         assertThat(result.missingSections()).isEmpty();
-        assertThat(provider.cacheVersion()).contains("gemini-2.5-flash-lite", "thinking-0", "output-2048");
+        assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "thinking-minimal", "output-2048");
         server.verify();
     }
 

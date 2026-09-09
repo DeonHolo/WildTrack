@@ -83,7 +83,7 @@ Run setup once for every Windows user account that runs WildTrack. Run it again 
 
 ### Optional: enable Gemini AI review
 
-The backend is wired to `gemini-2.5-flash-lite`. Without a key, AI review remains disabled.
+The backend is wired to `gemini-3.1-flash-lite`. Without a key, AI review remains disabled.
 For local use, run `./setup-gemini.ps1` and enter your Gemini API key in the hidden prompt,
 then restart WildTrack. For hosting, set the backend's secret `GEMINI_API_KEY` environment
 variable and restart/deploy the updated backend. Never put it in frontend/Vercel browser
@@ -92,7 +92,7 @@ automatically loaded secrets file.
 
 Reviews use the submitted PDF and deliverable requirements/template, return concise advisory
 feedback, and never accept or grade submissions. Exact duplicate team documents reuse saved
-results. Thinking is disabled, output is capped at 2,048 tokens, and new requests are spaced
+results. Thinking is set to minimal, output is capped at 2,048 tokens, and new requests are spaced
 15 seconds apart per backend instance (`WILDTRACK_GEMINI_MINIMUM_INTERVAL_SECONDS`). Actual
 free-tier quotas depend on the API project. Quota failures pause the batch; uncertain requests
 require an explicit retry. Uploaded large PDFs are deleted after processing where possible
@@ -337,4 +337,3 @@ For product and interface decisions, start with:
 
 - [`docs/WildTrack_UI_Rebrand_Specification.md`](docs/WildTrack_UI_Rebrand_Specification.md)
 - [`docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md`](docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md)
-
