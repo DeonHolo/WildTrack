@@ -166,6 +166,11 @@ public class StudentAssociationService {
             .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<ConflictDetail> conflictHistory(UUID workspaceId) {
+        return conflictRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(workspaceId).stream().map(this::toDetail).toList();
+    }
+
     /**
      * Persists the staff decision on one conflict. RESOLVED means the record's rightful owner
      * was confirmed; DISMISSED means the collision was not a real problem. Either way the
@@ -174,15 +179,38 @@ public class StudentAssociationService {
     @Transactional
     public ConflictDetail decideConflict(UUID workspaceId, UUID conflictId, String decision,
                                          String decidedBySubject, String decidedByEmail, String note) {
+        return decideConflict(workspaceId, conflictId, decision, decidedBySubject, decidedByEmail, note, null);
+    }
+
+    @Transactional
+    public ConflictDetail decideConflict(UUID workspaceId, UUID conflictId, String decision,
+            String decidedBySubject, String decidedByEmail, String note, String confirmedSubject) {
         String normalized = decision == null ? "" : decision.trim().toUpperCase();
         if (!CONFLICT_RESOLVED.equals(normalized) && !CONFLICT_DISMISSED.equals(normalized)) {
             throw new IllegalArgumentException("Decision must be RESOLVED or DISMISSED.");
         }
-        StudentIdentityConflict conflict = conflictRepository.findById(conflictId)
+        StudentIdentityConflict conflict = conflictRepository.findForDecision(conflictId)
             .filter(candidate -> candidate.getWorkspaceId().equals(workspaceId))
             .orElseThrow(() -> new IllegalArgumentException("No identity conflict with that id exists in this workspace."));
 
         String trimmedNote = note == null || note.isBlank() ? null : note.trim();
+        if (!CONFLICT_OPEN.equals(conflict.getStatus())) throw new org.springframework.web.server.ResponseStatusException(
+            org.springframework.http.HttpStatus.CONFLICT, "This conflict was already decided. Reload its history.");
+        if (trimmedNote != null && trimmedNote.length() > 700) throw new IllegalArgumentException("Keep the decision note within 700 characters.");
+        if (CONFLICT_RESOLVED.equals(normalized) && confirmedSubject != null) {
+            if (!confirmedSubject.equals(conflict.getExistingSubject()) && !confirmedSubject.equals(conflict.getConflictingSubject()))
+                throw new IllegalArgumentException("Choose one of the two conflicting accounts.");
+            var winner = associationRepository.findByWorkspaceIdAndGoogleSubject(workspaceId, confirmedSubject)
+                .filter(a -> a.isActive() && a.getStudentRecordId().equals(conflict.getStudentRecordId()))
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                    "That account no longer holds this student record. Reload before deciding."));
+            String other = confirmedSubject.equals(conflict.getExistingSubject()) ? conflict.getConflictingSubject() : conflict.getExistingSubject();
+            associationRepository.findByWorkspaceIdAndGoogleSubject(workspaceId, other)
+                .filter(a -> a.getStudentRecordId().equals(conflict.getStudentRecordId())).ifPresent(a -> {
+                    a.setActive(false); a.setUpdatedAt(clock.instant());
+                });
+            trimmedNote = "Confirmed account: " + winner.getGoogleEmail() + ". " + (trimmedNote == null ? "" : trimmedNote);
+        }
         conflict.decide(normalized, decidedBySubject, decidedByEmail, trimmedNote, clock.instant());
         events.record(workspaceId, conflictId, decidedBySubject, "IDENTITY_CONFLICT_DECIDED", java.util.Map.of("decision", normalized));
         return toDetail(conflictRepository.save(conflict));

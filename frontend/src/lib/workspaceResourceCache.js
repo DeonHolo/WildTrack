@@ -1,10 +1,11 @@
-// Disposable per-tab snapshots. Private keys include the verified account and workspace.
-export function createWorkspaceResourceCache({ storageKey = 'wildtrack.resource-snapshots.v1', ttl = 300_000 } = {}) {
+// Disposable display snapshots, shared across tabs. Every mount revalidates with the server.
+// Private keys include the verified account, roles and workspace; these never authorize actions.
+export function createWorkspaceResourceCache({ storageKey = 'wildtrack.resource-snapshots.v2', ttl = 30 * 24 * 60 * 60 * 1000 } = {}) {
   const entries = new Map();
   const limit = 20;
   const maxBytes = 1_500_000;
   try {
-    const saved = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+    const saved = JSON.parse(localStorage.getItem(storageKey) || '[]');
     if (Array.isArray(saved)) for (const entry of saved.slice(-limit)) {
       if (typeof entry.key === 'string' && entry.data !== undefined && Number.isFinite(entry.updatedAt)
           && entry.updatedAt <= Date.now() && Date.now() - entry.updatedAt < ttl) {
@@ -21,11 +22,11 @@ export function createWorkspaceResourceCache({ storageKey = 'wildtrack.resource-
       while (serialized.length > maxBytes && snapshots.length) {
         snapshots.shift(); serialized = JSON.stringify(snapshots);
       }
-      if (snapshots.length) sessionStorage.setItem(storageKey, serialized);
-      else sessionStorage.removeItem(storageKey);
+      if (snapshots.length) localStorage.setItem(storageKey, serialized);
+      else localStorage.removeItem(storageKey);
     } catch {
       // Never leave an older persisted snapshot after a newer write fails.
-      try { sessionStorage.removeItem(storageKey); } catch { /* Storage is disabled. */ }
+      try { localStorage.removeItem(storageKey); } catch { /* Storage is disabled. */ }
     }
   }
 
@@ -73,6 +74,10 @@ export function createWorkspaceResourceCache({ storageKey = 'wildtrack.resource-
       persist();
     },
     remove(key) { entries.delete(key); persist(); },
+    invalidate() {
+      // Keep display data, but detach reads started before a server mutation.
+      for (const [key, entry] of entries) entries.set(key, { ...entry, pending: null });
+    },
     clear() { entries.clear(); persist(); }
   };
 }

@@ -1,3 +1,4 @@
+import { IdentityConflictDesk } from '../components/command/IdentityConflictDesk.jsx';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -55,6 +56,7 @@ export function CommandCenterPage() {
     activeWorkspaceId,
     loadWorkQueue,
     emptyWorkQueue, 'work-queue');
+  const [conflictDesk, setConflictDesk] = useState(null);
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -67,6 +69,7 @@ export function CommandCenterPage() {
   const isCurrentScope = useWorkspaceScope(workspaceId);
 
   useEffect(() => {
+    setConflictDesk(null);
     setRunningIds(new Set());
     setResolvedTaskIds(new Set());
     setBatchProgress(null);
@@ -193,30 +196,6 @@ export function CommandCenterPage() {
     return result;
   }
 
-  const decideConflict = useCallback(async (task, decision) => {
-    if (!isCurrentScope()) return;
-    setRunningIds((current) => withId(current, task.id));
-    try {
-      await decideIdentityConflict(workspaceId, task.conflict.id, decision);
-      if (!isCurrentScope()) return;
-      setState(current => ({ ...current, openConflicts: current.openConflicts.filter(item => item.id !== task.conflict.id) }));
-      notifications.show({
-        color: 'green',
-        title: decision === 'DISMISSED' ? 'Conflict dismissed' : 'Conflict resolved',
-        message: 'The decision was recorded for ' + (task.conflict.studentNumber || 'this Student Record') + '.'
-      });
-    } catch (error) {
-      if (!isCurrentScope()) return;
-      notifications.show({
-        color: 'red',
-        title: 'Decision not recorded',
-        message: error?.message || 'The identity conflict is still open.'
-      });
-    } finally {
-      if (isCurrentScope()) setRunningIds((current) => withoutId(current, task.id));
-    }
-  }, [workspaceId, isCurrentScope]);
-
   function confirmArchive(task) {
     modals.openConfirmModal({
       title: 'Archive this accepted response?',
@@ -269,6 +248,7 @@ export function CommandCenterPage() {
           <Title order={1}>Today&apos;s work</Title>
           <Text c="dimmed">Resolve unchecked files, review decisions, conflicts, imports, and final records for this workspace.</Text>
         </div>
+        <Button variant="default" onClick={() => setConflictDesk({ history: true })}>Identity history</Button>
         {pendingDocumentTasks.length ? (
           <Button
             variant="default"
@@ -281,6 +261,8 @@ export function CommandCenterPage() {
         ) : null}
       </header>
 
+      {conflictDesk ? <IdentityConflictDesk workspaceId={workspaceId} {...conflictDesk} onClose={() => setConflictDesk(null)}
+        onDecided={updated => setState(current => ({ ...current, openConflicts: (current.openConflicts || []).filter(item => item.id !== updated.id) }))} /> : null}
       <ResourceBoundary status={status} error={error} onRetry={reload}>
       <Paper withBorder className="wt-command-workbench">
         <div className="wt-command-workbench-head">
@@ -353,7 +335,7 @@ export function CommandCenterPage() {
               runningIds={runningIds}
               onCheck={checkDocument}
               onArchive={confirmArchive}
-              onDecideConflict={decideConflict}
+              onDecideConflict={task => setConflictDesk({ conflict: task.conflict })}
             />
             {visibleTasks.length > PAGE_SIZE ? (
               <div className="wt-command-pagination">

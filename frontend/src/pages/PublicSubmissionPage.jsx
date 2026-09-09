@@ -132,6 +132,10 @@ export function PublicSubmissionPage() {
   const [myServerResponse, setMyServerResponse] = useState(null);
   const ownedResponse = myServerResponse;
   const hydrationKey = JSON.stringify([activeAccount?.email, session?.googleSubject, session?.authenticated, activeWorkspaceId, formKey, deliverable?.id]);
+  const editScopeKey = JSON.stringify([activeAccount?.email, session?.googleSubject, session?.authenticated, formKey]);
+  const editScope = useRef('');
+  const editedFields = useRef(new Set());
+  const identityEdited = useRef(false);
   const [hydration, setHydration] = useState({ key: '', status: 'idle' });
   const [roster, setRoster] = useState({ key: '', status: 'idle', error: '' });
   const rosterReady = roster.key === hydrationKey && roster.status === 'ready';
@@ -149,8 +153,14 @@ export function PublicSubmissionPage() {
     setFormError('');
     setIdentityErrors({});
     setFieldErrors({});
-    setValues({});
-    setValuesEdited(false);
+    if (editScope.current !== editScopeKey) {
+      editScope.current = editScopeKey;
+      editedFields.current.clear();
+      identityEdited.current = false;
+      setValues({});
+      setValuesEdited(false);
+      setIdentity({ studentNumber: '', studentName: '', teamCode: '' });
+    }
     setDeniedAccess(null);
     setHydration({ key: hydrationKey, status: 'idle' });
     setRoster({ key: hydrationKey, status: 'idle', error: '' });
@@ -160,9 +170,6 @@ export function PublicSubmissionPage() {
     draftRevisionRef.current = null;
     setDraftStatus('');
     setResult(null);
-    if (session?.authenticated) {
-      setIdentity({ studentNumber: '', studentName: '', teamCode: '' });
-    }
     return () => { privateScope.current += 1; };
   }, [hydrationKey]);
 
@@ -240,7 +247,7 @@ export function PublicSubmissionPage() {
 
   useEffect(() => {
     const targetStudentNumber = queryStudent;
-    if (!targetStudentNumber || serverAssociation) return;
+    if (!targetStudentNumber || serverAssociation || identityEdited.current) return;
     const matched = findStudent(identityStudents, targetStudentNumber);
     if (matched) {
       setIdentity((current) => ({
@@ -253,7 +260,7 @@ export function PublicSubmissionPage() {
 
   useEffect(() => {
     const matched = findStudent(identityStudents, serverAssociation?.studentNumber);
-    if (!matched) return;
+    if (!matched || identityEdited.current) return;
     setIdentity((current) => current.studentNumber === matched.studentNumber ? {
       ...current,
       studentName: matched.name,
@@ -274,7 +281,7 @@ export function PublicSubmissionPage() {
       .then(({ association, draft, response, values: restoredValues }) => {
         if (cancelled) return;
         setServerAssociation(association || null);
-        if (association?.studentNumber) {
+        if (association?.studentNumber && !identityEdited.current) {
           setIdentity({
             studentNumber: association.studentNumber,
             studentName: association.studentName || '',
@@ -289,7 +296,10 @@ export function PublicSubmissionPage() {
         } : null;
         setMyServerResponse(owned);
         draftRevisionRef.current = draft?.revision ?? null;
-        setValues({ ...restoredValues });
+        // Merge only untouched fields: restoration must not erase typing during a slow request.
+        setValues(current => ({ ...restoredValues, ...Object.fromEntries(
+          [...editedFields.current].filter(id => Object.hasOwn(current, id)).map(id => [id, current[id]])
+        ) }));
         setFormError('');
         setHydration({ key: hydrationKey, status: 'ready' });
       })
@@ -335,14 +345,16 @@ export function PublicSubmissionPage() {
   }, [activeWorkspaceId, deliverable?.id, privateReady, valuesEdited, submitting, result, values]);
 
   function updateField(id, value) {
-    if (!privateReady) return;
+    if (!activeAccount || accessDenied || submitting) return;
+    editedFields.current.add(id);
     setValuesEdited(true);
     setValues((current) => ({ ...current, [id]: value }));
     setFieldErrors((current) => ({ ...current, [id]: '' }));
   }
 
   function updateIdentity(nextIdentity) {
-    if (!privateReady || !rosterReady) return;
+    if (!activeAccount || accessDenied || submitting) return;
+    identityEdited.current = true;
     setIdentity(nextIdentity);
     setIdentityErrors({});
     setFormError('');
@@ -356,9 +368,6 @@ export function PublicSubmissionPage() {
   }
 
   function retryPrivateState() {
-    setValues({});
-    setValuesEdited(false);
-    setIdentity({ studentNumber: '', studentName: '', teamCode: '' });
     setServerAssociation(null);
     setMyServerResponse(null);
     setHydration({ key: hydrationKey, status: 'idle' });
@@ -497,9 +506,9 @@ export function PublicSubmissionPage() {
                         <Alert color="red" role="alert">{roster.error}</Alert>
                         <Button variant="default" onClick={() => setRosterRetry(value => value + 1)}>Retry loading class roster</Button>
                       </Stack> : null}
-                      <fieldset disabled={!privateReady} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+                      <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                       <Stack gap="xl">
-                      <fieldset disabled={!rosterReady} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+                      <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                       <StudentIdentityPanel
                         students={identityStudents}
                         identity={identity}
@@ -549,7 +558,7 @@ export function PublicSubmissionPage() {
                       {draftStatus === 'saving' ? 'Saving draft…' : draftStatus === 'saved' ? 'Draft saved' : draftStatus === 'conflict' ? 'Draft changed in another session. Reload to continue.' : draftStatus === 'error' ? 'Draft not saved' : ''
                     }</Text>
                   )}
-                        <Button type="submit" size="md" disabled={!rosterReady} loading={submitting} leftSection={<PaperPlaneTilt size={19} weight="bold" />}>
+                        <Button type="submit" size="md" disabled={!privateReady || !rosterReady} loading={submitting} leftSection={<PaperPlaneTilt size={19} weight="bold" />}>
                           {ownedResponse ? 'Save response changes' : 'Submit response'}
                         </Button>
                       </Group>

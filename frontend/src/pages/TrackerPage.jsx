@@ -1,3 +1,4 @@
+import { useStaffIdentity } from '../app/StaffIdentity.jsx';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Group, Paper, Popover, Text, TextInput, Title } from '@mantine/core';
@@ -34,16 +35,9 @@ export function TrackerPage() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
   const activeColumns = getActiveTrackerColumns(state);
-  const adviserOptions = useMemo(() => getAdviserOptions(state), [state]);
-  const adviserName = role === APPLICATION_ROLES.ADVISER
-    ? adviserOptions.includes(getStoredPreviewAdviser()) ? getStoredPreviewAdviser() : adviserOptions[0] || 'Unassigned'
-    : '';
-  const scopeStudents = useMemo(
-    () => role === APPLICATION_ROLES.ADVISER && import.meta.env.DEV
-      ? state.students.filter((student) => getTeamAdviser(state, student.teamCode) === adviserName)
-      : state.students,
-    [adviserName, role, state]
-  );
+  const { data: staffIdentity } = useStaffIdentity();
+  const adviserName = staffIdentity.adviserName || '';
+  const scopeStudents = state.students;
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const filtered = needle
@@ -75,9 +69,7 @@ export function TrackerPage() {
         description={role === APPLICATION_ROLES.ADVISER
           ? 'Read-only class-record values for teams assigned to the selected adviser.'
           : 'Raw class-record values stay visible as days-late numbers, dates, blanks, or Sheet values.'}
-        actions={role === APPLICATION_ROLES.ADVISER ? (
-          <div className="role-scope-note"><UsersThree aria-hidden="true" /><span>Adviser scope</span><strong>{adviserName}</strong></div>
-        ) : null}
+
       />
 
       <ResourceBoundary status={status} error={error} onRetry={reload}>

@@ -81,6 +81,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 Run setup once for every Windows user account that runs WildTrack. Run it again if the Drive API key changes.
 
+### Optional: enable Gemini AI review
+
+The backend is wired to `gemini-2.5-flash-lite`. Without a key, AI review remains disabled.
+For local use, run `./setup-gemini.ps1` and enter your Gemini API key in the hidden prompt,
+then restart WildTrack. For hosting, set the backend's secret `GEMINI_API_KEY` environment
+variable and restart/deploy the updated backend. Never put it in frontend/Vercel browser
+variables or commit it to a file. The example environment file is documentation, not an
+automatically loaded secrets file.
+
+Reviews use the submitted PDF and deliverable requirements/template, return concise advisory
+feedback, and never accept or grade submissions. Exact duplicate team documents reuse saved
+results. Thinking is disabled, output is capped at 2,048 tokens, and new requests are spaced
+15 seconds apart per backend instance (`WILDTRACK_GEMINI_MINIMUM_INTERVAL_SECONDS`). Actual
+free-tier quotas depend on the API project. Quota failures pause the batch; uncertain requests
+require an explicit retry. Uploaded large PDFs are deleted after processing where possible
+(Google otherwise expires them after 48 hours). Google's free-tier data-use terms apply.
+
+The existing Google Drive configuration must also work so WildTrack can read submitted PDFs.
+After adding the key, use AI review on one representative submission to confirm live project
+access and feedback quality. Local checks use simulated Gemini responses and spend no tokens.
+
 ### 4. Start WildTrack
 
 ```powershell
@@ -316,5 +337,4 @@ For product and interface decisions, start with:
 
 - [`docs/WildTrack_UI_Rebrand_Specification.md`](docs/WildTrack_UI_Rebrand_Specification.md)
 - [`docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md`](docs/WildTrack_Student_Identity_Dashboard_And_Form_Design.md)
-
 

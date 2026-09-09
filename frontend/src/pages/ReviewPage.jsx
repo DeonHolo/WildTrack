@@ -1,8 +1,10 @@
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
+  Select,
+  Collapse,
   Button,
   Group,
   Pagination,
@@ -16,7 +18,8 @@ import {
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { CheckCircle, Files, MagnifyingGlass, Sparkle, X } from '@phosphor-icons/react';
-import { getIdentityConflicts } from '../lib/api.js';
+import { applyAiReview } from '../lib/backendDomain.js';
+import { getAiReviewStatus, getIdentityConflicts } from '../lib/api.js';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
@@ -70,13 +73,17 @@ export function ReviewPage() {
   const [selectedDeliverableId, setSelectedDeliverableId] = useState(() => (
     orderedDeliverables.some((deliverable) => deliverable.id === linkedDeliverableId)
       ? linkedDeliverableId
-      : orderedDeliverables[0]?.id || ''
+      : ''
   ));
   const activeDeliverableId = summaries.some((summary) => summary.deliverable.id === selectedDeliverableId)
     ? selectedDeliverableId
-    : summaries[0]?.deliverable.id || '';
+    : (summaries.find(summary => summary.needsAction > 0 || summary.unchecked > 0) || summaries.find(summary => summary.received > 0) || summaries[0])?.deliverable.id || '';
+  useEffect(() => {
+    if (!selectedDeliverableId && activeDeliverableId) setSelectedDeliverableId(activeDeliverableId);
+  }, [selectedDeliverableId, activeDeliverableId]);
   const selectedSummary = summaries.find((summary) => summary.deliverable.id === activeDeliverableId) || null;
   const selectedDeliverable = selectedSummary?.deliverable || null;
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const [filter, setFilter] = useState('Pending');
   const [query, setQuery] = useState('');
   const [selectedResponseId, setSelectedResponseId] = useState(linkedResponse?.id || '');
@@ -84,10 +91,14 @@ export function ReviewPage() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [checkDialogId, setCheckDialogId] = useState('');
   const [batchProgress, setBatchProgress] = useState(null);
+  const [aiProgress, setAiProgress] = useState(null);
+  const aiBusy = useRef(false);
   const [checkingIds, setCheckingIds] = useState(new Set());
   const [checkError, setCheckError] = useState(null);
   const [page, setPage] = useState(1);
   useEffect(() => {
+    setAiProgress(null); aiBusy.current = false;
+    setSelectedDeliverableId(linkedDeliverableId || '');
     setBatchProgress(null);
     setCheckingIds(new Set());
     setCheckError(null);
@@ -167,7 +178,7 @@ export function ReviewPage() {
     setSelectedResponseId('');
     setSelectedIds(new Set());
     setCheckDialogId('');
-    setBatchProgress(null);
+    setBatchProgress(current => current?.done ? null : current);
   }
 
   function toggleSelected(id, checked) {
@@ -203,10 +214,10 @@ export function ReviewPage() {
     if (checkDialogResponse) await runDocumentCheck(checkDialogResponse.id);
   }
 
-  function confirmDocumentCheckBatch(ids, { allUnchecked = false } = {}) {
+  function confirmDocumentCheckBatch(ids, { allUnchecked = false, allDeliverables = false } = {}) {
     if (!ids.length) return;
     modals.openConfirmModal({
-      title: allUnchecked
+      title: allDeliverables ? `Recheck ${ids.length} responses across all deliverables?` : allUnchecked
         ? `Check all ${ids.length} unchecked document${ids.length === 1 ? '' : 's'}?`
         : `Check ${ids.length} selected document${ids.length === 1 ? '' : 's'}?`,
       children: (
@@ -253,15 +264,52 @@ export function ReviewPage() {
     setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, failures, done: true });
   }
 
-  async function requestAiReview(ids) {
-    const result = await runAiReview(ids);
-    if (!isCurrentScope()) return;
-    if (result?.unavailable || result?.ok === false) {
-      notifications.show({
-        color: 'wildtrackMaroon',
-        title: 'AI Review is not connected yet',
-        message: 'Document Check remains available while Gemini integration is configured.'
-      });
+  async function requestAiReview(ids, retryAcknowledged = false, retryTokens = {}) {
+    if (aiBusy.current || !isCurrentScope()) return;
+    const candidates = ids.filter(id => {
+      const response = state.attempts.find(attempt => attempt.id === id);
+      return response && deliverableUsesDocumentCheck(state.deliverables.find(d => d.id === response.deliverableId));
+    });
+    if (!candidates.length) { notifications.show({ message: 'No PDF responses selected for AI review.' }); return; }
+    try {
+      const provider = await getAiReviewStatus();
+      if (!isCurrentScope()) return;
+      if (!provider.configured) {
+        modals.openConfirmModal({ title: 'AI review is not connected', centered: true,
+          children: <Text size="sm">{provider.message || 'Gemini is ready to connect. Add its API key to the backend to enable reviews.'} No documents have been sent.</Text>,
+          labels: { confirm: 'Understood', cancel: 'Close' } });
+        return;
+      }
+      modals.openConfirmModal({ title: retryAcknowledged ? 'Retry uncertain AI requests?' : `AI review ${candidates.length} responses?`, centered: true,
+        children: <Stack gap="sm"><Text size="sm">Identical PDFs from the same team and deliverable reuse one review when the instructions, template and model settings match. New reviews send document contents to the configured AI provider and may incur charges.</Text>
+          <Text size="sm">AI findings can be wrong. Review them before making an academic decision.</Text>
+          {retryAcknowledged ? <Text size="sm" c="orange">The previous request may already have been billed. Retrying explicitly permits another provider request.</Text> : null}</Stack>,
+        labels: { confirm: retryAcknowledged ? 'Retry and allow possible charges' : 'Start AI review', cancel: 'Cancel' },
+        onConfirm: () => runAiBatch(candidates, retryAcknowledged, retryTokens) });
+    } catch (error) { if (isCurrentScope()) notifications.show({ color: 'red', message: error.message || 'AI review status could not be loaded.' }); }
+  }
+
+  async function runAiBatch(ids, retryAcknowledged, retryTokens) {
+    if (aiBusy.current || !isCurrentScope()) return;
+    aiBusy.current = true;
+    let progress = { total: ids.length, completed: 0, reused: 0, failures: [], uncertainIds: [], retryTokens: {}, done: false };
+    setAiProgress(progress);
+    try {
+      for (const id of ids) {
+        if (!isCurrentScope()) break;
+        const result = await runAiReview(activeWorkspaceId, id, retryAcknowledged, retryTokens[id], isCurrentScope);
+        if (!isCurrentScope()) break;
+        if (result.review) setState(current => ({ ...current, attempts: current.attempts.map(response => response.id === id ? applyAiReview(response, result.review) : response) }));
+        progress = { ...progress, completed: progress.completed + 1,
+          reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
+          failures: result.ok ? progress.failures : [...progress.failures, result.error],
+          uncertainIds: result.uncertain ? [...progress.uncertainIds, id] : progress.uncertainIds,
+          retryTokens: result.uncertain ? { ...progress.retryTokens, [id]: result.review.retryToken } : progress.retryTokens };
+        setAiProgress(progress);
+        if (!result.ok) break;
+      }
+    } finally {
+      if (isCurrentScope()) { aiBusy.current = false; setAiProgress({ ...progress, done: true }); }
     }
   }
 
@@ -375,7 +423,22 @@ export function ReviewPage() {
 
       <ResourceBoundary status={reviewStatus} error={reviewError} onRetry={reload}>
 
-      <ReviewDeliverablesTable summaries={summaries} selectedId={activeDeliverableId} onSelect={chooseDeliverable} />
+      <Paper withBorder p="md"><Group justify="space-between" align="flex-end" wrap="wrap">
+        <Select label="Deliverable" value={activeDeliverableId} onChange={chooseDeliverable} allowDeselect={false} searchable
+          style={{ flex: '1 1 280px', maxWidth: 520 }} data={summaries.map(summary => ({ value: summary.deliverable.id,
+            label: (summary.deliverable.shortTitle || summary.deliverable.title) + ' · ' + summary.received + ' received · ' + summary.needsAction + ' need action' }))} />
+        <Group gap="xs"><Button variant="default" disabled={batchRunning || !state.attempts.some(response => deliverableUsesDocumentCheck(state.deliverables.find(d => d.id === response.deliverableId)) && firstSubmissionLink(response.values))}
+          onClick={() => confirmDocumentCheckBatch(state.attempts.filter(response => deliverableUsesDocumentCheck(state.deliverables.find(d => d.id === response.deliverableId)) && firstSubmissionLink(response.values)).map(response => response.id), { allDeliverables: true })}>Recheck all documents</Button>
+          <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done)} onClick={() => requestAiReview(state.attempts.map(response => response.id))}>AI review all</Button>
+          <Button variant="subtle" onClick={() => setOverviewOpen(value => !value)} aria-expanded={overviewOpen}>{overviewOpen ? 'Hide overview' : 'Deliverable overview'}</Button></Group>
+      </Group></Paper>
+      {aiProgress ? <Alert color={aiProgress.failures.length ? 'orange' : 'blue'} title={aiProgress.done ? (aiProgress.completed < aiProgress.total ? 'AI review batch paused' : 'AI review batch finished') : 'Reviewing documents'}
+        withCloseButton={aiProgress.done} onClose={() => setAiProgress(null)}>
+        <Text size="sm">{aiProgress.completed} of {aiProgress.total} processed; {aiProgress.reused} saved reviews reused.</Text>
+        {[...new Set(aiProgress.failures)].map(message => <Text size="sm" key={message}>{message}</Text>)}
+        {aiProgress.done && aiProgress.uncertainIds.length ? <Button variant="default" size="xs" mt="sm" onClick={() => requestAiReview(aiProgress.uncertainIds, true, aiProgress.retryTokens)}>Review retry options</Button> : null}
+      </Alert> : null}
+      <Collapse in={overviewOpen}><ReviewDeliverablesTable summaries={summaries} selectedId={activeDeliverableId} onSelect={chooseDeliverable} /></Collapse>
 
       {selectedDeliverable ? (
         <Paper withBorder className="wt-review-workbench" radius="md">

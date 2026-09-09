@@ -147,6 +147,7 @@ export function ReviewResponseDrawer({
             <ScrollArea.Autosize mah={220} type="auto" offsetScrollbars>
               <Stack gap="xs" pr="sm">
                 <Text size="sm">{aiReport.summary}</Text>
+                <Text size="xs" c="dimmed">Saved review of the checked PDF. Running AI review again verifies the file and reuses this result if unchanged.</Text>
                 {aiReport.flags?.length ? <Text size="xs"><strong>Flags:</strong> {aiReport.flags.join(', ')}</Text> : null}
                 {aiReport.missingSections?.length ? <Text size="xs"><strong>Missing or weak:</strong> {aiReport.missingSections.join(', ')}</Text> : null}
                 {aiReport.suggestedAction ? <Text size="xs"><strong>Suggested action:</strong> {aiReport.suggestedAction}</Text> : null}

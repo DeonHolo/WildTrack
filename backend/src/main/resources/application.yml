@@ -36,6 +36,9 @@ capvault:
     maximum-added-content-ratio: ${CAPVAULT_FILE_CHECK_MAX_ADDED_RATIO:0.25}
 
 wildtrack:
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    minimum-interval-seconds: ${WILDTRACK_GEMINI_MINIMUM_INTERVAL_SECONDS:15}
   staff:
     bootstrap:
       assignments: ${WILDTRACK_STAFF_BOOTSTRAP_ASSIGNMENTS:}

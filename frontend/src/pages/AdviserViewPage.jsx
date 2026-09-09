@@ -1,3 +1,4 @@
+import { useStaffIdentity } from '../app/StaffIdentity.jsx';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -77,6 +78,8 @@ export function AdviserViewPage() {
   const role = useApplicationRole();
   const isAdmin = role === APPLICATION_ROLES.ADMIN;
   const adviserOptions = useMemo(() => getAdviserOptions(state), [state]);
+  const { data: staffIdentity, status: identityStatus, error: identityError, reload: reloadIdentity } = useStaffIdentity();
+  const [viewOtherAdviser, setViewOtherAdviser] = useState(false);
   const [adviserName, setAdviserName] = useState('');
   const [query, setQuery] = useState('');
   const [selectedTeamCode, setSelectedTeamCode] = useState('');
@@ -89,9 +92,9 @@ export function AdviserViewPage() {
   const [checkingIds, setCheckingIds] = useState(new Set());
 
   const teams = useMemo(
-    () => buildAdviserTeams(state, isAdmin ? adviserName : null, query)
-      .filter((team) => isAdmin || (state.scopeTeamCodes || []).includes(team.teamCode)),
-    [adviserName, isAdmin, query, state]
+    () => buildAdviserTeams(state, isAdmin && viewOtherAdviser ? adviserName : null, query)
+      .filter(team => isAdmin && viewOtherAdviser || (staffIdentity.assignments || []).some(a => a.workspaceId === activeWorkspaceId && a.teamCode === team.teamCode)),
+    [adviserName, isAdmin, viewOtherAdviser, staffIdentity, activeWorkspaceId, query, state]
   );
   const selectedTeam = teams.find((team) => team.teamCode === selectedTeamCode) || teams[0] || null;
   const deliverableRows = useMemo(
@@ -112,14 +115,15 @@ export function AdviserViewPage() {
     setFeedback('');
     setCheckDialogId('');
     setSelectedOutputIds({});
+    setViewOtherAdviser(false);
   }, [isCurrentScope]);
 
   useEffect(() => {
-    if (reviewStatus !== 'ready' || adviserOptions.includes(adviserName)) return;
+    if (!viewOtherAdviser || reviewStatus !== 'ready' || adviserOptions.includes(adviserName)) return;
     const nextAdviser = resolveInitialAdviser(adviserOptions);
     setAdviserName(nextAdviser);
     setStoredPreviewAdviser(nextAdviser);
-  }, [adviserName, adviserOptions, reviewStatus]);
+  }, [adviserName, adviserOptions, reviewStatus, viewOtherAdviser]);
 
   useEffect(() => {
     if (!selectedTeamCode && teams[0]) setSelectedTeamCode(teams[0].teamCode);
@@ -293,7 +297,7 @@ export function AdviserViewPage() {
         />
       </Group>
 
-      <ResourceBoundary status={reviewStatus} error={reviewError} onRetry={reload}>
+      <ResourceBoundary status={identityStatus !== 'ready' ? identityStatus : reviewStatus} error={identityError || reviewError} onRetry={() => { reload(); reloadIdentity?.(); }}>
       {feedbackError?.responseId === selectedResponse?.id && feedbackError?.workspaceId === activeWorkspaceId ? (
         <Alert color="red" role="alert">{feedbackError.message}</Alert>
       ) : null}
@@ -301,7 +305,7 @@ export function AdviserViewPage() {
       <Paper withBorder radius="md" className="wt-adviser-workbench">
         <aside className="wt-adviser-team-rail" aria-label="Assigned teams">
           <div className="wt-adviser-scope-head">
-            {isAdmin ? (
+            {isAdmin && viewOtherAdviser ? (
               <Select
                 label="Reviewing as adviser"
                 data={adviserOptions}
@@ -313,10 +317,12 @@ export function AdviserViewPage() {
             ) : (
               <div>
                 <Text size="xs" c="dimmed" tt="uppercase" fw={800}>Adviser</Text>
-                <Text fw={750}>{adviserName || 'No adviser identity selected'}</Text>
+                <Text fw={750}>{staffIdentity.adviserName || 'Your assigned teams'}</Text>
               </div>
             )}
             <Text size="xs" c="dimmed">{teams.length} assigned team{teams.length === 1 ? '' : 's'}</Text>
+            {isAdmin ? <Button size="compact-xs" variant="subtle" mt="xs" onClick={() => setViewOtherAdviser(value => !value)}>
+              {viewOtherAdviser ? 'Back to my teams' : 'View another adviser'}</Button> : null}
           </div>
 
           <ScrollArea className="wt-adviser-team-scroll" type="auto" offsetScrollbars>

@@ -27,7 +27,10 @@ export function WorkspaceSessionProvider({ children }) {
   }, [resourceCache, session?.authenticated, session?.email, session?.googleSubject, JSON.stringify(session?.roles || [])]);
 
   useEffect(() => {
-    const invalidate = () => resourceCache.clear();
+    const invalidate = () => {
+      resourceCache.invalidate();
+      try { localStorage.setItem('wildtrack.resource-invalidation', `${Date.now()}:${Math.random()}`); } catch { /* Optional storage. */ }
+    };
     window.addEventListener('wildtrack:server-mutation', invalidate);
     return () => window.removeEventListener('wildtrack:server-mutation', invalidate);
   }, [resourceCache]);
@@ -93,6 +96,9 @@ export function WorkspaceSessionProvider({ children }) {
         setSelectedWorkspaceId('');
       }
       sessionIdentity.current = identity;
+      try {
+        if (localStorage.getItem('wildtrack.session-identity') !== identity) localStorage.setItem('wildtrack.session-identity', identity);
+      } catch { /* Optional storage. */ }
       setSession(current);
       setSessionStatus('ready');
       if (current?.authenticated) await refreshWorkspaceCatalog();
@@ -126,6 +132,28 @@ export function WorkspaceSessionProvider({ children }) {
       catalogRequest.current += 1;
     };
   }, [refreshSession]);
+
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key === 'wildtrack.session-identity') {
+        // Another tab changed account or permissions. Remove private content before reauthentication.
+        resourceCache.clear();
+        sessionRequest.current += 1;
+        catalogRequest.current += 1;
+        setSession(null);
+        setWorkspaces([]);
+        activeRef.current = '';
+        setActiveWorkspaceId('');
+        setSelectedWorkspaceId('');
+        refreshSession();
+      } else if (event.key === 'wildtrack.resource-invalidation') {
+        resourceCache.invalidate();
+        window.dispatchEvent(new Event('wildtrack:refresh-resources'));
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [resourceCache, refreshSession]);
 
   const switchWorkspace = useCallback(async (workspaceIdOrPublicKey) => {
     let available = workspaces;
@@ -172,6 +200,7 @@ export function WorkspaceSessionProvider({ children }) {
     try {
       await logout();
     } finally {
+      try { localStorage.setItem('wildtrack.session-identity', ''); } catch { /* Optional storage. */ }
       setSession({ authenticated: false, roles: [] });
       setSessionStatus('ready');
       setSessionError('');

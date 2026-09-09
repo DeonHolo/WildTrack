@@ -1,6 +1,7 @@
 import { getStaffMonitoring } from './api.js';
 import {
   applyFileCheck,
+  applyAiReview,
   applyReviewState,
   emptyDomainState,
   mapDeliverables,
@@ -19,9 +20,9 @@ export async function loadMonitoringState(workspaceId) {
   if ((payload.responses || []).some(raw => !Object.hasOwn(payload.reviewStates || {}, raw.id))) {
     throw new Error('Review status is not available. Reload after the server update finishes.');
   }
-  const attempts = (payload.responses || []).map(raw => applyReviewState(
+  const attempts = (payload.responses || []).map(raw => applyAiReview(applyReviewState(
     applyFileCheck(mapResponse(raw), payload.fileChecks?.[raw.id]), payload.reviewStates?.[raw.id]
-  ));
+  ), payload.aiReviews?.[raw.id]));
   return {
     ...emptyDomainState(),
     students: mapStudents(payload.students || [], payload.trackerRows || []),

@@ -473,12 +473,12 @@ export async function clearDraft(workspaceId, deliverableId) {
   });
 }
 
-export async function getIdentityConflicts(workspaceId) {
-  return request(`/workspace/students/identity-conflicts?workspaceId=${encodeURIComponent(workspaceId)}`);
+export async function getIdentityConflicts(workspaceId, includeClosed = false) {
+  return request(`/workspace/students/identity-conflicts?workspaceId=${encodeURIComponent(workspaceId)}${includeClosed ? "&includeClosed=true" : ""}`);
 }
 
 /** Admin-only: records RESOLVED or DISMISSED for one identity conflict. */
-export async function decideIdentityConflict(workspaceId, conflictId, decision, note) {
+export async function decideIdentityConflict(workspaceId, conflictId, decision, note, confirmedSubject) {
   await ensureCsrfToken();
   return request(
     `/workspace/students/identity-conflicts/${encodeURIComponent(conflictId)}/decision?workspaceId=${encodeURIComponent(workspaceId)}`,
@@ -525,5 +525,22 @@ export async function revokeStaffAccess(workspaceId, googleSubject) {
   await ensureCsrfToken();
   return request(`/workspace/staff/${encodeURIComponent(googleSubject)}?workspaceId=${encodeURIComponent(workspaceId)}`, {
     method: 'DELETE'
+  });
+}
+
+export function getStaffDirectory() { return request('/workspace/staff/directory'); }
+export function getMyStaffAssignments() { return request('/workspace/staff/me'); }
+export async function saveStaffDirectory(payload) {
+  await ensureCsrfToken();
+  return request('/workspace/staff/directory', { method: 'POST', body: payload });
+}
+
+export function getAiReviewStatus() { return request('/ai-reviews/status'); }
+export function getSavedAiReview(workspaceId, responseId) {
+  return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}`, workspaceId));
+}
+export function requestAiReview(workspaceId, responseId, retryAcknowledged = false, retryToken = null) {
+  return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}`, workspaceId), {
+    method: 'POST', body: { retryAcknowledged, retryToken }
   });
 }

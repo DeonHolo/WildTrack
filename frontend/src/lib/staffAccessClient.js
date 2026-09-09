@@ -1,6 +1,8 @@
 import {
   assignAdviserTeam,
   getStaffMonitoring,
+  getStaffDirectory,
+  saveStaffDirectory,
   getStaffProfiles,
   revokeStaffAccess,
   saveStaffProfile,
@@ -9,14 +11,23 @@ import {
 } from './api.js';
 
 export function emptyStaffAccess() {
-  return { profiles: [], teamCodes: [], students: [], projectMetadata: [] };
+  return { profiles: [], teamCodes: [], students: [], projectMetadata: [], teams: [], workspaceIds: [] };
 }
 
-export async function loadStaffDirectory(workspaceId) {
-  return { ...emptyStaffAccess(), profiles: await loadStaffProfiles(workspaceId) };
+export async function loadStaffDirectory() {
+  const directory = await getStaffDirectory();
+  return { ...emptyStaffAccess(), ...directory, profiles: directory.profiles.map(({ profile, assignments }) => ({
+    ...profile, assignedTeams: assignments.map(a => a.workspaceId + '::' + a.teamCode)
+  })) };
 }
 
-export function saveStaff(workspaceId, payload) { return saveStaffProfile(workspaceId, payload); }
+export function saveStaff(_workspaceId, payload) {
+  const { teamCodes, ...rest } = payload;
+  return saveStaffDirectory({ ...rest, assignments: (teamCodes || []).map(value => {
+    const [workspaceId, teamCode] = value.split('::');
+    return { workspaceId, teamCode };
+  }) });
+}
 
 export async function loadStaffProfiles(workspaceId) {
   const profiles = await getStaffProfiles(workspaceId);

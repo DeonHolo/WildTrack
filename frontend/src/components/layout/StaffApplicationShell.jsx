@@ -1,3 +1,7 @@
+import { useEffect } from 'react';
+import { StaffIdentityContext, emptyStaffIdentity } from '../../app/StaffIdentity.jsx';
+import { useWorkspaceResource } from '../../hooks/useWorkspaceResource.js';
+import { getMyStaffAssignments } from '../../lib/api.js';
 import {
   AppShell as MantineAppShell,
   Avatar,
@@ -26,7 +30,7 @@ import {
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../../hooks/useApplicationRole.js';
-import { clearStoredPreviewRole, getStoredPreviewAdviser } from '../../hooks/usePreviewRole.js';
+import { clearStoredPreviewRole } from '../../hooks/usePreviewRole.js';
 import { WildTrackBrand } from './WildTrackBrand.jsx';
 
 const ADMIN_GROUPS = [
@@ -74,6 +78,7 @@ export function StaffApplicationShell({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
   const {
+    session,
     workspaces,
     activeWorkspace,
     activeWorkspaceId,
@@ -85,7 +90,14 @@ export function StaffApplicationShell({ children }) {
   } = useWorkspaceSession();
   const isAdviser = role === APPLICATION_ROLES.ADVISER;
   const navigationGroups = isAdviser ? ADVISER_GROUPS : ADMIN_GROUPS;
-  const accountName = isAdviser ? getStoredPreviewAdviser() || 'Adviser account' : 'Ralph Laviste';
+  const identity = useWorkspaceResource('staff-self', getMyStaffAssignments, emptyStaffIdentity, 'staff-self-v1');
+  const accountName = identity.data.adviserName || session?.name || session?.email || 'Staff account';
+  const assignedWorkspaces = identity.data.workspaces || [];
+  useEffect(() => {
+    if (isAdviser && identity.status === 'ready' && assignedWorkspaces.length && !assignedWorkspaces.some(w => w.id === activeWorkspaceId)) {
+      switchWorkspace(assignedWorkspaces[0].id);
+    }
+  }, [isAdviser, identity.status, assignedWorkspaces, activeWorkspaceId, switchWorkspace]);
   const accountRole = isAdviser ? 'Adviser' : 'Administrator';
 
   function signOut() {
@@ -110,7 +122,7 @@ export function StaffApplicationShell({ children }) {
             <WildTrackBrand compact to={isAdviser ? '/adviser' : '/'} />
           </Box>
           <Group className="wt-workspace-control" gap="xs" wrap="nowrap">
-            <Select
+            {!isAdviser ? <Select
               aria-label="Academic workspace"
               value={activeWorkspaceId}
               onChange={(value) => value && switchWorkspace(value)}
@@ -118,7 +130,7 @@ export function StaffApplicationShell({ children }) {
               allowDeselect={false}
               searchable={workspaces.length > 5}
               size="sm"
-            />
+            /> : null}
             <div className="wt-workspace-period">
               <Text component="strong" size="xs" fw={800}>{activeWorkspace?.program} | {activeWorkspace?.courseCode}</Text>
               <Text size="xs" c="dimmed">{activeWorkspace?.semester} {activeWorkspace?.academicYear}</Text>
@@ -153,6 +165,12 @@ export function StaffApplicationShell({ children }) {
         <Box className="wt-navbar-context" aria-label="Active workspace">
           <Text component="span" size="xs">Active workspace</Text>
           <Text component="strong" size="sm" fw={750}>{activeWorkspace?.name}</Text>
+          {isAdviser && assignedWorkspaces.length > 1 ? <Stack gap={2} mt="xs">
+            <Text size="xs" c="dimmed">Your courses</Text>
+            {assignedWorkspaces.map(workspace => <Button key={workspace.id} size="compact-xs" variant="subtle"
+              aria-pressed={activeWorkspaceId === workspace.id} title={workspace.name}
+              onClick={() => switchWorkspace(workspace.id)}>{workspace.program} · {workspace.courseCode} · {workspace.semester}</Button>)}
+          </Stack> : null}
         </Box>
         <Divider />
         <ScrollArea className="wt-navbar-scroll" type="auto" offsetScrollbars>
@@ -193,7 +211,7 @@ export function StaffApplicationShell({ children }) {
             <Group mb="md"><Text role="alert" c="red">{workspaceCatalogError || 'Workspaces could not be loaded.'}</Text>
               <Button size="xs" variant="default" onClick={refreshWorkspaceCatalog}>Retry workspaces</Button></Group>
           ) : null}
-          {children}
+          <StaffIdentityContext.Provider value={identity}>{children}</StaffIdentityContext.Provider>
         </div>
       </MantineAppShell.Main>
     </MantineAppShell>
