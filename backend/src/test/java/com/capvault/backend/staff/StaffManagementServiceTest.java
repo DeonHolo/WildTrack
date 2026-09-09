@@ -123,4 +123,19 @@ class StaffManagementServiceTest {
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThat(service.assignedTeams(saved.googleSubject(), workspaceId)).containsExactly("team-x");
     }
+    @Test
+    void administratorCanOwnTeamsWithTheSameCodeAcrossActiveWorkspaces() {
+        var other = workspaceRepository.save(new AcademicWorkspace("CS342", "CS", "CS342", "Sem 1", "2026-27", true));
+        students.save(new com.capvault.backend.student.StudentRecord(other.getId(), null, "Other student", "team-x", "1", "A", "Sir Ralph", null, 1));
+        var directory = service.staffDirectory();
+        var admin = directory.profiles().stream().filter(p -> p.profile().googleEmail().equals("sir.ralph@gmail.com")).findFirst().orElseThrow();
+        var saved = service.saveDirectory(new StaffManagementService.DirectorySave("sir.ralph@gmail.com", "ADMIN", "Sir Ralph",
+            List.of(new StaffManagementService.Assignment(workspaceId, "team-x"), new StaffManagementService.Assignment(other.getId(), "team-x")),
+            admin.profile().revision(), java.util.Map.of(), false, false, directory.workspaceIds()));
+        assertThat(saved.assignments()).hasSize(2);
+        assertThat(service.assignedTeams("sub-admin", workspaceId)).containsExactly("team-x");
+        assertThat(service.assignedTeams("sub-admin", other.getId())).containsExactly("team-x");
+        assertThat(access.activeRolesFor("sub-admin")).containsExactly(StaffRole.ADMIN);
+        assertThat(service.myAssignments("sub-admin").get("adviserName")).isEqualTo("Sir Ralph");
+    }
 }

@@ -49,6 +49,7 @@ public class StaffMonitoringController {
     private final ArchiveRecordRepository archiveRepository;
     private final com.capvault.backend.response.ReviewFeedbackService reviews;
     private final com.capvault.backend.filecheck.FileCheckService checks;
+    private final com.capvault.backend.aireview.AiReviewService aiReviews;
 
     public StaffMonitoringController(
         StudentAssociationSecurity security,
@@ -62,7 +63,8 @@ public class StaffMonitoringController {
         FormResponseService responseService,
         ArchiveRecordRepository archiveRepository,
         com.capvault.backend.response.ReviewFeedbackService reviews,
-        com.capvault.backend.filecheck.FileCheckService checks
+        com.capvault.backend.filecheck.FileCheckService checks,
+        com.capvault.backend.aireview.AiReviewService aiReviews
     ) {
         this.security = security;
         this.staffManagementService = staffManagementService;
@@ -76,6 +78,7 @@ public class StaffMonitoringController {
         this.archiveRepository = archiveRepository;
         this.reviews = reviews;
         this.checks = checks;
+        this.aiReviews = aiReviews;
     }
 
     public record MonitoringResponse(
@@ -89,7 +92,8 @@ public class StaffMonitoringController {
         List<FormResponse> responses,
         List<UUID> archivedResponseIds,
         java.util.Map<UUID, java.util.Map<String, Object>> reviewStates,
-        java.util.Map<String, com.capvault.backend.filecheck.FileCheckResponse> fileChecks
+        java.util.Map<String, com.capvault.backend.filecheck.FileCheckResponse> fileChecks,
+        java.util.Map<UUID, com.capvault.backend.aireview.AiReviewService.View> aiReviews
     ) {
     }
 
@@ -145,7 +149,8 @@ public class StaffMonitoringController {
             responses,
             archivedResponseIds,
             includeReviews ? reviews.statesFor(responses.stream().map(FormResponse::getId).toList()) : java.util.Map.of(),
-            includeReviews ? checks.latestForResponses(workspaceId, responses.stream().map(r -> r.getId().toString()).toList()) : java.util.Map.of()
+            includeReviews ? checks.latestForResponses(workspaceId, responses.stream().map(r -> r.getId().toString()).toList()) : java.util.Map.of(),
+            includeReviews ? aiReviews.savedFor(responses) : java.util.Map.of()
         );
     }
 

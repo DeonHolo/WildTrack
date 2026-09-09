@@ -44,6 +44,25 @@ public class StaffManagementController {
         }
     }
 
+    @GetMapping("/directory")
+    public StaffManagementService.DirectoryView directory(HttpServletRequest http) {
+        requireAdmin(http);
+        return staffService.staffDirectory();
+    }
+
+    @PostMapping("/directory")
+    public StaffManagementService.DirectoryProfile saveDirectory(@RequestBody StaffManagementService.DirectorySave request, HttpServletRequest http) {
+        requireAdmin(http);
+        return staffService.saveDirectory(request);
+    }
+
+    @GetMapping("/me")
+    public java.util.Map<String, Object> myAssignments(HttpServletRequest http) {
+        var session = security.requireSession(http);
+        if (security.activeRoles(http).isEmpty()) throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
+        return staffService.myAssignments(session.googleSubject());
+    }
+
     @GetMapping
     public List<StaffManagementService.StaffProfileView> listStaff(
         @RequestParam UUID workspaceId,

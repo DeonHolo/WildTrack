@@ -126,11 +126,11 @@ class StudentIdentityConflictControllerTest {
                 .cookie(sessionCookie(token))
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"decision\":\"RESOLVED\",\"note\":\"Kept the first account.\"}"))
+                .content("{\"decision\":\"RESOLVED\",\"confirmedSubject\":\"sub-first-owner\",\"note\":\"Kept the first account.\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("RESOLVED"))
             .andExpect(jsonPath("$.decidedBySubject").value("sub-admin"))
-            .andExpect(jsonPath("$.decisionNote").value("Kept the first account."))
+            .andExpect(jsonPath("$.decisionNote").value("Confirmed account: rontaghoy@gmail.com. Kept the first account."))
             .andExpect(jsonPath("$.decidedAt").exists());
 
         mockMvc.perform(get("/api/workspace/students/identity-conflicts")
@@ -138,6 +138,24 @@ class StudentIdentityConflictControllerTest {
                 .cookie(sessionCookie(token)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
+    void resolvedHistoryPreservesDecisionAndDisconnectsOnlyTheLosingAccount() throws Exception {
+        String token = sessionTokenFor("sub-admin", "admin@school.edu", StaffRole.ADMIN);
+        UUID conflictId = openConflictId();
+        associationService.decideConflict(workspaceId, conflictId, "RESOLVED", "sub-admin", "admin@school.edu", "Verified in person.", FIRST_SUBJECT);
+        org.assertj.core.api.Assertions.assertThat(associationService.activeAssociation(workspaceId, FIRST_SUBJECT)).isPresent();
+        org.assertj.core.api.Assertions.assertThat(associationService.activeAssociation(workspaceId, SECOND_SUBJECT)).isEmpty();
+        mockMvc.perform(get("/api/workspace/students/identity-conflicts")
+            .param("workspaceId", workspaceId.toString()).param("includeClosed", "true").cookie(sessionCookie(token)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(1)))
+            .andExpect(jsonPath("$[0].status").value("RESOLVED"))
+            .andExpect(jsonPath("$[0].decidedByEmail").value("admin@school.edu"));
+        mockMvc.perform(post("/api/workspace/students/identity-conflicts/" + conflictId + "/decision")
+            .param("workspaceId", workspaceId.toString()).cookie(sessionCookie(token)).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"DISMISSED\"}"))
+            .andExpect(status().isConflict());
     }
 
     @Test

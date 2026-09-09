@@ -2,7 +2,7 @@ import { ActionIcon, Alert, Autocomplete, Button, Checkbox, Group, Modal, Paper,
 import { notifications } from '@mantine/notifications';
 import { PencilSimple, Trash, UserPlus, UsersThree } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { emptyStaffAccess, loadStaffAccess, loadStaffDirectory, revokeStaff, saveStaff } from '../../lib/staffAccessClient.js';
+import { emptyStaffAccess, loadStaffDirectory, revokeStaff, saveStaff } from '../../lib/staffAccessClient.js';
 import { useWorkspaceResource } from '../../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../../hooks/useWorkspaceScope.js';
 import { StatusIndicator } from '../ui.jsx';
@@ -13,10 +13,8 @@ const normalize = value => String(value || '').trim().replace(/\s+/g, ' ').toLow
 const unique = values => [...new Map(values.filter(Boolean).map(value => [normalize(value), value])).values()].sort();
 const ownerSnapshot = profiles => Object.fromEntries(profiles.flatMap(p => (p.assignedTeams || []).map(team => [team, p.googleSubject])));
 
-export function StaffManagementPanel({ workspaceId, students, projectMetadata }) {
-  const hasImportedData = students !== undefined;
-  const { data, status, error: loadError, reload } = useWorkspaceResource(workspaceId,
-    hasImportedData ? loadStaffDirectory : loadStaffAccess, emptyStaffAccess, hasImportedData ? 'staff-directory' : 'staff-access');
+export function StaffManagementPanel({ workspaceId }) {
+  const { data, status, error: loadError, reload } = useWorkspaceResource('staff-directory', loadStaffDirectory, emptyStaffAccess, 'staff-directory-v2');
   const staffList = data.profiles;
   const isCurrentScope = useWorkspaceScope(workspaceId);
   const [opened, setOpened] = useState(false);
@@ -49,32 +47,38 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
       if (team) candidate.bySource[source].push(team);
       names.set(key, candidate);
     };
-    (students || data.students || []).forEach(s => add(s.adviser || s.adviserName, s.teamCode, 'Class roster'));
-    (projectMetadata || data.projectMetadata || []).forEach(p => add(p.adviserName, p.groupCode, 'Project monitor'));
-    const advisers = [...names.values()].flatMap(item => {
-      const sources = Object.entries(item.bySource).map(([source, values]) => ({ source, teams: unique(values) }));
-      const ambiguous = new Set(sources.map(entry => JSON.stringify(entry.teams.map(normalize)))).size > 1;
-      return (ambiguous ? sources : [{ source: sources.map(entry => entry.source).join(', '), teams: sources[0].teams }])
-        .map(entry => ({ name: item.name, source: entry.source, teams: entry.teams, ambiguous,
-          value: item.name + ' — ' + entry.source }));
+    (data.teams || []).forEach(team => {
+      const id = team.workspaceId + '::' + team.teamCode;
+      teams.push(id);
+      team.adviserNames.forEach(name => add(name, id, team.workspaceId));
+    });
+    const advisers = [...names.values()].map(item => {
+      const workspaceIds = Object.keys(item.bySource);
+      const source = workspaceIds.map(id => data.teams.find(team => team.workspaceId === id)?.workspaceName || 'Imported workspace').join(', ');
+      return { name: item.name, source, teams: unique(Object.values(item.bySource).flat()),
+        ambiguous: workspaceIds.length > 1, value: item.name + ' - ' + source };
     });
     return { teams: unique(teams), advisers };
-  }, [students, projectMetadata, data.students, data.projectMetadata]);
+  }, [data.teams]);
+  const teamLabel = id => {
+    const item = data.teams?.find(team => team.workspaceId + '::' + team.teamCode === id);
+    return item ? item.teamCode + ' · ' + item.workspaceName : id.split('::').slice(1).join('::') || id;
+  };
   const holderFor = team => staffList.find(p => p.assignedTeams?.some(value => normalize(value) === normalize(team)));
   const duplicate = !editing && staffList.find(p => normalize(p.googleEmail) === normalize(email));
   const additions = selectedTeams.filter(team => !editing?.assignedTeams?.includes(team));
   const removals = (editing?.assignedTeams || []).filter(team => !selectedTeams.includes(team));
-  const transfers = role === 'ADVISER' ? selectedTeams.filter(team => {
+  const transfers = selectedTeams.filter(team => {
     const holder = holderFor(team);
     return holder && holder.googleEmail !== editing?.googleEmail;
-  }) : [];
+  });
   const initialRole = editing?.roles?.includes('ADMIN') ? 'ADMIN' : 'ADVISER';
   const roleChanged = editing && role !== initialRole;
   const needsReview = transfers.length > 0 || removals.length > 0 || roleChanged || editing?.enabled === false;
   const teamOptions = unique([...imported.teams, ...(editing?.assignedTeams || [])]).map(team => {
     const holder = holderFor(team);
     return { value: team, label: holder && holder.googleEmail !== editing?.googleEmail
-      ? team + ' — currently ' + (holder.adviserName || holder.googleEmail) : team };
+      ? teamLabel(team) + ' — currently ' + (holder.adviserName || holder.googleEmail) : teamLabel(team) };
   });
   useEffect(() => {
     setOpened(false); setRevokeTarget(null); setEditing(null); setEmail(''); setName('');
@@ -114,10 +118,11 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
     busy.current = true; setSaving(true); setError('');
     try {
       await saveStaff(workspaceId, { googleEmail: email.trim().toLowerCase(), role: editing && !roleChanged ? null : role,
-        ...(role === 'ADVISER' ? { adviserName: name.trim(), teamCodes: selectedTeams, teamOwners: owners } : {}),
+        adviserName: name.trim(), teamCodes: selectedTeams, teamOwners: owners, workspaceIds: data.workspaceIds,
         expectedRevision: editing?.revision || null, confirmTransfers: reviewing && transfers.length > 0, reactivate });
       if (!isCurrentScope()) return;
-      setOpened(false); notifications.show({ color: 'green', message: 'Staff access saved.' }); await reload();
+      setOpened(false); window.dispatchEvent(new Event('wildtrack:refresh-resources'));
+      notifications.show({ color: 'green', message: 'Staff access saved.' }); await reload();
     } catch (failure) {
       if (isCurrentScope()) { setError(failure.message || 'Staff access could not be saved.'); setReviewing(false); }
     } finally { if (isCurrentScope()) { busy.current = false; setSaving(false); } }
@@ -128,7 +133,7 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
     try {
       await revokeStaff(workspaceId, revokeTarget.googleSubject);
       if (!isCurrentScope()) return;
-      setRevokeTarget(null); await reload();
+      setRevokeTarget(null); window.dispatchEvent(new Event('wildtrack:refresh-resources')); await reload();
     } catch (failure) { if (isCurrentScope()) setError(failure.message || 'Access could not be revoked.'); }
     finally { if (isCurrentScope()) { busy.current = false; setSaving(false); } }
   }
@@ -145,12 +150,11 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
             {profile.adviserName ? <Text fw={600}>{profile.adviserName}</Text> : null}<Text size="sm">{profile.googleEmail}</Text>
             <Group gap="md">{profile.roles.map(value => <Text key={value} size="xs">{value === 'ADMIN' ? 'Administrator' : 'Adviser'}</Text>)}
               <StatusIndicator status={!profile.enabled ? 'Disabled' : profile.googleSubject.startsWith('pending:') ? 'Pending sign-in' : 'Active'} /></Group>
-            <Text size="xs" c="dimmed">{profile.roles.includes('ADMIN') ? 'Institution-wide administrator access.' :
-              profile.assignedTeams.length ? profile.assignedTeams.join(', ') : 'Pending assignment — no team review access.'}</Text>
+            <Text size="xs" c="dimmed">{profile.assignedTeams.length ? profile.assignedTeams.map(teamLabel).join(', ') : profile.roles.includes('ADMIN') ? 'Administrator access. No personal teams assigned.' : 'Pending assignment — no team review access.'}</Text>
           </Stack><Group gap="xs"><Button size="xs" variant="default" leftSection={<PencilSimple size={14} />} onClick={() => openEditor(profile)}>Edit access</Button>
             {profile.enabled ? <ActionIcon color="red" variant="subtle" aria-label={'Revoke access for ' + profile.googleEmail}
               onClick={() => { setError(''); setRevokeTarget(profile); }}><Trash size={16} /></ActionIcon> : null}</Group></Group>
-          {profile.roles.includes('ADVISER') && imported.advisers.length ? <Button mt="xs" variant="subtle" size="xs"
+          {imported.advisers.length ? <Button mt="xs" variant="subtle" size="xs"
             onClick={() => openEditor(profile)}>Review imported adviser teams</Button> : null}
         </Paper>)}</Stack>}
     </ResourceBoundary>
@@ -166,8 +170,8 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
           data={[{ value: 'ADVISER', label: 'Adviser (assigned teams)' }, { value: 'ADMIN', label: 'Administrator (institution-wide)' }]} />
         {duplicate ? <Alert color="orange"><Text size="sm">This email already has a staff record. Open it to change access.</Text>
           <Button variant="default" size="xs" onClick={() => openEditor(duplicate)}>Edit existing staff member</Button></Alert> : null}
-        {role === 'ADVISER' ? <>
-          <Autocomplete label="Adviser name" value={name} maxLength={200} disabled={saving} maxDropdownHeight={160} comboboxProps={{ withinPortal: true }}
+        <>
+          <Autocomplete label="Staff / adviser name" value={name} maxLength={200} disabled={saving} maxDropdownHeight={160} comboboxProps={{ withinPortal: true }}
             placeholder={imported.advisers.length ? 'Choose an imported name or type a name' : 'Enter a name (optional)'}
             data={imported.advisers.map(item => item.value)}
             renderOption={({ option }) => {
@@ -179,7 +183,7 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
             description="Optional. Choose an imported adviser to suggest their teams, or type a name." />
           {replacement ? <Alert color="blue">
             {replacement.ambiguous ? <Text size="sm" fw={600}>This name has multiple matches or conflicting import details. Verify the source and teams before applying.</Text> : null}
-            <Text size="sm">{replacement.value}</Text><Text size="sm">Replace your team selection with {replacement.name}'s imported teams: {replacement.teams.join(', ') || 'none'}?</Text>
+            <Text size="sm">{replacement.value}</Text><Text size="sm">Replace your team selection with {replacement.name}'s imported teams: {replacement.teams.map(teamLabel).join(', ') || 'none'}?</Text>
             <Group mt="xs"><Button size="xs" onClick={() => { setSelectedTeams(replacement.teams); setReplacement(null); setTeamsEdited(true); }}>Replace teams</Button>
               <Button size="xs" variant="default" onClick={() => setReplacement(null)}>Keep my teams</Button></Group></Alert> : null}
           <Stack gap="xs">
@@ -191,24 +195,24 @@ export function StaffManagementPanel({ workspaceId, students, projectMetadata })
               <Checkbox.Group aria-labelledby="staff-teams-label" value={selectedTeams} onChange={value => { setSelectedTeams(value); setTeamsEdited(true); setReviewing(false); }}>
                 <Paper withBorder p="sm" style={{ maxHeight: 176, overflowY: 'auto', overscrollBehavior: 'contain' }}>
                   <Stack gap="sm">{teamOptions.filter(team => normalize(team.label).includes(normalize(teamSearch))).map(team => (
-                    <Checkbox key={team.value} value={team.value} label={team.value} disabled={saving}
-                      description={team.label !== team.value ? team.label.slice(team.value.length + 3) : undefined} />
+                    <Checkbox key={team.value} value={team.value} label={teamLabel(team.value)} disabled={saving}
+                      description={team.label.includes(' — currently ') ? team.label.split(' — ')[1] : undefined} />
                   ))}
                     {!teamOptions.some(team => normalize(team.label).includes(normalize(teamSearch))) ? <Text size="sm" c="dimmed">No matching teams.</Text> : null}
                   </Stack>
                 </Paper>
               </Checkbox.Group>
             </> : null}
-            <Text size="xs" c="dimmed">{teamOptions.length ? 'Select the teams this adviser can review. No selection means no team access.' : 'No teams imported yet. Save the adviser now and assign teams after importing.'}</Text>
+            <Text size="xs" c="dimmed">{teamOptions.length ? (role === 'ADMIN' ? 'Teams from all active workspaces. Personal assignments do not limit administrator access.' : 'Teams from all active workspaces. These assignments determine this adviser’s team access.') : 'No teams imported yet. Save the adviser now and assign teams after importing.'}</Text>
           </Stack>
-        </> : <Text size="xs" c="dimmed">Administrators have institution-wide access. Adviser team assignments are removed if that role is changed.</Text>}
+        </>
         {editing?.enabled === false ? <Checkbox label="Reactivate this staff member" checked={reactivate}
           onChange={event => { setReactivate(event.currentTarget.checked); setReviewing(false); }} disabled={saving} /> : null}
         {reviewing ? <Alert color="orange" title="Review access changes"><Stack gap="xs">
           {roleChanged ? <Text size="sm">Role: {initialRole} → {role}. This changes institution-wide staff permissions.</Text> : null}
-          {additions.length && role === 'ADVISER' ? <Text size="sm">Add: {additions.join(', ')}</Text> : null}
-          {removals.length && role === 'ADVISER' ? <Text size="sm">Remove: {removals.join(', ')}</Text> : null}
-          {transfers.map(team => <Text size="sm" key={team}>{team}: {holderFor(team)?.googleEmail} → {email}</Text>)}
+          {additions.length > 0 ? <Text size="sm">Add: {additions.map(teamLabel).join(', ')}</Text> : null}
+          {removals.length > 0 ? <Text size="sm">Remove: {removals.map(teamLabel).join(', ')}</Text> : null}
+          {transfers.map(team => <Text size="sm" key={team}>{teamLabel(team)}: {holderFor(team)?.googleEmail} → {email}</Text>)}
           {reactivate ? <Text size="sm">Restore this account's staff access.</Text> : null}</Stack></Alert> : null}
         <Group justify="flex-end"><Button variant="default" disabled={saving} onClick={() => setOpened(false)}>Cancel</Button>
           <Button type="submit" loading={saving} disabled={Boolean(duplicate) || Boolean(replacement)}>

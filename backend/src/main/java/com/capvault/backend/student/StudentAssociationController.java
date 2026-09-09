@@ -34,7 +34,7 @@ public class StudentAssociationController {
     public record ConfirmRequest(@NotBlank String studentNumber) {
     }
 
-    public record ConflictDecisionRequest(@NotBlank String decision, String note) {
+    public record ConflictDecisionRequest(@NotBlank String decision, String note, String confirmedSubject) {
     }
 
     @GetMapping("/me")
@@ -69,9 +69,9 @@ public class StudentAssociationController {
     }
 
     @GetMapping("/identity-conflicts")
-    public List<ConflictDetail> conflicts(@RequestParam UUID workspaceId, HttpServletRequest request) {
+    public List<ConflictDetail> conflicts(@RequestParam UUID workspaceId, @RequestParam(defaultValue = "false") boolean includeClosed, HttpServletRequest request) {
         requireAdmin(request);
-        return associationService.openConflictDetails(workspaceId);
+        return includeClosed ? associationService.conflictHistory(workspaceId) : associationService.openConflictDetails(workspaceId);
     }
 
     /** Admin-only decision: RESOLVED or DISMISSED, recorded with who decided and when. */
@@ -83,8 +83,11 @@ public class StudentAssociationController {
         HttpServletRequest request
     ) {
         var session = requireAdmin(request);
+        if ("RESOLVED".equalsIgnoreCase(body.decision()) && (body.confirmedSubject() == null || body.confirmedSubject().isBlank())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Choose the correct account before resolving this conflict.");
+        }
         return associationService.decideConflict(
-            workspaceId, conflictId, body.decision(), session.googleSubject(), session.googleEmail(), body.note());
+            workspaceId, conflictId, body.decision(), session.googleSubject(), session.googleEmail(), body.note(), body.confirmedSubject());
     }
 
     private com.capvault.backend.auth.StoredWildTrackSession requireAdmin(HttpServletRequest request) {

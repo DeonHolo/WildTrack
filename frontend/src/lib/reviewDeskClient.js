@@ -1,5 +1,7 @@
 import {
   acceptReviewResponse,
+  requestAiReview,
+  getSavedAiReview,
   getReviewState,
   revokeReviewResponse,
   runDocumentCheck as requestDocumentCheck,
@@ -73,12 +75,24 @@ export async function runDocumentChecks(workspaceId, responses, deliverables, op
   };
 }
 
-export async function runAiReview() {
-  return {
-    ok: false,
-    unavailable: true,
-    error: 'Gemini AI Review is not connected yet. Document Check results remain available without Gemini.'
-  };
+export async function runAiReview(workspaceId, responseId, retryAcknowledged = false, retryToken = null, shouldContinue = () => true) {
+  try {
+    let review = await requestAiReview(workspaceId, responseId, retryAcknowledged, retryToken);
+    const reused = review.reused;
+    // Poll saved state only. Never repeat the generation POST after a timeout or lost connection.
+    const deadline = Date.now() + 8 * 60 * 1000;
+    while (review.status === 'RUNNING' && shouldContinue() && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      if (!shouldContinue()) return { ok: false, cancelled: true };
+      review = { ...await getSavedAiReview(workspaceId, responseId), reused };
+    }
+    return { ok: review.status === 'COMPLETED', unavailable: review.status === 'UNAVAILABLE',
+      pending: review.status === 'RUNNING', uncertain: review.status === 'UNCERTAIN', review,
+      error: review.status === 'COMPLETED' ? '' : review.status === 'RUNNING'
+        ? 'The review is still running. Its saved result will appear when ready; no new AI request was sent.' : review.message };
+  } catch (error) {
+    return { ok: false, error: error?.message || 'AI Review could not finish.' };
+  }
 }
 
 export function applyReviewMutation(response, reviewState) {

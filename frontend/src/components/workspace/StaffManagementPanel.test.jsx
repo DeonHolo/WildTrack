@@ -18,12 +18,19 @@ const api = vi.hoisted(() => ({
 
 vi.mock('../../lib/api.js', () => ({
   getStaffProfiles: api.getStaffProfiles,
+  getStaffDirectory: async () => directory(await api.getStaffProfiles()),
+  saveStaffDirectory: api.saveStaffProfile,
   saveStaffProfile: api.saveStaffProfile,
   upsertStaffEmail: api.upsertStaffEmail,
   assignAdviserTeam: api.assignAdviserTeam,
   unassignAdviserTeam: api.unassignAdviserTeam,
   revokeStaffAccess: api.revokeStaffAccess
 }));
+
+function directory(profiles) {
+  return { workspaceIds: ['ws-123'], profiles: profiles.map(profile => ({ profile, assignments: (profile.assignedTeams || []).map(teamCode => ({ workspaceId: 'ws-123', teamCode })) })),
+    teams: ['01', '02', '03'].map(number => ({ workspaceId: 'ws-123', workspaceName: 'IT332', teamCode: '2526-sem2-it332-' + number, adviserNames: number === '02' ? ['Dr. Rivera'] : [] })) };
+}
 
 const scope = vi.hoisted(() => ({ email: 'admin@example.com' }));
 vi.mock('../../app/WorkspaceSession.jsx', () => ({
@@ -80,7 +87,7 @@ describe('StaffManagementPanel', () => {
     ]);
   });
 
-  it.each(['workspace', 'account'])('discards a late staff list after changing %s', async (change) => {
+  it.each(['account'])('discards a late staff list after changing %s', async (change) => {
     let resolveOld;
     api.getStaffProfiles.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
     const view = renderPanel();
@@ -100,7 +107,7 @@ describe('StaffManagementPanel', () => {
     expect(screen.getByText('Administrator')).toBeInTheDocument();
     expect(screen.getByText('adviser@example.com')).toBeInTheDocument();
     expect(screen.getByText('Adviser')).toBeInTheDocument();
-    expect(screen.getByText('2526-sem2-it332-01')).toBeInTheDocument();
+    expect(screen.getByText(/2526-sem2-it332-01/)).toBeInTheDocument();
   });
 
   it('shows a recoverable staff load error instead of claiming the workspace has no staff', async () => {
@@ -132,7 +139,7 @@ describe('StaffManagementPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save staff member/i }));
 
     await waitFor(() => {
-      expect(api.saveStaffProfile).toHaveBeenCalledWith('ws-123', expect.objectContaining({ googleEmail: 'new.adviser@example.com', role: 'ADVISER', teamCodes: [] }));
+      expect(api.saveStaffProfile).toHaveBeenCalledWith(expect.objectContaining({ googleEmail: 'new.adviser@example.com', role: 'ADVISER', assignments: [] }));
     });
   });
 
@@ -142,14 +149,14 @@ describe('StaffManagementPanel', () => {
     await screen.findByText('ralph@example.com');
     fireEvent.click(screen.getByRole('button', { name: /Add staff \/ adviser/i }));
     fireEvent.change(await screen.findByLabelText(/Google Email/i), { target: { value: 'rivera@example.com' } });
-    const nameInput = screen.getByRole('textbox', { name: 'Adviser name' });
+    const nameInput = screen.getByRole('textbox', { name: 'Staff / adviser name' });
     await user.click(nameInput);
     await user.type(nameInput, 'Rivera');
     await user.click(await screen.findByText('Dr. Rivera'));
     expect(nameInput).toHaveValue('Dr. Rivera');
     fireEvent.click(screen.getByRole('button', { name: 'Save staff member' }));
-    await waitFor(() => expect(api.saveStaffProfile).toHaveBeenCalledWith('ws-123', expect.objectContaining({
-      googleEmail: 'rivera@example.com', adviserName: 'Dr. Rivera', teamCodes: ['2526-sem2-it332-02']
+    await waitFor(() => expect(api.saveStaffProfile).toHaveBeenCalledWith(expect.objectContaining({
+      googleEmail: 'rivera@example.com', adviserName: 'Dr. Rivera', assignments: [{ workspaceId: 'ws-123', teamCode: '2526-sem2-it332-02' }]
     })));
     expect(api.assignAdviserTeam).not.toHaveBeenCalled();
   });

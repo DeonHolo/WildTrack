@@ -96,6 +96,11 @@ if (-not (Test-Path -LiteralPath $backendJar)) {
 }
 
 $env:CAPVAULT_GOOGLE_DRIVE_API_KEY = $driveKey
+$env:GEMINI_API_KEY = Get-ConfiguredValue "GEMINI_API_KEY"
+$geminiInterval = Get-ConfiguredValue "WILDTRACK_GEMINI_MINIMUM_INTERVAL_SECONDS"
+if (-not [string]::IsNullOrWhiteSpace($geminiInterval)) {
+    $env:WILDTRACK_GEMINI_MINIMUM_INTERVAL_SECONDS = $geminiInterval
+}
 $env:CAPVAULT_GOOGLE_DRIVE_ENABLED = "true"
 $env:WILDTRACK_GOOGLE_CLIENT_ID = $googleClientId
 $env:WILDTRACK_GOOGLE_IDENTITY_ENABLED = "true"

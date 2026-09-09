@@ -27,10 +27,10 @@ vi.mock('../app/WorkspaceSession.jsx', () => ({
 
 vi.mock('../hooks/useWorkspaceResource.js', async () => {
   const { useReducer } = await import('react');
-  return { useWorkspaceResource: () => {
+  return { useWorkspaceResource: (_id, _load, _empty, key) => {
     const [, renderAgain] = useReducer(value => value + 1, 0);
     return {
-      data: workflow.state,
+      data: key === 'identity-history' ? workflow.state.openConflicts || [] : workflow.state,
       setData: next => { workflow.state = typeof next === 'function' ? next(workflow.state) : next; renderAgain(); },
       status: workflow.error ? 'error' : 'ready', error: workflow.error || '', reload: vi.fn()
     };
@@ -282,10 +282,13 @@ describe('identity conflicts from the server', () => {
   it('records a resolve decision and drops the conflict from the open list', async () => {
     renderPage();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Resolve 20-0649-750 identity conflict' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Review identity conflict for 20-0649-750' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'rontaghoy@gmail.com' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /Decision note/ }), { target: { value: 'Verified in person.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record decision' }));
     await waitFor(() => expect(api.decideIdentityConflict)
-      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'RESOLVED'));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Resolve 20-0649-750 identity conflict' })).not.toBeInTheDocument());
+      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'RESOLVED', 'Verified in person.', 'sub-first'));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Review identity conflict for 20-0649-750' })).not.toBeInTheDocument());
     expect(screen.getByText('All clear for this workspace')).toBeInTheDocument();
   });
 
@@ -293,19 +296,27 @@ describe('identity conflicts from the server', () => {
     api.decideIdentityConflict.mockResolvedValue({ ...conflict, status: 'DISMISSED' });
     renderPage();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss 20-0649-750 identity conflict' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Review identity conflict for 20-0649-750' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'rontaghoy@gmail.com' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /Decision note/ }), { target: { value: 'Verified in person.' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Decision' }), { target: { value: 'DISMISSED' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record decision' }));
     await waitFor(() => expect(api.decideIdentityConflict)
-      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'DISMISSED'));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Dismiss 20-0649-750 identity conflict' })).not.toBeInTheDocument());
+      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'DISMISSED', 'Verified in person.', null));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Review identity conflict for 20-0649-750' })).not.toBeInTheDocument());
   });
 
   it('keeps the conflict listed when the decision fails', async () => {
     api.decideIdentityConflict.mockRejectedValue(new Error('Admin authorization required.'));
     renderPage();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Resolve 20-0649-750 identity conflict' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Review identity conflict for 20-0649-750' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'rontaghoy@gmail.com' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /Decision note/ }), { target: { value: 'Verified in person.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record decision' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Record decision' }));
     await waitFor(() => expect(api.decideIdentityConflict).toHaveBeenCalled());
-    expect(await screen.findByRole('button', { name: 'Resolve 20-0649-750 identity conflict' })).toBeInTheDocument();
+    expect(await screen.findByText('Admin authorization required.')).toBeInTheDocument();
   });
 
   it('says the queue is incomplete instead of all clear when conflicts cannot be loaded', async () => {

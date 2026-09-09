@@ -92,7 +92,7 @@ public class StaffManagementService {
             : String.valueOf(Objects.requireNonNullElse(request.adviserName(), "")).trim().replaceAll("\\s+", " ");
         if (name.length() > 200) throw new IllegalArgumentException("Adviser name must be 200 characters or fewer.");
         List<String> selected = null;
-        if (roles.contains(StaffRole.ADVISER) && request.teamCodes() != null) {
+        if (request.teamCodes() != null) {
             var known = knownTeams(workspaceId);
             if (existing != null) existing.assignedTeams().forEach(team -> known.putIfAbsent(normalize(team), team));
             selected = request.teamCodes().stream().map(code -> {
@@ -128,9 +128,7 @@ public class StaffManagementService {
                 }
             }
         }
-        if (!roles.contains(StaffRole.ADVISER)) {
-            for (String oldSubject : subjects) teamRepository.deleteAll(teamRepository.findAllByGoogleSubject(oldSubject));
-        } else if (selected != null) {
+        if (selected != null) {
             var desired = selected.stream().map(StaffManagementService::normalize).collect(Collectors.toSet());
             var removals = allTeams.stream().filter(t -> subjects.contains(t.getGoogleSubject())
                 || desired.contains(normalize(t.getTeamCode()))).toList();
@@ -171,7 +169,7 @@ public class StaffManagementService {
         directory.lockDirectory();
         String canonicalTeam = knownTeams(workspaceId).get(normalize(teamCode));
         if (canonicalTeam == null) throw new IllegalArgumentException("Choose a team from the imported class records.");
-        if (roleRepository.findByGoogleSubjectAndEnabledTrue(subject).stream().noneMatch(a -> a.getRole() == StaffRole.ADVISER))
+        if (roleRepository.findByGoogleSubjectAndEnabledTrue(subject).isEmpty())
             throw new IllegalArgumentException("Choose an enabled adviser.");
         var holders = teamRepository.findAllByWorkspaceId(workspaceId).stream()
             .filter(t -> t.getTeamCode().equalsIgnoreCase(canonicalTeam)).toList();
@@ -224,6 +222,90 @@ public class StaffManagementService {
         projects.findAllByWorkspaceIdOrderByGroupCodeAsc(workspaceId)
             .forEach(p -> { if (p.getGroupCode() != null && !p.getGroupCode().isBlank()) teams.put(normalize(p.getGroupCode()), p.getGroupCode()); });
         return teams;
+    }
+
+    public record TeamChoice(UUID workspaceId, String workspaceName, String teamCode, List<String> adviserNames) { }
+    public record Assignment(UUID workspaceId, String teamCode) { }
+    public record DirectoryProfile(StaffProfileView profile, List<Assignment> assignments) { }
+    public record DirectoryView(List<DirectoryProfile> profiles, List<TeamChoice> teams, List<UUID> workspaceIds) { }
+    public record DirectorySave(String googleEmail, String role, String adviserName, List<Assignment> assignments,
+            String expectedRevision, Map<String, String> teamOwners, boolean confirmTransfers, boolean reactivate,
+            List<UUID> workspaceIds) { }
+
+    @Transactional(readOnly = true)
+    public DirectoryView staffDirectory() {
+        var active = workspaces.findAllByOrderByActiveDescProgramAscCourseCodeAscAcademicYearDescSemesterAsc()
+            .stream().filter(w -> w.isActive()).toList();
+        var activeIds = active.stream().map(w -> w.getId()).toList();
+        var teams = new ArrayList<TeamChoice>();
+        for (var workspace : active) {
+            var names = new LinkedHashMap<String, Set<String>>();
+            students.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspace.getId())
+                .forEach(row -> addImportedName(names, row.getTeamCode(), row.getAdviserName()));
+            projects.findAllByWorkspaceIdOrderByGroupCodeAsc(workspace.getId())
+                .forEach(row -> addImportedName(names, row.getGroupCode(), row.getAdviserName()));
+            knownTeams(workspace.getId()).forEach((key, team) -> teams.add(new TeamChoice(workspace.getId(),
+                workspace.getName(), team, new ArrayList<>(names.getOrDefault(key, Set.of())))));
+        }
+        var assignments = teamRepository.findAll();
+        var profiles = roleRepository.findAll().stream().collect(Collectors.groupingBy(a -> normalize(a.getGoogleEmail())))
+            .values().stream().map(rows -> directoryProfile(rows, assignments, activeIds))
+            .sorted(Comparator.comparing(p -> p.profile().googleEmail())).toList();
+        return new DirectoryView(profiles, teams, activeIds);
+    }
+
+    private void addImportedName(Map<String, Set<String>> names, String team, String name) {
+        if (team != null && !team.isBlank() && name != null && !name.isBlank())
+            names.computeIfAbsent(normalize(team), key -> new TreeSet<>()).add(name.trim());
+    }
+
+    private DirectoryProfile directoryProfile(List<StaffRoleAssignment> rows, List<AdviserTeamAssignment> assignments, List<UUID> activeIds) {
+        var subjects = rows.stream().map(StaffRoleAssignment::getGoogleSubject).collect(Collectors.toSet());
+        return new DirectoryProfile(profile(rows, assignments), assignments.stream()
+            .filter(a -> subjects.contains(a.getGoogleSubject()) && activeIds.contains(a.getWorkspaceId()))
+            .map(a -> new Assignment(a.getWorkspaceId(), a.getTeamCode())).distinct().toList());
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> myAssignments(String subject) {
+        var rows = roleRepository.findByGoogleSubjectAndEnabledTrue(subject);
+        var active = workspaces.findAllByOrderByActiveDescProgramAscCourseCodeAscAcademicYearDescSemesterAsc()
+            .stream().filter(w -> w.isActive()).toList();
+        var activeIds = active.stream().map(w -> w.getId()).toList();
+        var assignments = rows.isEmpty() ? List.<Assignment>of() : directoryProfile(rows,
+            teamRepository.findAllByGoogleSubject(subject), activeIds).assignments();
+        return Map.of("adviserName", rows.stream().map(StaffRoleAssignment::getAdviserName)
+            .filter(Objects::nonNull).filter(name -> !name.isBlank()).findFirst().orElse(""),
+            "assignments", assignments, "workspaces", active.stream()
+                .filter(w -> assignments.stream().anyMatch(a -> a.workspaceId().equals(w.getId())))
+                .map(com.capvault.backend.workspace.AcademicWorkspaceResponse::from).toList());
+    }
+
+    @Transactional
+    public DirectoryProfile saveDirectory(DirectorySave request) {
+        directory.lockDirectory();
+        var view = staffDirectory();
+        if (request.workspaceIds() == null || !new HashSet<>(view.workspaceIds()).equals(new HashSet<>(request.workspaceIds())))
+            throw conflict("Active workspaces changed. Reload the directory before saving.");
+        var existing = view.profiles().stream().filter(p -> p.profile().googleEmail().equals(normalize(request.googleEmail()))).findFirst();
+        if (!Objects.equals(existing.map(p -> p.profile().revision()).orElse(null), request.expectedRevision()))
+            throw conflict("Staff access changed. Reload the directory and review your changes.");
+        if (view.workspaceIds().isEmpty()) throw conflict("Create an active workspace before assigning staff.");
+        var selected = Objects.requireNonNullElse(request.assignments(), List.<Assignment>of());
+        if (selected.stream().anyMatch(a -> a == null || !view.workspaceIds().contains(a.workspaceId())))
+            throw conflict("Assignments must belong to active workspaces.");
+        // Each scoped save joins this transaction. Any conflict rolls back every workspace and role update.
+        for (UUID workspaceId : view.workspaceIds()) {
+            var current = listStaff(workspaceId).stream().filter(p -> p.googleEmail().equals(normalize(request.googleEmail()))).findFirst();
+            var owners = new HashMap<String, String>();
+            if (request.teamOwners() != null) request.teamOwners().forEach((key, value) -> {
+                if (key.startsWith(workspaceId + "::")) owners.put(key.substring(38), value);
+            });
+            saveProfile(workspaceId, new SaveRequest(request.googleEmail(), request.role(), request.adviserName(),
+                selected.stream().filter(a -> a.workspaceId().equals(workspaceId)).map(Assignment::teamCode).toList(),
+                current.map(StaffProfileView::revision).orElse(null), owners, request.confirmTransfers(), request.reactivate()));
+        }
+        return staffDirectory().profiles().stream().filter(p -> p.profile().googleEmail().equals(normalize(request.googleEmail()))).findFirst().orElseThrow();
     }
 
     private static String canonicalSubject(List<StaffRoleAssignment> rows) {

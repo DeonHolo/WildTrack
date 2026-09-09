@@ -3271,3 +3271,9 @@ html {
     animation-duration: 0ms !important;
   }
 }
+
+/* Queue actions remain readable at every table width. */
+.wt-command-table th:nth-child(5) { width: 196px; }
+.wt-command-table td:last-child { overflow: visible; }
+.wt-command-table td:last-child .mantine-Button-root { max-width: none; width: auto; min-width: 148px; }
+.wt-command-table td:last-child .mantine-Button-label { overflow: visible; white-space: nowrap; }

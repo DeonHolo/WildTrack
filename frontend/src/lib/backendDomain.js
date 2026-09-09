@@ -191,3 +191,11 @@ function sameInstant(first, second) {
   const secondTime = Date.parse(second || '');
   return Number.isFinite(firstTime) && firstTime === secondTime;
 }
+
+export function applyAiReview(response, review) {
+  return { ...response, aiReviewState: review || null, aiReport: review?.status === 'COMPLETED' && review.report ? {
+    ...review.report, status: 'Current', generatedAt: review.generatedAt,
+    sourceResponseUpdatedAt: review.sourceResponseUpdatedAt, sourceVerified: review.sourceVerified,
+    reused: review.reused
+  } : null };
+}

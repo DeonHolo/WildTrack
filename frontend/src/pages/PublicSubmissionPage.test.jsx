@@ -138,6 +138,7 @@ describe('public submission form', () => {
   });
 
   beforeEach(() => {
+    localStorage.clear();
     workflow.state = createState();
     setServerSession();
     workspaceSession.activeWorkspace = {
@@ -228,15 +229,17 @@ describe('public submission form', () => {
     expect(screen.queryByRole('heading', { name: 'Opening submission form' })).not.toBeInTheDocument();
   });
 
-  it('keeps editing disabled until a slow saved draft is restored', async () => {
+  it('preserves typing while a slow saved draft is restored', async () => {
     let restore;
     api.getDraft.mockReturnValue(new Promise(resolve => { restore = resolve; }));
     renderForm();
     const input = await screen.findByRole('textbox', { name: /PDF Drive Link/i });
-    expect(input).toBeDisabled();
+    expect(input).toBeEnabled();
+    fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/typed' } });
+    expect(screen.getByRole('button', { name: 'Submit response' })).toBeDisabled();
     await act(async () => restore({ present: true, values: { documentPdf: 'https://drive.google.com/file/d/saved' }, revision: 4 }));
     await waitFor(() => expect(input).toBeEnabled());
-    expect(input).toHaveValue('https://drive.google.com/file/d/saved');
+    expect(input).toHaveValue('https://drive.google.com/file/d/typed');
   });
 
   it('keeps typed answers and the form visible through a same-scope session refresh', async () => {
@@ -255,12 +258,13 @@ describe('public submission form', () => {
     expect(api.getPublicSubmissionForm).toHaveBeenCalledTimes(1);
   });
 
-  it('retries failed private hydration inside the visible form without enabling empty edits', async () => {
+  it('retries failed private hydration while keeping the form editable', async () => {
     api.getDraft.mockRejectedValueOnce(new Error('Draft service unavailable'))
       .mockResolvedValueOnce({ present: true, values: { documentPdf: 'https://drive.google.com/file/d/recovered' }, revision: 2 });
     renderForm();
     await screen.findByText('Draft service unavailable');
-    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Submit response' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Retry loading your response' }));
     expect(screen.getByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('https://drive.google.com/file/d/recovered'));
@@ -376,7 +380,7 @@ describe('public submission form', () => {
     });
     renderForm('/submit/week-9-srs?student=22-1002-002');
     await waitFor(() => expect(screen.getByRole('combobox', { name: /Student Number/i })).toHaveValue('22-1001-001'));
-    expect(screen.getByRole('combobox', { name: /Student Number/i })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: /Student Number/i })).toBeEnabled();
     expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toBeEnabled();
     fireEvent.change(screen.getByRole('textbox', { name: /PDF Drive Link/i }), {
       target: { value: 'https://drive.google.com/file/d/unsaved-edit/view' }
@@ -709,7 +713,7 @@ describe('public submission form', () => {
     expect(await screen.findByRole('heading', { name: 'Submission form not found' })).toBeInTheDocument();
   });
 
-  it('shows public form structure with disabled inputs while switching to its workspace', async () => {
+  it('allows typing but prevents submission while switching to the form workspace', async () => {
     api.getPublicSubmissionForm.mockResolvedValue({
       workspace: { ...workspaceSession.activeWorkspace, id: 'workspace-cs', program: 'CS' },
       deliverable: {
@@ -728,7 +732,8 @@ describe('public submission form', () => {
 
     await waitFor(() => expect(workspaceSession.switchWorkspace).toHaveBeenCalledWith('workspace-cs'));
     expect(screen.getByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Submit response' })).toBeDisabled();
   });
 
   it('shows a recoverable error when the form workspace cannot be opened', async () => {

@@ -76,12 +76,15 @@ export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = ''
     const refreshVisible = () => {
       if (document.visibilityState === 'visible') reload({ background: true });
     };
+    const refreshInvalidated = () => reload();
     window.addEventListener('focus', refreshVisible);
+    window.addEventListener('wildtrack:refresh-resources', refreshInvalidated);
     document.addEventListener('visibilitychange', refreshVisible);
     const timer = window.setInterval(refreshVisible, 15000);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener('focus', refreshVisible);
+      window.removeEventListener('wildtrack:refresh-resources', refreshInvalidated);
       document.removeEventListener('visibilitychange', refreshVisible);
     };
   }, [reload, workspaceId]);

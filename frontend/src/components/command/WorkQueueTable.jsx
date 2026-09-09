@@ -70,28 +70,10 @@ export function WorkQueueTable({ tasks, runningIds, onCheck, onArchive, onDecide
                         {task.actionLabel}
                       </Button>
                     ) : task.action === 'conflict' ? (
-                      <div className="wt-command-action-pair">
-                        <Button
-                          variant="default"
-                          size="sm"
-                          loading={runningIds.has(task.id)}
-                          leftSection={<IdentificationBadge size={17} />}
-                          aria-label={task.actionAriaLabel}
-                          onClick={() => onDecideConflict(task, 'RESOLVED')}
-                        >
-                          {task.actionLabel}
-                        </Button>
-                        <Button
-                          variant="subtle"
-                          color="gray"
-                          size="sm"
-                          disabled={runningIds.has(task.id)}
-                          aria-label={task.dismissAriaLabel}
-                          onClick={() => onDecideConflict(task, 'DISMISSED')}
-                        >
-                          Dismiss
-                        </Button>
-                      </div>
+                      <Button variant="default" size="sm" leftSection={<IdentificationBadge size={17} />}
+                        onClick={() => onDecideConflict(task)} aria-label={'Review identity conflict for ' + task.conflict.studentNumber}>
+                        Review conflict
+                      </Button>
                     ) : task.action === 'archive' ? (
                       <Button
                         variant="default"
