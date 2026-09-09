@@ -64,7 +64,7 @@ public class AiReviewService {
     }
 
     public record View(String status, boolean reused, String message, AiReviewProvider.Result report,
-                       String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken) { }
+                       String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode) { }
     private record Context(String hash, String title, String instructions, String template) { }
 
     public Map<String, Object> status(String subject) {
@@ -226,7 +226,7 @@ public class AiReviewService {
             default -> failureMessage(job.failureCode());
         };
         return new View(state, reused, message, report, job.completedAt() == null ? null : job.completedAt().toString(), response.getUpdatedAt().toString(), verified,
-            state.equals("UNCERTAIN") ? job.token() : null);
+            state.equals("UNCERTAIN") ? job.token() : null, state.equals("UNCERTAIN") ? job.failureCode() : null);
     }
 
     private static String failureMessage(String code) {
@@ -242,6 +242,8 @@ public class AiReviewService {
             case "OUTPUT_TRUNCATED" -> "Gemini's review exceeded the output limit. The incomplete review was not saved as a result.";
             case "FILE_PROCESSING_FAILED" -> "Gemini could not finish processing the PDF. No review was generated.";
             case "INVALID_RESPONSE" -> "Gemini returned an incomplete or invalid review. It was not saved as a result.";
+            case "PROVIDER_TIMEOUT" -> "The Gemini request timed out before a complete response arrived. It may already have used AI tokens.";
+            case "PROVIDER_CONNECTION_FAILED" -> "The backend lost its connection to Gemini. The request's outcome could not be confirmed.";
             default -> "The previous provider request has an uncertain outcome.";
         };
         return reason + " Retrying requires confirmation and may use additional AI tokens.";
@@ -264,6 +266,6 @@ public class AiReviewService {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
         catch (Exception exception) { throw new IllegalStateException(exception); }
     }
-    private static View empty(String status, String message) { return new View(status, false, message, null, null, null, false, null); }
+    private static View empty(String status, String message) { return new View(status, false, message, null, null, null, false, null, null); }
     private static ResponseStatusException stale(String message) { return new ResponseStatusException(HttpStatus.CONFLICT, message); }
 }

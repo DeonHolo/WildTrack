@@ -36,7 +36,7 @@ import {
   emptyReviewDesk,
   loadReviewDesk,
   revokeAcceptance,
-  runAiReview,
+  runAiReviews,
   runDocumentCheck as runReviewDocumentCheck,
   runDocumentChecks as runReviewDocumentChecks
 } from '../lib/reviewDeskClient.js';
@@ -295,19 +295,20 @@ export function ReviewPage() {
     let progress = { total: ids.length, completed: 0, reused: 0, failures: [], uncertainIds: [], retryTokens: {}, done: false };
     setAiProgress(progress);
     try {
-      for (const id of ids) {
-        if (!isCurrentScope()) break;
-        const result = await runAiReview(activeWorkspaceId, id, retryAcknowledged, retryTokens[id], isCurrentScope);
-        if (!isCurrentScope()) break;
-        if (result.review) setState(current => ({ ...current, attempts: current.attempts.map(response => response.id === id ? applyAiReview(response, result.review) : response) }));
-        progress = { ...progress, completed: progress.completed + 1,
-          reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
-          failures: result.ok ? progress.failures : [...progress.failures, result.error],
-          uncertainIds: result.uncertain ? [...progress.uncertainIds, id] : progress.uncertainIds,
-          retryTokens: result.uncertain ? { ...progress.retryTokens, [id]: result.review.retryToken } : progress.retryTokens };
-        setAiProgress(progress);
-        if (!result.ok) break;
-      }
+      await runAiReviews(activeWorkspaceId, ids, { retryAcknowledged, retryTokens, shouldContinue: isCurrentScope,
+        onResult: (id, result) => {
+          const response = state.attempts.find(attempt => attempt.id === id);
+          const deliverable = state.deliverables.find(item => item.id === response?.deliverableId);
+          const label = `${deliverable?.title || 'Document'} — ${response?.studentName || response?.studentNumber || id}`;
+          if (result.review) setState(current => ({ ...current, attempts: current.attempts.map(response => response.id === id ? applyAiReview(response, result.review) : response) }));
+          progress = { ...progress, completed: progress.completed + 1,
+            reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
+            failures: result.ok ? progress.failures : [...progress.failures, `${label}: ${result.error}`],
+            uncertainIds: result.uncertain ? [...progress.uncertainIds, id] : progress.uncertainIds,
+            retryTokens: result.uncertain ? { ...progress.retryTokens, [id]: result.review.retryToken } : progress.retryTokens };
+          setAiProgress(progress);
+        }
+      });
     } finally {
       if (isCurrentScope()) { aiBusy.current = false; setAiProgress({ ...progress, done: true }); }
     }

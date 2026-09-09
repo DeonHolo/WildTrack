@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { runAiReview, runDocumentChecks } from './reviewDeskClient.js';
+import { runAiReview, runAiReviews, runDocumentChecks } from './reviewDeskClient.js';
 
 const request = vi.hoisted(() => vi.fn());
 const ai = vi.hoisted(() => ({ start: vi.fn(), saved: vi.fn() }));
@@ -49,4 +49,32 @@ it('does not send remaining batch actions after the caller leaves its session/wo
   pending.forEach(resolve => resolve({ status: 'COMPLETED' }));
   await batch;
   expect(request.mock.calls.map(([, payload]) => payload.responseId)).toEqual(['one', 'two', 'three']);
+});
+
+it('continues an AI batch past a saved uncertain result without automatically retrying it', async () => {
+  ai.start.mockResolvedValueOnce({ status: 'UNCERTAIN', failureCode: 'PROVIDER_OUTCOME_UNKNOWN', retryToken: 'retry', message: 'Unknown outcome' })
+    .mockResolvedValueOnce({ status: 'COMPLETED', reused: true })
+    .mockResolvedValueOnce({ status: 'COMPLETED', reused: false });
+  const onResult = vi.fn();
+  await runAiReviews('workspace', ['uncertain', 'saved', 'new'], { onResult });
+  expect(ai.start.mock.calls.map(args => args[1])).toEqual(['uncertain', 'saved', 'new']);
+  expect(ai.start.mock.calls.every(args => args[2] === false && args[3] === null)).toBe(true);
+  expect(onResult).toHaveBeenCalledTimes(3);
+  expect(onResult.mock.calls[0][1].uncertain).toBe(true);
+});
+
+it.each(['RATE_LIMITED', 'API_KEY_REJECTED', 'QUEUE_FULL', 'PROVIDER_TIMEOUT', 'PROVIDER_CONNECTION_FAILED'])(
+  'pauses an AI batch on %s instead of sending more requests', async (failureCode) => {
+    ai.start.mockResolvedValueOnce({ status: 'UNCERTAIN', failureCode, message: 'Blocked' });
+    await runAiReviews('workspace', ['first', 'must-not-start']);
+    expect(ai.start.mock.calls.map(args => args[1])).toEqual(['first']);
+  });
+
+it('stops sending AI batch actions after a workspace change', async () => {
+  let active = true;
+  ai.start.mockResolvedValueOnce({ status: 'COMPLETED' });
+  await runAiReviews('workspace', ['first', 'must-not-start'], {
+    shouldContinue: () => active, onResult: () => { active = false; }
+  });
+  expect(ai.start.mock.calls.map(args => args[1])).toEqual(['first']);
 });
