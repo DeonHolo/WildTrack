@@ -343,6 +343,16 @@ export function isAiReportCurrent(response) {
   return response.aiReport.sourceResponseUpdatedAt === sourceTimestamp;
 }
 
+export function aiReviewStatus(response) {
+  if (isAiReportCurrent(response)) return 'Reviewed';
+  const review = response?.aiReviewState;
+  if (review?.sourceResponseUpdatedAt && review.sourceResponseUpdatedAt !== (response.updatedAt || response.submittedAt)) return 'Not reviewed';
+  if (review?.status === 'UNCERTAIN') return 'Retry required';
+  if (review?.status === 'RUNNING') return 'Reviewing';
+  if (review?.status === 'UNAVAILABLE') return 'Unavailable';
+  return 'Not reviewed';
+}
+
 function normalizeStoredAttempt(attempt) {
   const sourceSummary = attempt.checkSummary || attempt.aiSummary || '';
   const historicalAiReport = attempt.aiReport?.status === 'Current' && HISTORICAL_PLACEHOLDER_SUMMARIES.has(attempt.aiReport.summary);
@@ -429,6 +439,8 @@ function parseDisplayDate(value) {
 
 export function statusTone(status) {
   const key = String(status).toLowerCase();
+  if (key === 'retry required') return 'warning';
+  if (key === 'reviewing') return 'info';
   if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'connected', 'imported', 'published', 'submitted', 'file accessible'].includes(key)) return 'success';
   if (['archived', 'reviewed'].includes(key)) return 'maroon';
   if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'outdated', 'starter data', 'late', 'needs attention'].includes(key)) return 'warning';

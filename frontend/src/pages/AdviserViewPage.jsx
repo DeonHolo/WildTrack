@@ -62,6 +62,7 @@ import {
   getPublishedDeliverables,
   getTeamAdviser,
   isAiReportCurrent,
+  aiReviewStatus,
   isDocumentCheckCurrent,
   makeDriveViewUrl,
   normalizeStudentNumber,
@@ -576,7 +577,7 @@ function SelectedGroupOutput({
           <section>
             <div className="wt-adviser-detail-heading">
               <Text fw={800}>AI Review</Text>
-              <StatusIndicator status={aiCurrent ? 'Reviewed' : 'Not reviewed'} />
+              <StatusIndicator status={aiReviewStatus(response)} />
             </div>
             {aiCurrent ? (
               <Stack gap="xs">
