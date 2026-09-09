@@ -11,7 +11,7 @@ import {
 } from '@mantine/core';
 import { WarningCircle, CaretRight } from '@phosphor-icons/react';
 import { documentCheckStatus } from './DocumentCheckDialog.jsx';
-import { findStudent, formatDateTime, isAiReportCurrent } from '../../lib/workflow.js';
+import { findStudent, formatDateTime, aiReviewStatus } from '../../lib/workflow.js';
 import { StatusIndicator } from '../ui.jsx';
 
 export function ReviewSubmissionsTable({
@@ -90,7 +90,7 @@ export function ReviewSubmissionsTable({
                     <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{student?.teamCode || response.teamCode || 'Not assigned'}</Text></Table.Td>
                     <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{formatDateTime(response.updatedAt || response.submittedAt)}</Text></Table.Td>
                     <Table.Td className="wt-review-status-cell"><StatusIndicator status={documentCheckEnabled ? documentCheckStatus(response) : 'Not applicable'} /></Table.Td>
-                    <Table.Td className="wt-review-status-cell"><StatusIndicator status={isAiReportCurrent(response) ? 'Reviewed' : 'Not reviewed'} /></Table.Td>
+                    <Table.Td className="wt-review-status-cell"><StatusIndicator status={aiReviewStatus(response)} /></Table.Td>
                     <Table.Td className="wt-review-status-cell"><StatusIndicator status={decision} /></Table.Td>
                     <Table.Td className="wt-review-open-cell">
                       <Tooltip label={`Review ${studentName}`}>

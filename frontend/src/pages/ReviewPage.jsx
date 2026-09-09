@@ -25,6 +25,7 @@ import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { archiveAttempts as archiveServerAttempts } from '../lib/archiveClient.js';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
+import { AiReviewDialog } from '../components/review/AiReviewDialog.jsx';
 import { ReviewDeliverablesTable } from '../components/review/ReviewDeliverablesTable.jsx';
 import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
 import { ReviewSubmissionsTable } from '../components/review/ReviewSubmissionsTable.jsx';
@@ -42,6 +43,7 @@ import {
 } from '../lib/reviewDeskClient.js';
 import {
   deliverableUsesDocumentCheck,
+  aiReviewStatus,
   findStudent,
   firstSubmissionLink,
   getIdentityStudents,
@@ -264,7 +266,7 @@ export function ReviewPage() {
     setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, failures, done: true });
   }
 
-  async function requestAiReview(ids, retryAcknowledged = false, retryTokens = {}) {
+  async function requestAiReview(ids, retryAcknowledged = false, retryTokens = {}, excludeArchived = false) {
     if (aiBusy.current || !isCurrentScope()) return;
     const candidates = ids.filter(id => {
       const response = state.attempts.find(attempt => attempt.id === id);
@@ -280,19 +282,18 @@ export function ReviewPage() {
           labels: { confirm: 'Understood', cancel: 'Close' } });
         return;
       }
-      modals.openConfirmModal({ title: retryAcknowledged ? 'Retry uncertain AI requests?' : `AI review ${candidates.length} responses?`, centered: true,
-        children: <Stack gap="sm"><Text size="sm">Identical PDFs from the same team and deliverable reuse one review when the instructions, template and model settings match. New reviews send document contents to the configured AI provider and may incur charges.</Text>
-          <Text size="sm">AI findings can be wrong. Review them before making an academic decision.</Text>
-          {retryAcknowledged ? <Text size="sm" c="orange">The previous request may already have been billed. Retrying explicitly permits another provider request.</Text> : null}</Stack>,
-        labels: { confirm: retryAcknowledged ? 'Retry and allow possible charges' : 'Start AI review', cancel: 'Cancel' },
-        onConfirm: () => runAiBatch(candidates, retryAcknowledged, retryTokens) });
+      const modalId = modals.open({ title: retryAcknowledged ? 'Retry AI reviews?' : 'AI review submissions', centered: true,
+        children: <AiReviewDialog responses={candidates.map(id => state.attempts.find(response => response.id === id))}
+          excludeArchived={excludeArchived} retry={retryAcknowledged}
+          onCancel={() => modals.close(modalId)}
+          onConfirm={selected => { modals.close(modalId); runAiBatch(selected, retryAcknowledged, retryTokens); }} /> });
     } catch (error) { if (isCurrentScope()) notifications.show({ color: 'red', message: error.message || 'AI review status could not be loaded.' }); }
   }
 
   async function runAiBatch(ids, retryAcknowledged, retryTokens) {
     if (aiBusy.current || !isCurrentScope()) return;
     aiBusy.current = true;
-    let progress = { total: ids.length, completed: 0, reused: 0, failures: [], uncertainIds: [], retryTokens: {}, done: false };
+    let progress = { total: ids.length, completed: 0, available: 0, reused: 0, failures: [], uncertainIds: [], retryTokens: {}, done: false };
     setAiProgress(progress);
     try {
       await runAiReviews(activeWorkspaceId, ids, { retryAcknowledged, retryTokens, shouldContinue: isCurrentScope,
@@ -302,6 +303,7 @@ export function ReviewPage() {
           const label = `${deliverable?.title || 'Document'} — ${response?.studentName || response?.studentNumber || id}`;
           if (result.review) setState(current => ({ ...current, attempts: current.attempts.map(response => response.id === id ? applyAiReview(response, result.review) : response) }));
           progress = { ...progress, completed: progress.completed + 1,
+            available: progress.available + (result.ok ? 1 : 0),
             reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
             failures: result.ok ? progress.failures : [...progress.failures, `${label}: ${result.error}`],
             uncertainIds: result.uncertain ? [...progress.uncertainIds, id] : progress.uncertainIds,
@@ -430,12 +432,15 @@ export function ReviewPage() {
             label: (summary.deliverable.shortTitle || summary.deliverable.title) + ' · ' + summary.received + ' received · ' + summary.needsAction + ' need action' }))} />
         <Group gap="xs"><Button variant="default" disabled={batchRunning || !state.attempts.some(response => deliverableUsesDocumentCheck(state.deliverables.find(d => d.id === response.deliverableId)) && firstSubmissionLink(response.values))}
           onClick={() => confirmDocumentCheckBatch(state.attempts.filter(response => deliverableUsesDocumentCheck(state.deliverables.find(d => d.id === response.deliverableId)) && firstSubmissionLink(response.values)).map(response => response.id), { allDeliverables: true })}>Recheck all documents</Button>
-          <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done)} onClick={() => requestAiReview(state.attempts.map(response => response.id))}>AI review all</Button>
+          <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done)} onClick={() => requestAiReview(state.attempts.map(response => response.id), false, {}, true)}>AI review all</Button>
           <Button variant="subtle" onClick={() => setOverviewOpen(value => !value)} aria-expanded={overviewOpen}>{overviewOpen ? 'Hide overview' : 'Deliverable overview'}</Button></Group>
       </Group></Paper>
-      {aiProgress ? <Alert color={aiProgress.failures.length ? 'orange' : 'blue'} title={aiProgress.done ? (aiProgress.completed < aiProgress.total ? 'AI review batch paused' : 'AI review batch finished') : 'Reviewing documents'}
+      {aiProgress ? <Alert color={aiProgress.failures.length ? 'orange' : 'blue'} title={aiProgress.done ? (aiProgress.completed < aiProgress.total ? 'AI review paused' : aiProgress.failures.length ? 'AI review needs attention' : 'AI review complete') : 'Reviewing documents'}
         withCloseButton={aiProgress.done} onClose={() => setAiProgress(null)}>
-        <Text size="sm">{aiProgress.completed} of {aiProgress.total} processed; {aiProgress.reused} saved reviews reused.</Text>
+        <Text size="sm">{aiProgress.available} {aiProgress.available === 1 ? 'review' : 'reviews'} available · {aiProgress.uncertainIds.length} awaiting retry
+          {aiProgress.failures.length > aiProgress.uncertainIds.length ? ` · ${aiProgress.failures.length - aiProgress.uncertainIds.length} incomplete` : ''}</Text>
+        <Text size="xs" c="dimmed">{aiProgress.completed} of {aiProgress.total} responses checked · {aiProgress.reused} saved reviews reused
+          {aiProgress.done && aiProgress.completed < aiProgress.total ? ` · ${aiProgress.total - aiProgress.completed} not processed` : ''}</Text>
         {[...new Set(aiProgress.failures)].map(message => <Text size="sm" key={message}>{message}</Text>)}
         {aiProgress.done && aiProgress.uncertainIds.length ? <Button variant="default" size="xs" mt="sm" onClick={() => requestAiReview(aiProgress.uncertainIds, true, aiProgress.retryTokens)}>Review retry options</Button> : null}
       </Alert> : null}
@@ -591,7 +596,10 @@ export function ReviewPage() {
         checkError={checkError?.attemptId === selectedResponse?.id ? checkError?.message : ''}
         onClose={() => setSelectedResponseId('')}
         onDocumentCheck={() => openOrRunDocumentCheck(selectedResponse)}
-        onAiReview={() => requestAiReview([selectedResponse.id])}
+        onAiReview={() => {
+          const retry = aiReviewStatus(selectedResponse) === 'Retry required' && Boolean(selectedResponse.aiReviewState?.retryToken);
+          requestAiReview([selectedResponse.id], retry, retry ? { [selectedResponse.id]: selectedResponse.aiReviewState.retryToken } : {});
+        }}
         onAccept={() => acceptReview(selectedResponse)}
         onRevoke={() => confirmRevoke(selectedResponse)}
         onArchive={() => confirmArchive(selectedResponse)}

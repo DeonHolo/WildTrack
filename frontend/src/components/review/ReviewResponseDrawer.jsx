@@ -24,6 +24,7 @@ import {
   formatDateTime,
   getProjectMetadata,
   isAiReportCurrent,
+  aiReviewStatus,
   isDocumentCheckCurrent,
   makeDriveViewUrl
 } from '../../lib/workflow.js';
@@ -111,7 +112,7 @@ export function ReviewResponseDrawer({
             disabled={!documentCheckEnabled || !isDocumentCheckCurrent(response)}
             onClick={onAiReview}
           >
-            {isAiReportCurrent(response) ? 'Rerun AI Review' : 'Run AI Review'}
+            {aiReviewStatus(response) === 'Retry required' ? 'Retry AI review' : isAiReportCurrent(response) ? 'Rerun AI Review' : 'Run AI Review'}
           </Button>
         </Group>
 
@@ -141,7 +142,7 @@ export function ReviewResponseDrawer({
         <section className="wt-review-detail-section" aria-labelledby="ai-review-detail-heading">
           <Group justify="space-between" gap="sm">
             <Text component="h3" id="ai-review-detail-heading" fw={750}>AI Review</Text>
-            <StatusIndicator status={isAiReportCurrent(response) ? 'Reviewed' : 'Not reviewed'} />
+            <StatusIndicator status={aiReviewStatus(response)} />
           </Group>
           {isAiReportCurrent(response) ? (
             <ScrollArea.Autosize mah={220} type="auto" offsetScrollbars>
@@ -154,7 +155,9 @@ export function ReviewResponseDrawer({
               </Stack>
             </ScrollArea.Autosize>
           ) : (
-            <Text size="sm" c="dimmed">No current AI Review is available for this response.</Text>
+            <Text size="sm" c="dimmed">{['Retry required', 'Reviewing'].includes(aiReviewStatus(response))
+              ? response.aiReviewState?.message || 'The AI review has not completed yet.'
+              : 'No current AI Review is available for this response.'}</Text>
           )}
         </section>
 
