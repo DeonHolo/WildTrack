@@ -2,7 +2,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-Write-Host 'WildTrack Gemini setup (Gemini 2.5 Flash-Lite)' -ForegroundColor Cyan
+Write-Host 'WildTrack Gemini setup (Gemini 3.1 Flash-Lite)' -ForegroundColor Cyan
 Write-Host 'The key is stored in your Windows user environment, never in the repository.'
 $geminiSecureKey = Read-Host 'Paste your Gemini API key from Google AI Studio' -AsSecureString
 $geminiPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($geminiSecureKey)

@@ -71,7 +71,7 @@ public class AiReviewService {
         requireRole(subject);
         return Map.of("configured", provider.isConfigured(), "message", provider.isConfigured()
             ? "Identical team documents reuse a saved review when requirements and model settings match."
-            : "Set GEMINI_API_KEY on the backend and restart it to enable Gemini 2.5 Flash-Lite.");
+            : "Set GEMINI_API_KEY on the backend and restart it to enable Gemini 3.1 Flash-Lite.");
     }
 
     public View review(UUID workspaceId, UUID responseId, String subject, boolean retryAcknowledged) {
@@ -233,7 +233,7 @@ public class AiReviewService {
         String reason = switch (Objects.requireNonNullElse(code, "")) {
             case "RATE_LIMITED" -> "Gemini's quota or rate limit was reached. Wait and check the project's limits in AI Studio before retrying.";
             case "API_KEY_REJECTED" -> "Gemini rejected the API key or its permissions. Check the backend's GEMINI_API_KEY and API access.";
-            case "MODEL_UNAVAILABLE" -> "Gemini 2.5 Flash-Lite is unavailable for this API project. Check model access in AI Studio.";
+            case "MODEL_UNAVAILABLE" -> "Google returned Not Found during the Gemini 3.1 Flash-Lite review request. The model or uploaded file may be unavailable.";
             case "NOT_CONFIGURED" -> "The Gemini API key is not configured.";
             case "QUEUE_FULL" -> "The AI review queue is full. No Gemini request was sent for this attempt. Try again after current reviews finish.";
             case "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE" -> "The document or review requirements exceed the supported size. Nothing was silently truncated.";

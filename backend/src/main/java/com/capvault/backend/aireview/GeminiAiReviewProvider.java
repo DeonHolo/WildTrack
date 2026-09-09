@@ -17,7 +17,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 /** One generation attempt, no SDK retries, credentials/Google error bodies never returned to users. */
 final class GeminiAiReviewProvider implements AiReviewProvider {
-    static final String MODEL = "gemini-2.5-flash-lite";
+    static final String MODEL = "gemini-3.1-flash-lite";
     private static final int MAX_OUTPUT_TOKENS = 2048;
     private static final int INLINE_LIMIT = 10 * 1024 * 1024; // room for base64 + prompt under the 20 MB request limit
     private static final String GUIDANCE = """
@@ -49,7 +49,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     @Override public boolean isConfigured() { return !key.isBlank(); }
 
     @Override public String cacheVersion() {
-        return MODEL + ":rest-pdf-v1:temperature-0.2:thinking-0:output-" + MAX_OUTPUT_TOKENS
+        return MODEL + ":rest-pdf-v1:temperature-0.2:thinking-minimal:output-" + MAX_OUTPUT_TOKENS
             + ":" + AiReviewService.sha256(GUIDANCE.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
@@ -85,7 +85,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 "contents", List.of(Map.of("role", "user", "parts", List.of(
                     Map.of("text", "Review the attached PDF using this requirements data:\n" + json.writeValueAsString(requirements)), document))),
                 "generationConfig", Map.of("temperature", 0.2, "candidateCount", 1,
-                    "maxOutputTokens", MAX_OUTPUT_TOKENS, "thinkingConfig", Map.of("thinkingBudget", 0),
+                    "maxOutputTokens", MAX_OUTPUT_TOKENS, "thinkingConfig", Map.of("thinkingLevel", "MINIMAL"),
                     "responseMimeType", "application/json", "responseJsonSchema", schema()));
             // Send the PDF once; do not also send extractedText (which duplicates its contents).
             JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
