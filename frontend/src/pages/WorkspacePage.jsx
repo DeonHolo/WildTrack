@@ -1,7 +1,9 @@
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Archive,
   ArrowClockwise,
+  ArrowCounterClockwise,
   ArrowSquareOut,
   Buildings,
   CaretDown,
@@ -92,15 +94,26 @@ const EMPTY_TEMPLATE = {
   replacing: null
 };
 
+const EMPTY_WORKSPACE_FORM = {
+  name: '',
+  program: 'IT',
+  courseCode: '',
+  semester: 'Semester 1',
+  academicYear: '2026-27'
+};
+
 export function WorkspacePage() {
   const [searchParams] = useSearchParams();
   const linkedSource = searchParams.get('source') || '';
   const {
     workspaces,
+    allWorkspaces,
     activeWorkspace,
     activeWorkspaceId,
     switchWorkspace,
-    createWorkspace
+    createWorkspace,
+    updateWorkspace,
+    refreshWorkspaceManagementCatalog
   } = useWorkspaceSession();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
   const { data: state, setData: setState, status: workspaceStatus, error: workspaceError, reload } = useWorkspaceResource(
@@ -125,13 +138,13 @@ export function WorkspacePage() {
   const [refreshingBackend, setRefreshingBackend] = useState(false);
   const [maintenanceAction, setMaintenanceAction] = useState('');
   const [workspaceEditorOpen, setWorkspaceEditorOpen] = useState(false);
-  const [workspaceForm, setWorkspaceForm] = useState({
-    name: '',
-    program: 'IT',
-    courseCode: '',
-    semester: 'Semester 1',
-    academicYear: '2026-27'
-  });
+  const [workspaceEditorId, setWorkspaceEditorId] = useState('');
+  const [workspaceForm, setWorkspaceForm] = useState(EMPTY_WORKSPACE_FORM);
+  const [workspaceFormError, setWorkspaceFormError] = useState('');
+  const [workspaceSaving, setWorkspaceSaving] = useState(false);
+  const [workspaceToArchive, setWorkspaceToArchive] = useState(null);
+  const [workspaceLifecycleSaving, setWorkspaceLifecycleSaving] = useState(false);
+  const [workspaceNotice, setWorkspaceNotice] = useState('');
 
   const activeColumns = getActiveTrackerColumns(state);
   const templateDeliverable = state.deliverables.find((item) => item.trackerColumn === template.deliverable) || null;
@@ -144,6 +157,7 @@ export function WorkspacePage() {
   const pendingSuggestions = classRecord.pendingFormSuggestions || classRecord.importSummary?.suggestedForms || [];
   const importedCount = sourceStatuses.filter((item) => item.status === 'Imported').length;
   const backendSyncError = state.backendSync?.lastError || '';
+  const manageableWorkspaces = allWorkspaces?.length ? allWorkspaces : workspaces || [];
 
   useEffect(() => {
     setSources((current) => {
@@ -171,6 +185,9 @@ export function WorkspacePage() {
     setTemplateError('');
     setRefreshingBackend(false);
     setWorkspaceEditorOpen(false);
+    setWorkspaceEditorId('');
+    setWorkspaceFormError('');
+    setWorkspaceSaving(false);
   }, [isCurrentScope]);
 
   useEffect(() => {
@@ -178,6 +195,15 @@ export function WorkspacePage() {
       .then(setDriveStatus)
       .catch((error) => setDriveStatus({ configured: false, message: `Backend unavailable: ${error.message}` }));
   }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!refreshWorkspaceManagementCatalog) return undefined;
+    refreshWorkspaceManagementCatalog().then((result) => {
+      if (!cancelled && result && !result.ok) setWorkspaceNotice(result.error || 'Archived workspaces could not be loaded.');
+    });
+    return () => { cancelled = true; };
+  }, [refreshWorkspaceManagementCatalog]);
 
   async function importSource(sourceType, mappingOverrides = null) {
     if (!isCurrentScope()) return;
@@ -315,12 +341,65 @@ export function WorkspacePage() {
     }
   }
 
+  function openCreateWorkspace() {
+    setWorkspaceEditorId('');
+    setWorkspaceForm(EMPTY_WORKSPACE_FORM);
+    setWorkspaceFormError('');
+    setWorkspaceEditorOpen(true);
+  }
+
+  function openEditWorkspace(workspace) {
+    setWorkspaceEditorId(workspace.id);
+    setWorkspaceForm({
+      name: workspace.name || '',
+      program: workspace.program || '',
+      courseCode: workspace.courseCode || '',
+      semester: workspace.semester || '',
+      academicYear: workspace.academicYear || ''
+    });
+    setWorkspaceFormError('');
+    setWorkspaceEditorOpen(true);
+  }
+
   async function submitWorkspace(event) {
     event.preventDefault();
-    const result = await createWorkspace(workspaceForm);
-    if (!result.ok || !isCurrentScope()) return;
+    setWorkspaceSaving(true);
+    setWorkspaceFormError('');
+    const existing = workspaceEditorId
+      ? manageableWorkspaces.find((workspace) => workspace.id === workspaceEditorId)
+      : null;
+    const result = existing
+      ? await updateWorkspace(existing.id, { ...workspaceForm, active: existing.active !== false })
+      : await createWorkspace(workspaceForm);
+    setWorkspaceSaving(false);
+    if (!result.ok) {
+      setWorkspaceFormError(result.error || `Workspace could not be ${existing ? 'updated' : 'created'}.`);
+      return;
+    }
+    if (existing?.id === activeWorkspaceId) {
+      setWorkspaceName(result.workspace.name);
+      setTrackerSheet(`${result.workspace.courseCode || result.workspace.program || 'Capstone'} Tracker`);
+    }
     setWorkspaceEditorOpen(false);
-    setWorkspaceForm({ name: '', program: 'IT', courseCode: '', semester: 'Semester 1', academicYear: '2026-27' });
+    setWorkspaceEditorId('');
+    setWorkspaceForm(EMPTY_WORKSPACE_FORM);
+    setWorkspaceNotice(existing ? `${result.workspace.name} updated.` : `${result.workspace.name} created.`);
+  }
+
+  async function restoreWorkspace(workspace) {
+    setWorkspaceLifecycleSaving(true);
+    const result = await updateWorkspace(workspace.id, { active: true });
+    setWorkspaceLifecycleSaving(false);
+    setWorkspaceNotice(result.ok ? `${result.workspace.name} restored.` : result.error || 'Workspace could not be restored.');
+  }
+
+  async function confirmArchiveWorkspace() {
+    if (!workspaceToArchive) return;
+    setWorkspaceLifecycleSaving(true);
+    const result = await updateWorkspace(workspaceToArchive.id, { active: false });
+    setWorkspaceLifecycleSaving(false);
+    setWorkspaceToArchive(null);
+    setWorkspaceNotice(result.ok ? `${result.workspace.name} archived.` : result.error || 'Workspace could not be archived.');
   }
 
   async function refreshFromBackend() {
@@ -361,10 +440,45 @@ export function WorkspacePage() {
       <PageHeader
         title="Workspace setup"
         description="Manage the class sources, deliverables, and document templates for the selected academic workspace."
-        actions={<Button type="button" variant="secondary" icon={PlusCircle} onClick={() => setWorkspaceEditorOpen(true)}>New workspace</Button>}
+        actions={<Button type="button" variant="secondary" icon={PlusCircle} onClick={openCreateWorkspace}>New workspace</Button>}
       />
 
-      <ResourceBoundary status={workspaceStatus} error={workspaceError} onRetry={reload}>
+      <section className="panel" aria-label="Academic workspace management">
+        <div className="panel-header">
+          <div>
+            <h2>Academic workspaces</h2>
+            <p>Archived workspaces keep their data and history, but stay out of normal workspace selectors until restored.</p>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table aria-label="Academic workspaces">
+            <thead><tr><th>Workspace</th><th>Academic context</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {manageableWorkspaces.map((workspace) => (
+                <tr key={workspace.id}>
+                  <td><strong>{workspace.name}</strong></td>
+                  <td><span>{workspace.program} | {workspace.courseCode}</span><small>{workspace.semester} | {workspace.academicYear}</small></td>
+                  <td><StatusIndicator status={workspace.active === false ? 'Archived' : 'Active'} /></td>
+                  <td>
+                    <div className="wt-row-actions">
+                      <Button type="button" size="sm" variant="secondary" icon={PencilSimple} onClick={() => openEditWorkspace(workspace)}>Edit</Button>
+                      {workspace.active === false ? (
+                        <Button type="button" size="sm" variant="secondary" icon={ArrowCounterClockwise} disabled={workspaceLifecycleSaving} onClick={() => restoreWorkspace(workspace)}>Restore</Button>
+                      ) : (
+                        <Button type="button" size="sm" variant="secondary" icon={Archive} disabled={workspaceLifecycleSaving} onClick={() => setWorkspaceToArchive(workspace)}>Archive</Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!manageableWorkspaces.length ? <tr><td colSpan="4"><span className="muted-copy">No academic workspaces have been created yet.</span></td></tr> : null}
+            </tbody>
+          </table>
+        </div>
+        {workspaceNotice ? <div role="status" className={`inline-alert ${/(created|updated|archived|restored)/i.test(workspaceNotice) ? 'success' : 'danger'}`}>{workspaceNotice}</div> : null}
+      </section>
+
+      {activeWorkspaceId ? <ResourceBoundary status={workspaceStatus} error={workspaceError} onRetry={reload}>
 
       <section className="panel wt-workspace-switcher">
         <div className="workspace-selector-row">
@@ -663,10 +777,16 @@ export function WorkspacePage() {
         </form>
       </Modal>
 
-      </ResourceBoundary>
-      <Modal opened={workspaceEditorOpen} onClose={() => setWorkspaceEditorOpen(false)} title="Create academic workspace" centered size="lg">
-        <form className="form-grid workspace-modal" onSubmit={submitWorkspace} aria-label="Create academic workspace">
+      </ResourceBoundary> : (
+        <section className="panel" aria-label="No active workspace">
+          <h2>No active workspace selected</h2>
+          <p className="muted-copy">Create a workspace or restore an archived workspace to continue class setup.</p>
+        </section>
+      )}
+      <Modal opened={workspaceEditorOpen} onClose={() => { if (!workspaceSaving) setWorkspaceEditorOpen(false); }} title={workspaceEditorId ? 'Edit academic workspace' : 'Create academic workspace'} centered size="lg">
+        <form className="form-grid workspace-modal" onSubmit={submitWorkspace} aria-label={workspaceEditorId ? 'Edit academic workspace' : 'Create academic workspace'}>
           <p className="muted-copy">Use one workspace for each program, course, semester, and academic year.</p>
+          {workspaceFormError ? <div className="inline-alert danger" role="alert">{workspaceFormError}</div> : null}
           <TextInput label="Workspace name" required value={workspaceForm.name} onChange={(event) => setWorkspaceForm({ ...workspaceForm, name: event.currentTarget.value })} />
           <div className="two-col">
             <TextInput label="Program" required value={workspaceForm.program} onChange={(event) => setWorkspaceForm({ ...workspaceForm, program: event.currentTarget.value })} />
@@ -676,9 +796,23 @@ export function WorkspacePage() {
             <TextInput label="Semester" required value={workspaceForm.semester} onChange={(event) => setWorkspaceForm({ ...workspaceForm, semester: event.currentTarget.value })} />
             <TextInput label="Academic year" required value={workspaceForm.academicYear} onChange={(event) => setWorkspaceForm({ ...workspaceForm, academicYear: event.currentTarget.value })} />
           </div>
-          <div className="button-row"><Button icon={PlusCircle}>Create workspace</Button><Button type="button" variant="secondary" onClick={() => setWorkspaceEditorOpen(false)}>Cancel</Button></div>
+          <div className="button-row"><Button icon={workspaceEditorId ? PencilSimple : PlusCircle} loading={workspaceSaving}>{workspaceEditorId ? 'Save changes' : 'Create workspace'}</Button><Button type="button" variant="secondary" disabled={workspaceSaving} onClick={() => setWorkspaceEditorOpen(false)}>Cancel</Button></div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(workspaceToArchive)}
+        title={`Archive ${workspaceToArchive?.name || 'workspace'}?`}
+        description="The workspace will disappear from normal selectors and published access, but its imported data, submissions, reviews, and archive history are preserved. You can restore it here later."
+        confirmLabel="Archive workspace"
+        intent="danger"
+        loading={workspaceLifecycleSaving}
+        onClose={() => setWorkspaceToArchive(null)}
+        onConfirm={confirmArchiveWorkspace}
+      >
+        <strong>{workspaceToArchive?.program} | {workspaceToArchive?.courseCode}</strong>
+        <span>{workspaceToArchive?.semester} | {workspaceToArchive?.academicYear}</span>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={maintenanceAction === 'refresh'}

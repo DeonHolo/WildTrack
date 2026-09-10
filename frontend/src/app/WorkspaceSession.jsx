@@ -1,6 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createWorkspaceResourceCache } from '../lib/workspaceResourceCache.js';
-import { createWorkspace as createBackendWorkspace, getCurrentSession, getWorkspaces, logout } from '../lib/api.js';
+import {
+  createWorkspace as createBackendWorkspace,
+  getCurrentSession,
+  getWorkspaces,
+  logout,
+  updateWorkspace as updateBackendWorkspace
+} from '../lib/api.js';
 import { browserStorageKeys } from '../lib/browserStorage.js';
 import { disableGoogleAutoSelect } from '../lib/googleIdentitySession.js';
 
@@ -11,6 +17,7 @@ export function WorkspaceSessionProvider({ children }) {
   const [session, setSession] = useState(null);
   const [sessionStatus, setSessionStatus] = useState('loading');
   const [sessionError, setSessionError] = useState('');
+  const [allWorkspaces, setAllWorkspaces] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState('');
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
@@ -43,17 +50,21 @@ export function WorkspaceSessionProvider({ children }) {
       const key = JSON.stringify([sessionIdentity.current, '', 'workspace-catalog']);
       const cached = resourceCache.read(key);
       if (!activeRef.current && Array.isArray(cached) && cached.length) {
-        const selected = cached.find(workspace => workspace.id === readActiveWorkspaceId())?.id || '';
-        const nextActive = selected || cached[0].id;
-        setWorkspaces(cached);
+        const cachedActive = activeWorkspaceCatalog(cached);
+        const selected = cachedActive.find(workspace => workspace.id === readActiveWorkspaceId())?.id || '';
+        const nextActive = selected || cachedActive[0]?.id || '';
+        setAllWorkspaces(cached);
+        setWorkspaces(cachedActive);
         activeRef.current = nextActive;
         setActiveWorkspaceId(nextActive);
-        setSelectedWorkspaceId(selected || (cached.length === 1 ? nextActive : ''));
+        setSelectedWorkspaceId(selected || (cachedActive.length === 1 ? nextActive : ''));
         setWorkspaceCatalogStatus('ready');
       }
       const list = await resourceCache.load(key, getWorkspaces);
       if (request !== catalogRequest.current) return [];
-      const next = Array.isArray(list) ? list : [];
+      const all = Array.isArray(list) ? list : [];
+      const next = activeWorkspaceCatalog(all);
+      setAllWorkspaces(all);
       setWorkspaces(next);
       const saved = readActiveWorkspaceId();
       const selected = next.find((workspace) => workspace.id === saved)?.id || '';
@@ -69,6 +80,7 @@ export function WorkspaceSessionProvider({ children }) {
       if (request !== catalogRequest.current) return [];
       if (error?.status === 401 || error?.status === 403) {
         resourceCache.clear();
+        setAllWorkspaces([]);
         setWorkspaces([]);
         activeRef.current = '';
         setActiveWorkspaceId('');
@@ -90,6 +102,7 @@ export function WorkspaceSessionProvider({ children }) {
       if (request !== sessionRequest.current) return null;
       const identity = current?.authenticated ? JSON.stringify([current.email, current.googleSubject, current.roles]) : '';
       if (sessionIdentity.current && sessionIdentity.current !== identity) {
+        setAllWorkspaces([]);
         setWorkspaces([]);
         activeRef.current = '';
         setActiveWorkspaceId('');
@@ -103,6 +116,7 @@ export function WorkspaceSessionProvider({ children }) {
       setSessionStatus('ready');
       if (current?.authenticated) await refreshWorkspaceCatalog();
       else {
+        setAllWorkspaces([]);
         setWorkspaces([]);
         activeRef.current = '';
         setActiveWorkspaceId('');
@@ -114,6 +128,7 @@ export function WorkspaceSessionProvider({ children }) {
       if (request !== sessionRequest.current) return null;
       const anonymous = { authenticated: false, roles: [] };
       setSession(anonymous);
+      setAllWorkspaces([]);
       setWorkspaces([]);
       activeRef.current = '';
       setActiveWorkspaceId('');
@@ -141,6 +156,7 @@ export function WorkspaceSessionProvider({ children }) {
         sessionRequest.current += 1;
         catalogRequest.current += 1;
         setSession(null);
+        setAllWorkspaces([]);
         setWorkspaces([]);
         activeRef.current = '';
         setActiveWorkspaceId('');
@@ -178,6 +194,7 @@ export function WorkspaceSessionProvider({ children }) {
       const workspace = await createBackendWorkspace({ ...payload, active: true });
       if (!isCurrent()) return { ok: false, error: 'Session or workspace changed. Reload to view the created workspace.' };
       catalogRequest.current += 1;
+      setAllWorkspaces((current) => [...current.filter((item) => item.id !== workspace.id), workspace]);
       setWorkspaces((current) => [...current.filter((item) => item.id !== workspace.id), workspace]);
       activeRef.current = workspace.id;
       setActiveWorkspaceId(workspace.id);
@@ -190,6 +207,73 @@ export function WorkspaceSessionProvider({ children }) {
       return { ok: false, error: error?.message || 'Workspace could not be created.' };
     }
   }, []);
+
+  const refreshWorkspaceManagementCatalog = useCallback(async () => {
+    const sessionAtStart = sessionRequest.current;
+    try {
+      const list = await getWorkspaces(true);
+      if (sessionRequest.current !== sessionAtStart) return { ok: false, error: 'Session changed.' };
+      const all = Array.isArray(list) ? list : [];
+      const active = activeWorkspaceCatalog(all);
+      setAllWorkspaces(all);
+      setWorkspaces(active);
+      if (!active.some((workspace) => workspace.id === activeRef.current)) {
+        const nextActiveId = active[0]?.id || '';
+        activeRef.current = nextActiveId;
+        setActiveWorkspaceId(nextActiveId);
+        setSelectedWorkspaceId(nextActiveId);
+        writeActiveWorkspaceId(nextActiveId);
+      }
+      return { ok: true, workspaces: all };
+    } catch (error) {
+      if (sessionRequest.current !== sessionAtStart) return { ok: false, error: 'Session changed.' };
+      return { ok: false, error: error?.message || 'Archived workspaces could not be loaded.' };
+    }
+  }, []);
+
+  const updateWorkspace = useCallback(async (workspaceId, updates = {}) => {
+    const sessionAtStart = sessionRequest.current;
+    const existing = allWorkspaces.find((workspace) => workspace.id === workspaceId);
+    if (!existing) return { ok: false, error: 'Workspace was not found.' };
+    const payload = {
+      name: existing.name,
+      program: existing.program,
+      courseCode: existing.courseCode,
+      semester: existing.semester,
+      academicYear: existing.academicYear,
+      active: existing.active !== false,
+      ...updates
+    };
+    try {
+      const workspace = await updateBackendWorkspace(workspaceId, payload);
+      if (sessionRequest.current !== sessionAtStart) return { ok: false, error: 'Session changed. Reload to view the workspace update.' };
+      catalogRequest.current += 1;
+      const nextAll = allWorkspaces.map((item) => item.id === workspace.id ? workspace : item);
+      const nextActiveWorkspaces = activeWorkspaceCatalog(nextAll);
+      setAllWorkspaces(nextAll);
+      setWorkspaces(nextActiveWorkspaces);
+
+      let nextActiveId = activeRef.current;
+      if (!nextActiveWorkspaces.some((item) => item.id === nextActiveId)) {
+        nextActiveId = nextActiveWorkspaces[0]?.id || '';
+        activeRef.current = nextActiveId;
+        setActiveWorkspaceId(nextActiveId);
+        setSelectedWorkspaceId(nextActiveId);
+        writeActiveWorkspaceId(nextActiveId);
+      } else if (!nextActiveId && workspace.active !== false) {
+        nextActiveId = workspace.id;
+        activeRef.current = nextActiveId;
+        setActiveWorkspaceId(nextActiveId);
+        setSelectedWorkspaceId(nextActiveId);
+        writeActiveWorkspaceId(nextActiveId);
+      }
+      setWorkspaceCatalogStatus('ready');
+      return { ok: true, workspace };
+    } catch (error) {
+      if (sessionRequest.current !== sessionAtStart) return { ok: false, error: 'Session changed.' };
+      return { ok: false, error: error?.message || 'Workspace could not be updated.' };
+    }
+  }, [allWorkspaces]);
 
   const logoutSession = useCallback(async () => {
     resourceCache.clear();
@@ -204,6 +288,7 @@ export function WorkspaceSessionProvider({ children }) {
       setSession({ authenticated: false, roles: [] });
       setSessionStatus('ready');
       setSessionError('');
+      setAllWorkspaces([]);
       setWorkspaces([]);
       activeRef.current = '';
       setActiveWorkspaceId('');
@@ -219,6 +304,8 @@ export function WorkspaceSessionProvider({ children }) {
     sessionStatus,
     sessionError,
     account: session?.authenticated && session.email ? { email: session.email, name: session.name || '' } : null,
+    allWorkspaces,
+    archivedWorkspaces: allWorkspaces.filter((workspace) => workspace.active === false),
     workspaces,
     activeWorkspace,
     activeWorkspaceId,
@@ -226,23 +313,28 @@ export function WorkspaceSessionProvider({ children }) {
     workspaceCatalogStatus,
     workspaceCatalogError,
     refreshWorkspaceCatalog,
+    refreshWorkspaceManagementCatalog,
     refreshSession,
     switchWorkspace,
     createWorkspace,
+    updateWorkspace,
     logoutStudentAccount: logoutSession,
     logoutStaffSession: logoutSession
   }), [
     activeWorkspace,
     activeWorkspaceId,
+    allWorkspaces,
     createWorkspace,
     logoutSession,
     refreshSession,
     refreshWorkspaceCatalog,
+    refreshWorkspaceManagementCatalog,
     selectedWorkspaceId,
     session,
     sessionError,
     sessionStatus,
     switchWorkspace,
+    updateWorkspace,
     workspaceCatalogError,
     workspaceCatalogStatus,
     workspaces
@@ -264,6 +356,10 @@ function findWorkspace(workspaces, value) {
     || String(workspace.publicKey || '').toLowerCase() === key
     || String(workspace.slug || '').toLowerCase() === key
   ));
+}
+
+function activeWorkspaceCatalog(workspaces) {
+  return (workspaces || []).filter((workspace) => workspace.active !== false);
 }
 
 function readActiveWorkspaceId() {

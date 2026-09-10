@@ -2,6 +2,89 @@
 
 Last updated: 2026-09-11
 
+## Post-release real workspace progress - 2026-09-11
+
+User-provided production screenshots after PR #31 and PR #32 confirm that the real IT411 validation setup has now progressed materially beyond the earlier terminal-authentication blocker. This subsection supersedes the earlier statement below that workspace creation was still blocked from the terminal. The workspace was created/configured through the authenticated production UI by the project owner; no claim is made that ChatGPT performed those authenticated browser mutations.
+
+### Production workspace/import state visible in the UI
+
+- A dedicated MVP-validation workspace now exists and is selected in production.
+- **Important metadata discrepancy to verify before participant validation:** the production UI currently shows the workspace as **`IT411 2627 SEM2 - MVP Validation`** and the header as **`IT | IT411` / `Semester 2 | 2026-27`**. The previously approved target throughout this handoff is **`IT411 2627 SEM1 - MVP Validation`** for the current IT411 Semester 1 workflow. Do not silently assume these are equivalent. Confirm whether the production workspace was accidentally created as Semester 2; if so, correct the workspace metadata before collecting validation evidence so screenshots, forms, archives, and academic records do not carry the wrong semester.
+- Workspace summary shows **3 / 3 sources imported**, **303 students**, **5 deliverables**, and **0 templates**.
+- The Source Sheets panel shows all three expected sources in **Imported** state: Team Formation, Tracker, and Software Project Monitor.
+- This is consistent with the intended one-time snapshot import model. The screenshots do not prove the deeper reconciliation counts by themselves, so the remaining post-import checks still need to verify **299 historical Student Number matches**, **4 genuinely new Team 65 students**, **19 historical-only inactive students**, the actual **63 current-team** result, **5 deadline suggestions**, retained old/current team mappings, and no Google writeback.
+
+### Published deliverables visible in production
+
+The Forms page shows exactly **5 published forms**, matching the current Tracker deliverables:
+
+1. `MVP Validation` - due Sep 12, 2026, 11:59 PM
+2. `Refactored SPMP` - due Sep 19, 2026, 11:59 PM
+3. `Refactored SRS` - due Sep 19, 2026, 11:59 PM
+4. `Refactored SDD` - due Sep 19, 2026, 11:59 PM
+5. `STD` - due Sep 26, 2026, 11:59 PM
+
+All five are visibly `Published`.
+
+The Forms list currently summarizes the `MVP Validation` rule as **`PDF Drive link`** even though the public MVP Validation form shown in the second screenshot contains all five typed fields. This appears to be a legacy/summary-label UI inconsistency rather than evidence that the persisted form lost its multi-artifact configuration. Treat it as a minor display issue unless a later API/detail check shows otherwise.
+
+### MVP Validation public form state
+
+The production MVP Validation form visibly contains all five required submission artifacts in one form/response:
+
+1. **Google Form - Validation Instrument** - required Google Form URL
+2. **PDF - Validation Framework/Model** - required Google Drive PDF URL
+3. **Google Sheet - Validation Responses** - required Google Sheet URL
+4. **PDF - MVP Validation Highlights** - required Google Drive PDF URL
+5. **Google Drive Folder - Validation Evidence** - required Drive-folder URL
+
+The screenshot also demonstrates that the student/team identity area is populated independently from those artifact fields. This is the intended one-response/multi-artifact shape and is materially different from the old single-URL form model.
+
+### Immediate next production checks
+
+Before formal participant validation, complete these in order:
+
+1. **Confirm/correct the SEM1 vs SEM2 workspace metadata discrepancy.** This is the highest-priority visible issue from the screenshots.
+2. Verify the real import reconciliation results in WildTrack, not only the summary counters: 303 active students; 299 historical matches; 4 new students all on Team 65; 19 historical-only inactive; actual current teams = 63 if the import matches the prior dry-run; exactly 5 active Tracker deliverables; 5 deadline suggestions; historical/current team mappings retained.
+3. Confirm `MVP Validation` field definitions in the admin editor/API have stable persisted IDs and the intended policies: only Framework/Model and MVP Validation Highlights are `DRIVE_PDF`, Document Check enabled, and AI Review enabled; the Form, Sheet, and folder fields must have Document Check and AI Review off.
+4. Add the **two independent official templates** for the two checkable PDF artifact fields. Workspace summary currently shows **0 templates**, so template-backed Document Check is not yet ready for those two PDFs.
+5. Run a safe no-writeback smoke using a test response in which the first URL is the Google Form. Confirm Document Check and AI Review target Framework/Model and Highlights explicitly and independently, never the first URL.
+6. Exercise the acceptance lifecycle on that test response: accept -> archive -> revoke acceptance -> confirm current state is Pending / Not Archived while the immutable archive snapshot remains -> reaccept unchanged response and confirm the old matching snapshot can become current again without a duplicate acceptance/archive row.
+7. Confirm no `/api/tracker/writebacks` action is used during the validation smoke and no automatic Google polling/re-import has been enabled.
+
+Do not begin collecting real participant submissions until the semester metadata is confirmed and the no-writeback/multi-PDF smoke passes.
+
+### 2026-09-11 workspace/lifecycle and usability follow-up
+
+The project owner confirmed from the newly created production workspace that the four current students not found in the old Team Formation source are present together under new current-semester team `2627-sem1-it411-65`. This is consistent with the prior dry-run result that Team 65 is genuinely new rather than a renamed historical team. The remaining reconciliation checks still need to verify the exact historical-match/inactive/team/deadline counts from the real workspace.
+
+The project owner prefers to create a fresh correct Semester 1 workspace after the next deployment rather than repair the existing Semester 2 test workspace in place, because recreating the workspace is also useful for re-testing the Tracker import/form-suggestion workflow from a clean setup. No participant/public links have been distributed from the incorrect Semester 2 workspace, so there is currently no link-compatibility obligation for that test workspace.
+
+Approved follow-up engineering work before recreating the validation workspace:
+
+- Add Admin **Edit workspace** UX for name, program, course code, semester, and academic year using the existing workspace update API.
+- Add **Archive workspace** and **Restore workspace** lifecycle controls backed by the existing `active` flag. Archiving must preserve imported data, forms, submissions, reviews, and history. Do not add ordinary permanent deletion in this batch.
+- Hide archived workspaces from normal student workspace choices while retaining an Admin management surface for restoring them.
+- Preserve the existing student behavior for a single available workspace: it is selected automatically and no workspace-choice dropdown is required.
+- In the form editor, newly created Google Drive PDF fields should default to AI Review enabled, and the checkbox label should be shortened from `Allow Admin AI Review` to `Allow AI Review`. Existing saved field settings must remain unchanged when editing.
+- Refactor the login artwork/banner to reuse the same proven banner/artwork implementation used by the deliverable/student surfaces rather than maintaining separate mascot-sizing markup/CSS. The current mobile login screenshot shows the mascot rendered materially too small.
+
+Implementation and release-gate verification for this follow-up is now complete locally:
+
+- Workspace administration now supports editing workspace name/program/course/semester/year, soft-archiving with `active=false`, and restoring an archived workspace. There is intentionally no hard-delete action or endpoint in this batch.
+- Normal `GET /api/workspaces` catalogs return active workspaces only. Admin may explicitly request the archived management catalog; archived workspaces therefore do not create false student workspace choices or remain available through normal public workspace resolution.
+- Workspace updates now perform the same friendly program/course/semester/year duplicate-identity check used during creation before the database uniqueness constraint is reached.
+- The existing one-workspace student behavior is preserved and regression-tested: the sole active workspace is auto-selected/persisted, `needsWorkspaceChoice=false`, and the student UI does not render a redundant chooser.
+- The form editor label is now `Allow AI Review`. Changing a non-PDF field to Google Drive PDF defaults AI Review on. A saved PDF field that was deliberately configured with AI Review off remains off when reopened/edited.
+- The login page now renders its hero through the same `FormArtwork` component used by the public deliverable form. Login-only banner grid/mascot-offset CSS was removed, and the login artwork uses the same full-height `auto 100%` sizing strategy as the submission artwork.
+- Focused combined frontend verification for WorkspaceSession, WorkspacePage, FormsPage, and RegisterPage: **45 / 45 passed**. The broader worker verification covering Forms, Login, WorkspaceSession, Public Submission, and Student Status: **92 / 92 passed**.
+- Workspace backend lifecycle/duplicate validation test: **3 / 3 passed**.
+- Full backend Maven suite after the combined changes: **181 / 181 passed**, 0 failures/errors/skips.
+- Full frontend Vitest after the combined changes: **279 / 281 passed**. The only two failures remain the same pre-existing unrelated test debt: the unchanged App-shell `Ralph Laviste` assertion and the unchanged Forms-loading 60-second cache-expiry assertion. Neither failing test file is modified by this follow-up.
+- Final frontend production build passed with 5402 modules transformed; only the existing >500 kB Vite chunk-size warning remains.
+- Packaged production verification passed: `HerokuBuildpackContractTest` **1 / 1** and `PackagedProductionSmokeIT` **1 / 1**, Maven `BUILD SUCCESS`.
+- Final pre-release `git diff --check` is clean. A source search confirms no workspace hard-delete implementation was added and no new Tracker/Google writeback call path was introduced.
+
 ## Latest engineering status - 2026-09-11 multi-artifact implementation
 
 The approved MVP Validation engineering batch is now in final verification. This section supersedes the older notes below that describe multi-artifact support or Revoke Acceptance as only planned/unresolved.

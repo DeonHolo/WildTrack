@@ -14,9 +14,12 @@ const workflow = vi.hoisted(() => ({
     { id: 'workspace-it', name: 'IT Capstone - IT332', program: 'IT', courseCode: 'IT332', semester: 'Semester 2', academicYear: '2025-26' },
     { id: 'workspace-cs', name: 'CS Capstone', program: 'CS', courseCode: 'CS', semester: 'Semester 2', academicYear: '2025-26' }
   ],
+  allWorkspaces: [],
   state: null,
   switchWorkspace: vi.fn(),
   createWorkspace: vi.fn(),
+  updateWorkspace: vi.fn(),
+  refreshWorkspaceManagementCatalog: vi.fn(),
   connectSheetSource: vi.fn(),
   generateFormsFromSuggestions: vi.fn(),
   refreshBackendData: vi.fn(),
@@ -33,9 +36,12 @@ vi.mock('../app/WorkspaceSession.jsx', () => ({
     activeWorkspace: workflow.activeWorkspace,
     activeWorkspaceId: workflow.activeWorkspaceId,
     workspaces: workflow.workspaces,
+    allWorkspaces: workflow.allWorkspaces,
     switchWorkspace: workflow.switchWorkspace,
     createWorkspace: workflow.createWorkspace,
-    refreshWorkspaceCatalog: vi.fn()
+    updateWorkspace: workflow.updateWorkspace,
+    refreshWorkspaceCatalog: vi.fn(),
+    refreshWorkspaceManagementCatalog: workflow.refreshWorkspaceManagementCatalog
   })
 }));
 
@@ -235,8 +241,23 @@ describe('workspace operations', () => {
   beforeEach(() => {
     workflow.activeWorkspaceId = 'workspace-it';
     workflow.session = { authenticated: true, email: 'admin@school.edu' };
+    workflow.activeWorkspace = { id: 'workspace-it', name: 'IT Capstone - IT332', program: 'IT', courseCode: 'IT332', semester: 'Semester 2', academicYear: '2025-26', active: true };
+    workflow.workspaces = [
+      workflow.activeWorkspace,
+      { id: 'workspace-cs', name: 'CS Capstone', program: 'CS', courseCode: 'CS', semester: 'Semester 2', academicYear: '2025-26', active: true }
+    ];
+    workflow.allWorkspaces = [
+      ...workflow.workspaces,
+      { id: 'workspace-old', name: 'Archived IT Capstone', program: 'IT', courseCode: 'IT331', semester: 'Semester 1', academicYear: '2025-26', active: false }
+    ];
     workflow.state = createState();
     Object.values(workflow).forEach((value) => value?.mockReset?.());
+    workflow.refreshWorkspaceManagementCatalog.mockResolvedValue({ ok: true, workspaces: workflow.allWorkspaces });
+    workflow.createWorkspace.mockImplementation(async (payload) => ({ ok: true, workspace: { id: 'workspace-new', ...payload, active: true } }));
+    workflow.updateWorkspace.mockImplementation(async (workspaceId, updates) => {
+      const workspace = workflow.allWorkspaces.find((item) => item.id === workspaceId);
+      return { ok: true, workspace: { ...workspace, ...updates } };
+    });
   });
 
   it.each(['workspace', 'account'])('discards a late import summary after the %s changes', async (changed) => {
@@ -268,6 +289,72 @@ describe('workspace operations', () => {
     expect(within(sources).getByRole('button', { name: 'Import Team Formation' })).toHaveClass('mantine-Button-root');
     expect(within(sources).getByRole('button', { name: 'Import Tracker' })).toHaveClass('mantine-Button-root');
     expect(within(sources).getByRole('button', { name: 'Import Project Monitor' })).toHaveClass('mantine-Button-root');
+  });
+
+  it('keeps archived workspaces out of the current selector while exposing restore in workspace management', async () => {
+    renderPage();
+
+    const selector = screen.getByRole('combobox', { name: 'Current workspace' });
+    expect(within(selector).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'IT Capstone - IT332',
+      'CS Capstone'
+    ]);
+    expect(within(selector).queryByRole('option', { name: 'Archived IT Capstone' })).not.toBeInTheDocument();
+
+    const management = screen.getByRole('table', { name: 'Academic workspaces' });
+    const archivedRow = within(management).getByText('Archived IT Capstone').closest('tr');
+    expect(archivedRow).toHaveTextContent('Archived');
+    fireEvent.click(within(archivedRow).getByRole('button', { name: 'Restore' }));
+    await waitFor(() => expect(workflow.updateWorkspace).toHaveBeenCalledWith('workspace-old', { active: true }));
+  });
+
+  it('edits workspace metadata through the existing update lifecycle', async () => {
+    renderPage();
+    const management = screen.getByRole('table', { name: 'Academic workspaces' });
+    const activeRow = within(management).getByText('IT Capstone - IT332').closest('tr');
+    fireEvent.click(within(activeRow).getByRole('button', { name: 'Edit' }));
+
+    const dialog = await screen.findByRole('form', { name: 'Edit academic workspace' });
+    expect(within(dialog).getByRole('textbox', { name: 'Workspace name' })).toHaveValue('IT Capstone - IT332');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Workspace name' }), { target: { value: 'IT Capstone - Section 65' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Course or section' }), { target: { value: 'IT332-65' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(workflow.updateWorkspace).toHaveBeenCalledWith('workspace-it', {
+      name: 'IT Capstone - Section 65',
+      program: 'IT',
+      courseCode: 'IT332-65',
+      semester: 'Semester 2',
+      academicYear: '2025-26',
+      active: true
+    }));
+  });
+
+  it('archives a workspace without offering hard delete', async () => {
+    renderPage();
+    const management = screen.getByRole('table', { name: 'Academic workspaces' });
+    const activeRow = within(management).getByText('IT Capstone - IT332').closest('tr');
+    expect(within(activeRow).queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
+    fireEvent.click(within(activeRow).getByRole('button', { name: 'Archive' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Archive IT Capstone - IT332?' });
+    expect(dialog).toHaveTextContent('submissions, reviews, and archive history are preserved');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Archive workspace' }));
+    await waitFor(() => expect(workflow.updateWorkspace).toHaveBeenCalledWith('workspace-it', { active: false }));
+  });
+
+  it('shows friendly backend duplicate-identity validation while editing', async () => {
+    workflow.updateWorkspace.mockResolvedValueOnce({
+      ok: false,
+      error: 'A workspace already exists for this program, course, semester, and academic year.'
+    });
+    renderPage();
+    const management = screen.getByRole('table', { name: 'Academic workspaces' });
+    const activeRow = within(management).getByText('IT Capstone - IT332').closest('tr');
+    fireEvent.click(within(activeRow).getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('form', { name: 'Edit academic workspace' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('A workspace already exists for this program, course, semester, and academic year.');
   });
 
   it('updates published sheet URL inputs without crashing when typing', () => {

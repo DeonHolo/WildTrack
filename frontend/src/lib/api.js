@@ -56,13 +56,20 @@ export async function logout() {
   return request('/auth/logout', { method: 'POST' });
 }
 
-export async function getWorkspaces() {
-  return request('/workspaces');
+export async function getWorkspaces(includeArchived = false) {
+  return request(includeArchived ? '/workspaces?includeArchived=true' : '/workspaces');
 }
 
 export async function createWorkspace(payload) {
   return request('/workspaces', {
     method: 'POST',
+    body: payload
+  });
+}
+
+export async function updateWorkspace(workspaceId, payload) {
+  return request(`/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: 'PUT',
     body: payload
   });
 }

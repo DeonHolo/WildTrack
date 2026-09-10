@@ -3015,10 +3015,6 @@ html {
   width: 100%;
 }
 
-.wt-login-banner {
-  grid-template-columns: minmax(0, 1fr) 42%;
-}
-
 .wt-login-banner-copy {
   gap: 6px;
   min-width: 0;
@@ -3037,11 +3033,6 @@ html {
   color: rgba(255, 253, 249, 0.9);
   font-size: 0.88rem;
   line-height: 1.5;
-}
-
-.wt-login-banner-art {
-  /* Let the artwork reach the banner edge while the copy keeps its padding. */
-  margin-right: -34px;
 }
 
 .wt-login-surface {
@@ -3228,16 +3219,6 @@ html {
     max-width: 300px;
     display: flex;
     justify-content: center;
-  }
-}
-
-@media (max-width: 640px) {
-  .wt-login-banner {
-    grid-template-columns: minmax(0, 1fr) 38%;
-  }
-
-  .wt-login-banner-art {
-    margin-right: -20px;
   }
 }
 

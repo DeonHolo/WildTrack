@@ -19,9 +19,10 @@ public class AcademicWorkspaceService {
     }
 
     @Transactional(readOnly = true)
-    public List<AcademicWorkspaceResponse> list() {
+    public List<AcademicWorkspaceResponse> list(boolean includeArchived) {
         return repository.findAllByOrderByActiveDescProgramAscCourseCodeAscAcademicYearDescSemesterAsc()
             .stream()
+            .filter(workspace -> includeArchived || workspace.isActive())
             .map(AcademicWorkspaceResponse::from)
             .toList();
     }
@@ -85,11 +86,24 @@ public class AcademicWorkspaceService {
     @Transactional
     public AcademicWorkspaceResponse update(UUID id, AcademicWorkspaceRequest request) {
         AcademicWorkspace workspace = require(id);
+        String program = request.program().trim();
+        String courseCode = request.courseCode().trim();
+        String semester = request.semester().trim();
+        String academicYear = request.academicYear().trim();
+        repository.findByProgramIgnoreCaseAndCourseCodeIgnoreCaseAndSemesterIgnoreCaseAndAcademicYearIgnoreCase(
+            program,
+            courseCode,
+            semester,
+            academicYear
+        ).filter(existing -> !existing.getId().equals(id)).ifPresent(existing -> {
+            throw new IllegalArgumentException("A workspace already exists for this program, course, semester, and academic year.");
+        });
+
         workspace.setName(request.name().trim());
-        workspace.setProgram(request.program().trim());
-        workspace.setCourseCode(request.courseCode().trim());
-        workspace.setSemester(request.semester().trim());
-        workspace.setAcademicYear(request.academicYear().trim());
+        workspace.setProgram(program);
+        workspace.setCourseCode(courseCode);
+        workspace.setSemester(semester);
+        workspace.setAcademicYear(academicYear);
         workspace.setActive(request.active() == null || request.active());
         return AcademicWorkspaceResponse.from(repository.save(workspace));
     }
