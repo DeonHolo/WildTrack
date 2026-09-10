@@ -273,6 +273,13 @@ export function ReviewPage() {
       return response && deliverableUsesDocumentCheck(state.deliverables.find(d => d.id === response.deliverableId));
     });
     if (!candidates.length) { notifications.show({ message: 'No PDF responses selected for AI review.' }); return; }
+    const effectiveRetryTokens = { ...retryTokens };
+    for (const id of candidates) {
+      const response = state.attempts.find(attempt => attempt.id === id);
+      if (aiReviewStatus(response) === 'Retry required' && response?.aiReviewState?.retryToken) {
+        effectiveRetryTokens[id] = response.aiReviewState.retryToken;
+      }
+    }
     try {
       const provider = await getAiReviewStatus();
       if (!isCurrentScope()) return;
@@ -284,19 +291,25 @@ export function ReviewPage() {
       }
       const modalId = modals.open({ title: retryAcknowledged ? 'Retry AI reviews?' : 'AI review submissions', centered: true,
         children: <AiReviewDialog responses={candidates.map(id => state.attempts.find(response => response.id === id))}
-          excludeArchived={excludeArchived} retry={retryAcknowledged}
+          excludeArchived={excludeArchived} retry={retryAcknowledged} retryTokens={effectiveRetryTokens}
           onCancel={() => modals.close(modalId)}
-          onConfirm={selected => { modals.close(modalId); runAiBatch(selected, retryAcknowledged, retryTokens); }} /> });
+          onConfirm={selected => {
+            const selectedRetryTokens = Object.fromEntries(selected
+              .filter(id => effectiveRetryTokens[id])
+              .map(id => [id, effectiveRetryTokens[id]]));
+            modals.close(modalId);
+            runAiBatch(selected, selectedRetryTokens);
+          }} /> });
     } catch (error) { if (isCurrentScope()) notifications.show({ color: 'red', message: error.message || 'AI review status could not be loaded.' }); }
   }
 
-  async function runAiBatch(ids, retryAcknowledged, retryTokens) {
+  async function runAiBatch(ids, retryTokens = {}) {
     if (aiBusy.current || !isCurrentScope()) return;
     aiBusy.current = true;
     let progress = { total: ids.length, completed: 0, available: 0, reused: 0, failures: [], uncertainIds: [], retryTokens: {}, done: false };
     setAiProgress(progress);
     try {
-      await runAiReviews(activeWorkspaceId, ids, { retryAcknowledged, retryTokens, shouldContinue: isCurrentScope,
+      await runAiReviews(activeWorkspaceId, ids, { retryTokens, shouldContinue: isCurrentScope,
         onResult: (id, result) => {
           const response = state.attempts.find(attempt => attempt.id === id);
           const deliverable = state.deliverables.find(item => item.id === response?.deliverableId);

@@ -15,7 +15,8 @@ const workflow = vi.hoisted(() => ({
   session: { authenticated: true, email: 'admin@school.edu' },
   runDocumentCheck: vi.fn(),
   runDocumentChecks: vi.fn(),
-  runAiReview: vi.fn(),
+  getAiReviewStatus: vi.fn(),
+  runAiReviews: vi.fn(),
   markAccepted: vi.fn(),
   revokeAcceptance: vi.fn(),
   archiveAttempt: vi.fn()
@@ -41,7 +42,8 @@ vi.mock('../hooks/useWorkspaceResource.js', () => ({
 }));
 
 vi.mock('../lib/api.js', () => ({
-  getIdentityConflicts: vi.fn().mockResolvedValue([])
+  getIdentityConflicts: vi.fn().mockResolvedValue([]),
+  getAiReviewStatus: (...args) => workflow.getAiReviewStatus(...args)
 }));
 
 vi.mock('../lib/reviewDeskClient.js', () => ({
@@ -53,7 +55,7 @@ vi.mock('../lib/reviewDeskClient.js', () => ({
   runDocumentChecks: (_workspaceId, responses, _deliverables, options) => (
     workflow.runDocumentChecks(responses.map((response) => response.id), options)
   ),
-  runAiReview: (...args) => workflow.runAiReview(...args),
+  runAiReviews: (...args) => workflow.runAiReviews(...args),
   acceptResponse: (...args) => workflow.markAccepted(...args),
   revokeAcceptance: (...args) => workflow.revokeAcceptance(...args)
 }));
@@ -234,7 +236,8 @@ describe('deliverable-first submission review', () => {
       onProgress?.({ completed: ids.length, total: ids.length });
       return { completed: ids.length, total: ids.length, failed: 0 };
     });
-    workflow.runAiReview.mockResolvedValue({ ok: false, unavailable: true });
+    workflow.getAiReviewStatus.mockResolvedValue({ configured: true, message: 'Gemini connected.' });
+    workflow.runAiReviews.mockResolvedValue(undefined);
     workflow.archiveAttempt.mockResolvedValue({ ok: true, archived: 1 });
     workflow.markAccepted.mockImplementation(async (id) => ({
       feedback: [],
@@ -263,10 +266,37 @@ describe('deliverable-first submission review', () => {
   it('explains unavailable AI review without inventing a saved AI report', async () => {
     const response = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
     response.documentCheck = currentDocumentCheck(response.updatedAt);
+    workflow.getAiReviewStatus.mockResolvedValue({ configured: false, message: 'AI Review is not connected yet.' });
     renderPage('/review?response=response-muriel-srs');
     fireEvent.click(screen.getByRole('button', { name: 'Run AI Review' }));
-    expect(await screen.findByText('AI Review is not connected yet')).toBeInTheDocument();
+    expect(await screen.findByText(/AI Review is not connected yet/)).toBeInTheDocument();
     expect(screen.getByText('No current AI Review is available for this response.')).toBeInTheDocument();
+  });
+
+  it('AI review all carries retry tokens only for retry-required responses in a mixed batch', async () => {
+    const muriel = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    muriel.documentCheck = currentDocumentCheck(muriel.updatedAt);
+    ron.aiReport = null;
+    ron.aiReviewState = {
+      status: 'UNCERTAIN',
+      sourceResponseUpdatedAt: ron.updatedAt,
+      retryToken: 'ron-retry-token',
+      message: 'The previous provider request has an uncertain outcome.'
+    };
+    workflow.state.attempts = [muriel, ron];
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'AI review submissions' });
+    expect(confirmation).toHaveTextContent('1 review needs an explicit retry');
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Start / retry reviews' }));
+
+    await waitFor(() => expect(workflow.runAiReviews).toHaveBeenCalledTimes(1));
+    const [workspaceId, ids, options] = workflow.runAiReviews.mock.calls[0];
+    expect(workspaceId).toBe('workspace-it');
+    expect(ids).toEqual(['response-muriel-srs', 'response-ron-srs']);
+    expect(options.retryTokens).toEqual({ 'response-ron-srs': 'ron-retry-token' });
   });
 
   it('starts with a compact deliverable queue and only pending SRS responses', () => {

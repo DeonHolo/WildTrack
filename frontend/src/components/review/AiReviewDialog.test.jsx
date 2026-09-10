@@ -41,6 +41,14 @@ it('keeps retries explicit with short footer labels and a visible cost explanati
   expect(confirm).toHaveBeenCalledWith(['active', 'archived']);
 });
 
+it('warns about retry cost in a mixed batch without treating fresh reviews as retries', () => {
+  const confirm = show({ excludeArchived: false, retryTokens: { active: 'retry-token' } });
+  expect(screen.getByText(/1 review needs an explicit retry/)).toBeInTheDocument();
+  expect(screen.getByText(/Other selected responses will start normally/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Start / retry reviews' }));
+  expect(confirm).toHaveBeenCalledWith(['active', 'archived']);
+});
+
 it('distinguishes uncertain and running reviews without attaching stale state to a changed response', () => {
   expect(aiReviewStatus({ aiReviewState: { status: 'UNCERTAIN' } })).toBe('Retry required');
   expect(aiReviewStatus({ aiReviewState: { status: 'RUNNING' } })).toBe('Reviewing');

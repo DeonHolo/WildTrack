@@ -102,8 +102,8 @@ export async function runAiReviews(workspaceId, ids, options = {}) {
   const shouldContinue = options.shouldContinue || (() => true);
   for (const id of ids) {
     if (!shouldContinue()) break;
-    const result = await runAiReview(workspaceId, id, options.retryAcknowledged || false,
-      options.retryTokens?.[id] || null, shouldContinue);
+    const retryToken = options.retryTokens?.[id] || null;
+    const result = await runAiReview(workspaceId, id, Boolean(retryToken), retryToken, shouldContinue);
     if (!shouldContinue() || result.cancelled) break;
     options.onResult?.(id, result);
     // Document-specific failures remain available for explicit retry, but do not block other documents.

@@ -63,6 +63,18 @@ it('continues an AI batch past a saved uncertain result without automatically re
   expect(onResult.mock.calls[0][1].uncertain).toBe(true);
 });
 
+it('acknowledges retries only for responses that have retry tokens in a mixed batch', async () => {
+  ai.start.mockResolvedValue({ status: 'COMPLETED', reused: false });
+  await runAiReviews('workspace', ['fresh', 'retry-me', 'fresh-two'], {
+    retryTokens: { 'retry-me': 'retry-token' }
+  });
+  expect(ai.start.mock.calls.map(args => [args[1], args[2], args[3]])).toEqual([
+    ['fresh', false, null],
+    ['retry-me', true, 'retry-token'],
+    ['fresh-two', false, null]
+  ]);
+});
+
 it.each(['RATE_LIMITED', 'API_KEY_REJECTED', 'QUEUE_FULL', 'PROVIDER_TIMEOUT', 'PROVIDER_CONNECTION_FAILED'])(
   'pauses an AI batch on %s instead of sending more requests', async (failureCode) => {
     ai.start.mockResolvedValueOnce({ status: 'UNCERTAIN', failureCode, message: 'Blocked' });

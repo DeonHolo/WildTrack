@@ -26,3 +26,6 @@ frontend/dist/
 docs/verification
 frontend/test-results/
 frontend/playwright-report/
+.agents/
+.codex/
+AGENTS.md
