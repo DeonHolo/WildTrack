@@ -23,8 +23,20 @@ public final class AuthenticatedRequest {
     }
 
     public static RequestPostProcessor session() {
+        return sessionWithRoles("ROLE_USER");
+    }
+
+    public static RequestPostProcessor adminSession() {
+        return sessionWithRoles("ROLE_USER", "ROLE_ADMIN");
+    }
+
+    public static RequestPostProcessor adviserSession() {
+        return sessionWithRoles("ROLE_USER", "ROLE_ADVISER");
+    }
+
+    private static RequestPostProcessor sessionWithRoles(String... roles) {
         Authentication authentication = new TestingAuthenticationToken(
-            "wildtrack-test-principal", "n/a", "ROLE_USER");
+            "wildtrack-test-principal", "n/a", roles);
         RequestPostProcessor authenticated = SecurityMockMvcRequestPostProcessors.authentication(authentication);
         RequestPostProcessor csrf = SecurityMockMvcRequestPostProcessors.csrf();
 

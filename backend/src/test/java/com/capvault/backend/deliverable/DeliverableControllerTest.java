@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import static com.capvault.backend.support.AuthenticatedRequest.adminSession;
 import static com.capvault.backend.support.AuthenticatedRequest.session;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,7 +37,7 @@ class DeliverableControllerTest {
     void createUpdateAndListDeliverables() throws Exception {
         repository.deleteAll();
 
-        String createdJson = mockMvc.perform(post("/api/deliverables").with(session())
+        String createdJson = mockMvc.perform(post("/api/deliverables").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -59,7 +60,7 @@ class DeliverableControllerTest {
 
         String id = new com.fasterxml.jackson.databind.ObjectMapper().readTree(createdJson).path("id").asText();
 
-        mockMvc.perform(put("/api/deliverables/" + id).with(session())
+        mockMvc.perform(put("/api/deliverables/" + id).with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -84,7 +85,7 @@ class DeliverableControllerTest {
 
     @Test
     void createDeliverableRejectsMissingRequiredFields() throws Exception {
-        mockMvc.perform(post("/api/deliverables").with(session())
+        mockMvc.perform(post("/api/deliverables").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {

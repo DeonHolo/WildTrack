@@ -1,6 +1,6 @@
 package com.capvault.backend.sheets;
 
-import static com.capvault.backend.support.AuthenticatedRequest.session;
+import static com.capvault.backend.support.AuthenticatedRequest.adminSession;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -106,7 +106,7 @@ class SheetImportControllerTest {
     void importsTeamFormationAndExposesStudentIds() throws Exception {
         when(sheetCsvClient.fetchCsv(anyString())).thenReturn(TEAM_FORMATION_CSV);
 
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session())
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -119,7 +119,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.officialIdsFound").value(2))
             .andExpect(jsonPath("$.warnings", hasSize(0)));
 
-        mockMvc.perform(get("/api/students").with(session()))
+        mockMvc.perform(get("/api/students").with(adminSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[?(@.studentNumber == '20-0649-750')]").exists())
             .andExpect(jsonPath("$[?(@.institutionalEmail == 'ron.luigi@cit.edu')]").exists());
@@ -133,7 +133,7 @@ class SheetImportControllerTest {
             2526-sem2-it332-01,2,25-0001-002,Rivera,Sam,sam.rivera@cit.edu,,
             """);
 
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session())
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"sheetUrl":"https://docs.google.com/spreadsheets/d/team-formation/edit","displayName":"Team Formation"}
@@ -157,7 +157,7 @@ class SheetImportControllerTest {
             24-0001-111,"DOE, JANE A.",2526-sem2-it332-99,2
             """);
 
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session())
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -175,7 +175,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.studentsFound").value(1))
             .andExpect(jsonPath("$.officialIdsFound").value(1));
 
-        mockMvc.perform(get("/api/students").with(session()))
+        mockMvc.perform(get("/api/students").with(adminSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].studentNumber").value("24-0001-111"))
             .andExpect(jsonPath("$[0].studentName").value("DOE, JANE A."))
@@ -188,7 +188,7 @@ class SheetImportControllerTest {
 
         importTeamFormation();
 
-        mockMvc.perform(post("/api/sheets/import/TRACKER").with(session())
+        mockMvc.perform(post("/api/sheets/import/TRACKER").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -204,12 +204,12 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.details.deadlineRows").value(1))
             .andExpect(jsonPath("$.details.metrics.deadlineValues").value(3));
 
-        mockMvc.perform(get("/api/tracker/rows").with(session()))
+        mockMvc.perform(get("/api/tracker/rows").with(adminSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[?(@.studentNumber == '20-0649-750')]").exists())
             .andExpect(jsonPath("$[?(@.studentName == 'TAGHOY, RON LUIGI F.')]").exists());
 
-        mockMvc.perform(post("/api/tracker/writebacks").with(session())
+        mockMvc.perform(post("/api/tracker/writebacks").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -230,7 +230,7 @@ class SheetImportControllerTest {
     void importsSoftwareProjectMonitorMetadata() throws Exception {
         when(sheetCsvClient.fetchCsv(anyString())).thenReturn(PROJECT_MONITOR_CSV);
 
-        mockMvc.perform(post("/api/sheets/import/PROJECT_MONITOR").with(session())
+        mockMvc.perform(post("/api/sheets/import/PROJECT_MONITOR").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -241,7 +241,7 @@ class SheetImportControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.groupsFound").value(1));
 
-        mockMvc.perform(get("/api/projects").with(session()))
+        mockMvc.perform(get("/api/projects").with(adminSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].groupCode").value("2526-sem2-it332-41"))
             .andExpect(jsonPath("$[0].projectTitle").value("CapVault"))
@@ -258,7 +258,7 @@ class SheetImportControllerTest {
 
         importTeamFormation();
 
-        mockMvc.perform(post("/api/sheets/import/PROJECT_MONITOR").with(session())
+        mockMvc.perform(post("/api/sheets/import/PROJECT_MONITOR").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -268,7 +268,7 @@ class SheetImportControllerTest {
                     """))
             .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/sheets/import/TRACKER").with(session())
+        mockMvc.perform(post("/api/sheets/import/TRACKER").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -282,7 +282,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.deadlineSuggestions", hasSize(5)))
             .andExpect(jsonPath("$.details.metrics.matchedRows").value(1));
 
-        mockMvc.perform(get("/api/students").with(session()))
+        mockMvc.perform(get("/api/students").with(adminSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].studentNumber").value("20-0649-750"))
@@ -294,7 +294,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$[0].softwareTitle").value("WildTrack"))
             .andExpect(jsonPath("$[0].institutionalEmail").value("ron.luigi@cit.edu"));
 
-        mockMvc.perform(get("/api/projects").with(session()))
+        mockMvc.perform(get("/api/projects").with(adminSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].groupCode").value("2627-sem1-it411-41"))
             .andExpect(jsonPath("$[0].sourceGroupCode").value("2526-sem2-it332-41"))
@@ -322,7 +322,7 @@ class SheetImportControllerTest {
     void manualTrackerReimportAddsNewDeliverablesAndRetiresRemovedColumnsWithoutRenamingExistingOnes() throws Exception {
         when(sheetCsvClient.fetchCsv(anyString())).thenReturn(TRACKER_CSV);
 
-        mockMvc.perform(post("/api/sheets/import/TRACKER").with(session())
+        mockMvc.perform(post("/api/sheets/import/TRACKER").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"sheetUrl":"https://docs.google.com/spreadsheets/d/tracker/edit","displayName":"Tracker"}
@@ -335,7 +335,7 @@ class SheetImportControllerTest {
             "TAGHOY, RON LUIGI F.",2526-sem2-it332-41,1,0,,,0
             """);
 
-        mockMvc.perform(post("/api/sheets/import/TRACKER").with(session())
+        mockMvc.perform(post("/api/sheets/import/TRACKER").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"sheetUrl":"https://docs.google.com/spreadsheets/d/tracker/edit","displayName":"Tracker"}
@@ -362,7 +362,7 @@ class SheetImportControllerTest {
             "TAGHOY, RON LUIGI F.",2526-sem2-it332-41,1,0,Needs verification,0
             """);
 
-        mockMvc.perform(post("/api/sheets/import/TRACKER").with(session())
+        mockMvc.perform(post("/api/sheets/import/TRACKER").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"sheetUrl":"https://docs.google.com/spreadsheets/d/tracker/edit","displayName":"Tracker"}
@@ -387,7 +387,7 @@ class SheetImportControllerTest {
             new IllegalArgumentException("Google Sheet returned 401 Unauthorized. Ensure the sheet is published to the web (File > Share > Publish to web) or shared with public view access.")
         );
 
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session())
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -400,7 +400,7 @@ class SheetImportControllerTest {
     }
 
     private void importTeamFormation() throws Exception {
-        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session())
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {

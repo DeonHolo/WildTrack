@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.capvault.backend.sheets.SheetImportRunRepository;
 import org.junit.jupiter.api.Test;
+import static com.capvault.backend.support.AuthenticatedRequest.adminSession;
 import static com.capvault.backend.support.AuthenticatedRequest.session;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,7 +38,7 @@ class WorkspaceSourceControllerTest {
         sheetImportRunRepository.deleteAll();
         repository.deleteAll();
 
-        mockMvc.perform(put("/api/workspace/sources/TEAM_FORMATION").with(session())
+        mockMvc.perform(put("/api/workspace/sources/TEAM_FORMATION").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -60,7 +61,7 @@ class WorkspaceSourceControllerTest {
 
     @Test
     void upsertSourceRejectsBlankUrl() throws Exception {
-        mockMvc.perform(put("/api/workspace/sources/TRACKER").with(session())
+        mockMvc.perform(put("/api/workspace/sources/TRACKER").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -71,5 +72,4 @@ class WorkspaceSourceControllerTest {
             .andExpect(jsonPath("$.fieldErrors.sheetUrl").value("Sheet URL is required"));
     }
 }
-
 

@@ -3,11 +3,15 @@ package com.capvault.backend.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.capvault.backend.support.AuthenticatedRequest.adviserSession;
+import static com.capvault.backend.support.AuthenticatedRequest.session;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,6 +79,47 @@ class ProductionSecurityBoundaryTest {
                 .contentType("application/json")
                 .content("{}"))
             .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void adminControlPlaneMutationsRejectOrdinaryAuthenticatedUsers() throws Exception {
+        String id = "11111111-1111-1111-1111-111111111111";
+
+        mockMvc.perform(post("/api/workspaces").with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(put("/api/workspaces/" + id).with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/deliverables").with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(put("/api/deliverables/" + id).with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/templates").with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/templates/from-drive").with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(delete("/api/templates/" + id).with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(put("/api/workspace/sources/TRACKER").with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/tracker/writebacks").with(session()))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void fileCheckApiRequiresStaffAndAllowsAdvisers() throws Exception {
+        mockMvc.perform(get("/api/file-checks/status").with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/file-checks").with(session()))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/file-checks/status").with(adviserSession()))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/file-checks").with(adviserSession())
+                .contentType("application/json")
+                .content("{}"))
+            .andExpect(status().isBadRequest());
     }
 
     @Test

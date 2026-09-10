@@ -10,7 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import static com.capvault.backend.support.AuthenticatedRequest.session;
+import static com.capvault.backend.support.AuthenticatedRequest.adviserSession;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -64,20 +64,20 @@ class FileCheckControllerTest {
 
     @Test
     void absentDocumentCheckReturnsNotFound() throws Exception {
-        mockMvc.perform(get("/api/file-checks/not-checked-yet").with(session()))
+        mockMvc.perform(get("/api/file-checks/not-checked-yet").with(adviserSession()))
             .andExpect(status().isNotFound());
     }
 
     @Test
     void reportsHonestUnconfiguredStateAndPersistsAttempt() throws Exception {
-        mockMvc.perform(get("/api/file-checks/status").with(session()))
+        mockMvc.perform(get("/api/file-checks/status").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.configured").value(false))
             .andExpect(jsonPath("$.message").value(
                 "Google Drive API is not configured. Run setup-local.ps1 and restart the backend."
             ));
 
-        mockMvc.perform(post("/api/file-checks").with(session())
+        mockMvc.perform(post("/api/file-checks").with(adviserSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -94,7 +94,7 @@ class FileCheckControllerTest {
                 "Google Drive API is not configured on this machine."
             ));
 
-        mockMvc.perform(get("/api/file-checks/response-001").with(session()))
+        mockMvc.perform(get("/api/file-checks/response-001").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.responseId").value("response-001"))
             .andExpect(jsonPath("$.status").value("UNAVAILABLE"));
@@ -137,21 +137,21 @@ class FileCheckControllerTest {
 
         mockMvc.perform(get("/api/file-checks/" + responseId)
                 .param("fieldId", frameworkFieldId)
-                .with(session()))
+                .with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.fieldId").value(frameworkFieldId))
             .andExpect(jsonPath("$.sourceUrl").value(frameworkUrl));
 
         mockMvc.perform(get("/api/file-checks/" + responseId)
                 .param("fieldId", highlightsFieldId)
-                .with(session()))
+                .with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.fieldId").value(highlightsFieldId))
             .andExpect(jsonPath("$.sourceUrl").value(highlightsUrl));
 
         mockMvc.perform(get("/api/file-checks/" + responseId + "/history")
                 .param("fieldId", frameworkFieldId)
-                .with(session()))
+                .with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].fieldId").value(frameworkFieldId))
@@ -159,15 +159,15 @@ class FileCheckControllerTest {
 
         mockMvc.perform(get("/api/file-checks/" + responseId + "/history")
                 .param("fieldId", highlightsFieldId)
-                .with(session()))
+                .with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].fieldId").value(highlightsFieldId))
             .andExpect(jsonPath("$[0].sourceUrl").value(highlightsUrl));
 
-        mockMvc.perform(get("/api/file-checks/" + responseId).with(session()))
+        mockMvc.perform(get("/api/file-checks/" + responseId).with(adviserSession()))
             .andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/file-checks/" + responseId + "/history").with(session()))
+        mockMvc.perform(get("/api/file-checks/" + responseId + "/history").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(0)));
     }
@@ -239,7 +239,7 @@ class FileCheckControllerTest {
             "https://drive.google.com/file/d/disabled/view",
             "This response field is not enabled for Document Check.");
 
-        mockMvc.perform(post("/api/file-checks").with(session())
+        mockMvc.perform(post("/api/file-checks").with(adviserSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -258,7 +258,7 @@ class FileCheckControllerTest {
 
     private void createUnavailableCheck(String responseId, String deliverableKey, String fieldId, String sourceUrl)
         throws Exception {
-        mockMvc.perform(post("/api/file-checks").with(session())
+        mockMvc.perform(post("/api/file-checks").with(adviserSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -282,7 +282,7 @@ class FileCheckControllerTest {
         String sourceUrl,
         String expectedMessage
     ) throws Exception {
-        mockMvc.perform(post("/api/file-checks").with(session())
+        mockMvc.perform(post("/api/file-checks").with(adviserSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
