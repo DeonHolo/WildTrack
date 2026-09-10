@@ -79,10 +79,11 @@ class ProductionSecurityBoundaryTest {
 
     @Test
     void sessionCookieCarriesTheProductionPolicy() {
-        var properties = new WildTrackSessionProperties(java.time.Duration.ofHours(12), true, "");
+        var properties = new WildTrackSessionProperties(java.time.Duration.ofDays(90), true, "wildtrack.dev");
 
         assertThat(properties.secure()).isTrue();
-        assertThat(properties.ttl()).isEqualTo(java.time.Duration.ofHours(12));
+        assertThat(properties.ttl()).isEqualTo(java.time.Duration.ofDays(90));
+        assertThat(properties.cookieDomain()).isEqualTo("wildtrack.dev");
     }
 
     @Test

@@ -12,7 +12,7 @@ public record WildTrackSessionProperties(
 ) {
     public WildTrackSessionProperties {
         if (ttl == null || ttl.isNegative() || ttl.isZero()) {
-            ttl = Duration.ofHours(12);
+            ttl = Duration.ofDays(90);
         }
         if (secureCookie == null) {
             secureCookie = false;
