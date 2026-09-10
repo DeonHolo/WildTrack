@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
@@ -60,6 +61,19 @@ public class SecurityConfig {
             .cors(Customizer.withDefaults())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/health/live", "/api/health/ready", "/api/auth/session", SIGN_IN_PATH, "/api/public/forms/**").permitAll()
+                .requestMatchers("/api/file-checks/**").hasAnyRole("ADMIN", "ADVISER")
+                .requestMatchers(HttpMethod.POST,
+                    "/api/workspaces",
+                    "/api/sheets/import/**",
+                    "/api/deliverables",
+                    "/api/templates",
+                    "/api/templates/from-drive",
+                    "/api/tracker/writebacks").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.PUT,
+                    "/api/workspaces/**",
+                    "/api/deliverables/**",
+                    "/api/workspace/sources/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.DELETE, "/api/templates/**").hasRole("ADMIN")
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll())
             .exceptionHandling(exceptions -> exceptions

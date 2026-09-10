@@ -26,6 +26,7 @@ import java.util.UUID;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import static com.capvault.backend.support.AuthenticatedRequest.adminSession;
 import static com.capvault.backend.support.AuthenticatedRequest.session;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -104,7 +105,7 @@ class DocumentTemplateControllerTest {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ));
 
-        mockMvc.perform(delete("/api/templates/" + firstId).with(session()))
+        mockMvc.perform(delete("/api/templates/" + firstId).with(adminSession()))
             .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/templates").with(session()))
@@ -128,7 +129,7 @@ class DocumentTemplateControllerTest {
             "https://drive.google.com/uc?id=drive-template-id"
         ));
         when(driveGateway.download(reference)).thenReturn(bytes);
-        String response = mockMvc.perform(post("/api/templates/from-drive").with(session())
+        String response = mockMvc.perform(post("/api/templates/from-drive").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -166,7 +167,7 @@ class DocumentTemplateControllerTest {
             "https://drive.google.com/uc?id=unicode-doc-id"
         ));
         when(driveGateway.download(reference)).thenReturn(bytes);
-        mockMvc.perform(post("/api/templates/from-drive").with(session())
+        mockMvc.perform(post("/api/templates/from-drive").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -292,7 +293,7 @@ class DocumentTemplateControllerTest {
             .file(file)
             .param("deliverableKey", deliverableKey)
             .param("displayName", displayName)
-            .with(session());
+            .with(adminSession());
         if (fieldId != null) {
             request.param("fieldId", fieldId);
         }

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import static com.capvault.backend.support.AuthenticatedRequest.adminSession;
 import static com.capvault.backend.support.AuthenticatedRequest.session;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +33,7 @@ class AcademicWorkspaceControllerTest {
             .andExpect(jsonPath("$.length()", greaterThanOrEqualTo(2)))
             .andExpect(jsonPath("$[?(@.courseCode == 'IT332')]").exists());
 
-        mockMvc.perform(post("/api/workspaces").with(session())
+        mockMvc.perform(post("/api/workspaces").with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -49,5 +50,4 @@ class AcademicWorkspaceControllerTest {
             .andExpect(jsonPath("$.courseCode").value("IS401"));
     }
 }
-
 
