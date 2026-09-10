@@ -44,6 +44,9 @@ class ProductionProfileContractTest {
         assertThat(production.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         assertThat(production.getProperty("spring.flyway.enabled")).isEqualTo(true);
         assertThat(production.getProperty("wildtrack.session.secure-cookie")).isEqualTo(true);
+        assertThat(production.getProperty("wildtrack.session.ttl")).isEqualTo("${WILDTRACK_SESSION_TTL:P90D}");
+        assertThat(production.getProperty("wildtrack.session.cookie-domain"))
+            .isEqualTo("${WILDTRACK_SESSION_COOKIE_DOMAIN:wildtrack.dev}");
         assertThat(production.getProperty("wildtrack.google.identity.enabled")).isEqualTo(true);
         assertThat(production.getProperty("capvault.cors.allowed-origins"))
             .isEqualTo("${CAPVAULT_CORS_ALLOWED_ORIGINS:https://wildtrack.dev,https://www.wildtrack.dev}");

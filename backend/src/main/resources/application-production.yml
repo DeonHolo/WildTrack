@@ -53,3 +53,5 @@ wildtrack:
       assignments: ${WILDTRACK_STAFF_BOOTSTRAP_ASSIGNMENTS:}
   session:
     secure-cookie: true
+    ttl: ${WILDTRACK_SESSION_TTL:P90D}
+    cookie-domain: ${WILDTRACK_SESSION_COOKIE_DOMAIN:wildtrack.dev}

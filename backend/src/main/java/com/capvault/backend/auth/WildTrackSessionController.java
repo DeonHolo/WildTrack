@@ -70,12 +70,8 @@ public class WildTrackSessionController {
         Duration ttl = properties.ttl();
         WildTrackSession created = sessionService.create(identity);
         Cookie cookie = new Cookie(SESSION_COOKIE, created.rawToken());
-        cookie.setHttpOnly(true);
-        cookie.setPath("/");
+        configureSessionCookie(cookie);
         cookie.setMaxAge((int) ttl.toSeconds());
-        if (properties.secure()) {
-            cookie.setSecure(true);
-        }
         response.addCookie(cookie);
         return ResponseEntity.ok(identity);
     }
@@ -116,10 +112,21 @@ public class WildTrackSessionController {
             }
         }
         Cookie cleared = new Cookie(SESSION_COOKIE, "");
-        cleared.setHttpOnly(true);
-        cleared.setPath("/");
+        configureSessionCookie(cleared);
         cleared.setMaxAge(0);
         response.addCookie(cleared);
         return ResponseEntity.ok().build();
+    }
+
+    private void configureSessionCookie(Cookie cookie) {
+        cookie.setHttpOnly(true);
+        cookie.setPath("/");
+        if (properties.secure()) {
+            cookie.setSecure(true);
+        }
+        String domain = properties.cookieDomain();
+        if (domain != null && !domain.isBlank()) {
+            cookie.setDomain(domain.trim());
+        }
     }
 }

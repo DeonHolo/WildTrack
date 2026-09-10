@@ -21,7 +21,7 @@ class WildTrackSessionServiceTest {
         ""
     );
     private static final Instant NOW = Instant.parse("2026-08-24T00:00:00Z");
-    private static final Duration SESSION_TTL = Duration.ofHours(12);
+    private static final Duration SESSION_TTL = Duration.ofDays(90);
 
     private WildTrackSessionService service(Clock clock, WildTrackSessionStore store) {
         return new WildTrackSessionService(store, clock, SESSION_TTL);
@@ -59,7 +59,7 @@ class WildTrackSessionServiceTest {
         WildTrackSessionService service = service(Clock.fixed(NOW, ZoneOffset.UTC), repository);
         WildTrackSession created = service.create(IDENTITY);
 
-        Clock later = Clock.fixed(NOW.plus(Duration.ofHours(13)), ZoneOffset.UTC);
+        Clock later = Clock.fixed(NOW.plus(Duration.ofDays(91)), ZoneOffset.UTC);
         WildTrackSessionService laterService = service(later, repository);
 
         assertThat(laterService.resolve(created.rawToken())).isEmpty();
