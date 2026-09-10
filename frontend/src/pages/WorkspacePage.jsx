@@ -586,7 +586,7 @@ export function WorkspacePage() {
               placeholder="Official SRS template"
             />
           </div>
-          <Tabs value={template.sourceType} onChange={(value) => setTemplate({ ...template, sourceType: value })}>
+          <Tabs value={template.sourceType} onChange={(value) => setTemplate({ ...template, sourceType: value })} keepMounted={false}>
             <Tabs.List>
               <Tabs.Tab value="upload" leftSection={<FileArrowUp aria-hidden="true" />}>Upload file</Tabs.Tab>
               <Tabs.Tab value="drive" leftSection={<LinkSimple aria-hidden="true" />}>Google Drive link</Tabs.Tab>
@@ -606,7 +606,7 @@ export function WorkspacePage() {
               <TextInput
                 label="Google Drive link"
                 description="The file must be shared as Anyone with the link - Viewer and allow downloads."
-                required
+                required={template.sourceType === 'drive'}
                 aria-label="Google Drive link"
                 value={template.driveUrl}
                 onChange={(event) => setTemplate({ ...template, driveUrl: event.currentTarget.value })}

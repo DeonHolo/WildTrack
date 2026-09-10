@@ -101,6 +101,15 @@ function createState() {
     },
     students: [{ studentNumber: '23-0001-001' }],
     projectMetadata: [],
+    profiles: [{
+      id: 'staff-1',
+      googleSubject: 'sub-admin',
+      googleEmail: 'admin@school.edu',
+      roles: ['ADMIN'],
+      enabled: true,
+      assignedTeams: []
+    }],
+    teams: [],
     attempts: [],
     archives: [],
     backendSync: {},
@@ -317,6 +326,23 @@ describe('workspace operations', () => {
       sourceType: 'drive',
       name: '',
       driveUrl: 'https://drive.google.com/file/d/template-id/view'
+    })));
+  });
+
+  it('unmounts inactive template source fields so browser validation cannot block Save template', async () => {
+    workflow.saveTemplate.mockResolvedValue({ ok: true, template: { name: 'SRS Official Template' } });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Add official template' }));
+    const dialog = await screen.findByRole('form', { name: 'Add official template' });
+
+    expect(within(dialog).queryByRole('textbox', { name: 'Google Drive link' })).not.toBeInTheDocument();
+    const file = new File(['template'], 'SRS Official Template.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    fireEvent.change(within(dialog).getByLabelText('Template file'), { target: { files: [file] } });
+    fireEvent.submit(dialog);
+
+    await waitFor(() => expect(workflow.saveTemplate).toHaveBeenCalledWith(expect.objectContaining({
+      sourceType: 'upload',
+      file
     })));
   });
 
