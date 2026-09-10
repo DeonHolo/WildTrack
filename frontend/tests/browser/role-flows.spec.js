@@ -67,6 +67,24 @@ for (const viewport of artworkViewports) {
   });
 }
 
+for (const viewport of artworkViewports) {
+  test('login reuses the public submission artwork on ' + viewport.label, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    page.apiFixture = await installApiFixtures(page, { role: 'anonymous' });
+    await page.goto('/login');
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Welcome to WildTrack' })).toBeVisible();
+    const artwork = page.getByRole('img', { name: 'WildTrack mascot presenting a PDF' });
+    await expectRenderedArtwork(artwork, 'Showing PDF.webp');
+    const composition = await artwork.evaluate((element) => ({
+      position: element.style.backgroundPosition,
+      size: element.style.backgroundSize
+    }));
+    expect(composition).toEqual({ position: 'center bottom', size: 'auto 100%' });
+    await expectNoPageOverflow(page);
+  });
+}
+
 test('approved student artwork assets are served from the root public directory', async ({ request }) => {
   const assetPaths = [
     '/assets/Waving.webp',

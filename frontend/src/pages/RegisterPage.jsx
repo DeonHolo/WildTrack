@@ -5,14 +5,12 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { GoogleSignInButton } from '../components/auth/GoogleSignInButton.jsx';
 import { FormArtwork } from '../components/public/FormArtwork.jsx';
-import { STUDENT_ARTWORK } from '../lib/studentArtwork.js';
 
 export function RegisterPage() {
   const { refreshSession } = useWorkspaceSession();
   const navigate = useNavigate();
   const location = useLocation();
   const [error, setError] = useState('');
-  const artwork = STUDENT_ARTWORK.loginHero || STUDENT_ARTWORK.dashboardWelcome;
 
   async function finishGoogleSignIn() {
     setError('');
@@ -38,7 +36,7 @@ export function RegisterPage() {
     <main className="wt-student-access-page">
       <Container size="sm" className="wt-student-access-container">
         <Stack gap="md">
-          <FormArtwork artwork={artwork} ariaLabel="WildTrack sign in banner">
+          <FormArtwork ariaLabel="WildTrack sign in banner">
             <div className="wt-login-banner-copy">
               <Title order={1} className="wt-login-banner-title">Welcome to WildTrack</Title>
               <Text className="wt-login-banner-subtitle">
