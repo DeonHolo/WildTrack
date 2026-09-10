@@ -85,6 +85,17 @@ Implementation and release-gate verification for this follow-up is now complete 
 - Packaged production verification passed: `HerokuBuildpackContractTest` **1 / 1** and `PackagedProductionSmokeIT` **1 / 1**, Maven `BUILD SUCCESS`.
 - Final pre-release `git diff --check` is clean. A source search confirms no workspace hard-delete implementation was added and no new Tracker/Google writeback call path was introduced.
 
+This follow-up was released to production on 2026-09-11:
+
+- Release commit: `fb1ff2a` (`feat: improve workspace administration and validation UX`).
+- PR: **#34**, `Improve workspace administration and validation UX`.
+- Merge commit on `main`: `81abeb3e5b611578f0da3efc5174d56ad45f480c`.
+- Vercel reported the exact merge-commit deployment **successful**.
+- Post-merge `https://www.wildtrack.dev/api/health/ready` returned HTTP 200 with `service=wildtrack-backend`, `status=UP`, and `database=UP`.
+- `origin/wildtrack-rebrand` remains retained.
+
+Next production action is intentionally a fresh-workspace exercise performed through the authenticated Admin UI: create the correctly labeled **`IT411 2627 SEM1 - MVP Validation`** workspace, then manually import Team Formation -> Software Project Monitor -> current IT411 Tracker in that approved precedence order. Use the fresh import to re-verify the five Tracker deadline/form suggestions before generating forms. After the correct Semester 1 workspace has been checked, the mistaken Semester 2 test workspace can be soft-archived through the new lifecycle UI rather than deleted. No participant links depend on the mistaken workspace.
+
 ## Latest engineering status - 2026-09-11 multi-artifact implementation
 
 The approved MVP Validation engineering batch is now in final verification. This section supersedes the older notes below that describe multi-artifact support or Revoke Acceptance as only planned/unresolved.
