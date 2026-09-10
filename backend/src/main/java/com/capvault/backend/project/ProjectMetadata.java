@@ -22,11 +22,17 @@ public class ProjectMetadata {
     @Column(name = "group_code", nullable = false, length = 160)
     private String groupCode;
 
+    @Column(name = "current_group_code", length = 160)
+    private String currentGroupCode;
+
     @Column(name = "project_title", length = 1000)
     private String projectTitle;
 
     @Column(name = "software_name", length = 500)
     private String softwareName;
+
+    @Column(name = "current_software_name", length = 500)
+    private String currentSoftwareName;
 
     @Column(name = "description")
     private String description;
@@ -39,6 +45,9 @@ public class ProjectMetadata {
 
     @Column(name = "adviser_name", length = 240)
     private String adviserName;
+
+    @Column(name = "current_adviser_name", length = 240)
+    private String currentAdviserName;
 
     @Column(name = "project_status", length = 240)
     private String projectStatus;
@@ -118,6 +127,13 @@ public class ProjectMetadata {
         this.updatedAt = LocalDateTime.now();
     }
 
+    public void applyCurrentTrackerContext(String currentGroupCode, String softwareName, String adviserName) {
+        this.currentGroupCode = normalizeNullable(currentGroupCode);
+        this.currentSoftwareName = normalizeNullable(softwareName);
+        this.currentAdviserName = normalizeNullable(adviserName);
+        this.updatedAt = LocalDateTime.now();
+    }
+
     public UUID getId() {
         return id;
     }
@@ -130,12 +146,28 @@ public class ProjectMetadata {
         return groupCode;
     }
 
+    public String getCurrentGroupCode() {
+        return currentGroupCode;
+    }
+
+    public String getEffectiveGroupCode() {
+        return currentGroupCode == null ? groupCode : currentGroupCode;
+    }
+
     public String getProjectTitle() {
         return projectTitle;
     }
 
     public String getSoftwareName() {
         return softwareName;
+    }
+
+    public String getCurrentSoftwareName() {
+        return currentSoftwareName;
+    }
+
+    public String getEffectiveSoftwareName() {
+        return currentSoftwareName == null ? softwareName : currentSoftwareName;
     }
 
     public String getDescription() {
@@ -152,6 +184,14 @@ public class ProjectMetadata {
 
     public String getAdviserName() {
         return adviserName;
+    }
+
+    public String getCurrentAdviserName() {
+        return currentAdviserName;
+    }
+
+    public String getEffectiveAdviserName() {
+        return currentAdviserName == null ? adviserName : currentAdviserName;
     }
 
     public String getProjectStatus() {

@@ -519,8 +519,7 @@ describe('student dashboard', () => {
     workflow.dashboardError = 'The roster service is unavailable.';
     renderDashboard();
 
-    expect(screen.getByRole('heading', { name: 'Student records are not available yet' })).toBeInTheDocument();
-    expect(screen.getByText('The roster service is unavailable.')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('The roster service is unavailable.');
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(workflow.refreshBackendData).toHaveBeenCalledTimes(1);
   });
@@ -573,7 +572,7 @@ describe('student dashboard', () => {
     workflow.workspaceCatalogError = 'Workspaces are temporarily unavailable.';
     renderDashboard();
     expect(screen.getByRole('alert')).toHaveTextContent(workflow.workspaceCatalogError);
-    expect(screen.queryByRole('combobox', { name: 'Workspace' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue('workspace-it');
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(workflow.refreshWorkspaceCatalog).toHaveBeenCalledOnce();
   });

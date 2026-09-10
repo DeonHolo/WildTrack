@@ -218,9 +218,14 @@ public class StaffManagementService {
     private Map<String, String> knownTeams(UUID workspaceId) {
         Map<String, String> teams = new LinkedHashMap<>();
         students.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId)
+            .stream().filter(com.capvault.backend.student.StudentRecord::isCurrentActive)
             .forEach(s -> { if (s.getTeamCode() != null && !s.getTeamCode().isBlank()) teams.put(normalize(s.getTeamCode()), s.getTeamCode()); });
         projects.findAllByWorkspaceIdOrderByGroupCodeAsc(workspaceId)
-            .forEach(p -> { if (p.getGroupCode() != null && !p.getGroupCode().isBlank()) teams.put(normalize(p.getGroupCode()), p.getGroupCode()); });
+            .forEach(p -> {
+                if (p.getEffectiveGroupCode() != null && teams.containsKey(normalize(p.getEffectiveGroupCode()))) {
+                    teams.put(normalize(p.getEffectiveGroupCode()), p.getEffectiveGroupCode());
+                }
+            });
         return teams;
     }
 
@@ -241,9 +246,14 @@ public class StaffManagementService {
         for (var workspace : active) {
             var names = new LinkedHashMap<String, Set<String>>();
             students.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspace.getId())
+                .stream().filter(com.capvault.backend.student.StudentRecord::isCurrentActive)
                 .forEach(row -> addImportedName(names, row.getTeamCode(), row.getAdviserName()));
             projects.findAllByWorkspaceIdOrderByGroupCodeAsc(workspace.getId())
-                .forEach(row -> addImportedName(names, row.getGroupCode(), row.getAdviserName()));
+                .forEach(row -> {
+                    if (names.containsKey(normalize(row.getEffectiveGroupCode()))) {
+                        addImportedName(names, row.getEffectiveGroupCode(), row.getEffectiveAdviserName());
+                    }
+                });
             knownTeams(workspace.getId()).forEach((key, team) -> teams.add(new TeamChoice(workspace.getId(),
                 workspace.getName(), team, new ArrayList<>(names.getOrDefault(key, Set.of())))));
         }

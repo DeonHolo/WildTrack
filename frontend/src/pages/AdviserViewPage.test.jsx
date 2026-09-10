@@ -10,6 +10,8 @@ const workflow = vi.hoisted(() => ({
   state: null,
   workspaceId: 'workspace-it',
   session: { authenticated: true, email: 'adviser@school.edu' },
+  staffIdentity: null,
+  reloadIdentity: vi.fn(),
   markAccepted: vi.fn(),
   revokeAcceptance: vi.fn(),
   saveFeedback: vi.fn(),
@@ -19,6 +21,15 @@ const workflow = vi.hoisted(() => ({
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
   useWorkspaceSession: () => ({ activeWorkspaceId: workflow.workspaceId, session: workflow.session })
+}));
+
+vi.mock('../app/StaffIdentity.jsx', () => ({
+  useStaffIdentity: () => ({
+    data: workflow.staffIdentity,
+    status: 'ready',
+    error: '',
+    reload: workflow.reloadIdentity
+  })
 }));
 
 vi.mock('../hooks/useWorkspaceResource.js', () => ({
@@ -138,6 +149,11 @@ describe('adviser My advised teams review', () => {
   beforeEach(() => {
     workflow.workspaceId = 'workspace-it';
     workflow.session = { authenticated: true, email: 'adviser@school.edu' };
+    workflow.staffIdentity = {
+      adviserName: 'Dr. Elena Mercado',
+      assignments: [{ workspaceId: 'workspace-it', teamCode: TEAM_A }],
+      workspaces: [{ id: 'workspace-it', name: 'IT Capstone - IT332' }]
+    };
     localStorage.clear();
     workflow.state = createState();
     Object.values(workflow).filter((value) => typeof value === 'function').forEach((mock) => mock.mockReset());

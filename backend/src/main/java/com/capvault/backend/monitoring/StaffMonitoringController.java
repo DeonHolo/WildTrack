@@ -121,18 +121,26 @@ public class StaffMonitoringController {
             .map(record -> record.getResponseId()).distinct().toList();
         var rows = rowRepository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
             .filter(row -> allTeams || containsTeam(teams, row.getTeamCode())).toList();
+        var currentStudents = studentRepository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
+            .filter(com.capvault.backend.student.StudentRecord::isCurrentActive)
+            .toList();
+        var currentTeamKeys = currentStudents.stream()
+            .map(student -> String.valueOf(student.getTeamCode()).trim().toLowerCase(java.util.Locale.ROOT))
+            .filter(team -> !team.isBlank())
+            .collect(java.util.stream.Collectors.toSet());
         var cells = rows.isEmpty() ? java.util.Map.<UUID, List<com.capvault.backend.tracker.TrackerCell>>of()
             : cellRepository.findAllByTrackerRowIdIn(rows.stream().map(row -> row.getId()).toList()).stream()
                 .collect(Collectors.groupingBy(cell -> cell.getTrackerRow().getId()));
         return new MonitoringResponse(
             allTeams,
             teams,
-            studentRepository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
+            currentStudents.stream()
                 .filter(student -> allTeams || containsTeam(teams, student.getTeamCode()))
                 .map(StudentRecordResponse::from)
                 .toList(),
             projectRepository.findAllByWorkspaceIdOrderByGroupCodeAsc(workspaceId).stream()
-                .filter(project -> allTeams || containsTeam(teams, project.getGroupCode()))
+                .filter(project -> currentTeamKeys.contains(String.valueOf(project.getEffectiveGroupCode()).trim().toLowerCase(java.util.Locale.ROOT)))
+                .filter(project -> allTeams || containsTeam(teams, project.getEffectiveGroupCode()))
                 .map(ProjectMetadataResponse::from)
                 .toList(),
             columnRepository.findAllByWorkspaceIdOrderByDisplayOrderAscLabelAsc(workspaceId).stream()

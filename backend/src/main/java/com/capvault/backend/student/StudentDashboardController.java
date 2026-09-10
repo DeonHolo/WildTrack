@@ -96,9 +96,10 @@ public class StudentDashboardController {
         }
         return new DashboardResponse(association, associations.workspaceRosterOptions(workspaceId),
             students.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
+                .filter(com.capvault.backend.student.StudentRecord::isCurrentActive)
                 .filter(item -> sameTeam(team, item.getTeamCode())).map(StudentRecordResponse::from).toList(),
             projects.findAllByWorkspaceIdOrderByGroupCodeAsc(workspaceId).stream()
-                .filter(item -> sameTeam(team, item.getGroupCode())).map(ProjectMetadataResponse::from).toList(),
+                .filter(item -> sameTeam(team, item.getEffectiveGroupCode())).map(ProjectMetadataResponse::from).toList(),
             columns.findAllByWorkspaceIdOrderByDisplayOrderAscLabelAsc(workspaceId).stream()
                 .map(TrackerColumnResponse::from).toList(),
             rows.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()

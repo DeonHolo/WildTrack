@@ -140,6 +140,24 @@ describe('workspace Sheet imports', () => {
     expect(result.importSummary.mappings.find((item) => item.key === 'teamCode')?.sourceColumn).toBe('Squad');
   });
 
+  it('reads the real Team Formation member column instead of the MEMBER #1 note in the team-code header', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => [
+        '"For students enrolled in IT332 G1 - G7 ONLY NOTE: MEMBER #1 should be assigned as Team Lead TEAM CODE",TEAM DETAILS MEMBER #,STUDENT ID,LASTNAME,FIRSTNAME,EMAIL @cit.edu,PROPOSED PROJECT,ADVISER',
+        '2526-sem2-it332-01,1,25-0001-001,Doe,Alex,alex.doe@cit.edu,,',
+        '2526-sem2-it332-01,2,25-0001-002,Rivera,Sam,sam.rivera@cit.edu,,'
+      ].join('\n')
+    }));
+
+    const result = await importPublicSheetSource('teamFormation', { sheetUrl }, current);
+
+    expect(result.ok).toBe(true);
+    expect(result.students).toHaveLength(2);
+    expect(result.students.map((student) => student.studentNumber)).toEqual(['25-0001-001', '25-0001-002']);
+    expect(result.students.map((student) => student.memberNumber)).toEqual([1, 2]);
+  });
+
   it('blocks a source when required fields are still unmapped', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
@@ -176,6 +194,82 @@ describe('workspace Sheet imports', () => {
     expect(result.importSummary.skippedRows[0].reason).toMatch(/Deadline row/);
     expect(result.suggestedForms.map((item) => item.trackerColumn)).toEqual(['SRS', 'SDD']);
     expect(Date.parse(result.suggestedForms[0].dueAt)).toBeLessThan(Date.parse(result.suggestedForms[1].dueAt));
+  });
+
+  it('treats current IT411 metadata as metadata and reconciles old Team Formation codes by Student Number', async () => {
+    const state = {
+      ...current,
+      students: [{
+        rowKey: 'old-alex',
+        studentNumber: '25-0001-001',
+        name: 'DOE, ALEX Q.',
+        teamCode: '2526-sem2-it332-41',
+        memberNumber: '4',
+        section: 'IT332',
+        adviser: 'Ralph Laviste',
+        email: 'alex.doe@cit.edu'
+      }],
+      projectMetadata: [{
+        groupCode: '2526-sem2-it332-41',
+        projectTitle: 'CapVault',
+        softwareName: 'CapVault',
+        adviserName: 'Ralph Laviste'
+      }]
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => [
+        'No.,NAME OF STUDENT,STUDENT NO.,SECTION,NEW TEAM CODE,MID,ADVISER,SOFTWARE TITLE,MVP Validation,Refactored SPMP,Refactored SRS,Refactored SDD,STD',
+        '1,"DOE, ALEX Q.",25-0001-001,G2,2627-sem1-it411-41,4,Ralph Laviste,WildTrack,,,,,',
+        ',,,,,,SUBMISSION DEADLINE,,9/12/2026,9/19/2026,9/19/2026,9/19/2026,9/26/2026'
+      ].join('\n')
+    }));
+
+    const result = await importPublicSheetSource('tracker', { sheetUrl }, state);
+
+    expect(result.ok).toBe(true);
+    expect(result.trackerColumns.map((column) => column.key)).toEqual([
+      'MVP Validation', 'Refactored SPMP', 'Refactored SRS', 'Refactored SDD', 'STD'
+    ]);
+    expect(result.trackerColumns.map((column) => column.key)).not.toEqual(expect.arrayContaining(['No.', 'MID', 'SOFTWARE TITLE']));
+    expect(result.students).toHaveLength(1);
+    expect(result.students[0]).toMatchObject({
+      studentNumber: '25-0001-001',
+      teamCode: '2627-sem1-it411-41',
+      teamFormationCode: '2526-sem2-it332-41',
+      memberNumber: 4,
+      softwareTitle: 'WildTrack',
+      email: 'alex.doe@cit.edu'
+    });
+    expect(result.projectMetadata[0]).toMatchObject({
+      sourceGroupCode: '2526-sem2-it332-41',
+      groupCode: '2627-sem1-it411-41',
+      projectTitle: 'CapVault',
+      softwareName: 'WildTrack'
+    });
+    expect(result.suggestedForms.map((item) => item.trackerColumn)).toEqual([
+      'MVP Validation', 'Refactored SPMP', 'Refactored SRS', 'Refactored SDD', 'STD'
+    ]);
+  });
+
+  it('requires deadline evidence before treating a new unknown Tracker header as a deliverable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => [
+        'NAME OF STUDENT,TEAM FORMATION,MEMBER#,SRS,Coordinator Note,Future Deliverable',
+        ',,,4/18/2026,,10/1/2026',
+        'DOE JANE,IT-01,1,0,Needs verification,0'
+      ].join('\n')
+    }));
+
+    const result = await importPublicSheetSource('tracker', { sheetUrl }, current);
+
+    expect(result.ok).toBe(true);
+    expect(result.trackerColumns.filter((column) => column.active).map((column) => column.key)).toEqual([
+      'SRS', 'Future Deliverable'
+    ]);
+    expect(result.importSummary.unrecognizedFields).toEqual(['Coordinator Note']);
+    expect(result.warnings.join(' ')).toContain('Coordinator Note');
   });
 });
 

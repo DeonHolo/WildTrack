@@ -21,4 +21,6 @@ public interface StudentRecordRepository extends JpaRepository<StudentRecord, UU
         String teamCode,
         String memberNumber
     );
+
+    List<StudentRecord> findAllByWorkspaceIdAndTeamFormationCodeIgnoreCase(UUID workspaceId, String teamFormationCode);
 }
