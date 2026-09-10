@@ -183,7 +183,7 @@ export function FormEditorModal({
                           type: value,
                           pdfRequired: drive,
                           documentCheckPolicy: drive ? (field.documentCheckPolicy === 'OFF' ? 'AUTO' : field.documentCheckPolicy || 'AUTO') : 'OFF',
-                          aiReviewEnabled: drive ? field.aiReviewEnabled !== false : false
+                          aiReviewEnabled: drive ? (field.type === 'drive' ? field.aiReviewEnabled !== false : true) : false
                         });
                       }}
                     />
@@ -211,7 +211,7 @@ export function FormEditorModal({
                         checked={Boolean(field.aiReviewEnabled)}
                         disabled={field.documentCheckPolicy === 'OFF'}
                         onChange={(event) => updateField(index, { aiReviewEnabled: event.currentTarget.checked })}
-                        label="Allow Admin AI Review"
+                        label="Allow AI Review"
                       />
                     </SimpleGrid>
                   ) : null}

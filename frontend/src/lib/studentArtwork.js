@@ -29,6 +29,6 @@ export const STUDENT_ARTWORK = Object.freeze({
     '/assets/FIND%20QUEST%20NODES.webp',
     'WildTrack mascot exploring quest nodes',
     'right bottom',
-    'contain'
+    'auto 100%'
   )
 });

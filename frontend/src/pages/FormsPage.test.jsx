@@ -106,6 +106,7 @@ function renderPage() {
 
 describe('forms management', () => {
   beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
     notifications.clean();
     workspaceSession.session = { authenticated: true, email: 'admin@example.com' };
     workflow.state = createState();
@@ -205,6 +206,54 @@ describe('forms management', () => {
     const savedFields = submissionClient.saveDeliverable.mock.calls[0][1].fields;
     expect(savedFields.map(field => field.type)).toEqual(['googleForm', 'drive', 'googleSheet', 'drive', 'driveFolder']);
     expect(savedFields.filter(field => field.pdfRequired).map(field => field.definitionId)).toEqual(['field-framework', 'field-highlights']);
+  });
+
+  it('defaults newly added PDF fields to AI Review while preserving a saved disabled value', async () => {
+    workflow.state.deliverables[0] = {
+      ...workflow.state.deliverables[0],
+      fields: [
+        {
+          id: 'savedPdf', definitionId: 'field-saved-pdf', label: 'Saved PDF', type: 'drive', required: true,
+          pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: false, active: true
+        },
+        {
+          id: 'savedLink', definitionId: 'field-saved-link', label: 'Saved link', type: 'url', required: true,
+          pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true
+        }
+      ]
+    };
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit SRS form' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Edit SRS form' });
+    const savedAiReview = within(dialog).getByRole('checkbox', { name: 'Allow AI Review' });
+    expect(savedAiReview).not.toBeChecked();
+    expect(within(dialog).queryByRole('checkbox', { name: 'Allow Admin AI Review' })).not.toBeInTheDocument();
+
+    const existingLinkCard = within(dialog).getAllByRole('textbox', { name: 'Field label' })[1].closest('.mantine-Paper-root');
+    fireEvent.click(within(existingLinkCard).getByRole('textbox', { name: 'Field type' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Google Drive PDF' }));
+    expect(within(existingLinkCard).getByRole('checkbox', { name: 'Allow AI Review' })).toBeChecked();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add field' }));
+    const labels = within(dialog).getAllByRole('textbox', { name: 'Field label' });
+    const newFieldCard = labels[2].closest('.mantine-Paper-root');
+    const typeSelect = within(newFieldCard).getByRole('textbox', { name: 'Field type' });
+    fireEvent.click(typeSelect);
+    fireEvent.click(await screen.findByRole('option', { name: 'Google Drive PDF' }));
+
+    expect(within(newFieldCard).getByRole('checkbox', { name: 'Allow AI Review' })).toBeChecked();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalled());
+    const savedFields = submissionClient.saveDeliverable.mock.calls[0][1].fields;
+    expect(savedFields[0].aiReviewEnabled).toBe(false);
+    expect(savedFields[1]).toEqual(expect.objectContaining({
+      type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true
+    }));
+    expect(savedFields[2]).toEqual(expect.objectContaining({
+      type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true
+    }));
   });
 
   it('shows a rejected server mutation without replacing the authoritative form row', async () => {

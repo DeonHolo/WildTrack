@@ -25,9 +25,11 @@ describe('RegisterPage layout & responsiveness (ticket 02)', () => {
     expect(banner).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Welcome to WildTrack' })).toBeInTheDocument();
 
-    const art = container.querySelector('.wt-login-banner-art');
-    expect(art).toBeInTheDocument();
-    expect(art).toHaveAttribute('role', 'img');
+    expect(banner).toHaveClass('wt-form-artwork');
+    const art = screen.getByRole('img', { name: 'WildTrack mascot exploring quest nodes' });
+    expect(art).toHaveClass('wt-artwork-mascot');
+    expect(art).not.toHaveClass('wt-login-banner-art');
+    expect(art).toHaveStyle('background-size: auto 100%');
 
     const footerNote = container.querySelector('.wt-login-footer-note');
     expect(footerNote).toBeInTheDocument();
