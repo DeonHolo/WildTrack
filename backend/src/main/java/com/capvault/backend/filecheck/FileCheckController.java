@@ -42,16 +42,18 @@ public class FileCheckController {
     @GetMapping("/{responseId}")
     public ResponseEntity<FileCheckResponse> latest(
         @PathVariable String responseId,
-        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        @RequestParam(required = false) String fieldId
     ) {
-        return ResponseEntity.of(service.findLatest(workspaceId, responseId));
+        return ResponseEntity.of(service.findLatest(workspaceId, responseId, fieldId));
     }
 
     @GetMapping("/{responseId}/history")
     public List<FileCheckResponse> history(
         @PathVariable String responseId,
-        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        @RequestParam(required = false) String fieldId
     ) {
-        return service.history(workspaceId, responseId);
+        return service.history(workspaceId, responseId, fieldId);
     }
 }

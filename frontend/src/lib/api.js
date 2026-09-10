@@ -246,9 +246,31 @@ export async function saveBackendDeliverable(workspaceId, payload) {
       instructions: payload.instructions || '',
       dueAt: dueAtIso.length === 16 ? `${dueAtIso}:00` : dueAtIso || '2026-04-18T23:59:00',
       pdfRequired: Boolean(payload.pdfRequired || payload.fields?.some((f) => f.pdfRequired || f.type === 'drive')),
-      status: String(payload.status || 'PUBLISHED').toUpperCase()
+      status: String(payload.status || 'PUBLISHED').toUpperCase(),
+      fields: (payload.fields || []).map((field, index) => ({
+        id: field.definitionId || null,
+        fieldKey: field.id,
+        label: field.label,
+        fieldType: toApiFieldType(field.type),
+        required: Boolean(field.required),
+        displayOrder: index,
+        documentCheckPolicy: field.type === 'drive' ? String(field.documentCheckPolicy || 'AUTO').toUpperCase() : 'OFF',
+        aiReviewEnabled: field.type === 'drive' && Boolean(field.aiReviewEnabled),
+        active: field.active !== false
+      }))
     }
   });
+}
+
+function toApiFieldType(type) {
+  return ({
+    drive: 'DRIVE_PDF',
+    googleForm: 'GOOGLE_FORM',
+    googleSheet: 'GOOGLE_SHEET',
+    driveFolder: 'DRIVE_FOLDER',
+    textarea: 'TEXTAREA',
+    url: 'GENERAL_URL'
+  })[type] || 'GENERAL_URL';
 }
 
 export async function getDriveConnectionStatus() {
@@ -265,6 +287,7 @@ export async function runDocumentCheck(workspaceId, payload) {
 export async function uploadDocumentTemplate(workspaceId, payload) {
   const formData = new FormData();
   formData.append('deliverableKey', payload.deliverableKey);
+  if (payload.fieldId) formData.append('fieldId', payload.fieldId);
   formData.append('displayName', payload.displayName);
   formData.append('file', payload.file);
   return requestForm(withWorkspace('/templates', workspaceId), {
@@ -278,6 +301,7 @@ export async function uploadDriveDocumentTemplate(workspaceId, payload) {
     method: 'POST',
     body: {
       deliverableKey: payload.deliverableKey,
+      fieldId: payload.fieldId || null,
       displayName: payload.displayName,
       driveUrl: payload.driveUrl
     }
@@ -536,11 +560,12 @@ export async function saveStaffDirectory(payload) {
 }
 
 export function getAiReviewStatus() { return request('/ai-reviews/status'); }
-export function getSavedAiReview(workspaceId, responseId) {
-  return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}`, workspaceId));
+export function getSavedAiReview(workspaceId, responseId, fieldId = null) {
+  const fieldQuery = fieldId ? `?fieldId=${encodeURIComponent(fieldId)}` : '';
+  return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}${fieldQuery}`, workspaceId));
 }
-export function requestAiReview(workspaceId, responseId, retryAcknowledged = false, retryToken = null) {
+export function requestAiReview(workspaceId, responseId, retryAcknowledged = false, retryToken = null, fieldId = null) {
   return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}`, workspaceId), {
-    method: 'POST', body: { retryAcknowledged, retryToken }
+    method: 'POST', body: { fieldId, retryAcknowledged, retryToken }
   });
 }

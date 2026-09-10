@@ -8,6 +8,8 @@ import java.util.UUID;
 public record FileCheckResponse(
     UUID id,
     String responseId,
+    String fieldId,
+    String sourceUrl,
     String sourceResponseUpdatedAt,
     String status,
     boolean attentionRequired,
@@ -26,6 +28,8 @@ public record FileCheckResponse(
         return new FileCheckResponse(
             reportId,
             responseId,
+            fieldId,
+            sourceUrl,
             sourceResponseUpdatedAt,
             status,
             attentionRequired,

@@ -122,7 +122,7 @@ export function ArchivePage() {
           <Text size="sm">This records {candidates.length} accepted response{candidates.length === 1 ? '' : 's'} in the final archive.</Text>
           {!storageConfigured ? (
             <Text size="sm" c="dimmed">
-              Current archive storage is not connected, so this creates metadata records and keeps each Drive link as a source reference. It does not create independent PDF copies.
+              Current archive storage is not connected, so this creates metadata records and keeps submitted artifact links as source references. It does not create independent PDF copies.
             </Text>
           ) : null}
         </Stack>

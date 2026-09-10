@@ -53,19 +53,24 @@ import {
   saveFeedback as saveReviewFeedback
 } from '../lib/reviewDeskClient.js';
 import {
+  artifactAiReview,
+  artifactAiReviewStatus,
+  artifactDocumentCheck,
+  artifactDocumentCheckStatus,
   deliverableUsesDocumentCheck,
-  firstSubmissionLink,
   formatDate,
   formatDateTime,
   getAdviserOptions,
   getProjectMetadata,
   getPublishedDeliverables,
   getTeamAdviser,
+  isArtifactAiReviewCurrent,
+  isArtifactDocumentCheckCurrent,
   isAiReportCurrent,
   aiReviewStatus,
-  isDocumentCheckCurrent,
   makeDriveViewUrl,
   normalizeStudentNumber,
+  reviewableSubmissionFields,
   sortDeliverables
 } from '../lib/workflow.js';
 
@@ -88,7 +93,7 @@ export function AdviserViewPage() {
   const [selectedOutputIds, setSelectedOutputIds] = useState({});
   const [feedback, setFeedback] = useState('');
   const [feedbackError, setFeedbackError] = useState(null);
-  const [checkDialogId, setCheckDialogId] = useState('');
+  const [checkDialogTarget, setCheckDialogTarget] = useState(null);
   const [batchProgress, setBatchProgress] = useState(null);
   const [checkingIds, setCheckingIds] = useState(new Set());
 
@@ -107,14 +112,21 @@ export function AdviserViewPage() {
   const selectedOutput = selectedRow?.outputs.find((output) => output.id === selectedOutputId) || selectedRow?.currentOutput || null;
   const selectedResponse = selectedOutput?.latest || null;
   const currentFeedback = selectedResponse?.feedback?.find((item) => item.visibility !== 'Staff') || null;
-  const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
+  const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogTarget?.responseId) || null;
+  const checkDialogDeliverable = checkDialogResponse
+    ? state.deliverables.find((deliverable) => deliverable.id === checkDialogResponse.deliverableId) || null
+    : null;
+  const checkDialogField = checkDialogDeliverable?.fields?.find((field) => (
+    artifactTargetKey(checkDialogResponse?.id, field) === checkDialogTarget?.targetKey
+  )) || null;
+  const checkDialogReport = checkDialogField ? artifactDocumentCheck(checkDialogResponse, checkDialogField) : null;
 
   useEffect(() => {
     setBatchProgress(null);
     setCheckingIds(new Set());
     setFeedbackError(null);
     setFeedback('');
-    setCheckDialogId('');
+    setCheckDialogTarget(null);
     setSelectedOutputIds({});
     setViewOtherAdviser(false);
   }, [isCurrentScope]);
@@ -179,19 +191,28 @@ export function AdviserViewPage() {
     }
   }
 
-  async function openDocumentCheck() {
-    if (!selectedResponse) return;
-    if (!isDocumentCheckCurrent(selectedResponse)) {
-      const result = await runDocumentCheck(selectedResponse.id);
+  async function openDocumentCheck(field) {
+    if (!selectedResponse || !field) return;
+    if (!isArtifactDocumentCheckCurrent(selectedResponse, field)) {
+      const result = await runDocumentCheck(selectedResponse.id, field);
       if (!result.ok) return;
     }
-    if (isCurrentScope()) setCheckDialogId(selectedResponse.id);
+    if (isCurrentScope()) {
+      setCheckDialogTarget({
+        responseId: selectedResponse.id,
+        targetKey: artifactTargetKey(selectedResponse.id, field)
+      });
+    }
   }
 
   async function checkPendingResponses() {
     if (!selectedRow || !isCurrentScope()) return;
-    const candidates = selectedRow.responses.filter((response) => (
-      response.fileCheckStatus !== 'Checking' && !isDocumentCheckCurrent(response)
+    const candidates = selectedRow.responses.flatMap((response) => (
+      reviewableSubmissionFields(selectedRow.deliverable)
+        .filter((field) => String(response.values?.[field.id] || '').trim())
+        .filter((field) => !checkingIds.has(artifactTargetKey(response.id, field)))
+        .filter((field) => !isArtifactDocumentCheckCurrent(response, field))
+        .map((field) => ({ response, field }))
     ));
     if (!candidates.length) return;
     setBatchProgress({ completed: 0, total: candidates.length, failed: 0, done: false });
@@ -205,8 +226,11 @@ export function AdviserViewPage() {
     setState((current) => ({
       ...current,
       attempts: current.attempts.map((attempt) => {
-        const completed = result.results?.find((item) => item.attemptId === attempt.id && item.ok);
-        return completed?.report ? applyDocumentCheck(attempt, completed.report) : attempt;
+        const completed = (result.results || []).filter((item) => item.attemptId === attempt.id && item.ok && item.report);
+        return completed.reduce((updated, item) => applyDocumentCheck(updated, {
+          ...item.report,
+          fieldId: item.report.fieldId || item.fieldId || null
+        }), attempt);
       })
     }));
     setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, done: true });
@@ -254,28 +278,36 @@ export function AdviserViewPage() {
     });
   }
 
-  async function runDocumentCheck(responseId) {
-    if (!isCurrentScope() || checkingIds.has(responseId)) return { ok: false };
+  async function runDocumentCheck(responseId, field = null) {
     const response = state.attempts.find((item) => item.id === responseId);
     if (!response) return { ok: false, error: 'The selected response was not found.' };
     const deliverable = state.deliverables.find((item) => item.id === response.deliverableId);
+    const reviewableFields = reviewableSubmissionFields(deliverable);
+    const targetField = field || (reviewableFields.length === 1 ? reviewableFields[0] : null);
+    if (!targetField && reviewableFields.length > 1) return { ok: false, error: 'Choose which PDF artifact to check.' };
+    if (!targetField) return { ok: false, error: 'This response has no reviewable PDF artifact.' };
+    const targetKey = artifactTargetKey(responseId, targetField);
+    if (!isCurrentScope() || checkingIds.has(targetKey)) return { ok: false };
     setFeedbackError(null);
-    setCheckingIds((current) => new Set([...current, responseId]));
+    setCheckingIds((current) => new Set([...current, targetKey]));
     let result;
     try {
-      result = await runReviewDocumentCheck(activeWorkspaceId, response, deliverable);
+      result = await runReviewDocumentCheck(activeWorkspaceId, response, deliverable, targetField);
     } catch (error) {
       result = { ok: false, error: error?.message || 'Document Check could not finish.' };
     }
     if (!isCurrentScope()) return { ok: false };
-    setCheckingIds((current) => new Set([...current].filter(id => id !== responseId)));
+    setCheckingIds((current) => new Set([...current].filter(id => id !== targetKey)));
     if (result.ok) {
       setState((current) => ({
         ...current,
-        attempts: current.attempts.map((item) => item.id === responseId ? applyDocumentCheck(item, result.report) : item)
+        attempts: current.attempts.map((item) => item.id === responseId ? applyDocumentCheck(item, {
+          ...result.report,
+          fieldId: result.report?.fieldId || targetField.definitionId || null
+        }) : item)
       }));
     } else {
-      setFeedbackError({ responseId, workspaceId: activeWorkspaceId, message: result.error || 'Document Check could not finish. Please try again.' });
+      setFeedbackError({ responseId, targetKey, workspaceId: activeWorkspaceId, message: result.error || 'Document Check could not finish. Please try again.' });
     }
     return result;
   }
@@ -437,12 +469,11 @@ export function AdviserViewPage() {
                 <SelectedGroupOutput
                   row={selectedRow}
                   team={selectedTeam}
-                  output={selectedOutput}
                   response={selectedResponse}
                   outputId={selectedOutput?.id || ''}
                   feedback={feedback}
                   batchProgress={batchProgress}
-                  checking={checkingIds.has(selectedResponse?.id)}
+                  checkingFields={checkingIds}
                   onSelectOutput={selectOutput}
                   onFeedbackChange={setFeedback}
                   onSubmitFeedback={submitFeedback}
@@ -465,12 +496,16 @@ export function AdviserViewPage() {
 
       <DocumentCheckDialog
         open={Boolean(checkDialogResponse)}
-        response={checkDialogResponse}
-        fileLink={firstSubmissionLink(checkDialogResponse?.values)}
-        rechecking={checkingIds.has(checkDialogResponse?.id) || checkDialogResponse?.fileCheckStatus === 'Checking'}
-        error={feedbackError?.responseId === checkDialogResponse?.id ? feedbackError?.message : ''}
-        onClose={() => setCheckDialogId('')}
-        onRecheck={() => runDocumentCheck(checkDialogResponse.id)}
+        response={checkDialogResponse && checkDialogReport ? {
+          ...checkDialogResponse,
+          documentCheck: checkDialogReport,
+          fileCheckStatus: checkDialogReport.status
+        } : checkDialogResponse}
+        fileLink={checkDialogField ? checkDialogResponse?.values?.[checkDialogField.id] : ''}
+        rechecking={checkDialogField ? checkingIds.has(artifactTargetKey(checkDialogResponse?.id, checkDialogField)) : false}
+        error={checkDialogField && feedbackError?.targetKey === artifactTargetKey(checkDialogResponse?.id, checkDialogField) ? feedbackError?.message : ''}
+        onClose={() => setCheckDialogTarget(null)}
+        onRecheck={() => runDocumentCheck(checkDialogResponse.id, checkDialogField)}
       />
       </ResourceBoundary>
     </Stack>
@@ -480,12 +515,11 @@ export function AdviserViewPage() {
 function SelectedGroupOutput({
   row,
   team,
-  output,
   response,
   outputId,
   feedback,
   batchProgress,
-  checking,
+  checkingFields,
   onSelectOutput,
   onFeedbackChange,
   onSubmitFeedback,
@@ -494,11 +528,12 @@ function SelectedGroupOutput({
   onAccept,
   onRevoke
 }) {
-  const link = output?.link || '';
   const currentFeedback = response?.feedback?.find((item) => item.visibility !== 'Staff') || null;
-  const pendingChecks = row.responses.filter((item) => item.fileCheckStatus !== 'Checking' && !isDocumentCheckCurrent(item));
-  const aiReport = response?.aiReport;
-  const aiCurrent = isAiReportCurrent(response);
+  const pendingChecks = row.responses.flatMap((item) => (
+    reviewableSubmissionFields(row.deliverable)
+      .filter((field) => String(item.values?.[field.id] || '').trim())
+      .filter((field) => !isArtifactDocumentCheckCurrent(item, field))
+  ));
   const accepted = response?.reviewStatus === 'Accepted';
 
   return (
@@ -510,18 +545,8 @@ function SelectedGroupOutput({
           <Text size="sm" c="dimmed">{team.teamCode} | {row.receivedMemberCount} of {team.members.length} members submitted</Text>
         </div>
         <Group gap="xs" wrap="wrap">
-          {link ? (
-            <Button component="a" href={makeDriveViewUrl(link)} target="_blank" rel="noreferrer" variant="default" leftSection={<ArrowSquareOut size={17} aria-hidden="true" />}>
-              Open group file
-            </Button>
-          ) : null}
-          {deliverableUsesDocumentCheck(row.deliverable) && response ? (
-            <Button variant="default" loading={checking} leftSection={<MagnifyingGlass size={17} aria-hidden="true" />} onClick={onOpenDocumentCheck}>
-              {isDocumentCheckCurrent(response) ? 'View Document Check' : 'Check document'}
-            </Button>
-          ) : null}
           {accepted ? (
-            <Button color="red" variant="light" leftSection={<XCircle size={17} />} disabled={response.archiveStatus === 'Archived'} onClick={onRevoke}>Revoke acceptance</Button>
+            <Button color="red" variant="light" leftSection={<XCircle size={17} />} onClick={onRevoke}>Revoke acceptance</Button>
           ) : (
             <Button color="wildtrackMaroon" leftSection={<CheckCircle size={17} aria-hidden="true" />} disabled={!response} onClick={onAccept}>Accept group output</Button>
           )}
@@ -551,46 +576,39 @@ function SelectedGroupOutput({
           No member of this team has submitted this deliverable yet.
         </Alert>
       ) : (
-        <div className="wt-adviser-detail-grid">
+        <Stack gap="md">
           <section>
             <div className="wt-adviser-detail-heading">
-              <Text fw={800}>Document Check</Text>
-              <StatusIndicator status={documentCheckLabel(response, row.deliverable)} />
+              <Text fw={800}>Submission artifacts</Text>
+              <Text size="xs" c="dimmed">Each PDF is checked and reviewed independently.</Text>
             </div>
-            <Text size="sm">{response.documentCheck?.summary || response.checkSummary || 'No current Document Check is available for this file.'}</Text>
-            {pendingChecks.length ? (
-              <Button mt="md" variant="subtle" size="sm" leftSection={<Files size={16} />} onClick={onCheckPending} disabled={Boolean(batchProgress && !batchProgress.done)}>
-                Check {pendingChecks.length} unchecked member response{pendingChecks.length === 1 ? '' : 's'}
-              </Button>
-            ) : null}
-            {batchProgress ? (
-              <div className="wt-adviser-batch-progress" role="status">
-                <Group justify="space-between" gap="sm">
-                  <Text size="xs" fw={750}>{batchProgress.done ? 'Checks complete' : 'Checking documents'}</Text>
-                  <Text size="xs" c="dimmed">{batchProgress.completed}/{batchProgress.total}{batchProgress.failed ? ` | ${batchProgress.failed} failed` : ''}</Text>
-                </Group>
-                <Progress value={(batchProgress.completed / Math.max(batchProgress.total, 1)) * 100} color="wildtrackMaroon" size="sm" mt={6} />
-              </div>
-            ) : null}
+            <Stack gap="sm" mt="sm">
+              {(row.deliverable.fields || []).map((field) => (
+                <AdviserArtifact
+                  key={field.definitionId || field.id}
+                  field={field}
+                  response={response}
+                  checking={checkingFields.has(artifactTargetKey(response.id, field))}
+                  onOpenDocumentCheck={() => onOpenDocumentCheck(field)}
+                />
+              ))}
+            </Stack>
           </section>
-
-          <section>
-            <div className="wt-adviser-detail-heading">
-              <Text fw={800}>AI Review</Text>
-              <StatusIndicator status={aiReviewStatus(response)} />
+          {pendingChecks.length ? (
+            <Button variant="subtle" size="sm" leftSection={<Files size={16} />} onClick={onCheckPending} disabled={Boolean(batchProgress && !batchProgress.done)}>
+              {pendingCheckLabel(row.deliverable, pendingChecks.length)}
+            </Button>
+          ) : null}
+          {batchProgress ? (
+            <div className="wt-adviser-batch-progress" role="status">
+              <Group justify="space-between" gap="sm">
+                <Text size="xs" fw={750}>{batchProgress.done ? 'Checks complete' : 'Checking PDF artifacts'}</Text>
+                <Text size="xs" c="dimmed">{batchProgress.completed}/{batchProgress.total}{batchProgress.failed ? ` | ${batchProgress.failed} failed` : ''}</Text>
+              </Group>
+              <Progress value={(batchProgress.completed / Math.max(batchProgress.total, 1)) * 100} color="wildtrackMaroon" size="sm" mt={6} />
             </div>
-            {aiCurrent ? (
-              <Stack gap="xs">
-                <Text size="sm">{aiReport.summary}</Text>
-                {aiReport.flags?.length ? <Text size="xs"><strong>Flags:</strong> {aiReport.flags.join(', ')}</Text> : null}
-                {aiReport.missingSections?.length ? <Text size="xs"><strong>Missing or weak:</strong> {aiReport.missingSections.join(', ')}</Text> : null}
-                {aiReport.suggestedAction ? <Text size="xs"><strong>Suggested action:</strong> {aiReport.suggestedAction}</Text> : null}
-              </Stack>
-            ) : (
-              <Text size="sm" c="dimmed">No current AI Review is available. AI Review is initiated by Sir/Admin.</Text>
-            )}
-          </section>
-        </div>
+          ) : null}
+        </Stack>
       )}
 
       <Divider />
@@ -625,6 +643,106 @@ function SelectedGroupOutput({
       </div>
     </section>
   );
+}
+
+function AdviserArtifact({ field, response, checking, onOpenDocumentCheck }) {
+  const value = String(response.values?.[field.id] || '').trim();
+  const isLink = /^https?:\/\//i.test(value);
+  const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
+  const check = reviewablePdf ? artifactDocumentCheck(response, field) : null;
+  const checkStatus = reviewablePdf ? adviserArtifactDocumentCheckStatus(response, field) : 'Not applicable';
+  const aiEnabled = reviewablePdf && field.aiReviewEnabled !== false;
+  const artifactReview = aiEnabled ? artifactAiReview(response, field) : null;
+  const artifactReviewCurrent = aiEnabled && isArtifactAiReviewCurrent(response, field);
+  const legacyReviewCurrent = aiEnabled && !field.definitionId && !artifactReview && isAiReportCurrent(response);
+  const aiReport = artifactReviewCurrent ? artifactReview?.report : legacyReviewCurrent ? response.aiReport : null;
+  const aiStatus = legacyReviewCurrent
+    ? aiReviewStatus(response)
+    : aiEnabled
+      ? artifactAiReviewStatus(response, { ...field, aiReviewEnabled: true })
+      : 'Not applicable';
+
+  return (
+    <Paper withBorder radius="sm" p="md" role="group" aria-label={`${field.label || 'Submission artifact'} artifact`}>
+      <Stack gap="xs">
+        <Group justify="space-between" align="flex-start" wrap="wrap">
+          <div>
+            <Text fw={750}>{field.label || 'Submission artifact'}</Text>
+            <Text size="xs" c="dimmed">{submissionFieldTypeLabel(field)}</Text>
+          </div>
+          {reviewablePdf ? <StatusIndicator status={checkStatus} /> : null}
+        </Group>
+
+        {value ? (
+          isLink ? (
+            <Button component="a" href={makeDriveViewUrl(value)} target="_blank" rel="noreferrer" variant="default" size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
+              Open submitted link
+            </Button>
+          ) : <Text size="sm">{value}</Text>
+        ) : <Text size="sm" c="dimmed">No value submitted for this artifact.</Text>}
+
+        {reviewablePdf ? (
+          <Stack gap="xs">
+            <Group gap="xs" wrap="wrap">
+              <Button
+                variant="light"
+                color="wildtrackMaroon"
+                size="xs"
+                loading={checking}
+                disabled={!value}
+                leftSection={<MagnifyingGlass size={15} aria-hidden="true" />}
+                onClick={onOpenDocumentCheck}
+              >
+                {isArtifactDocumentCheckCurrent(response, field) ? 'View Document Check' : 'Check document'}
+              </Button>
+              {aiEnabled ? <StatusIndicator status={aiStatus} /> : null}
+            </Group>
+            <Text size="sm" c="dimmed">{check?.summary || 'No current Document Check is available for this PDF.'}</Text>
+            {aiEnabled ? (
+              aiReport ? (
+                <Stack gap={3}>
+                  <Text size="sm">{aiReport.summary}</Text>
+                  {aiReport.flags?.length ? <Text size="xs"><strong>Flags:</strong> {aiReport.flags.join(', ')}</Text> : null}
+                  {aiReport.missingSections?.length ? <Text size="xs"><strong>Missing or weak:</strong> {aiReport.missingSections.join(', ')}</Text> : null}
+                  {aiReport.suggestedAction ? <Text size="xs"><strong>Suggested action:</strong> {aiReport.suggestedAction}</Text> : null}
+                </Stack>
+              ) : <Text size="xs" c="dimmed">No current AI Review is available. AI Review is initiated by Sir/Admin.</Text>
+            ) : null}
+          </Stack>
+        ) : (
+          <Text size="xs" c="dimmed">Recorded as submission evidence. Document Check and AI Review do not apply to this artifact.</Text>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
+function submissionFieldTypeLabel(field) {
+  return ({
+    drive: 'Google Drive PDF',
+    googleForm: 'Google Form',
+    googleSheet: 'Google Sheet',
+    driveFolder: 'Google Drive folder',
+    textarea: 'Text response',
+    url: 'Link'
+  })[field.type] || (field.pdfRequired ? 'PDF' : 'Submission field');
+}
+
+function artifactTargetKey(responseId, field) {
+  return `${responseId}:${field?.definitionId || field?.id || 'legacy'}`;
+}
+
+function adviserArtifactDocumentCheckStatus(response, field) {
+  const report = artifactDocumentCheck(response, field);
+  if (report && !report.checkedAt) return 'Not checked';
+  return artifactDocumentCheckStatus(response, field);
+}
+
+function pendingCheckLabel(deliverable, count) {
+  if (reviewableSubmissionFields(deliverable).length <= 1) {
+    return `Check ${count} unchecked member response${count === 1 ? '' : 's'}`;
+  }
+  return `Check ${count} unchecked PDF artifact${count === 1 ? '' : 's'}`;
 }
 
 function resolveInitialAdviser(adviserOptions) {
@@ -666,7 +784,7 @@ export function buildTeamDeliverableRows(state, team) {
       responses,
       outputs,
       currentOutput: outputs[0] || null,
-      hasConflict: outputs.filter((output) => output.link).length > 1,
+      hasConflict: outputs.filter((output) => output.hasSubmittedValue).length > 1,
       receivedMemberCount: receivedMembers.size,
       responseCount: responses.length
     };
@@ -676,9 +794,9 @@ export function buildTeamDeliverableRows(state, team) {
 function groupEquivalentResponses(responses, members) {
   const groups = new Map();
   responses.forEach((response) => {
-    const link = firstSubmissionLink(response.values);
+    const hasSubmittedValue = Object.values(response.values || {}).some((value) => String(value || '').trim());
     const signature = outputSignature(response.values) || `response:${response.id}`;
-    const current = groups.get(signature) || { id: signature, link, responses: [], latest: response, senderNames: [] };
+    const current = groups.get(signature) || { id: signature, hasSubmittedValue, responses: [], latest: response, senderNames: [] };
     current.responses.push(response);
     if (sortResponsesNewestFirst(response, current.latest) < 0) current.latest = response;
     const senderName = members.find((member) => normalizeStudentNumber(member.studentNumber) === normalizeStudentNumber(response.studentNumber))?.name || response.studentName;
@@ -722,10 +840,11 @@ function groupFileLabel(row) {
 
 function documentCheckLabel(response, deliverable) {
   if (!response || !deliverableUsesDocumentCheck(deliverable)) return 'Not applicable';
-  if (response.fileCheckStatus === 'Checking') return 'Checking';
-  if (response.fileCheckStatus === 'Error' || response.documentCheck?.status === 'Error') return 'Could not check';
-  if (!isDocumentCheckCurrent(response)) return 'Not checked';
-  return response.documentCheck?.redFlags?.length || response.documentCheck?.missingSections?.length ? 'Needs attention' : 'Ready for review';
+  const statuses = reviewableSubmissionFields(deliverable).map((field) => adviserArtifactDocumentCheckStatus(response, field));
+  if (statuses.includes('Needs attention')) return 'Needs attention';
+  if (statuses.includes('Outdated')) return 'Outdated';
+  if (statuses.length && statuses.every((status) => status === 'Ready for review')) return 'Ready for review';
+  return 'Not checked';
 }
 
 function decisionLabel(response) {

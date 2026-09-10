@@ -1,4 +1,9 @@
-import { deliverableUsesDocumentCheck, findStudent, isDocumentCheckCurrent } from './workflow.js';
+import {
+  deliverableUsesDocumentCheck,
+  findStudent,
+  isArtifactDocumentCheckCurrent,
+  reviewableSubmissionFields
+} from './workflow.js';
 
 const FLAGGED_STATUSES = new Set([
   'Template-like',
@@ -20,10 +25,13 @@ export function isFlaggedResponse(response) {
   return (response.flags || []).some((flag) => FLAGGED_STATUSES.has(flag));
 }
 
-export function needsReviewAction(response, documentCheckRequired = true) {
+export function needsReviewAction(response, documentCheckRequired = true, deliverable = null) {
   if (response.reviewStatus === 'Accepted' || response.archiveStatus === 'Archived') return false;
+  const pendingArtifacts = deliverable
+    ? reviewableSubmissionFields(deliverable).some((field) => !isArtifactDocumentCheckCurrent(response, field))
+    : documentCheckRequired;
   return isFlaggedResponse(response)
-    || (documentCheckRequired && !isDocumentCheckCurrent(response))
+    || (documentCheckRequired && pendingArtifacts)
     || response.reviewStatus === 'Needs Review'
     || response.reviewStatus === 'Received';
 }
@@ -37,12 +45,13 @@ export function buildDeliverableReviewSummaries({ deliverables, attempts, expect
     const submittedExpectedStudents = [...expectedStudentNumbers].filter((studentNumber) => receivedStudentNumbers.has(studentNumber)).length;
     const accepted = responses.filter((response) => response.reviewStatus === 'Accepted').length;
     const archived = responses.filter((response) => response.archiveStatus === 'Archived').length;
-    const unchecked = documentCheckRequired ? responses.filter((response) => (
-      response.reviewStatus !== 'Accepted'
-      && response.archiveStatus !== 'Archived'
-      && !isDocumentCheckCurrent(response)
-    )).length : 0;
-    const needsAction = responses.filter((response) => needsReviewAction(response, documentCheckRequired)).length;
+    const fields = reviewableSubmissionFields(deliverable);
+    const unchecked = documentCheckRequired ? responses.reduce((count, response) => (
+      response.reviewStatus === 'Accepted' || response.archiveStatus === 'Archived'
+        ? count
+        : count + fields.filter((field) => !isArtifactDocumentCheckCurrent(response, field)).length
+    ), 0) : 0;
+    const needsAction = responses.filter((response) => needsReviewAction(response, documentCheckRequired, deliverable)).length;
     return {
       deliverable,
       responses,
@@ -60,7 +69,7 @@ export function buildDeliverableReviewSummaries({ deliverables, attempts, expect
 export function filterReviewResponses({ responses, students, deliverable, filter, query }) {
   let rows = responses;
   const documentCheckRequired = deliverableUsesDocumentCheck(deliverable);
-  if (filter === 'Pending') rows = rows.filter((response) => needsReviewAction(response, documentCheckRequired));
+  if (filter === 'Pending') rows = rows.filter((response) => needsReviewAction(response, documentCheckRequired, deliverable));
   if (filter === 'Flagged') rows = rows.filter((response) => response.reviewStatus !== 'Accepted' && isFlaggedResponse(response));
   if (filter === 'Accepted') rows = rows.filter((response) => response.reviewStatus === 'Accepted');
   if (filter === 'Archived') rows = rows.filter((response) => response.archiveStatus === 'Archived');

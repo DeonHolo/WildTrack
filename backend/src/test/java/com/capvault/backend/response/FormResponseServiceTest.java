@@ -5,8 +5,12 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.capvault.backend.deliverable.Deliverable;
+import com.capvault.backend.deliverable.DeliverableField;
+import com.capvault.backend.deliverable.DeliverableFieldRepository;
+import com.capvault.backend.deliverable.DeliverableFieldType;
 import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DeliverableStatus;
+import com.capvault.backend.deliverable.DocumentCheckPolicy;
 import com.capvault.backend.filecheck.FileCheckReportRepository;
 import com.capvault.backend.student.StudentAssociationService;
 import com.capvault.backend.student.StudentRecord;
@@ -39,6 +43,9 @@ class FormResponseServiceTest {
 
     @Autowired
     private DeliverableRepository deliverableRepository;
+
+    @Autowired
+    private DeliverableFieldRepository deliverableFieldRepository;
 
     @Autowired
     private AcademicWorkspaceRepository workspaceRepository;
@@ -248,5 +255,71 @@ class FormResponseServiceTest {
         assertThatThrownBy(() -> service.submit(new FormResponseService.SubmitCommand(
             other.getId(), deliverableId, "sub-A", "a@gmail.com", Map.of())))
             .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Deliverable not found");
+    }
+
+    @Test
+    void validatesFiveTypedMvpArtifactsIndependently() {
+        configureMvpFields();
+        associate("mvp-owner");
+        Map<String, Object> valid = validMvpValues();
+
+        var saved = submitFor("mvp-owner", valid);
+        assertThat(saved.changed()).isTrue();
+        assertThat(saved.response().getValuesJson()).contains("validationInstrument", "frameworkModel", "responseSheet", "validationHighlights", "validationEvidence");
+
+        var missingRequired = new java.util.LinkedHashMap<>(valid);
+        missingRequired.remove("validationEvidence");
+        assertThatThrownBy(() -> submitFor("mvp-owner", missingRequired))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Validation Evidence is required");
+
+        var wrongForm = new java.util.LinkedHashMap<>(valid);
+        wrongForm.put("validationInstrument", "https://example.com/form");
+        assertThatThrownBy(() -> submitFor("mvp-owner", wrongForm))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Google Forms link");
+
+        var wrongSheet = new java.util.LinkedHashMap<>(valid);
+        wrongSheet.put("responseSheet", "https://drive.google.com/file/d/not-a-sheet/view");
+        assertThatThrownBy(() -> submitFor("mvp-owner", wrongSheet))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Google Sheets link");
+
+        var wrongFolder = new java.util.LinkedHashMap<>(valid);
+        wrongFolder.put("validationEvidence", "https://drive.google.com/file/d/not-a-folder/view");
+        assertThatThrownBy(() -> submitFor("mvp-owner", wrongFolder))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Google Drive folder link");
+
+        var wrongPdf = new java.util.LinkedHashMap<>(valid);
+        wrongPdf.put("frameworkModel", "https://docs.google.com/spreadsheets/d/not-a-pdf/edit");
+        assertThatThrownBy(() -> submitFor("mvp-owner", wrongPdf))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Google Drive file link");
+    }
+
+    private void configureMvpFields() {
+        deliverableFieldRepository.saveAll(java.util.List.of(
+            new DeliverableField("mvp-form", deliverableId, "validationInstrument", "Validation Instrument",
+                DeliverableFieldType.GOOGLE_FORM, true, 0, DocumentCheckPolicy.OFF, false, true),
+            new DeliverableField("mvp-framework", deliverableId, "frameworkModel", "Framework / Model",
+                DeliverableFieldType.DRIVE_PDF, true, 1, DocumentCheckPolicy.MANUAL, true, true),
+            new DeliverableField("mvp-sheet", deliverableId, "responseSheet", "Validation Response Sheet",
+                DeliverableFieldType.GOOGLE_SHEET, true, 2, DocumentCheckPolicy.OFF, false, true),
+            new DeliverableField("mvp-highlights", deliverableId, "validationHighlights", "MVP Validation Highlights",
+                DeliverableFieldType.DRIVE_PDF, true, 3, DocumentCheckPolicy.MANUAL, true, true),
+            new DeliverableField("mvp-evidence", deliverableId, "validationEvidence", "Validation Evidence",
+                DeliverableFieldType.DRIVE_FOLDER, true, 4, DocumentCheckPolicy.OFF, false, true)
+        ));
+    }
+
+    private Map<String, Object> validMvpValues() {
+        Map<String, Object> values = new java.util.LinkedHashMap<>();
+        values.put("validationInstrument", "https://docs.google.com/forms/d/e/validation123/viewform");
+        values.put("frameworkModel", "https://drive.google.com/file/d/framework123/view");
+        values.put("responseSheet", "https://docs.google.com/spreadsheets/d/responses123/edit");
+        values.put("validationHighlights", "https://drive.google.com/file/d/highlights123/view");
+        values.put("validationEvidence", "https://drive.google.com/drive/folders/evidence123");
+        return values;
     }
 }

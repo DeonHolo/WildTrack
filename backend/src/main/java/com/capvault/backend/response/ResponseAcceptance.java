@@ -64,4 +64,14 @@ public class ResponseAcceptance {
     public Instant getAcceptedAt() { return acceptedAt; }
     public Instant getRevokedAt() { return revokedAt; }
     public void setRevokedAt(Instant revokedAt) { this.revokedAt = revokedAt; }
+
+    public void reactivate(String acceptedBySubject, String acceptedByEmail, String acceptedByRole,
+                           Instant sourceResponseUpdatedAt, Instant acceptedAt) {
+        this.acceptedBySubject = acceptedBySubject;
+        this.acceptedByEmail = acceptedByEmail;
+        this.acceptedByRole = acceptedByRole;
+        this.sourceResponseUpdatedAt = sourceResponseUpdatedAt;
+        this.acceptedAt = acceptedAt;
+        this.revokedAt = null;
+    }
 }

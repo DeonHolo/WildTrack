@@ -1,7 +1,9 @@
 package com.capvault.backend.deliverable;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -26,6 +28,8 @@ public record DeliverableRequest(
 
     boolean pdfRequired,
 
-    DeliverableStatus status
+    DeliverableStatus status,
+
+    List<@Valid DeliverableFieldRequest> fields
 ) {
 }

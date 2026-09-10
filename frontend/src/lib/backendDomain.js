@@ -83,6 +83,7 @@ export function mapTemplates(items = []) {
   return items.map((template) => ({
     id: template.id,
     deliverable: template.deliverableKey,
+    fieldId: template.fieldId || null,
     name: template.displayName,
     originalFilename: template.originalFilename,
     contentType: template.contentType,
@@ -133,13 +134,14 @@ export function mapResponse(response) {
 export function applyReviewState(response, reviewState = {}) {
   const acceptance = reviewState.acceptance || null;
   const accepted = acceptance && sameInstant(acceptance.sourceResponseUpdatedAt, response.updatedAt || response.submittedAt);
+  const fieldNeedsReview = Object.values(response.artifactChecks || {}).some((report) => report?.attentionRequired);
   return {
     ...response,
     feedback: reviewState.feedback || [],
     acceptance: accepted ? acceptance : null,
     flags: accepted ? [...new Set([...(response.flags || []), 'Accepted'])] : (response.flags || []).filter((flag) => flag !== 'Accepted'),
-    reviewStatus: accepted ? 'Accepted' : response.documentCheck?.attentionRequired ? 'Needs Review' : 'Received',
-    primaryStatus: accepted ? 'Accepted' : response.documentCheck?.attentionRequired ? 'Needs Review' : 'Received'
+    reviewStatus: accepted ? 'Accepted' : (response.documentCheck?.attentionRequired || fieldNeedsReview) ? 'Needs Review' : 'Received',
+    primaryStatus: accepted ? 'Accepted' : (response.documentCheck?.attentionRequired || fieldNeedsReview) ? 'Needs Review' : 'Received'
   };
 }
 
@@ -158,6 +160,22 @@ export function applyFileCheck(response, report) {
       status: report.status === 'UNAVAILABLE' ? 'Unavailable' : 'Current',
       reportId: report.id
     }
+  };
+}
+
+export function applyFieldChecks(response, reports = {}) {
+  const normalized = Object.fromEntries(Object.entries(reports || {}).map(([fieldId, report]) => [fieldId, normalizeFileCheck(report)]));
+  const allFlags = Object.values(normalized).flatMap((report) => report?.flags || []);
+  const first = Object.values(normalized)[0] || null;
+  return {
+    ...response,
+    artifactChecks: normalized,
+    flags: [...new Set([...(response.flags || []), ...allFlags])],
+    ...(response.documentCheck || !first ? {} : {
+      documentCheck: first,
+      checkSummary: first.summary || '',
+      fileCheckStatus: first.status
+    })
   };
 }
 
@@ -204,4 +222,22 @@ export function applyAiReview(response, review) {
     sourceResponseUpdatedAt: review.sourceResponseUpdatedAt, sourceVerified: review.sourceVerified,
     reused: review.reused
   } : null };
+}
+
+export function applyFieldAiReviews(response, reviews = {}) {
+  const artifactAiReviews = { ...(response.artifactAiReviews || {}) };
+  for (const [fieldId, review] of Object.entries(reviews || {})) {
+    artifactAiReviews[fieldId] = review || null;
+  }
+  return { ...response, artifactAiReviews };
+}
+
+function normalizeFileCheck(report) {
+  if (!report) return null;
+  return {
+    ...report,
+    type: 'Document Check',
+    status: report.status === 'UNAVAILABLE' ? 'Unavailable' : report.status === 'BLOCKED' ? 'Current' : 'Current',
+    reportId: report.id
+  };
 }

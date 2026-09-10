@@ -16,8 +16,13 @@ import java.util.stream.Collectors;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.capvault.backend.deliverable.Deliverable;
+import com.capvault.backend.deliverable.DeliverableField;
+import com.capvault.backend.deliverable.DeliverableFieldRepository;
+import com.capvault.backend.deliverable.DeliverableFieldType;
+import com.capvault.backend.deliverable.DocumentCheckPolicy;
 import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DeliverableStatus;
+import com.capvault.backend.drive.DriveLinkParser;
 import com.capvault.backend.filecheck.FileCheckRequest;
 import com.capvault.backend.filecheck.FileCheckService;
 import com.capvault.backend.student.StudentAssociationService;
@@ -35,6 +40,7 @@ public class FormResponseService {
     private final FormResponseVersionRepository versionRepository;
     private final StudentAssociationService associationService;
     private final DeliverableRepository deliverableRepository;
+    private final DeliverableFieldRepository fieldRepository;
     private final FileCheckService fileCheckService;
     private final Clock clock;
     private final DomainEventRecorder events;
@@ -45,6 +51,7 @@ public class FormResponseService {
         FormResponseVersionRepository versionRepository,
         StudentAssociationService associationService,
         DeliverableRepository deliverableRepository,
+        DeliverableFieldRepository fieldRepository,
         FileCheckService fileCheckService,
         Clock clock,
         DomainEventRecorder events
@@ -53,6 +60,7 @@ public class FormResponseService {
         this.versionRepository = versionRepository;
         this.associationService = associationService;
         this.deliverableRepository = deliverableRepository;
+        this.fieldRepository = fieldRepository;
         this.fileCheckService = fileCheckService;
         this.clock = clock;
         this.events = events;
@@ -86,6 +94,12 @@ public class FormResponseService {
         if (deliverable.getStatus() != DeliverableStatus.PUBLISHED) {
             throw new IllegalStateException("This form is no longer accepting responses.");
         }
+        List<DeliverableField> persistedFields = fieldRepository
+            .findAllByDeliverableIdAndActiveTrueOrderByDisplayOrderAscLabelAsc(deliverable.getId());
+        List<DeliverableField> submissionFields = persistedFields.isEmpty()
+            ? List.of(legacyField(deliverable))
+            : persistedFields;
+        if (!persistedFields.isEmpty()) validateSubmissionFields(persistedFields, command.values());
         Instant now = clock.instant();
         Optional<FormResponse> existing = responseRepository
             .findByWorkspaceIdAndDeliverableIdAndGoogleSubject(command.workspaceId(), command.deliverableId(), command.googleSubject());
@@ -96,8 +110,9 @@ public class FormResponseService {
                 throw new ConcurrentModificationException();
             }
             String currentJson = response.getValuesJson();
+            Map<String, Object> currentValues = fromJson(currentJson);
             String nextJson = toJson(command.values());
-            if (fromJson(currentJson).equals(command.values())) {
+            if (currentValues.equals(command.values())) {
                 return new SaveResult(false, response, response.getRevision()); // identical resave: untouched
             }
             archiveVersion(response);
@@ -110,7 +125,7 @@ public class FormResponseService {
                 throw new ConcurrentModificationException();
             }
             events.responseSaved(response);
-            triggerAsyncDocumentCheck(command.workspaceId(), deliverable, response, command.values());
+            triggerAsyncDocumentChecks(command.workspaceId(), deliverable, submissionFields, response, command.values(), currentValues);
             return new SaveResult(true, response, response.getRevision());
         }
 
@@ -135,18 +150,13 @@ public class FormResponseService {
         );
         created = responseRepository.saveAndFlush(created);
         events.responseSaved(created);
-        triggerAsyncDocumentCheck(command.workspaceId(), deliverable, created, command.values());
+        triggerAsyncDocumentChecks(command.workspaceId(), deliverable, submissionFields, created, command.values(), Map.of());
         return new SaveResult(true, created, created.getRevision());
     }
 
-    private void triggerAsyncDocumentCheck(UUID workspaceId, Deliverable deliverable, FormResponse response, Map<String, Object> values) {
-        if (fileCheckService == null || !deliverable.isPdfRequired()) {
-            return;
-        }
-        String link = extractFirstLink(values);
-        if (link == null || link.isBlank()) {
-            return;
-        }
+    private void triggerAsyncDocumentChecks(UUID workspaceId, Deliverable deliverable, List<DeliverableField> fields,
+            FormResponse response, Map<String, Object> values, Map<String, Object> previousValues) {
+        if (fileCheckService == null) return;
         String responseId = response.getId().toString();
         String deliverableKey = deliverable.getTrackerColumnKey() != null && !deliverable.getTrackerColumnKey().isBlank()
             ? deliverable.getTrackerColumnKey()
@@ -155,36 +165,103 @@ public class FormResponseService {
             ? response.getUpdatedAt().toString()
             : response.getSubmittedAt().toString();
 
-        Runnable scheduleCheck = () -> CompletableFuture.runAsync(() -> {
-            try {
-                fileCheckService.check(workspaceId, new FileCheckRequest(responseId, deliverableKey, link, updatedAt));
-            } catch (Exception ignored) {
-                // Failure or network error during document check must never fail or roll back the submission
-            }
-        });
+        List<Runnable> checks = fields.stream()
+            .filter(field -> field.getFieldType() == DeliverableFieldType.DRIVE_PDF)
+            .filter(field -> field.getDocumentCheckPolicy() == DocumentCheckPolicy.AUTO)
+            .filter(field -> !sameFieldValue(previousValues, values, field.getFieldKey()))
+            .map(field -> {
+                String link = stringValue(values.get(field.getFieldKey()));
+                return (Runnable) () -> {
+                    if (link.isBlank()) return;
+                    try {
+                        fileCheckService.check(workspaceId,
+                            new FileCheckRequest(responseId, field.getId(), deliverableKey, link, updatedAt));
+                    } catch (Exception ignored) {
+                        // A document-provider failure must never fail or roll back the submission.
+                    }
+                };
+            })
+            .toList();
+        if (checks.isEmpty()) return;
+        Runnable scheduleChecks = () -> checks.forEach(check -> CompletableFuture.runAsync(check));
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    scheduleCheck.run();
+                    scheduleChecks.run();
                 }
             });
         } else {
-            scheduleCheck.run();
+            scheduleChecks.run();
         }
     }
 
-    private static String extractFirstLink(Map<String, Object> values) {
-        if (values == null) return null;
-        for (Object val : values.values()) {
-            if (val != null) {
-                String str = String.valueOf(val).trim();
-                if (str.startsWith("http://") || str.startsWith("https://")) {
-                    return str;
+    private void validateSubmissionFields(List<DeliverableField> fields, Map<String, Object> values) {
+        Map<String, Object> safeValues = values == null ? Map.of() : values;
+        for (DeliverableField field : fields) {
+            String value = stringValue(safeValues.get(field.getFieldKey()));
+            if (field.isRequired() && value.isBlank()) {
+                throw new IllegalArgumentException(field.getLabel() + " is required.");
+            }
+            if (value.isBlank() || field.getFieldType() == DeliverableFieldType.TEXTAREA) continue;
+            java.net.URI uri;
+            try {
+                uri = java.net.URI.create(value);
+            } catch (IllegalArgumentException invalid) {
+                throw new IllegalArgumentException(field.getLabel() + " must be a complete http or https URL.");
+            }
+            if (uri.getScheme() == null || !(uri.getScheme().equalsIgnoreCase("http") || uri.getScheme().equalsIgnoreCase("https"))) {
+                throw new IllegalArgumentException(field.getLabel() + " must be a complete http or https URL.");
+            }
+            String host = String.valueOf(uri.getHost()).toLowerCase(Locale.ROOT);
+            String path = String.valueOf(uri.getPath()).toLowerCase(Locale.ROOT);
+            switch (field.getFieldType()) {
+                case DRIVE_PDF -> {
+                    try { DriveLinkParser.parse(value); }
+                    catch (IllegalArgumentException invalid) {
+                        throw new IllegalArgumentException(field.getLabel() + " must be a Google Drive file link.");
+                    }
                 }
+                case GOOGLE_FORM -> {
+                    if (!(host.equals("forms.gle") || (host.equals("docs.google.com") && path.contains("/forms/"))))
+                        throw new IllegalArgumentException(field.getLabel() + " must be a Google Forms link.");
+                }
+                case GOOGLE_SHEET -> {
+                    if (!(host.equals("docs.google.com") && path.contains("/spreadsheets/")))
+                        throw new IllegalArgumentException(field.getLabel() + " must be a Google Sheets link.");
+                }
+                case DRIVE_FOLDER -> {
+                    if (!(host.equals("drive.google.com") && path.contains("/folders/")))
+                        throw new IllegalArgumentException(field.getLabel() + " must be a Google Drive folder link.");
+                }
+                default -> { }
             }
         }
-        return null;
+    }
+
+    private DeliverableField legacyField(Deliverable deliverable) {
+        boolean pdf = deliverable.isPdfRequired();
+        return new DeliverableField(
+            null,
+            deliverable.getId(),
+            pdf ? "documentPdf" : "primaryLink",
+            pdf ? "PDF Drive Link" : "Submission Link",
+            pdf ? DeliverableFieldType.DRIVE_PDF : DeliverableFieldType.GENERAL_URL,
+            true,
+            0,
+            pdf ? DocumentCheckPolicy.AUTO : DocumentCheckPolicy.OFF,
+            pdf,
+            true
+        );
+    }
+
+    private static boolean sameFieldValue(Map<String, Object> previous, Map<String, Object> current, String fieldKey) {
+        return stringValue(previous == null ? null : previous.get(fieldKey))
+            .equals(stringValue(current == null ? null : current.get(fieldKey)));
+    }
+
+    private static String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
     }
     /** Ownership is the Google subject: another identity can never read or overwrite these values. */
     @Transactional(readOnly = true)

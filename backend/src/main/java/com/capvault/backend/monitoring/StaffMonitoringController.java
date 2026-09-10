@@ -7,8 +7,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import com.capvault.backend.archive.ArchiveRecordRepository;
 
-import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DeliverableResponse;
+import com.capvault.backend.deliverable.DeliverableService;
 import com.capvault.backend.project.ProjectMetadataRepository;
 import com.capvault.backend.project.ProjectMetadataResponse;
 import com.capvault.backend.response.FormResponse;
@@ -44,7 +44,7 @@ public class StaffMonitoringController {
     private final TrackerColumnRepository columnRepository;
     private final TrackerRowRepository rowRepository;
     private final TrackerCellRepository cellRepository;
-    private final DeliverableRepository deliverableRepository;
+    private final DeliverableService deliverableService;
     private final FormResponseService responseService;
     private final ArchiveRecordRepository archiveRepository;
     private final com.capvault.backend.response.ReviewFeedbackService reviews;
@@ -59,7 +59,7 @@ public class StaffMonitoringController {
         TrackerColumnRepository columnRepository,
         TrackerRowRepository rowRepository,
         TrackerCellRepository cellRepository,
-        DeliverableRepository deliverableRepository,
+        DeliverableService deliverableService,
         FormResponseService responseService,
         ArchiveRecordRepository archiveRepository,
         com.capvault.backend.response.ReviewFeedbackService reviews,
@@ -73,7 +73,7 @@ public class StaffMonitoringController {
         this.columnRepository = columnRepository;
         this.rowRepository = rowRepository;
         this.cellRepository = cellRepository;
-        this.deliverableRepository = deliverableRepository;
+        this.deliverableService = deliverableService;
         this.responseService = responseService;
         this.archiveRepository = archiveRepository;
         this.reviews = reviews;
@@ -93,7 +93,9 @@ public class StaffMonitoringController {
         List<UUID> archivedResponseIds,
         java.util.Map<UUID, java.util.Map<String, Object>> reviewStates,
         java.util.Map<String, com.capvault.backend.filecheck.FileCheckResponse> fileChecks,
-        java.util.Map<UUID, com.capvault.backend.aireview.AiReviewService.View> aiReviews
+        java.util.Map<UUID, com.capvault.backend.aireview.AiReviewService.View> aiReviews,
+        java.util.Map<String, java.util.Map<String, com.capvault.backend.filecheck.FileCheckResponse>> fileChecksByField,
+        java.util.Map<UUID, java.util.Map<String, com.capvault.backend.aireview.AiReviewService.View>> aiReviewsByField
     ) {
     }
 
@@ -115,9 +117,15 @@ public class StaffMonitoringController {
 
         var responses = allTeams ? responseService.responsesForWorkspace(workspaceId)
             : responseService.responsesForTeams(workspaceId, teams);
+        var reviewStates = includeReviews
+            ? reviews.statesFor(responses.stream().map(FormResponse::getId).toList())
+            : java.util.Map.<UUID, java.util.Map<String, Object>>of();
+        var activeAcceptanceVersions = reviews.activeAcceptanceVersionsFor(
+            responses.stream().map(FormResponse::getId).toList());
         var visibleVersions = responses.stream().collect(Collectors.toMap(FormResponse::getId, FormResponse::getUpdatedAt));
         var archivedResponseIds = archiveRepository.findAllByWorkspaceIdOrderByArchivedAtDesc(workspaceId).stream()
             .filter(record -> record.getSourceResponseUpdatedAt().equals(visibleVersions.get(record.getResponseId())))
+            .filter(record -> record.getSourceResponseUpdatedAt().equals(activeAcceptanceVersions.get(record.getResponseId())))
             .map(record -> record.getResponseId()).distinct().toList();
         var rows = rowRepository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
             .filter(row -> allTeams || containsTeam(teams, row.getTeamCode())).toList();
@@ -151,14 +159,14 @@ public class StaffMonitoringController {
                     .sorted(Comparator.comparing(cell -> cell.getTrackerColumn().getDisplayOrder()))
                     .toList()))
                 .toList(),
-            deliverableRepository.findAllByWorkspaceIdOrderByDueAtAscTitleAsc(workspaceId).stream()
-                .map(DeliverableResponse::from)
-                .toList(),
+            deliverableService.listDeliverables(workspaceId),
             responses,
             archivedResponseIds,
-            includeReviews ? reviews.statesFor(responses.stream().map(FormResponse::getId).toList()) : java.util.Map.of(),
+            reviewStates,
             includeReviews ? checks.latestForResponses(workspaceId, responses.stream().map(r -> r.getId().toString()).toList()) : java.util.Map.of(),
-            includeReviews ? aiReviews.savedFor(responses) : java.util.Map.of()
+            includeReviews ? aiReviews.savedFor(responses) : java.util.Map.of(),
+            includeReviews ? checks.latestByFieldForResponses(workspaceId, responses.stream().map(r -> r.getId().toString()).toList()) : java.util.Map.of(),
+            includeReviews ? aiReviews.savedByFieldFor(responses) : java.util.Map.of()
         );
     }
 

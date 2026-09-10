@@ -29,6 +29,7 @@ public class ArchiveRecord {
     @Column(name = "adviser_name") private String adviserName;
     @Column(name = "version_number", nullable = false) private int versionNumber;
     @Column(name = "source_link", columnDefinition = "TEXT") private String sourceLink;
+    @Column(name = "artifact_snapshot_json", columnDefinition = "TEXT") private String artifactSnapshotJson;
     @Column(name = "metadata_sha256", nullable = false, length = 64) private String metadataSha256;
     @Column(name = "archived_at", nullable = false) private Instant archivedAt;
 
@@ -39,7 +40,7 @@ public class ArchiveRecord {
         UUID id, UUID workspaceId, UUID responseId, Instant sourceResponseUpdatedAt,
         String workspaceName, String deliverableTitle, String teamCode, String studentName,
         String studentNumber, String projectTitle, String softwareName, String adviserName,
-        int versionNumber, String sourceLink, String metadataSha256, Instant archivedAt
+        int versionNumber, String sourceLink, String artifactSnapshotJson, String metadataSha256, Instant archivedAt
     ) {
         this.id = id;
         this.workspaceId = workspaceId;
@@ -55,6 +56,7 @@ public class ArchiveRecord {
         this.adviserName = adviserName;
         this.versionNumber = versionNumber;
         this.sourceLink = sourceLink;
+        this.artifactSnapshotJson = artifactSnapshotJson;
         this.metadataSha256 = metadataSha256;
         this.archivedAt = archivedAt;
     }
@@ -73,6 +75,7 @@ public class ArchiveRecord {
     public String getAdviserName() { return adviserName; }
     public int getVersionNumber() { return versionNumber; }
     public String getSourceLink() { return sourceLink; }
+    public String getArtifactSnapshotJson() { return artifactSnapshotJson; }
     public String getMetadataSha256() { return metadataSha256; }
     public Instant getArchivedAt() { return archivedAt; }
 }

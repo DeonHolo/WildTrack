@@ -1,6 +1,7 @@
 package com.capvault.backend.deliverable;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 public record DeliverableResponse(
@@ -13,10 +14,11 @@ public record DeliverableResponse(
     boolean pdfRequired,
     DeliverableStatus status,
     LocalDateTime createdAt,
-    LocalDateTime updatedAt
+    LocalDateTime updatedAt,
+    List<DeliverableFieldResponse> fields
 ) {
 
-    public static DeliverableResponse from(Deliverable deliverable) {
+    public static DeliverableResponse from(Deliverable deliverable, List<DeliverableField> fields) {
         return new DeliverableResponse(
             deliverable.getId(),
             deliverable.getTrackerColumnKey(),
@@ -27,7 +29,8 @@ public record DeliverableResponse(
             deliverable.isPdfRequired(),
             deliverable.getStatus(),
             deliverable.getCreatedAt(),
-            deliverable.getUpdatedAt()
+            deliverable.getUpdatedAt(),
+            fields.stream().map(DeliverableFieldResponse::from).toList()
         );
     }
 }

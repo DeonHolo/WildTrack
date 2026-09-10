@@ -31,11 +31,13 @@ export function saveSubmissionTemplate(workspaceId, payload) {
   return payload.sourceType === 'drive'
     ? uploadDriveDocumentTemplate(workspaceId, {
         deliverableKey: payload.deliverable,
+        fieldId: payload.fieldId || null,
         displayName: payload.name,
         driveUrl: payload.driveUrl
       })
     : uploadDocumentTemplate(workspaceId, {
         deliverableKey: payload.deliverable,
+        fieldId: payload.fieldId || null,
         displayName: payload.name,
         file: payload.file
       });
@@ -98,6 +100,9 @@ export function describeSubmissionError(error) {
 
 export function mapDeliverable(deliverable) {
   const pdfRequired = Boolean(deliverable?.pdfRequired);
+  const fieldItems = Array.isArray(deliverable?.fields) && deliverable.fields.length
+    ? deliverable.fields.map(mapSubmissionField)
+    : [legacyField(pdfRequired)];
   return {
     id: deliverable.id,
     slug: deliverable.slug,
@@ -108,10 +113,38 @@ export function mapDeliverable(deliverable) {
     audience: 'Students',
     status: titleCase(deliverable.status || 'PUBLISHED'),
     instructions: deliverable.instructions || '',
-    fields: pdfRequired
-      ? [{ id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', required: true, pdfRequired: true }]
-      : [{ id: 'primaryLink', label: 'Submission Link', type: 'url', required: true, pdfRequired: false }]
+    pdfRequired: fieldItems.some((field) => field.active !== false && field.pdfRequired),
+    fields: fieldItems.filter((field) => field.active !== false),
+    retiredFields: fieldItems.filter((field) => field.active === false)
   };
+}
+
+function mapSubmissionField(field) {
+  const type = ({
+    DRIVE_PDF: 'drive',
+    GOOGLE_FORM: 'googleForm',
+    GOOGLE_SHEET: 'googleSheet',
+    DRIVE_FOLDER: 'driveFolder',
+    TEXTAREA: 'textarea',
+    GENERAL_URL: 'url'
+  })[field.fieldType] || 'url';
+  return {
+    definitionId: field.id || null,
+    id: field.fieldKey || field.id,
+    label: field.label || 'Submission field',
+    type,
+    required: field.required !== false,
+    pdfRequired: type === 'drive',
+    documentCheckPolicy: type === 'drive' ? field.documentCheckPolicy || 'AUTO' : 'OFF',
+    aiReviewEnabled: type === 'drive' && Boolean(field.aiReviewEnabled),
+    active: field.active !== false
+  };
+}
+
+function legacyField(pdfRequired) {
+  return pdfRequired
+    ? { definitionId: null, id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', required: true, pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true, active: true }
+    : { definitionId: null, id: 'primaryLink', label: 'Submission Link', type: 'url', required: true, pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true };
 }
 
 function titleCase(value) {

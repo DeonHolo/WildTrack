@@ -4,9 +4,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Set;
 import java.util.UUID;
 
+import com.capvault.backend.deliverable.DeliverableFieldRepository;
 import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.project.ProjectMetadataRepository;
 import com.capvault.backend.response.FormResponseRepository;
@@ -25,6 +29,7 @@ public class ArchiveService {
     private final FormResponseRepository responseRepository;
     private final ResponseAcceptanceRepository acceptanceRepository;
     private final DeliverableRepository deliverableRepository;
+    private final DeliverableFieldRepository deliverableFieldRepository;
     private final ProjectMetadataRepository projectRepository;
     private final AcademicWorkspaceRepository workspaceRepository;
     private final ObjectMapper objectMapper;
@@ -35,6 +40,7 @@ public class ArchiveService {
         FormResponseRepository responseRepository,
         ResponseAcceptanceRepository acceptanceRepository,
         DeliverableRepository deliverableRepository,
+        DeliverableFieldRepository deliverableFieldRepository,
         ProjectMetadataRepository projectRepository,
         AcademicWorkspaceRepository workspaceRepository,
         ObjectMapper objectMapper,
@@ -44,6 +50,7 @@ public class ArchiveService {
         this.responseRepository = responseRepository;
         this.acceptanceRepository = acceptanceRepository;
         this.deliverableRepository = deliverableRepository;
+        this.deliverableFieldRepository = deliverableFieldRepository;
         this.projectRepository = projectRepository;
         this.workspaceRepository = workspaceRepository;
         this.objectMapper = objectMapper;
@@ -53,7 +60,7 @@ public class ArchiveService {
     @Transactional(readOnly = true)
     public List<ArchiveRecordResponse> list(UUID workspaceId) {
         return archiveRepository.findAllByWorkspaceIdOrderByArchivedAtDesc(workspaceId).stream()
-            .map(ArchiveRecordResponse::from)
+            .map(record -> ArchiveRecordResponse.from(record, objectMapper))
             .toList();
     }
 
@@ -74,7 +81,7 @@ public class ArchiveService {
             throw new IllegalArgumentException("This response changed after acceptance and must be reviewed again.");
         }
         var existing = archiveRepository.findByResponseIdAndSourceResponseUpdatedAt(responseId, response.getUpdatedAt());
-        if (existing.isPresent()) return ArchiveRecordResponse.from(existing.get());
+        if (existing.isPresent()) return ArchiveRecordResponse.from(existing.get(), objectMapper);
 
         var workspace = workspaceRepository.findById(workspaceId)
             .orElseThrow(() -> new IllegalArgumentException("Workspace not found."));
@@ -84,13 +91,44 @@ public class ArchiveService {
         var project = projectRepository.findForCurrentTeam(workspaceId, response.getTeamCode()).orElse(null);
         int version = Math.toIntExact(archiveRepository.countByResponseId(responseId) + 1);
         String hash = sha256(response.getId() + "|" + response.getUpdatedAt() + "|" + response.getValuesJson());
+        String artifactSnapshot = artifactSnapshot(deliverable.getId(), response.getValuesJson());
         ArchiveRecord record = new ArchiveRecord(
             UUID.randomUUID(), workspaceId, responseId, response.getUpdatedAt(), workspace.getName(), deliverable.getTitle(),
             response.getTeamCode(), response.getStudentName(), response.getStudentNumber(),
             project == null ? null : project.getProjectTitle(), project == null ? null : project.getEffectiveSoftwareName(),
-            project == null ? null : project.getEffectiveAdviserName(), version, firstLink(response.getValuesJson()), hash, clock.instant()
+            project == null ? null : project.getEffectiveAdviserName(), version, firstLink(response.getValuesJson()), artifactSnapshot, hash, clock.instant()
         );
-        return ArchiveRecordResponse.from(archiveRepository.save(record));
+        return ArchiveRecordResponse.from(archiveRepository.save(record), objectMapper);
+    }
+
+    private String artifactSnapshot(UUID deliverableId, String valuesJson) {
+        try {
+            JsonNode values = objectMapper.readTree(valuesJson);
+            if (!values.isObject()) return "[]";
+            List<ArchiveRecordResponse.ArchivedArtifact> artifacts = new ArrayList<>();
+            Set<String> capturedKeys = new LinkedHashSet<>();
+            for (var field : deliverableFieldRepository.findAllByDeliverableIdOrderByDisplayOrderAscLabelAsc(deliverableId)) {
+                JsonNode valueNode = values.get(field.getFieldKey());
+                if (valueNode == null || valueNode.isNull()) continue;
+                String value = valueNode.asText("").trim();
+                if (value.isBlank()) continue;
+                artifacts.add(new ArchiveRecordResponse.ArchivedArtifact(
+                    field.getFieldKey(), field.getLabel(), field.getFieldType().name(), value
+                ));
+                capturedKeys.add(field.getFieldKey());
+            }
+            values.fields().forEachRemaining(entry -> {
+                if (capturedKeys.contains(entry.getKey())) return;
+                String value = entry.getValue().asText("").trim();
+                if (value.isBlank()) return;
+                artifacts.add(new ArchiveRecordResponse.ArchivedArtifact(
+                    entry.getKey(), humanizeFieldKey(entry.getKey()), "LEGACY", value
+                ));
+            });
+            return objectMapper.writeValueAsString(artifacts);
+        } catch (Exception ignored) {
+            return "[]";
+        }
     }
 
     private String firstLink(String valuesJson) {
@@ -113,5 +151,11 @@ public class ArchiveService {
         } catch (Exception error) {
             throw new IllegalStateException("SHA-256 is unavailable.", error);
         }
+    }
+
+    private static String humanizeFieldKey(String value) {
+        return value.replaceAll("([a-z0-9])([A-Z])", "$1 $2")
+            .replaceAll("[_-]+", " ")
+            .trim();
     }
 }

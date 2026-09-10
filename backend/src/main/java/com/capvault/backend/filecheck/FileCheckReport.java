@@ -22,11 +22,17 @@ public class FileCheckReport {
     @Column(name = "external_response_id", nullable = false, length = 240)
     private String externalResponseId;
 
+    @Column(name = "field_id", length = 80)
+    private String fieldId;
+
     @Column(name = "deliverable_key", nullable = false, length = 180)
     private String deliverableKey;
 
     @Column(name = "source_url", nullable = false, length = 2048)
     private String sourceUrl;
+
+    @Column(name = "source_value_sha256", length = 64)
+    private String sourceValueSha256;
 
     @Column(name = "source_response_updated_at", length = 80)
     private String sourceResponseUpdatedAt;
@@ -57,8 +63,10 @@ public class FileCheckReport {
     ) {
         this.workspaceId = workspaceId;
         this.externalResponseId = request.responseId();
+        this.fieldId = request.fieldId();
         this.deliverableKey = request.deliverableKey();
         this.sourceUrl = request.sourceUrl();
+        this.sourceValueSha256 = sha256(request.sourceUrl());
         this.sourceResponseUpdatedAt = request.sourceResponseUpdatedAt();
         this.status = response.status();
         this.attentionRequired = response.attentionRequired();
@@ -89,11 +97,24 @@ public class FileCheckReport {
         return externalResponseId;
     }
 
+    public String getFieldId() { return fieldId; }
+    public String getSourceUrl() { return sourceUrl; }
+    public String getSourceValueSha256() { return sourceValueSha256; }
+
     public String getReportJson() {
         return reportJson;
     }
 
     public LocalDateTime getCheckedAt() {
         return checkedAt;
+    }
+
+    private static String sha256(String value) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(String.valueOf(value).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception error) {
+            throw new IllegalStateException("SHA-256 is unavailable.", error);
+        }
     }
 }

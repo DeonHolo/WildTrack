@@ -5,12 +5,20 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.capvault.backend.deliverable.Deliverable;
+import com.capvault.backend.deliverable.DeliverableField;
+import com.capvault.backend.deliverable.DeliverableFieldRepository;
+import com.capvault.backend.deliverable.DeliverableFieldType;
+import com.capvault.backend.deliverable.DeliverableRepository;
+import com.capvault.backend.deliverable.DocumentCheckPolicy;
 import com.capvault.backend.drive.DriveFileMetadata;
 import com.capvault.backend.drive.DriveFileReference;
 import com.capvault.backend.drive.DriveLinkParser;
 import com.capvault.backend.drive.GoogleDriveGateway;
 import com.capvault.backend.drive.GoogleDriveProperties;
 import com.capvault.backend.drive.GoogleDriveUnavailableException;
+import com.capvault.backend.response.FormResponse;
+import com.capvault.backend.response.FormResponseRepository;
 import com.capvault.backend.template.DocumentTemplate;
 import com.capvault.backend.template.DocumentTemplateService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -29,6 +37,9 @@ public class FileCheckService {
     private final TemplateComparator templateComparator;
     private final DocumentTemplateService templateService;
     private final FileCheckReportRepository repository;
+    private final FormResponseRepository responseRepository;
+    private final DeliverableRepository deliverableRepository;
+    private final DeliverableFieldRepository fieldRepository;
     private final ObjectMapper objectMapper;
     private final FileCheckProperties properties;
 
@@ -39,6 +50,9 @@ public class FileCheckService {
         TemplateComparator templateComparator,
         DocumentTemplateService templateService,
         FileCheckReportRepository repository,
+        FormResponseRepository responseRepository,
+        DeliverableRepository deliverableRepository,
+        DeliverableFieldRepository fieldRepository,
         ObjectMapper objectMapper,
         FileCheckProperties properties
     ) {
@@ -48,6 +62,9 @@ public class FileCheckService {
         this.templateComparator = templateComparator;
         this.templateService = templateService;
         this.repository = repository;
+        this.responseRepository = responseRepository;
+        this.deliverableRepository = deliverableRepository;
+        this.fieldRepository = fieldRepository;
         this.objectMapper = objectMapper;
         this.properties = properties;
     }
@@ -55,6 +72,9 @@ public class FileCheckService {
     @Transactional
     public FileCheckResponse check(UUID workspaceId, FileCheckRequest request) {
         LocalDateTime checkedAt = LocalDateTime.now();
+        if (request.fieldId() != null) {
+            validateFieldAssociation(workspaceId, request);
+        }
         if (!driveGateway.isConfigured()) {
             return persist(workspaceId, request, unavailable(request, checkedAt));
         }
@@ -148,7 +168,7 @@ public class FileCheckService {
             ));
         }
 
-        DocumentTemplate template = templateService.find(workspaceId, request.deliverableKey());
+        DocumentTemplate template = templateService.find(workspaceId, request.deliverableKey(), request.fieldId());
         TemplateComparison comparison = template == null
             ? TemplateComparison.unavailable()
             : templateComparator.compare(template.getExtractedText(), inspection.extractedText());
@@ -161,6 +181,55 @@ public class FileCheckService {
         ));
     }
 
+    private void validateFieldAssociation(UUID workspaceId, FileCheckRequest request) {
+        UUID responseId;
+        try {
+            responseId = UUID.fromString(request.responseId());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("Field-specific Document Check requires a valid response ID.");
+        }
+
+        FormResponse response = responseRepository.findById(responseId)
+            .filter(item -> workspaceId.equals(item.getWorkspaceId()))
+            .orElseThrow(() -> new IllegalArgumentException("Response was not found in this workspace."));
+        Deliverable deliverable = deliverableRepository.findById(response.getDeliverableId())
+            .filter(item -> workspaceId.equals(item.getWorkspaceId()))
+            .orElseThrow(() -> new IllegalArgumentException("Response deliverable was not found in this workspace."));
+        DeliverableField field = fieldRepository.findByIdAndDeliverableId(request.fieldId().trim(), deliverable.getId())
+            .orElseThrow(() -> new IllegalArgumentException("Document Check field does not belong to this response deliverable."));
+
+        if (!field.isActive()
+            || field.getFieldType() != DeliverableFieldType.DRIVE_PDF
+            || field.getDocumentCheckPolicy() == DocumentCheckPolicy.OFF) {
+            throw new IllegalArgumentException("This response field is not enabled for Document Check.");
+        }
+        if (!matchesDeliverableKey(request.deliverableKey(), deliverable)) {
+            throw new IllegalArgumentException("Document Check deliverable does not match the response deliverable.");
+        }
+
+        String submittedUrl;
+        try {
+            var values = objectMapper.readTree(response.getValuesJson());
+            var submittedValue = values == null ? null : values.get(field.getFieldKey());
+            submittedUrl = submittedValue == null || submittedValue.isNull() ? "" : submittedValue.asText("").trim();
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("The saved response values could not be read.", exception);
+        }
+        if (submittedUrl.isBlank() || !submittedUrl.equals(request.sourceUrl().trim())) {
+            throw new IllegalArgumentException("Document Check source does not match the submitted value for this field.");
+        }
+    }
+
+    private static boolean matchesDeliverableKey(String requestedKey, Deliverable deliverable) {
+        String normalized = requestedKey == null ? "" : requestedKey.trim();
+        return equalsIgnoreCase(normalized, deliverable.getTrackerColumnKey())
+            || equalsIgnoreCase(normalized, deliverable.getTitle());
+    }
+
+    private static boolean equalsIgnoreCase(String left, String right) {
+        return right != null && !right.isBlank() && left.equalsIgnoreCase(right.trim());
+    }
+
     @Transactional(readOnly = true)
     public FileCheckResponse latest(UUID workspaceId, String responseId) {
         return findLatest(workspaceId, responseId)
@@ -171,22 +240,48 @@ public class FileCheckService {
     public java.util.Map<String, FileCheckResponse> latestForResponses(UUID workspaceId, List<String> ids) {
         java.util.Map<String, FileCheckResponse> reports = new java.util.LinkedHashMap<>();
         if (!ids.isEmpty()) repository.findLatestForResponses(workspaceId, ids)
+            .stream().filter(report -> report.getFieldId() == null)
             .forEach(report -> reports.putIfAbsent(report.getExternalResponseId(), deserialize(report)));
         return reports;
     }
 
     @Transactional(readOnly = true)
+    public java.util.Map<String, java.util.Map<String, FileCheckResponse>> latestByFieldForResponses(UUID workspaceId, List<String> ids) {
+        java.util.Map<String, java.util.Map<String, FileCheckResponse>> reports = new java.util.LinkedHashMap<>();
+        if (ids.isEmpty()) return reports;
+        repository.findLatestForResponses(workspaceId, ids).stream()
+            .filter(report -> report.getFieldId() != null)
+            .forEach(report -> reports.computeIfAbsent(report.getExternalResponseId(), ignored -> new java.util.LinkedHashMap<>())
+                .putIfAbsent(report.getFieldId(), deserialize(report)));
+        return reports;
+    }
+
+    @Transactional(readOnly = true)
     public java.util.Optional<FileCheckResponse> findLatest(UUID workspaceId, String responseId) {
-        return repository.findFirstByWorkspaceIdAndExternalResponseIdOrderByCheckedAtDesc(workspaceId, responseId)
+        return repository.findFirstByWorkspaceIdAndExternalResponseIdAndFieldIdIsNullOrderByCheckedAtDesc(workspaceId, responseId)
+            .map(this::deserialize);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<FileCheckResponse> findLatest(UUID workspaceId, String responseId, String fieldId) {
+        if (fieldId == null || fieldId.isBlank()) return findLatest(workspaceId, responseId);
+        return repository.findFirstByWorkspaceIdAndExternalResponseIdAndFieldIdOrderByCheckedAtDesc(workspaceId, responseId, fieldId)
             .map(this::deserialize);
     }
 
     @Transactional(readOnly = true)
     public List<FileCheckResponse> history(UUID workspaceId, String responseId) {
-        return repository.findAllByWorkspaceIdAndExternalResponseIdOrderByCheckedAtDesc(workspaceId, responseId)
+        return repository.findAllByWorkspaceIdAndExternalResponseIdAndFieldIdIsNullOrderByCheckedAtDesc(workspaceId, responseId)
             .stream()
             .map(this::deserialize)
             .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<FileCheckResponse> history(UUID workspaceId, String responseId, String fieldId) {
+        if (fieldId == null || fieldId.isBlank()) return history(workspaceId, responseId);
+        return repository.findAllByWorkspaceIdAndExternalResponseIdAndFieldIdOrderByCheckedAtDesc(workspaceId, responseId, fieldId)
+            .stream().map(this::deserialize).toList();
     }
 
     public DriveConnectionStatus connectionStatus() {
@@ -244,6 +339,8 @@ public class FileCheckService {
         return new FileCheckResponse(
             null,
             request.responseId(),
+            request.fieldId(),
+            request.sourceUrl(),
             request.sourceResponseUpdatedAt(),
             "COMPLETED",
             attention,
@@ -271,6 +368,8 @@ public class FileCheckService {
         return new FileCheckResponse(
             null,
             request.responseId(),
+            request.fieldId(),
+            request.sourceUrl(),
             request.sourceResponseUpdatedAt(),
             "UNAVAILABLE",
             false,
@@ -298,6 +397,8 @@ public class FileCheckService {
         return new FileCheckResponse(
             null,
             request.responseId(),
+            request.fieldId(),
+            request.sourceUrl(),
             request.sourceResponseUpdatedAt(),
             "BLOCKED",
             true,

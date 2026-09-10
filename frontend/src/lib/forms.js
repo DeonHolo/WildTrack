@@ -1,20 +1,16 @@
 import { getTrackerColumn } from './workflow.js';
 
-const pdfField = {
-  id: 'documentPdf',
-  label: 'PDF Drive Link',
-  type: 'drive',
-  required: true,
-  pdfRequired: true
-};
-
-const linkField = {
-  id: 'primaryLink',
-  label: 'Submission Link',
-  type: 'url',
-  required: true,
-  pdfRequired: false
-};
+export function defaultSubmissionField(pdfRequired = false) {
+  return pdfRequired
+    ? {
+        id: 'documentPdf', definitionId: null, label: 'PDF Drive Link', type: 'drive', required: true,
+        pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true, active: true
+      }
+    : {
+        id: 'primaryLink', definitionId: null, label: 'Submission Link', type: 'url', required: true,
+        pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true
+      };
+}
 
 export function makeDeliverableFormDraft(state, columnKey, now = new Date()) {
   const column = getTrackerColumn(state, columnKey);
@@ -32,6 +28,7 @@ export function makeDeliverableFormDraft(state, columnKey, now = new Date()) {
       ? `Submit your ${label} as a PDF Drive file.`
       : `Submit the required link for ${label}.`,
     pdfRequired,
+    fields: [defaultSubmissionField(pdfRequired)],
     status: 'Published'
   };
 }
@@ -46,7 +43,7 @@ export function buildDeliverableFormPayload(state, source) {
     dueAt: `${String(source.dueAt || dateAt2359()).slice(0, 16)}:00+08:00`,
     audience: 'Students',
     status: 'Published',
-    fields: source.pdfRequired ? [pdfField] : [linkField]
+    fields: source.fields?.length ? source.fields : [defaultSubmissionField(Boolean(source.pdfRequired))]
   };
 }
 

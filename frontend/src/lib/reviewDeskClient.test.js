@@ -17,14 +17,14 @@ it('polls a running AI job without submitting a second generation request', asyn
   expect(result.ok).toBe(true);
   expect(result.review.reused).toBe(false);
   expect(ai.start).toHaveBeenCalledTimes(1);
-  expect(ai.saved).toHaveBeenCalledWith('workspace', 'response');
+  expect(ai.saved).toHaveBeenCalledWith('workspace', 'response', null);
 });
 
 it('stops polling when the account or workspace changes', async () => {
   vi.useFakeTimers();
   let active = true;
   ai.start.mockResolvedValue({ status: 'RUNNING' });
-  const pending = runAiReview('workspace', 'response', false, null, () => active);
+  const pending = runAiReview('workspace', 'response', null, false, null, () => active);
   await Promise.resolve();
   active = false;
   await vi.advanceTimersByTimeAsync(2500);
@@ -40,7 +40,10 @@ it('does not send remaining batch actions after the caller leaves its session/wo
   const responses = ['one', 'two', 'three', 'must-not-start'].map(id => ({
     id, deliverableId: 'SRS', values: { documentPdf: `https://example.test/${id}` }
   }));
-  const batch = runDocumentChecks('workspace', responses, [], { shouldContinue: () => active });
+  const batch = runDocumentChecks('workspace', responses, [{
+    id: 'SRS',
+    fields: [{ id: 'documentPdf', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO' }]
+  }], { shouldContinue: () => active });
   active = false;
   pending.forEach(resolve => resolve({ status: 'COMPLETED' }));
   await Promise.resolve();
@@ -49,6 +52,40 @@ it('does not send remaining batch actions after the caller leaves its session/wo
   pending.forEach(resolve => resolve({ status: 'COMPLETED' }));
   await batch;
   expect(request.mock.calls.map(([, payload]) => payload.responseId)).toEqual(['one', 'two', 'three']);
+});
+
+it('checks only explicitly reviewable PDF fields and never infers the first submitted URL', async () => {
+  request.mockResolvedValue({ status: 'Current', checkedAt: '2026-09-11T01:00:00Z' });
+  const deliverable = {
+    id: 'mvp-validation',
+    fields: [
+      { id: 'validationInstrument', definitionId: 'field-form', type: 'googleForm', pdfRequired: false, documentCheckPolicy: 'OFF' },
+      { id: 'frameworkModel', definitionId: 'field-framework', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO' },
+      { id: 'responseSheet', definitionId: 'field-sheet', type: 'googleSheet', pdfRequired: false, documentCheckPolicy: 'OFF' },
+      { id: 'validationHighlights', definitionId: 'field-highlights', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO' },
+      { id: 'validationEvidence', definitionId: 'field-folder', type: 'driveFolder', pdfRequired: false, documentCheckPolicy: 'OFF' }
+    ]
+  };
+  const response = {
+    id: 'response-1',
+    deliverableId: deliverable.id,
+    updatedAt: '2026-09-11T00:30:00Z',
+    values: {
+      validationInstrument: 'https://docs.google.com/forms/d/e/form-id/viewform',
+      frameworkModel: 'https://drive.google.com/file/d/framework-pdf/view',
+      responseSheet: 'https://docs.google.com/spreadsheets/d/sheet-id/edit',
+      validationHighlights: 'https://drive.google.com/file/d/highlights-pdf/view',
+      validationEvidence: 'https://drive.google.com/drive/folders/evidence-folder'
+    }
+  };
+
+  const result = await runDocumentChecks('workspace', [response], [deliverable]);
+
+  expect(result.total).toBe(2);
+  expect(request.mock.calls.map(([, payload]) => ({ fieldId: payload.fieldId, sourceUrl: payload.sourceUrl }))).toEqual([
+    { fieldId: 'field-framework', sourceUrl: 'https://drive.google.com/file/d/framework-pdf/view' },
+    { fieldId: 'field-highlights', sourceUrl: 'https://drive.google.com/file/d/highlights-pdf/view' }
+  ]);
 });
 
 it('continues an AI batch past a saved uncertain result without automatically retrying it', async () => {

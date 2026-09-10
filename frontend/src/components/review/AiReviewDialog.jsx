@@ -1,14 +1,21 @@
 import { useState } from 'react';
 import { Button, Checkbox, Group, Stack, Text } from '@mantine/core';
 
-export function AiReviewDialog({ responses, excludeArchived = false, retry = false, retryTokens = {}, onConfirm, onCancel }) {
+export function AiReviewDialog({ targets = null, responses = [], excludeArchived = false, retry = false, retryTokens = {}, onConfirm, onCancel }) {
   const [includeArchived, setIncludeArchived] = useState(false);
-  const archived = responses.filter(response => response.archiveStatus === 'Archived').length;
-  const selected = responses.filter(response => !excludeArchived || includeArchived || response.archiveStatus !== 'Archived');
-  const retryCount = selected.filter(response => Boolean(retryTokens?.[response.id])).length;
+  const items = targets || responses.map((response) => ({
+    key: response.id,
+    responseId: response.id,
+    response,
+    field: null,
+    label: response.studentName || response.studentNumber || response.id
+  }));
+  const archived = items.filter(item => item.response?.archiveStatus === 'Archived').length;
+  const selected = items.filter(item => !excludeArchived || includeArchived || item.response?.archiveStatus !== 'Archived');
+  const retryCount = selected.filter(item => Boolean(retryTokens?.[item.key])).length;
   const mixedBatch = retryCount > 0 && retryCount < selected.length;
   return <Stack gap="md">
-    <Text size="sm">{selected.length} {selected.length === 1 ? 'response' : 'responses'} selected. Identical PDFs from the same team and deliverable share a review when the requirements match.</Text>
+    <Text size="sm">{selected.length} {selected.length === 1 ? 'PDF artifact' : 'PDF artifacts'} selected. Identical PDFs from the same team, deliverable, and artifact field share a review when the requirements match.</Text>
     {excludeArchived && archived > 0 ? <Checkbox checked={includeArchived}
       onChange={event => setIncludeArchived(event.currentTarget.checked)}
       label={`Include archived submissions (${archived})`}
@@ -21,7 +28,7 @@ export function AiReviewDialog({ responses, excludeArchived = false, retry = fal
     <Text size="sm" c="dimmed">AI feedback is advisory. Review it before making an academic decision.</Text>
     <Group justify="flex-end" gap="sm" wrap="nowrap" pt="sm">
       <Button variant="default" onClick={onCancel}>Cancel</Button>
-      <Button disabled={!selected.length} onClick={() => onConfirm(selected.map(response => response.id))}>
+      <Button disabled={!selected.length} onClick={() => onConfirm(targets ? selected : selected.map(item => item.responseId))}>
         {retry ? 'Retry reviews' : retryCount > 0 ? 'Start / retry reviews' : 'Start review'}
       </Button>
     </Group>

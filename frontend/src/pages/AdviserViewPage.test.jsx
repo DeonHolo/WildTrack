@@ -1,6 +1,6 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
@@ -47,6 +47,9 @@ vi.mock('../lib/reviewDeskClient.js', () => ({
   emptyReviewDesk: () => ({}),
   loadReviewDesk: vi.fn(),
   applyReviewMutation: (response, mutation) => ({ ...response, ...mutation }),
+  applyDocumentCheck: (response, report) => report?.fieldId
+    ? { ...response, artifactChecks: { ...(response.artifactChecks || {}), [report.fieldId]: report } }
+    : { ...response, documentCheck: report },
   acceptResponse: (...args) => workflow.markAccepted(...args),
   revokeAcceptance: (...args) => workflow.revokeAcceptance(...args),
   saveFeedback: (...args) => workflow.saveFeedback(...args),
@@ -127,6 +130,62 @@ function createState({ conflicting = false, accepted = false } = {}) {
   };
 }
 
+function createMultiArtifactState({ accepted = false, archived = false } = {}) {
+  const state = createState({ accepted });
+  const deliverable = state.deliverables[0];
+  deliverable.id = 'deliv-mvp-validation';
+  deliverable.slug = 'mvp-validation';
+  deliverable.shortTitle = 'MVP Validation';
+  deliverable.title = 'MVP Validation';
+  deliverable.trackerColumn = 'MVPValidation';
+  deliverable.fields = [
+    { definitionId: 'field-form', id: 'validationInstrument', label: 'Validation Instrument', type: 'googleForm', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
+    { definitionId: 'field-framework', id: 'frameworkModel', label: 'Framework / Model', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true },
+    { definitionId: 'field-sheet', id: 'validationResponseSheet', label: 'Validation Response Sheet', type: 'googleSheet', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
+    { definitionId: 'field-highlights', id: 'validationHighlights', label: 'MVP Validation Highlights', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true },
+    { definitionId: 'field-evidence', id: 'validationEvidence', label: 'Validation Evidence', type: 'driveFolder', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false }
+  ];
+  state.attempts = state.attempts.map((response) => {
+    if (response.deliverableId !== 'deliv-srs') return response;
+    const values = {
+      validationInstrument: 'https://docs.google.com/forms/d/e/validation-form/viewform',
+      frameworkModel: 'https://drive.google.com/file/d/framework-pdf/view',
+      validationResponseSheet: 'https://docs.google.com/spreadsheets/d/validation-sheet/edit',
+      validationHighlights: 'https://drive.google.com/file/d/highlights-pdf/view',
+      validationEvidence: 'https://drive.google.com/drive/folders/validation-evidence'
+    };
+    return {
+      ...response,
+      deliverableId: 'deliv-mvp-validation',
+      values,
+      archiveStatus: archived && response.id === 'response-a2' ? 'Archived' : response.archiveStatus,
+      documentCheck: null,
+      aiReport: null,
+      artifactChecks: response.id === 'response-a2' ? {
+        'field-framework': {
+          fieldId: 'field-framework',
+          status: 'Current',
+          checkedAt: '2026-04-17T10:15:00+08:00',
+          sourceUrl: values.frameworkModel,
+          sourceResponseUpdatedAt: response.updatedAt || response.submittedAt,
+          summary: 'Framework PDF is readable.'
+        }
+      } : {},
+      artifactAiReviews: response.id === 'response-a2' ? {
+        'field-framework': {
+          fieldId: 'field-framework',
+          status: 'COMPLETED',
+          generatedAt: '2026-04-17T10:30:00+08:00',
+          sourceUrl: values.frameworkModel,
+          sourceResponseUpdatedAt: response.updatedAt || response.submittedAt,
+          report: { summary: 'Framework review belongs only to the framework PDF.' }
+        }
+      } : {}
+    };
+  });
+  return state;
+}
+
 function renderPage(role = 'adviser') {
   localStorage.setItem('wildtrack.v2.preview-role', role);
   localStorage.setItem('wildtrack.v2.preview-adviser', 'Dr. Elena Mercado');
@@ -205,6 +264,49 @@ describe('adviser My advised teams review', () => {
     expect(screen.getByText('Requirements are present, but traceability needs staff review.')).toBeInTheDocument();
     expect(screen.getByText(/Acceptance criteria/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Run AI Review|Rerun AI Review/i })).not.toBeInTheDocument();
+  });
+
+  it('targets Document Check and AI state to the explicit PDF artifact instead of the first submitted URL', async () => {
+    workflow.state = createMultiArtifactState();
+    workflow.runDocumentCheck.mockResolvedValue({
+      ok: true,
+      report: {
+        fieldId: 'field-highlights',
+        status: 'Current',
+        checkedAt: '2026-04-17T10:45:00+08:00',
+        sourceUrl: 'https://drive.google.com/file/d/highlights-pdf/view',
+        summary: 'Highlights PDF is readable.'
+      }
+    });
+    renderPage();
+
+    const formArtifact = screen.getByRole('group', { name: 'Validation Instrument artifact' });
+    const frameworkArtifact = screen.getByRole('group', { name: 'Framework / Model artifact' });
+    const highlightsArtifact = screen.getByRole('group', { name: 'MVP Validation Highlights artifact' });
+    expect(within(formArtifact).getByText('Google Form')).toBeInTheDocument();
+    expect(within(formArtifact).queryByRole('button', { name: /Document Check/i })).not.toBeInTheDocument();
+    expect(within(frameworkArtifact).getByRole('button', { name: 'View Document Check' })).toBeInTheDocument();
+    expect(within(frameworkArtifact).getByText('Framework review belongs only to the framework PDF.')).toBeInTheDocument();
+
+    fireEvent.click(within(highlightsArtifact).getByRole('button', { name: 'Check document' }));
+    await waitFor(() => expect(workflow.runDocumentCheck).toHaveBeenCalledWith(
+      'workspace-it',
+      expect.objectContaining({ id: 'response-a2' }),
+      expect.objectContaining({ id: 'deliv-mvp-validation' }),
+      expect.objectContaining({ definitionId: 'field-highlights', id: 'validationHighlights' })
+    ));
+    expect(workflow.runDocumentCheck.mock.calls[0][1].values.validationInstrument).toContain('docs.google.com/forms');
+  });
+
+  it('allows acceptance to be revoked after the response has been archived', async () => {
+    workflow.state = createMultiArtifactState({ accepted: true, archived: true });
+    renderPage();
+
+    const revoke = screen.getByRole('button', { name: 'Revoke acceptance' });
+    expect(revoke).toBeEnabled();
+    fireEvent.click(revoke);
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm revoke' }));
+    expect(workflow.revokeAcceptance).toHaveBeenCalledWith('response-a2');
   });
 
   it('saves student-visible feedback against the selected group output', () => {

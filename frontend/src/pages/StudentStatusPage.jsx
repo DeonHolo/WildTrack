@@ -1,7 +1,7 @@
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
-import { Alert, Button, Container, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { Alert, Button, Container, Group, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { modals } from '@mantine/modals';
-import { ArrowClockwise, WarningCircle } from '@phosphor-icons/react';
+import { ArrowClockwise, ArrowSquareOut, WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
 import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 import { StudentIdentityPanel } from '../components/public/StudentIdentityPanel.jsx';
@@ -10,12 +10,14 @@ import { StudentProfileSummary } from '../components/student/StudentProfileSumma
 import { StudentProgressPanel } from '../components/student/StudentProgressPanel.jsx';
 import { StudentWelcomeBanner } from '../components/student/StudentWelcomeBanner.jsx';
 import { StudentWorkspacePicker } from '../components/student/StudentWorkspacePicker.jsx';
+import { StatusIndicator } from '../components/ui.jsx';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import {
+  artifactDocumentCheck,
+  artifactDocumentCheckStatus,
   findStudent,
-  firstSubmissionLink,
   getActiveTrackerColumns,
   getIdentityStudents,
   getProjectMetadata,
@@ -23,6 +25,7 @@ import {
   getStudentOptions,
   getWorkspacePublicKey,
   isUsableAdviserName,
+  makeDriveViewUrl,
   normalizeStudentNumber
 } from '../lib/workflow.js';
 import { confirmStudentAssociation, disconnectStudentAssociation } from '../lib/api.js';
@@ -291,6 +294,7 @@ export function StudentStatusPage() {
         onDisconnect={disconnectRecord}
       />
       <StudentDeliverableList rows={deliverableRows} workspaceKey={workspaceKey} studentNumber={student.studentNumber} />
+      <StudentSubmissionArtifacts rows={deliverableRows} />
       <StudentProgressPanel activeColumns={activeColumns} student={student} />
     </DashboardContainer>
   );
@@ -377,21 +381,40 @@ function buildStudentDeliverableRow(deliverable, response, recorded, teamProgres
 
   const feedback = response.feedback?.find((item) => item.visibility !== 'Staff') || null;
   const accepted = response.primaryStatus === 'Accepted' || response.reviewStatus === 'Accepted';
+  const artifacts = buildStudentArtifacts(deliverable, response);
+  const submittedLinks = artifacts.filter((artifact) => artifact.isLink).map((artifact) => artifact.value);
+  const reviewableArtifacts = artifacts.filter((artifact) => artifact.reviewablePdf);
+  const legacyDocumentCheck = reviewableArtifacts.length === 1 ? reviewableArtifacts[0].documentCheck : null;
   return {
     deliverable,
     response,
     recorded: true,
     status: accepted ? 'Accepted' : 'Submitted',
     savedAt: response.updatedAt || response.submittedAt || '',
-    link: firstSubmissionLink(response.values),
+    link: submittedLinks.length === 1 ? submittedLinks[0] : '',
     feedback,
-    documentCheck: response.documentCheck || null,
+    documentCheck: legacyDocumentCheck,
+    artifacts,
     teamProgress,
-    fileCheck: getStudentFileCheck(response)
+    fileCheck: getStudentFileCheck(response, reviewableArtifacts)
   };
 }
 
-function getStudentFileCheck(response) {
+function getStudentFileCheck(response, reviewableArtifacts = []) {
+  if (reviewableArtifacts.length > 1) {
+    const statuses = reviewableArtifacts.map((artifact) => artifact.documentCheckStatus);
+    if (statuses.includes('Needs attention')) {
+      return { label: 'PDF needs attention', summary: 'At least one submitted PDF needs attention. Review the artifact details below.', tone: 'warning' };
+    }
+    if (statuses.includes('Outdated')) {
+      return { label: 'PDF check outdated', summary: 'At least one PDF changed after its last Document Check.', tone: 'warning' };
+    }
+    if (statuses.every((status) => status === 'Ready for review')) {
+      return { label: 'PDFs accessible', summary: 'All submitted PDF artifacts passed the current Document Check.', tone: 'success' };
+    }
+    return { label: 'PDF checks incomplete', summary: 'One or more submitted PDF artifacts have not been checked yet.', tone: 'neutral' };
+  }
+
   const check = response.documentCheck;
   const status = String(check?.status || response.fileCheckStatus || '').toUpperCase();
   if (['PENDING', 'RUNNING', 'QUEUED'].includes(status)) {
@@ -412,6 +435,90 @@ function getStudentFileCheck(response) {
     };
   }
   return { label: 'Not checked', summary: 'Document Check has not inspected this response yet.', tone: 'neutral' };
+}
+
+function StudentSubmissionArtifacts({ rows }) {
+  const multiArtifactRows = rows.filter((row) => row.response && row.artifacts?.length > 1);
+  if (!multiArtifactRows.length) return null;
+
+  return (
+    <Paper withBorder radius="sm" p="lg" aria-label="Submitted artifacts">
+      <Stack gap="lg">
+        <div>
+          <Title order={2}>Submitted artifacts</Title>
+          <Text size="sm" c="dimmed">Multi-part deliverables keep each submitted link and each PDF check separate.</Text>
+        </div>
+        {multiArtifactRows.map((row) => (
+          <section key={row.deliverable.id} aria-label={`${row.deliverable.shortTitle} submitted artifacts`}>
+            <Stack gap="sm">
+              <div>
+                <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">{row.deliverable.shortTitle}</Text>
+                <Text fw={750}>{row.deliverable.title}</Text>
+              </div>
+              {row.artifacts.map((artifact) => (
+                <Paper key={artifact.key} withBorder radius="sm" p="md" role="group" aria-label={`${artifact.label} artifact`}>
+                  <Stack gap="xs">
+                    <Group justify="space-between" align="flex-start" wrap="wrap">
+                      <div>
+                        <Text fw={700}>{artifact.label}</Text>
+                        <Text size="xs" c="dimmed">{artifact.typeLabel}</Text>
+                      </div>
+                      {artifact.reviewablePdf ? <StatusIndicator status={artifact.documentCheckStatus} /> : null}
+                    </Group>
+                    {artifact.isLink ? (
+                      <Button
+                        component="a"
+                        href={makeDriveViewUrl(artifact.value)}
+                        target="_blank"
+                        rel="noreferrer"
+                        variant="default"
+                        size="xs"
+                        leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}
+                      >
+                        Open {artifact.label}
+                      </Button>
+                    ) : <Text size="sm">{artifact.value}</Text>}
+                    {artifact.reviewablePdf ? (
+                      <Text size="xs" c="dimmed">{artifact.documentCheck?.summary || 'No current Document Check is available for this PDF.'}</Text>
+                    ) : null}
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
+          </section>
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
+function buildStudentArtifacts(deliverable, response) {
+  return (deliverable.fields || []).map((field) => {
+    const value = String(response.values?.[field.id] || '').trim();
+    if (!value) return null;
+    const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
+    return {
+      key: field.definitionId || field.id,
+      label: field.label || field.id || 'Submission artifact',
+      typeLabel: submissionFieldTypeLabel(field),
+      value,
+      isLink: /^https?:\/\//i.test(value),
+      reviewablePdf,
+      documentCheck: reviewablePdf ? artifactDocumentCheck(response, field) : null,
+      documentCheckStatus: reviewablePdf ? artifactDocumentCheckStatus(response, field) : 'Not applicable'
+    };
+  }).filter(Boolean);
+}
+
+function submissionFieldTypeLabel(field) {
+  return ({
+    drive: 'Google Drive PDF',
+    googleForm: 'Google Form',
+    googleSheet: 'Google Sheet',
+    driveFolder: 'Google Drive folder',
+    textarea: 'Text response',
+    url: 'Link'
+  })[field.type] || (field.pdfRequired ? 'PDF' : 'Submission field');
 }
 
 function buildDeliverableTeamProgress(state, student, deliverableId) {

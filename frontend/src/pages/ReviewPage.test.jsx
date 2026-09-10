@@ -49,12 +49,15 @@ vi.mock('../lib/api.js', () => ({
 vi.mock('../lib/reviewDeskClient.js', () => ({
   emptyReviewDesk: () => ({}),
   loadReviewDesk: vi.fn(),
-  applyDocumentCheck: (response, report) => ({ ...response, documentCheck: report }),
+  applyDocumentCheck: (response, report) => report?.fieldId
+    ? { ...response, artifactChecks: { ...(response.artifactChecks || {}), [report.fieldId]: report } }
+    : { ...response, documentCheck: report },
+  applyArtifactAiReview: (response, review) => review?.fieldId
+    ? { ...response, artifactAiReviews: { ...(response.artifactAiReviews || {}), [review.fieldId]: review } }
+    : { ...response, aiReviewState: review },
   applyReviewMutation: (response, mutation) => applyReviewState(response, mutation),
-  runDocumentCheck: (_workspaceId, response) => workflow.runDocumentCheck(response.id),
-  runDocumentChecks: (_workspaceId, responses, _deliverables, options) => (
-    workflow.runDocumentChecks(responses.map((response) => response.id), options)
-  ),
+  runDocumentCheck: (_workspaceId, response, _deliverable, field) => workflow.runDocumentCheck(response.id, field),
+  runDocumentChecks: (_workspaceId, targets, _deliverables, options) => workflow.runDocumentChecks(targets, options),
   runAiReviews: (...args) => workflow.runAiReviews(...args),
   acceptResponse: (...args) => workflow.markAccepted(...args),
   revokeAcceptance: (...args) => workflow.revokeAcceptance(...args)
@@ -114,7 +117,7 @@ function createState() {
         trackerColumn: 'SRS',
         dueAt: '2026-04-18T23:59:00+08:00',
         status: 'Published',
-        fields: [{ id: 'documentPdf', label: 'PDF Drive Link', pdfRequired: true }]
+        fields: [{ id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true }]
       },
       {
         id: 'deliverable-sdd',
@@ -124,7 +127,7 @@ function createState() {
         trackerColumn: 'SDD',
         dueAt: '2026-04-25T23:59:00+08:00',
         status: 'Published',
-        fields: [{ id: 'documentPdf', label: 'PDF Drive Link', pdfRequired: true }]
+        fields: [{ id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true }]
       }
     ],
     attempts: [
@@ -170,6 +173,17 @@ function createState() {
           flags: ['Weak traceability'],
           missingSections: ['Requirements traceability matrix'],
           suggestedAction: 'Ask the team to connect each requirement to its source and design element.'
+        },
+        aiReviewState: {
+          status: 'COMPLETED',
+          generatedAt: checkedAt,
+          sourceResponseUpdatedAt: ronSavedAt,
+          report: {
+            summary: 'The submission describes its requirements, but traceability and interface constraints require manual review.',
+            flags: ['Weak traceability'],
+            missingSections: ['Requirements traceability matrix'],
+            suggestedAction: 'Ask the team to connect each requirement to its source and design element.'
+          }
         }
       },
       {
@@ -225,6 +239,11 @@ function renderPage(initialEntry = '/review') {
   return render(pageTree(initialEntry));
 }
 
+async function openDeliverableOverview() {
+  fireEvent.click(screen.getByRole('button', { name: 'Deliverable overview' }));
+  return screen.findByRole('table', { name: 'Deliverables awaiting review' });
+}
+
 describe('deliverable-first submission review', () => {
   beforeEach(() => {
     workflow.workspaceId = 'workspace-it';
@@ -253,8 +272,9 @@ describe('deliverable-first submission review', () => {
   it('shows pending and failed single document checks without opening a success report', async () => {
     let finish;
     workflow.runDocumentCheck.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    renderPage('/review?response=response-muriel-srs');
-    const check = screen.getByRole('button', { name: 'Check document', exact: true });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Pacio, Muriel D. response' }));
+    const check = await screen.findByRole('button', { name: 'Check again', exact: true });
     fireEvent.click(check);
     expect(check).toBeDisabled();
     await act(async () => finish({ ok: false, error: 'Document service unavailable. Try again.' }));
@@ -270,7 +290,7 @@ describe('deliverable-first submission review', () => {
     renderPage('/review?response=response-muriel-srs');
     fireEvent.click(screen.getByRole('button', { name: 'Run AI Review' }));
     expect(await screen.findByText(/AI Review is not connected yet/)).toBeInTheDocument();
-    expect(screen.getByText('No current AI Review is available for this response.')).toBeInTheDocument();
+    expect(screen.getByText('No current AI Review is available for this PDF.')).toBeInTheDocument();
   });
 
   it('AI review all carries retry tokens only for retry-required responses in a mixed batch', async () => {
@@ -293,16 +313,19 @@ describe('deliverable-first submission review', () => {
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Start / retry reviews' }));
 
     await waitFor(() => expect(workflow.runAiReviews).toHaveBeenCalledTimes(1));
-    const [workspaceId, ids, options] = workflow.runAiReviews.mock.calls[0];
+    const [workspaceId, targets, options] = workflow.runAiReviews.mock.calls[0];
     expect(workspaceId).toBe('workspace-it');
-    expect(ids).toEqual(['response-muriel-srs', 'response-ron-srs']);
-    expect(options.retryTokens).toEqual({ 'response-ron-srs': 'ron-retry-token' });
+    expect(targets).toEqual([
+      { key: 'response-muriel-srs:documentPdf', responseId: 'response-muriel-srs', fieldId: null },
+      { key: 'response-ron-srs:documentPdf', responseId: 'response-ron-srs', fieldId: null }
+    ]);
+    expect(options.retryTokens).toEqual({ 'response-ron-srs:documentPdf': 'ron-retry-token' });
   });
 
-  it('starts with a compact deliverable queue and only pending SRS responses', () => {
+  it('opens a compact deliverable queue and keeps only pending SRS responses in the workbench', async () => {
     renderPage();
 
-    const queue = screen.getByRole('table', { name: 'Deliverables awaiting review' });
+    const queue = await openDeliverableOverview();
     const srsRow = within(queue).getByRole('button', { name: 'Open SRS review' }).closest('tr');
     expect(within(srsRow).getAllByRole('cell').map((cell) => cell.textContent.trim())).toEqual([
       'SRSSoftware Requirements Specification',
@@ -344,7 +367,7 @@ describe('deliverable-first submission review', () => {
     const drawer = screen.getByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' });
     expect(drawer).toHaveTextContent('This is a deliberately long Document Check summary');
     expect(drawer).toHaveTextContent('The submission describes its requirements');
-    expect(within(drawer).getByRole('link', { name: 'Open submitted file' })).toHaveAttribute(
+    expect(within(drawer).getByRole('link', { name: 'Open submitted link' })).toHaveAttribute(
       'href',
       'https://drive.google.com/file/d/ron-srs/view'
     );
@@ -371,13 +394,13 @@ describe('deliverable-first submission review', () => {
     expect(screen.getByText('2 responses selected')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Check selected' }));
-    const confirmation = await screen.findByRole('dialog', { name: 'Check 2 selected documents?' });
+    const confirmation = await screen.findByRole('dialog', { name: 'Check 2 selected PDF artifacts?' });
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Start Document Check' }));
 
-    await waitFor(() => expect(workflow.runDocumentChecks).toHaveBeenCalledWith(
-      ['response-ron-srs', 'response-muriel-srs'],
-      expect.objectContaining({ onProgress: expect.any(Function) })
-    ));
+    await waitFor(() => expect(workflow.runDocumentChecks).toHaveBeenCalled());
+    const [targets, options] = workflow.runDocumentChecks.mock.calls[0];
+    expect(targets.map(target => target.response.id)).toEqual(['response-muriel-srs', 'response-ron-srs']);
+    expect(options).toEqual(expect.objectContaining({ onProgress: expect.any(Function) }));
     const completionAlert = await screen.findByRole('status');
     expect(completionAlert).toHaveTextContent('2 of 2 completed | 1 could not be checked');
     expect(completionAlert).toHaveTextContent('Taghoy, Ron Luigi F.: Download is disabled.');
@@ -417,20 +440,20 @@ describe('deliverable-first submission review', () => {
     renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'Check all unchecked (63)' }));
-    const confirmation = await screen.findByRole('dialog', { name: 'Check all 63 unchecked documents?' });
+    const confirmation = await screen.findByRole('dialog', { name: 'Check all 63 unchecked PDF artifacts?' });
     expect(confirmation).not.toHaveTextContent(/three PDFs|archive/i);
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Start Document Check' }));
 
     await waitFor(() => expect(workflow.runDocumentChecks).toHaveBeenCalledTimes(1));
-    const requestedIds = workflow.runDocumentChecks.mock.calls[0][0];
-    expect(requestedIds).toHaveLength(63);
-    expect(requestedIds).toContain('response-muriel-srs');
-    expect(requestedIds).toContain('unchecked-62');
+    const requestedTargets = workflow.runDocumentChecks.mock.calls[0][0];
+    expect(requestedTargets).toHaveLength(63);
+    expect(requestedTargets.map(target => target.response.id)).toContain('response-muriel-srs');
+    expect(requestedTargets.map(target => target.response.id)).toContain('unchecked-62');
   });
 
   it.each(['workspace', 'account'])('discards batch progress and private failures after the %s changes', async (change) => {
     let finish, progress;
-    workflow.runDocumentChecks.mockImplementation((_ids, options) => {
+    workflow.runDocumentChecks.mockImplementation((_targets, options) => {
       progress = options.onProgress;
       return new Promise(resolve => { finish = resolve; });
     });
@@ -512,7 +535,7 @@ describe('deliverable-first submission review', () => {
     expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Pacio, Muriel D.')).toBeInTheDocument();
   });
 
-  it('counts received students uniquely so duplicate responses do not hide missing work', () => {
+  it('counts received students uniquely so duplicate responses do not hide missing work', async () => {
     const duplicate = {
       ...workflow.state.attempts.find((attempt) => attempt.id === 'response-muriel-srs'),
       id: 'response-muriel-srs-conflict',
@@ -521,14 +544,14 @@ describe('deliverable-first submission review', () => {
     workflow.state = { ...workflow.state, attempts: [...workflow.state.attempts, duplicate] };
 
     renderPage();
-    const queue = screen.getByRole('table', { name: 'Deliverables awaiting review' });
+    const queue = await openDeliverableOverview();
     const srsRow = within(queue).getByRole('button', { name: 'Open SRS review' }).closest('tr');
     const cells = within(srsRow).getAllByRole('cell').map((cell) => cell.textContent.trim());
     expect(cells[3]).toBe('3');
     expect(cells[4]).toBe('1');
   });
 
-  it('does not require Document Check for link-only deliverables', () => {
+  it('does not require Document Check for link-only deliverables', async () => {
     const deliverable = {
       id: 'deliverable-source',
       slug: 'source-code',
@@ -559,11 +582,94 @@ describe('deliverable-first submission review', () => {
     };
 
     renderPage();
-    const queue = screen.getByRole('table', { name: 'Deliverables awaiting review' });
+    const queue = await openDeliverableOverview();
     const sourceRow = within(queue).getByRole('button', { name: 'Open SourceCode review' }).closest('tr');
     expect(within(sourceRow).getAllByRole('cell')[5]).toHaveTextContent('0');
     fireEvent.click(within(sourceRow).getByRole('button', { name: 'Open SourceCode review' }));
-    expect(within(screen.getByRole('table', { name: 'SourceCode submissions' })).getByText('Not applicable')).toBeInTheDocument();
+    expect(within(screen.getByRole('table', { name: 'SourceCode submissions' })).getAllByText('Not applicable')).toHaveLength(2);
+  });
+
+  it('aggregates two PDF artifacts independently while keeping one response row', async () => {
+    const savedAt = '2026-04-19T09:10:00+08:00';
+    const deliverable = {
+      id: 'deliverable-srs',
+      slug: 'mvp-validation',
+      title: 'MVP Validation',
+      shortTitle: 'MVP Validation',
+      trackerColumn: 'SRS',
+      dueAt: '2026-04-18T23:59:00+08:00',
+      status: 'Published',
+      fields: [
+        { id: 'validationInstrument', definitionId: 'field-form', label: 'Validation Instrument', type: 'googleForm', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
+        { id: 'frameworkModel', definitionId: 'field-framework', label: 'Framework / Model', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true },
+        { id: 'responseSheet', definitionId: 'field-sheet', label: 'Validation Response Sheet', type: 'googleSheet', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
+        { id: 'validationHighlights', definitionId: 'field-highlights', label: 'MVP Validation Highlights', type: 'drive', pdfRequired: true, documentCheckPolicy: 'MANUAL', aiReviewEnabled: true },
+        { id: 'validationEvidence', definitionId: 'field-folder', label: 'Validation Evidence', type: 'driveFolder', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false }
+      ]
+    };
+    const response = {
+      id: 'response-muriel-srs',
+      deliverableId: deliverable.id,
+      studentNumber: '23-1001-001',
+      studentName: 'Pacio, Muriel D.',
+      teamCode: '2526-sem2-it332-01',
+      submittedAt: savedAt,
+      updatedAt: savedAt,
+      values: {
+        validationInstrument: 'https://docs.google.com/forms/d/e/form-id/viewform',
+        frameworkModel: 'https://drive.google.com/file/d/framework-pdf/view',
+        responseSheet: 'https://docs.google.com/spreadsheets/d/sheet-id/edit',
+        validationHighlights: 'https://drive.google.com/file/d/highlights-pdf/view',
+        validationEvidence: 'https://drive.google.com/drive/folders/evidence-folder'
+      },
+      reviewStatus: 'Received',
+      primaryStatus: 'Received',
+      archiveStatus: 'Not Archived',
+      flags: ['Received'],
+      artifactChecks: {
+        'field-framework': currentDocumentCheck(savedAt, {
+          fieldId: 'field-framework',
+          sourceUrl: 'https://drive.google.com/file/d/framework-pdf/view',
+          summary: 'Framework PDF is ready for staff review.'
+        })
+      },
+      artifactAiReviews: {
+        'field-framework': {
+          fieldId: 'field-framework', status: 'COMPLETED', generatedAt: checkedAt,
+          sourceUrl: 'https://drive.google.com/file/d/framework-pdf/view',
+          report: { summary: 'Framework reviewed.' }
+        },
+        'field-highlights': {
+          fieldId: 'field-highlights', status: 'UNCERTAIN', generatedAt: checkedAt,
+          sourceUrl: 'https://drive.google.com/file/d/highlights-pdf/view', retryToken: 'retry-highlights'
+        }
+      }
+    };
+    workflow.state = {
+      ...createState(),
+      deliverables: [deliverable],
+      attempts: [response],
+      students: [createState().students[0]]
+    };
+    renderPage('/review?deliverable=deliverable-srs&response=response-muriel-srs');
+
+    const submissions = screen.getByRole('table', { name: 'MVP Validation submissions' });
+    expect(within(submissions).getAllByRole('row')).toHaveLength(2);
+    expect(within(submissions).getByText('Not checked')).toBeInTheDocument();
+    expect(within(submissions).getByText('Retry required')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check all unchecked (1)' })).toBeInTheDocument();
+
+    const drawer = screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' });
+    ['Validation Instrument', 'Framework / Model', 'Validation Response Sheet', 'MVP Validation Highlights', 'Validation Evidence']
+      .forEach(label => expect(within(drawer).getByText(label)).toBeInTheDocument());
+    expect(within(drawer).getByText('Framework PDF is ready for staff review.')).toBeInTheDocument();
+    expect(within(drawer).getAllByRole('button', { name: /Document Check|Check document|Check again/ })).toHaveLength(2);
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Check document' }));
+    await waitFor(() => expect(workflow.runDocumentCheck).toHaveBeenCalledWith(
+      'response-muriel-srs',
+      expect.objectContaining({ id: 'validationHighlights', definitionId: 'field-highlights' })
+    ));
   });
 
   it('opens an exact linked response in its deliverable context', () => {
@@ -584,7 +690,7 @@ describe('deliverable-first submission review', () => {
     expect(await screen.findByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' })).toBeInTheDocument();
   });
 
-  it('lists one queue row per deliverable when saved state still holds duplicate copies', () => {
+  it('lists one queue row per deliverable when saved state still holds duplicate copies', async () => {
     workflow.state = {
       ...workflow.state,
       deliverables: [
@@ -614,7 +720,7 @@ describe('deliverable-first submission review', () => {
 
     renderPage();
 
-    const queue = screen.getByRole('table', { name: 'Deliverables awaiting review' });
+    const queue = await openDeliverableOverview();
     expect(within(queue).getAllByRole('button', { name: 'Open SRS review' })).toHaveLength(1);
     expect(within(queue).getAllByRole('button', { name: /^Open \w+ review$/ })).toHaveLength(2);
   });

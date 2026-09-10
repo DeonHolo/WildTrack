@@ -78,12 +78,12 @@ public class ReviewFeedbackService {
             java.util.Map.of("role", role, "revision", response.getRevision()));
         canonical.recordAcceptanceIfFirst(response, subject);
         Instant now = clock.instant();
-        // Replace any prior acceptance row for the same response (re-accept after revoke).
-        acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId)
-            .ifPresent(prior -> {
-                prior.setRevokedAt(now);
-                acceptanceRepository.save(prior);
-            });
+        var existing = acceptanceRepository.findByResponseId(responseId);
+        if (existing.isPresent()) {
+            ResponseAcceptance acceptance = existing.get();
+            acceptance.reactivate(subject, email, role, response.getUpdatedAt(), now);
+            return acceptanceRepository.save(acceptance);
+        }
         return acceptanceRepository.save(new ResponseAcceptance(
             UUID.randomUUID(), response, subject, email, role,
             response.getUpdatedAt(), now));
@@ -164,6 +164,16 @@ public class ReviewFeedbackService {
                 "acceptedAt", a.getAcceptedAt().toString(), "acceptedBy", a.getAcceptedByEmail(),
                 "acceptedByRole", a.getAcceptedByRole(), "sourceResponseUpdatedAt", a.getSourceResponseUpdatedAt().toString())));
         return states;
+    }
+
+    /** Call only with response IDs already authorized by the owning controller. */
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, Instant> activeAcceptanceVersionsFor(List<UUID> ids) {
+        if (ids.isEmpty()) return java.util.Map.of();
+        return acceptanceRepository.findAllByResponseIdInAndRevokedAtIsNull(ids).stream()
+            .collect(java.util.stream.Collectors.toMap(
+                acceptance -> acceptance.getResponse().getId(),
+                ResponseAcceptance::getSourceResponseUpdatedAt));
     }
 
     @Transactional(readOnly = true)

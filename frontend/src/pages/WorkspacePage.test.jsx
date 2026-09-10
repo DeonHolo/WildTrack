@@ -117,7 +117,28 @@ function createState() {
       { id: 'col-srs', key: 'SRS', label: 'SRS', sourceColumn: 'SRS', active: true, pdfRequired: true },
       { id: 'col-sdd', key: 'SDD', label: 'SDD', sourceColumn: 'SDD', active: true, pdfRequired: true }
     ],
-    deliverables: [],
+    deliverables: [
+      {
+        id: 'deliverable-srs',
+        trackerColumn: 'SRS',
+        shortTitle: 'SRS',
+        title: 'Software Requirements Specification',
+        fields: [{
+          id: 'documentPdf', definitionId: 'field-srs-pdf', label: 'SRS PDF', type: 'drive',
+          pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true
+        }]
+      },
+      {
+        id: 'deliverable-sdd',
+        trackerColumn: 'SDD',
+        shortTitle: 'SDD',
+        title: 'Software Design Description',
+        fields: [{
+          id: 'documentPdf', definitionId: 'field-sdd-pdf', label: 'SDD PDF', type: 'drive',
+          pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true
+        }]
+      }
+    ],
     templates: []
   };
 }
@@ -342,6 +363,45 @@ describe('workspace operations', () => {
 
     await waitFor(() => expect(workflow.saveTemplate).toHaveBeenCalledWith(expect.objectContaining({
       sourceType: 'upload',
+      file
+    })));
+  });
+
+  it('requires an explicit artifact when a deliverable has two independently checkable PDFs', async () => {
+    workflow.state.deliverables = [{
+      id: 'deliverable-srs',
+      trackerColumn: 'SRS',
+      shortTitle: 'SRS',
+      title: 'MVP Validation',
+      fields: [
+        { id: 'validationInstrument', definitionId: 'field-form', label: 'Validation Instrument', type: 'googleForm', pdfRequired: false, documentCheckPolicy: 'OFF' },
+        { id: 'frameworkModel', definitionId: 'field-framework', label: 'Framework / Model', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO' },
+        { id: 'responseSheet', definitionId: 'field-sheet', label: 'Validation Response Sheet', type: 'googleSheet', pdfRequired: false, documentCheckPolicy: 'OFF' },
+        { id: 'validationHighlights', definitionId: 'field-highlights', label: 'MVP Validation Highlights', type: 'drive', pdfRequired: true, documentCheckPolicy: 'MANUAL' },
+        { id: 'validationEvidence', definitionId: 'field-folder', label: 'Validation Evidence', type: 'driveFolder', pdfRequired: false, documentCheckPolicy: 'OFF' }
+      ]
+    }];
+    workflow.saveTemplate.mockResolvedValue({ ok: true, template: { name: 'Highlights template' } });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add official template' }));
+    const dialog = await screen.findByRole('form', { name: 'Add official template' });
+    const artifact = within(dialog).getByLabelText('Template artifact field');
+    expect(artifact).toBeEnabled();
+    expect(within(artifact).getAllByRole('option').map(option => option.textContent)).toEqual([
+      'Choose a PDF artifact',
+      'Framework / Model',
+      'MVP Validation Highlights'
+    ]);
+
+    const file = new File(['template'], 'highlights.pdf', { type: 'application/pdf' });
+    fireEvent.change(within(dialog).getByLabelText('Template file'), { target: { files: [file] } });
+    fireEvent.change(artifact, { target: { value: 'field-highlights' } });
+    fireEvent.submit(dialog);
+
+    await waitFor(() => expect(workflow.saveTemplate).toHaveBeenCalledWith(expect.objectContaining({
+      deliverable: 'SRS',
+      fieldId: 'field-highlights',
       file
     })));
   });

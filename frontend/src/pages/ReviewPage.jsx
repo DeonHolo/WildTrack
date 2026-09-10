@@ -18,7 +18,6 @@ import {
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { CheckCircle, Files, MagnifyingGlass, Sparkle, X } from '@phosphor-icons/react';
-import { applyAiReview } from '../lib/backendDomain.js';
 import { getAiReviewStatus, getIdentityConflicts } from '../lib/api.js';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
@@ -32,6 +31,7 @@ import { ReviewSubmissionsTable } from '../components/review/ReviewSubmissionsTa
 import { buildDeliverableReviewSummaries, filterReviewResponses, REVIEW_FILTERS } from '../lib/review.js';
 import {
   acceptResponse,
+  applyArtifactAiReview,
   applyDocumentCheck,
   applyReviewMutation,
   emptyReviewDesk,
@@ -42,12 +42,14 @@ import {
   runDocumentChecks as runReviewDocumentChecks
 } from '../lib/reviewDeskClient.js';
 import {
+  aiReviewableSubmissionFields,
+  artifactAiReview,
+  artifactAiReviewStatus,
   deliverableUsesDocumentCheck,
-  aiReviewStatus,
   findStudent,
-  firstSubmissionLink,
   getIdentityStudents,
-  isDocumentCheckCurrent,
+  isArtifactDocumentCheckCurrent,
+  reviewableSubmissionFields,
   sortDeliverables
 } from '../lib/workflow.js';
 
@@ -91,7 +93,7 @@ export function ReviewPage() {
   const [selectedResponseId, setSelectedResponseId] = useState(linkedResponse?.id || '');
   const [conflictStudentNumbers, setConflictStudentNumbers] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [checkDialogId, setCheckDialogId] = useState('');
+  const [checkDialogTarget, setCheckDialogTarget] = useState(null);
   const [batchProgress, setBatchProgress] = useState(null);
   const [aiProgress, setAiProgress] = useState(null);
   const aiBusy = useRef(false);
@@ -104,7 +106,7 @@ export function ReviewPage() {
     setBatchProgress(null);
     setCheckingIds(new Set());
     setCheckError(null);
-    setCheckDialogId('');
+    setCheckDialogTarget(null);
     setSelectedIds(new Set());
     setSelectedResponseId('');
     setConflictStudentNumbers([]);
@@ -131,17 +133,21 @@ export function ReviewPage() {
       teamCode: selectedResponse.teamCode || 'Unmatched team'
     }
     : null;
-  const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogId) || null;
+  const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogTarget?.responseId) || null;
+  const checkDialogDeliverable = checkDialogResponse
+    ? state.deliverables.find((item) => item.id === checkDialogResponse.deliverableId) || null
+    : null;
+  const checkDialogField = checkDialogDeliverable?.fields?.find((field) => (
+    (field.definitionId || field.id) === checkDialogTarget?.fieldId
+  )) || null;
+  const checkDialogReport = checkDialogField
+    ? (checkDialogResponse?.artifactChecks?.[checkDialogField.definitionId]
+      || (!checkDialogField.definitionId ? checkDialogResponse?.documentCheck : null))
+    : null;
   const documentCheckEnabled = deliverableUsesDocumentCheck(selectedDeliverable);
-  const uncheckedResponseIds = useMemo(() => documentCheckEnabled
-    ? (selectedSummary?.responses || [])
-      .filter((response) => (
-        response.reviewStatus !== 'Accepted'
-        && response.archiveStatus !== 'Archived'
-        && !isDocumentCheckCurrent(response)
-      ))
-      .map((response) => response.id)
-    : [], [documentCheckEnabled, selectedSummary]);
+  const uncheckedDocumentTargets = useMemo(() => documentCheckEnabled
+    ? documentTargetsForResponses(selectedSummary?.responses || [], [selectedDeliverable], { onlyUnchecked: true })
+    : [], [documentCheckEnabled, selectedDeliverable, selectedSummary]);
   const pageCount = Math.max(1, Math.ceil(visibleResponses.length / REVIEW_PAGE_SIZE));
   const activePage = Math.min(page, pageCount);
   const pageResponses = visibleResponses.slice((activePage - 1) * REVIEW_PAGE_SIZE, activePage * REVIEW_PAGE_SIZE);
@@ -179,7 +185,7 @@ export function ReviewPage() {
     setSelectedDeliverableId(id);
     setSelectedResponseId('');
     setSelectedIds(new Set());
-    setCheckDialogId('');
+    setCheckDialogTarget(null);
     setBatchProgress(current => current?.done ? null : current);
   }
 
@@ -203,25 +209,25 @@ export function ReviewPage() {
     });
   }
 
-  async function openOrRunDocumentCheck(response) {
-    if (!isDocumentCheckCurrent(response)) {
-      const result = await runDocumentCheck(response.id);
+  async function openOrRunDocumentCheck(response, field) {
+    if (!isArtifactDocumentCheckCurrent(response, field)) {
+      const result = await runDocumentCheck(response.id, field);
       if (!result.ok) return;
     }
     if (!isCurrentScope()) return;
-    setCheckDialogId(response.id);
+    setCheckDialogTarget({ responseId: response.id, fieldId: field.definitionId || field.id });
   }
 
   async function recheckFromDialog() {
-    if (checkDialogResponse) await runDocumentCheck(checkDialogResponse.id);
+    if (checkDialogResponse && checkDialogField) await runDocumentCheck(checkDialogResponse.id, checkDialogField);
   }
 
-  function confirmDocumentCheckBatch(ids, { allUnchecked = false, allDeliverables = false } = {}) {
-    if (!ids.length) return;
+  function confirmDocumentCheckBatch(targets, { allUnchecked = false, allDeliverables = false } = {}) {
+    if (!targets.length) return;
     modals.openConfirmModal({
-      title: allDeliverables ? `Recheck ${ids.length} responses across all deliverables?` : allUnchecked
-        ? `Check all ${ids.length} unchecked document${ids.length === 1 ? '' : 's'}?`
-        : `Check ${ids.length} selected document${ids.length === 1 ? '' : 's'}?`,
+      title: allDeliverables ? `Recheck ${targets.length} PDF artifact${targets.length === 1 ? '' : 's'} across all deliverables?` : allUnchecked
+        ? `Check all ${targets.length} unchecked PDF artifact${targets.length === 1 ? '' : 's'}?`
+        : `Check ${targets.length} selected PDF artifact${targets.length === 1 ? '' : 's'}?`,
       children: (
         <Text size="sm">
           WildTrack will check every document in this batch and report progress here. One failed file will not stop the remaining checks.
@@ -230,15 +236,14 @@ export function ReviewPage() {
       labels: { confirm: 'Start Document Check', cancel: 'Cancel' },
       confirmProps: { color: 'wildtrackMaroon' },
       centered: true,
-      onConfirm: () => runDocumentCheckBatch(ids)
+      onConfirm: () => runDocumentCheckBatch(targets)
     });
   }
 
-  async function runDocumentCheckBatch(ids) {
+  async function runDocumentCheckBatch(targets) {
     if (!isCurrentScope()) return;
-    const responses = ids.map((id) => state.attempts.find((attempt) => attempt.id === id)).filter(Boolean);
-    setBatchProgress({ completed: 0, total: ids.length, failed: 0, done: false });
-    const result = await runReviewDocumentChecks(activeWorkspaceId, responses, state.deliverables, {
+    setBatchProgress({ completed: 0, total: targets.length, failed: 0, done: false });
+    const result = await runReviewDocumentChecks(activeWorkspaceId, targets, state.deliverables, {
       shouldContinue: isCurrentScope,
       onProgress: ({ completed, total }) => {
         if (isCurrentScope()) setBatchProgress((current) => ({ ...current, completed, total }));
@@ -248,8 +253,8 @@ export function ReviewPage() {
     setState((current) => ({
       ...current,
       attempts: current.attempts.map((attempt) => {
-        const completed = result.results?.find((item) => item.attemptId === attempt.id && item.ok);
-        return completed?.report ? applyDocumentCheck(attempt, completed.report) : attempt;
+        const completed = (result.results || []).filter((item) => item.attemptId === attempt.id && item.ok && item.report);
+        return completed.reduce((updated, item) => applyDocumentCheck(updated, item.report), attempt);
       })
     }));
     const failures = (result.results || [])
@@ -257,27 +262,30 @@ export function ReviewPage() {
       .map((item) => {
         const response = state.attempts.find((attempt) => attempt.id === item.attemptId);
         const student = response ? findStudent(state.students, response.studentNumber) : null;
+        const target = targets.find((candidate) => candidate.response.id === item.attemptId
+          && (candidate.field?.definitionId || candidate.field?.id || null) === (item.fieldId || item.fieldKey || null));
         return {
-          id: item.attemptId,
-          student: student?.name || response?.studentName || response?.studentNumber || 'Unknown response',
+          id: `${item.attemptId}:${item.fieldId || item.fieldKey || 'legacy'}`,
+          student: `${student?.name || response?.studentName || response?.studentNumber || 'Unknown response'}${target?.field?.label ? ` — ${target.field.label}` : ''}`,
           error: item.error || 'Document Check could not finish.'
         };
       });
     setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, failures, done: true });
   }
 
-  async function requestAiReview(ids, retryAcknowledged = false, retryTokens = {}, excludeArchived = false) {
+  async function requestAiReview(targetsOrIds, retryAcknowledged = false, retryTokens = {}, excludeArchived = false) {
     if (aiBusy.current || !isCurrentScope()) return;
-    const candidates = ids.filter(id => {
-      const response = state.attempts.find(attempt => attempt.id === id);
-      return response && deliverableUsesDocumentCheck(state.deliverables.find(d => d.id === response.deliverableId));
-    });
-    if (!candidates.length) { notifications.show({ message: 'No PDF responses selected for AI review.' }); return; }
+    const candidates = normalizeAiTargets(targetsOrIds, state)
+      .filter((target) => isArtifactDocumentCheckCurrent(target.response, target.field));
+    if (!candidates.length) {
+      notifications.show({ message: 'No selected PDF artifacts have a current Document Check and AI Review enabled.' });
+      return;
+    }
     const effectiveRetryTokens = { ...retryTokens };
-    for (const id of candidates) {
-      const response = state.attempts.find(attempt => attempt.id === id);
-      if (aiReviewStatus(response) === 'Retry required' && response?.aiReviewState?.retryToken) {
-        effectiveRetryTokens[id] = response.aiReviewState.retryToken;
+    for (const target of candidates) {
+      const review = artifactAiReview(target.response, target.field);
+      if (artifactAiReviewStatus(target.response, target.field) === 'Retry required' && review?.retryToken) {
+        effectiveRetryTokens[target.key] = review.retryToken;
       }
     }
     try {
@@ -290,37 +298,39 @@ export function ReviewPage() {
         return;
       }
       const modalId = modals.open({ title: retryAcknowledged ? 'Retry AI reviews?' : 'AI review submissions', centered: true,
-        children: <AiReviewDialog responses={candidates.map(id => state.attempts.find(response => response.id === id))}
+        children: <AiReviewDialog targets={candidates}
           excludeArchived={excludeArchived} retry={retryAcknowledged} retryTokens={effectiveRetryTokens}
           onCancel={() => modals.close(modalId)}
           onConfirm={selected => {
             const selectedRetryTokens = Object.fromEntries(selected
-              .filter(id => effectiveRetryTokens[id])
-              .map(id => [id, effectiveRetryTokens[id]]));
+              .filter(target => effectiveRetryTokens[target.key])
+              .map(target => [target.key, effectiveRetryTokens[target.key]]));
             modals.close(modalId);
             runAiBatch(selected, selectedRetryTokens);
           }} /> });
     } catch (error) { if (isCurrentScope()) notifications.show({ color: 'red', message: error.message || 'AI review status could not be loaded.' }); }
   }
 
-  async function runAiBatch(ids, retryTokens = {}) {
+  async function runAiBatch(targets, retryTokens = {}) {
     if (aiBusy.current || !isCurrentScope()) return;
     aiBusy.current = true;
-    let progress = { total: ids.length, completed: 0, available: 0, reused: 0, failures: [], uncertainIds: [], retryTokens: {}, done: false };
+    let progress = { total: targets.length, completed: 0, available: 0, reused: 0, failures: [], uncertainTargets: [], retryTokens: {}, done: false };
     setAiProgress(progress);
     try {
-      await runAiReviews(activeWorkspaceId, ids, { retryTokens, shouldContinue: isCurrentScope,
-        onResult: (id, result) => {
-          const response = state.attempts.find(attempt => attempt.id === id);
+      await runAiReviews(activeWorkspaceId, targets.map(({ key, responseId, fieldId }) => ({ key, responseId, fieldId })), { retryTokens, shouldContinue: isCurrentScope,
+        onResult: (targetRef, result) => {
+          const target = targets.find((item) => item.responseId === targetRef.responseId && item.fieldId === targetRef.fieldId);
+          const response = state.attempts.find(attempt => attempt.id === targetRef.responseId);
           const deliverable = state.deliverables.find(item => item.id === response?.deliverableId);
-          const label = `${deliverable?.title || 'Document'} — ${response?.studentName || response?.studentNumber || id}`;
-          if (result.review) setState(current => ({ ...current, attempts: current.attempts.map(response => response.id === id ? applyAiReview(response, result.review) : response) }));
+          const label = `${deliverable?.title || 'Document'} / ${target?.field?.label || 'PDF'} — ${response?.studentName || response?.studentNumber || targetRef.responseId}`;
+          if (result.review) setState(current => ({ ...current, attempts: current.attempts.map(item => item.id === targetRef.responseId ? applyArtifactAiReview(item, result.review) : item) }));
+          const targetKey = target?.key || `${targetRef.responseId}:${targetRef.fieldId || 'legacy'}`;
           progress = { ...progress, completed: progress.completed + 1,
             available: progress.available + (result.ok ? 1 : 0),
             reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
             failures: result.ok ? progress.failures : [...progress.failures, `${label}: ${result.error}`],
-            uncertainIds: result.uncertain ? [...progress.uncertainIds, id] : progress.uncertainIds,
-            retryTokens: result.uncertain ? { ...progress.retryTokens, [id]: result.review.retryToken } : progress.retryTokens };
+            uncertainTargets: result.uncertain ? [...progress.uncertainTargets, target] : progress.uncertainTargets,
+            retryTokens: result.uncertain ? { ...progress.retryTokens, [targetKey]: result.review.retryToken } : progress.retryTokens };
           setAiProgress(progress);
         }
       });
@@ -349,7 +359,7 @@ export function ReviewPage() {
   function confirmRevoke(response) {
     modals.openConfirmModal({
       title: 'Revoke this acceptance?',
-      children: <Text size="sm">The response returns to Pending and must be accepted again before it can be archived.</Text>,
+      children: <Text size="sm">The response returns to Pending. Any existing archive record remains as an immutable historical snapshot, but it will no longer count as the current archived response unless this response is accepted again.</Text>,
       labels: { confirm: 'Revoke acceptance', cancel: 'Keep accepted' },
       confirmProps: { color: 'red' },
       centered: true,
@@ -371,28 +381,33 @@ export function ReviewPage() {
     });
   }
 
-  async function runDocumentCheck(attemptId) {
-    if (!isCurrentScope() || checkingIds.has(attemptId)) return { ok: false };
+  async function runDocumentCheck(attemptId, field) {
+    const runningKey = artifactTargetKey(attemptId, field);
+    if (!isCurrentScope() || checkingIds.has(runningKey)) return { ok: false };
     const response = state.attempts.find((attempt) => attempt.id === attemptId);
     if (!response) return { ok: false, error: 'The selected response was not found.' };
     const deliverable = state.deliverables.find((item) => item.id === response.deliverableId);
-    setCheckingIds((current) => new Set([...current, attemptId]));
+    const reviewableFields = reviewableSubmissionFields(deliverable);
+    const targetField = field || (reviewableFields.length === 1 ? reviewableFields[0] : null);
+    if (!targetField && reviewableFields.length > 1) return { ok: false, error: 'Choose which PDF artifact to check.' };
+    if (!targetField) return { ok: false, error: 'This response has no reviewable PDF artifact.' };
+    setCheckingIds((current) => new Set([...current, runningKey]));
     setCheckError(null);
     let result;
     try {
-      result = await runReviewDocumentCheck(activeWorkspaceId, response, deliverable);
+      result = await runReviewDocumentCheck(activeWorkspaceId, response, deliverable, targetField);
     } catch (error) {
       result = { ok: false, error: error?.message || 'Document Check could not finish.' };
     }
     if (!isCurrentScope()) return { ok: false };
-    setCheckingIds((current) => withoutId(current, attemptId));
+    setCheckingIds((current) => withoutId(current, runningKey));
     if (result.ok) {
       setState((current) => ({
         ...current,
         attempts: current.attempts.map((attempt) => attempt.id === attemptId ? applyDocumentCheck(attempt, result.report) : attempt)
       }));
     } else {
-      setCheckError({ attemptId, message: result.error || 'Document Check could not finish. Please try again.' });
+      setCheckError({ targetKey: runningKey, message: result.error || 'Document Check could not finish. Please try again.' });
     }
     return result;
   }
@@ -400,7 +415,7 @@ export function ReviewPage() {
   function confirmArchive(response) {
     modals.openConfirmModal({
       title: 'Archive this accepted response?',
-      children: <Text size="sm">WildTrack creates one archive metadata record and keeps the submitted Drive link as its source reference. Independent PDF storage is not connected yet.</Text>,
+      children: <Text size="sm">WildTrack creates one archive metadata record and snapshots the submitted artifact references. Independent PDF storage is not connected yet.</Text>,
       labels: { confirm: 'Archive response', cancel: 'Cancel' },
       confirmProps: { color: 'wildtrackMaroon' },
       centered: true,
@@ -427,6 +442,11 @@ export function ReviewPage() {
     });
   }
 
+  const allDocumentTargets = documentTargetsForResponses(state.attempts, state.deliverables);
+  const selectedResponses = state.attempts.filter((response) => selectedIds.has(response.id));
+  const selectedDocumentTargets = documentTargetsForResponses(selectedResponses, state.deliverables);
+  const allAiTargets = aiTargetsForResponses(state.attempts, state.deliverables);
+
   return (
     <Stack gap="lg" className="wt-review-page">
       <header className="wt-staff-page-heading">
@@ -443,19 +463,19 @@ export function ReviewPage() {
         <Select label="Deliverable" value={activeDeliverableId} onChange={chooseDeliverable} allowDeselect={false} searchable
           style={{ flex: '1 1 280px', maxWidth: 520 }} data={summaries.map(summary => ({ value: summary.deliverable.id,
             label: (summary.deliverable.shortTitle || summary.deliverable.title) + ' · ' + summary.received + ' received · ' + summary.needsAction + ' need action' }))} />
-        <Group gap="xs"><Button variant="default" disabled={batchRunning || !state.attempts.some(response => deliverableUsesDocumentCheck(state.deliverables.find(d => d.id === response.deliverableId)) && firstSubmissionLink(response.values))}
-          onClick={() => confirmDocumentCheckBatch(state.attempts.filter(response => deliverableUsesDocumentCheck(state.deliverables.find(d => d.id === response.deliverableId)) && firstSubmissionLink(response.values)).map(response => response.id), { allDeliverables: true })}>Recheck all documents</Button>
-          <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done)} onClick={() => requestAiReview(state.attempts.map(response => response.id), false, {}, true)}>AI review all</Button>
+        <Group gap="xs"><Button variant="default" disabled={batchRunning || !allDocumentTargets.length}
+          onClick={() => confirmDocumentCheckBatch(allDocumentTargets, { allDeliverables: true })}>Recheck all documents</Button>
+          <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done) || !allAiTargets.length} onClick={() => requestAiReview(allAiTargets, false, {}, true)}>AI review all</Button>
           <Button variant="subtle" onClick={() => setOverviewOpen(value => !value)} aria-expanded={overviewOpen}>{overviewOpen ? 'Hide overview' : 'Deliverable overview'}</Button></Group>
       </Group></Paper>
       {aiProgress ? <Alert color={aiProgress.failures.length ? 'orange' : 'blue'} title={aiProgress.done ? (aiProgress.completed < aiProgress.total ? 'AI review paused' : aiProgress.failures.length ? 'AI review needs attention' : 'AI review complete') : 'Reviewing documents'}
         withCloseButton={aiProgress.done} onClose={() => setAiProgress(null)}>
-        <Text size="sm">{aiProgress.available} {aiProgress.available === 1 ? 'review' : 'reviews'} available · {aiProgress.uncertainIds.length} awaiting retry
-          {aiProgress.failures.length > aiProgress.uncertainIds.length ? ` · ${aiProgress.failures.length - aiProgress.uncertainIds.length} incomplete` : ''}</Text>
-        <Text size="xs" c="dimmed">{aiProgress.completed} of {aiProgress.total} responses checked · {aiProgress.reused} saved reviews reused
+        <Text size="sm">{aiProgress.available} {aiProgress.available === 1 ? 'review' : 'reviews'} available · {aiProgress.uncertainTargets.length} awaiting retry
+          {aiProgress.failures.length > aiProgress.uncertainTargets.length ? ` · ${aiProgress.failures.length - aiProgress.uncertainTargets.length} incomplete` : ''}</Text>
+        <Text size="xs" c="dimmed">{aiProgress.completed} of {aiProgress.total} PDF artifacts checked · {aiProgress.reused} saved reviews reused
           {aiProgress.done && aiProgress.completed < aiProgress.total ? ` · ${aiProgress.total - aiProgress.completed} not processed` : ''}</Text>
         {[...new Set(aiProgress.failures)].map(message => <Text size="sm" key={message}>{message}</Text>)}
-        {aiProgress.done && aiProgress.uncertainIds.length ? <Button variant="default" size="xs" mt="sm" onClick={() => requestAiReview(aiProgress.uncertainIds, true, aiProgress.retryTokens)}>Review retry options</Button> : null}
+        {aiProgress.done && aiProgress.uncertainTargets.length ? <Button variant="default" size="xs" mt="sm" onClick={() => requestAiReview(aiProgress.uncertainTargets, true, aiProgress.retryTokens)}>Review retry options</Button> : null}
       </Alert> : null}
       <Collapse in={overviewOpen}><ReviewDeliverablesTable summaries={summaries} selectedId={activeDeliverableId} onSelect={chooseDeliverable} /></Collapse>
 
@@ -495,15 +515,15 @@ export function ReviewPage() {
               className="wt-review-search"
             />
             <Group gap="sm" wrap="nowrap" className="wt-review-toolbar-actions">
-              {documentCheckEnabled && uncheckedResponseIds.length ? (
+              {documentCheckEnabled && uncheckedDocumentTargets.length ? (
                 <Button
                   variant="default"
                   size="sm"
                   disabled={batchRunning}
                   leftSection={<Files size={17} />}
-                  onClick={() => confirmDocumentCheckBatch(uncheckedResponseIds, { allUnchecked: true })}
+                  onClick={() => confirmDocumentCheckBatch(uncheckedDocumentTargets, { allUnchecked: true })}
                 >
-                  Check all unchecked ({uncheckedResponseIds.length})
+                  Check all unchecked ({uncheckedDocumentTargets.length})
                 </Button>
               ) : null}
               <Text size="sm" fw={700} c="dimmed" className="wt-nowrap wt-tabular">
@@ -521,10 +541,10 @@ export function ReviewPage() {
               <Group gap="xs">
                 {documentCheckEnabled ? (
                   <>
-                    <Button variant="default" size="sm" disabled={batchRunning} leftSection={<Files size={17} />} onClick={() => confirmDocumentCheckBatch([...selectedIds])}>
+                    <Button variant="default" size="sm" disabled={batchRunning || !selectedDocumentTargets.length} leftSection={<Files size={17} />} onClick={() => confirmDocumentCheckBatch(selectedDocumentTargets)}>
                       Check selected
                     </Button>
-                    <Button variant="default" size="sm" leftSection={<Sparkle size={17} />} onClick={() => requestAiReview([...selectedIds])}>
+                    <Button variant="default" size="sm" leftSection={<Sparkle size={17} />} onClick={() => requestAiReview(selectedResponses.map((response) => response.id))}>
                       AI review selected
                     </Button>
                   </>
@@ -604,14 +624,15 @@ export function ReviewPage() {
         student={selectedStudent}
         state={state}
         deliverable={selectedDeliverable}
-        documentCheckEnabled={documentCheckEnabled}
-        checking={checkingIds.has(selectedResponse?.id)}
-        checkError={checkError?.attemptId === selectedResponse?.id ? checkError?.message : ''}
+        checkingFields={checkingIds}
+        checkError={checkError?.targetKey?.startsWith(`${selectedResponse?.id}:`) ? checkError?.message : ''}
         onClose={() => setSelectedResponseId('')}
-        onDocumentCheck={() => openOrRunDocumentCheck(selectedResponse)}
-        onAiReview={() => {
-          const retry = aiReviewStatus(selectedResponse) === 'Retry required' && Boolean(selectedResponse.aiReviewState?.retryToken);
-          requestAiReview([selectedResponse.id], retry, retry ? { [selectedResponse.id]: selectedResponse.aiReviewState.retryToken } : {});
+        onDocumentCheck={(field) => openOrRunDocumentCheck(selectedResponse, field)}
+        onAiReview={(field) => {
+          const review = artifactAiReview(selectedResponse, field);
+          const retry = artifactAiReviewStatus(selectedResponse, field) === 'Retry required' && Boolean(review?.retryToken);
+          const target = aiTarget(selectedResponse, field);
+          requestAiReview([target], retry, retry ? { [target.key]: review.retryToken } : {});
         }}
         onAccept={() => acceptReview(selectedResponse)}
         onRevoke={() => confirmRevoke(selectedResponse)}
@@ -620,11 +641,11 @@ export function ReviewPage() {
 
       <DocumentCheckDialog
         open={Boolean(checkDialogResponse)}
-        response={checkDialogResponse}
-        fileLink={firstSubmissionLink(checkDialogResponse?.values)}
-        rechecking={checkingIds.has(checkDialogResponse?.id) || checkDialogResponse?.fileCheckStatus === 'Checking'}
-        error={checkError?.attemptId === checkDialogResponse?.id ? checkError?.message : ''}
-        onClose={() => setCheckDialogId('')}
+        response={checkDialogResponse && checkDialogReport ? { ...checkDialogResponse, documentCheck: checkDialogReport, fileCheckStatus: checkDialogReport.status } : checkDialogResponse}
+        fileLink={checkDialogField ? checkDialogResponse?.values?.[checkDialogField.id] : ''}
+        rechecking={checkDialogField ? checkingIds.has(artifactTargetKey(checkDialogResponse?.id, checkDialogField)) : false}
+        error={checkDialogField && checkError?.targetKey === artifactTargetKey(checkDialogResponse?.id, checkDialogField) ? checkError?.message : ''}
+        onClose={() => setCheckDialogTarget(null)}
         onRecheck={recheckFromDialog}
       />
       </ResourceBoundary>
@@ -640,4 +661,50 @@ function withoutId(values, id) {
 
 function sameSet(first, second) {
   return first.size === second.size && [...first].every((value) => second.has(value));
+}
+
+function artifactTargetKey(responseId, field) {
+  return `${responseId}:${field?.definitionId || field?.id || 'legacy'}`;
+}
+
+function documentTargetsForResponses(responses, deliverables, { onlyUnchecked = false } = {}) {
+  const byId = new Map((deliverables || []).filter(Boolean).map((deliverable) => [deliverable.id, deliverable]));
+  return (responses || []).flatMap((response) => {
+    if (!response || response.reviewStatus === 'Accepted' || response.archiveStatus === 'Archived') return [];
+    const deliverable = byId.get(response.deliverableId);
+    return reviewableSubmissionFields(deliverable)
+      .filter((field) => String(response.values?.[field.id] || '').trim())
+      .filter((field) => !onlyUnchecked || !isArtifactDocumentCheckCurrent(response, field))
+      .map((field) => ({ response, field }));
+  });
+}
+
+function aiTarget(response, field) {
+  return {
+    key: artifactTargetKey(response.id, field),
+    responseId: response.id,
+    fieldId: field.definitionId || null,
+    response,
+    field,
+    label: `${response.studentName || response.studentNumber || response.id} — ${field.label}`
+  };
+}
+
+function aiTargetsForResponses(responses, deliverables) {
+  const byId = new Map((deliverables || []).filter(Boolean).map((deliverable) => [deliverable.id, deliverable]));
+  return (responses || []).flatMap((response) => {
+    if (!response) return [];
+    const deliverable = byId.get(response.deliverableId);
+    return aiReviewableSubmissionFields(deliverable)
+      .filter((field) => String(response.values?.[field.id] || '').trim())
+      .map((field) => aiTarget(response, field));
+  });
+}
+
+function normalizeAiTargets(targetsOrIds, state) {
+  const values = targetsOrIds || [];
+  if (!values.length) return [];
+  if (typeof values[0] !== 'string') return values.filter(Boolean);
+  const selected = new Set(values);
+  return aiTargetsForResponses(state.attempts.filter((response) => selected.has(response.id)), state.deliverables);
 }

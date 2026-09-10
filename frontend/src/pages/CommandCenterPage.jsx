@@ -28,10 +28,12 @@ import {
   runDocumentChecks as runReviewDocumentChecks
 } from '../lib/reviewDeskClient.js';
 import {
+  artifactDocumentCheckStatus,
   deliverableUsesDocumentCheck,
   findStudent,
   getDeliverable,
-  isDocumentCheckCurrent
+  isArtifactDocumentCheckCurrent,
+  reviewableSubmissionFields
 } from '../lib/workflow.js';
 
 const PAGE_SIZE = 50;
@@ -112,7 +114,7 @@ export function CommandCenterPage() {
   async function checkDocument(task) {
     if (!isCurrentScope()) return;
     setRunningIds((current) => withId(current, task.response.id));
-    const result = await runDocumentCheck(task.response.id);
+    const result = await runDocumentCheck(task.response.id, task.pendingFields);
     if (!isCurrentScope()) return;
     setRunningIds((current) => withoutId(current, task.response.id));
     if (result?.ok) {
@@ -151,9 +153,9 @@ export function CommandCenterPage() {
   async function runAllDocumentChecks() {
     if (!isCurrentScope()) return;
     const tasks = pendingDocumentTasks;
-    const ids = tasks.map((task) => task.response.id);
-    setBatchProgress({ completed: 0, total: ids.length, failed: 0, done: false });
-    const result = await runReviewDocumentChecks(workspaceId, tasks.map((task) => task.response), state.deliverables, {
+    const targets = tasks.flatMap((task) => task.pendingFields.map((field) => ({ response: task.response, field })));
+    setBatchProgress({ completed: 0, total: targets.length, failed: 0, done: false });
+    const result = await runReviewDocumentChecks(workspaceId, targets, state.deliverables, {
       shouldContinue: isCurrentScope,
       onProgress: ({ completed, total }) => {
         if (isCurrentScope()) setBatchProgress((current) => ({ ...current, completed, total }));
@@ -163,12 +165,15 @@ export function CommandCenterPage() {
     setState((current) => ({
       ...current,
       attempts: current.attempts.map((attempt) => {
-        const completed = result.results?.find((item) => item.attemptId === attempt.id && item.ok);
-        return completed?.report ? applyDocumentCheck(attempt, completed.report) : attempt;
+        const completed = (result.results || []).filter((item) => item.attemptId === attempt.id && item.ok && item.report);
+        return completed.reduce((updated, item) => applyDocumentCheck(updated, item.report), attempt);
       })
     }));
-    const successfulAttemptIds = new Set((result.results || []).filter((item) => item.ok).map((item) => item.attemptId));
-    if (!result.results?.length && result.failed === 0) ids.forEach((id) => successfulAttemptIds.add(id));
+    const successfulAttemptIds = new Set(tasks.filter((task) => task.pendingFields.every((field) => (
+      (result.results || []).some((item) => item.attemptId === task.response.id
+        && (item.fieldId || item.fieldKey) === (field.definitionId || field.id)
+        && item.ok)
+    ))).map((task) => task.response.id));
     setResolvedTaskIds((current) => {
       const next = new Set(current);
       tasks.filter((task) => successfulAttemptIds.has(task.response.id)).forEach((task) => next.add(task.id));
@@ -182,16 +187,33 @@ export function CommandCenterPage() {
     });
   }
 
-  async function runDocumentCheck(responseId) {
+  async function runDocumentCheck(responseId, fields = null) {
     const response = state.attempts.find((item) => item.id === responseId);
     if (!response) return { ok: false, error: 'The selected response was not found.' };
     const deliverable = state.deliverables.find((item) => item.id === response.deliverableId);
-    const result = await runReviewDocumentCheck(workspaceId, response, deliverable);
-    if (result.ok && isCurrentScope()) {
+    const reviewableFields = reviewableSubmissionFields(deliverable);
+    const targetFields = fields?.length ? fields : (reviewableFields.length === 1 ? reviewableFields : []);
+    if (!targetFields.length && reviewableFields.length > 1) return { ok: false, error: 'Choose which PDF artifacts to check.' };
+    if (!targetFields.length) return { ok: false, error: 'This response has no reviewable PDF artifact.' };
+    const result = targetFields.length === 1
+      ? await runReviewDocumentCheck(workspaceId, response, deliverable, targetFields[0])
+      : await runReviewDocumentChecks(workspaceId, targetFields.map((field) => ({ response, field })), state.deliverables, {
+          shouldContinue: isCurrentScope
+        });
+    if (isCurrentScope() && (result.ok || result.results?.some((item) => item.ok))) {
       setState((current) => ({
         ...current,
-        attempts: current.attempts.map((item) => item.id === responseId ? applyDocumentCheck(item, result.report) : item)
+        attempts: current.attempts.map((item) => {
+          if (item.id !== responseId) return item;
+          if (result.report) return applyDocumentCheck(item, result.report);
+          return (result.results || []).filter((entry) => entry.ok && entry.report)
+            .reduce((updated, entry) => applyDocumentCheck(updated, entry.report), item);
+        })
       }));
+    }
+    if (result.results) {
+      const firstFailure = result.results.find((item) => !item.ok);
+      return { ...result, error: firstFailure?.error || (result.ok ? '' : 'One or more PDF artifacts could not be checked.') };
     }
     return result;
   }
@@ -201,7 +223,7 @@ export function CommandCenterPage() {
       title: 'Archive this accepted response?',
       children: (
         <Text size="sm">
-          WildTrack creates one archive metadata record and keeps the submitted Drive link as its source reference. Independent PDF storage is not connected yet.
+          WildTrack creates one archive metadata record and snapshots the submitted artifact references. Independent PDF storage is not connected yet.
         </Text>
       ),
       labels: { confirm: 'Archive response', cancel: 'Cancel' },
@@ -436,23 +458,27 @@ function buildWorkQueue(state, openConflicts = []) {
       return;
     }
 
-    if (deliverableUsesDocumentCheck(deliverable) && !isDocumentCheckCurrent(response)) {
+    const reviewFields = reviewableSubmissionFields(deliverable)
+      .filter((field) => String(response.values?.[field.id] || '').trim());
+    const pendingFields = reviewFields.filter((field) => !isArtifactDocumentCheckCurrent(response, field));
+    if (deliverableUsesDocumentCheck(deliverable) && pendingFields.length) {
+      const checkedCount = reviewFields.length - pendingFields.length;
+      const attentionCount = reviewFields.filter((field) => artifactDocumentCheckStatus(response, field) === 'Needs attention').length;
       tasks.push({
         id: 'document:' + response.id,
         category: 'document',
         type: 'Document Check',
         title: studentName + ' | ' + deliverableCode,
-        detail: response.fileCheckStatus === 'Error'
-          ? response.fileCheckError || 'The previous Document Check could not finish.'
-          : 'Submitted PDF has not been checked against its current response.',
+        detail: `${reviewFields.length} PDF artifact${reviewFields.length === 1 ? '' : 's'} · ${checkedCount} checked · ${pendingFields.length} need checking${attentionCount ? ` · ${attentionCount} need attention` : ''}`,
         studentName,
         teamCode,
         deliverableCode,
         updatedAt,
         response,
+        pendingFields,
         action: 'check',
-        actionLabel: response.fileCheckStatus === 'Error' ? 'Check again' : 'Check document',
-        actionAriaLabel: 'Check ' + studentName + ' document'
+        actionLabel: pendingFields.length === 1 ? 'Check document' : `Check ${pendingFields.length} PDFs`,
+        actionAriaLabel: 'Check ' + studentName + ' reviewable PDF artifacts'
       });
       return;
     }
@@ -462,11 +488,14 @@ function buildWorkQueue(state, openConflicts = []) {
       category: 'review',
       type: 'Review decision',
       title: studentName + ' | ' + deliverableCode,
-      detail: response.documentCheck?.summary || 'Document Check is complete and this response needs a staff decision.',
+      detail: reviewFields.length
+        ? `${reviewFields.length} reviewable PDF artifact${reviewFields.length === 1 ? '' : 's'} checked. This response needs a staff decision.`
+        : 'This response has no Document Check requirement and needs a staff decision.',
       studentName,
       teamCode,
       deliverableCode,
-      updatedAt: response.documentCheck?.checkedAt || updatedAt,
+      updatedAt: Object.values(response.artifactChecks || {}).map((report) => report?.checkedAt).filter(Boolean).sort().at(-1)
+        || response.documentCheck?.checkedAt || updatedAt,
       response,
       href: reviewHref(response),
       actionLabel: 'Review response',

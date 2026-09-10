@@ -192,6 +192,35 @@ describe('archive index', () => {
     expect(drawer).not.toHaveTextContent('File verified');
   });
 
+  it('shows every captured artifact in one immutable multi-artifact archive record', () => {
+    workflow.state = makeState([makeArchive(0, {
+      deliverableTitle: 'MVP Validation',
+      artifacts: [
+        { fieldKey: 'validationInstrument', label: 'Validation Instrument', fieldType: 'GOOGLE_FORM', value: 'https://docs.google.com/forms/d/e/archive-form/viewform' },
+        { fieldKey: 'frameworkModel', label: 'Framework / Model', fieldType: 'DRIVE_PDF', value: 'https://drive.google.com/file/d/archive-framework/view' },
+        { fieldKey: 'responseSheet', label: 'Validation Response Sheet', fieldType: 'GOOGLE_SHEET', value: 'https://docs.google.com/spreadsheets/d/archive-sheet/edit' },
+        { fieldKey: 'validationHighlights', label: 'MVP Validation Highlights', fieldType: 'DRIVE_PDF', value: 'https://drive.google.com/file/d/archive-highlights/view' },
+        { fieldKey: 'validationEvidence', label: 'Validation Evidence', fieldType: 'DRIVE_FOLDER', value: 'https://drive.google.com/drive/folders/archive-evidence' }
+      ]
+    })]);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Software 001 archive details' }));
+    const drawer = screen.getByRole('dialog', { name: 'Archive record details' });
+    expect(drawer).toHaveTextContent('Archived submission artifacts');
+    expect(drawer).toHaveTextContent('Validation Instrument');
+    expect(drawer).toHaveTextContent('Google Form');
+    expect(drawer).toHaveTextContent('Framework / Model');
+    expect(drawer).toHaveTextContent('Google Drive PDF');
+    expect(drawer).toHaveTextContent('Validation Response Sheet');
+    expect(drawer).toHaveTextContent('Google Sheet');
+    expect(drawer).toHaveTextContent('MVP Validation Highlights');
+    expect(drawer).toHaveTextContent('Validation Evidence');
+    expect(drawer).toHaveTextContent('Google Drive folder');
+    expect(within(drawer).getAllByRole('link', { name: 'Open archived source' })).toHaveLength(5);
+    expect(within(drawer).queryByRole('link', { name: 'Open submitted source' })).not.toBeInTheDocument();
+  });
+
 
   it('allows an existing stored download but disables unsupported server storage mutations', () => {
     workflow.state = {

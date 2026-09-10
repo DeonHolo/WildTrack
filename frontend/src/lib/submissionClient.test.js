@@ -108,6 +108,7 @@ describe('SubmissionClient deliverables', () => {
     })).resolves.toEqual({ id: 'template-1' });
     expect(api.uploadDriveDocumentTemplate).toHaveBeenCalledWith('workspace-1', {
       deliverableKey: 'SRS',
+      fieldId: null,
       displayName: 'SRS Template',
       driveUrl: 'https://drive.google.com/file/d/template/view'
     });

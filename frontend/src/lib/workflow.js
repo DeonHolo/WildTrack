@@ -277,7 +277,19 @@ export function validateSubmission({ deliverable, values }) {
       continue;
     }
 
-    if (field.pdfRequired) {
+    if (field.type === 'googleForm' && !isGoogleFormUrl(value)) {
+      errors[field.id] = 'Use a Google Forms link for this field.';
+      continue;
+    }
+    if (field.type === 'googleSheet' && !isGoogleSheetUrl(value)) {
+      errors[field.id] = 'Use a Google Sheets link for this field.';
+      continue;
+    }
+    if (field.type === 'driveFolder' && !isDriveFolderUrl(value)) {
+      errors[field.id] = 'Use a Google Drive folder link for this field.';
+      continue;
+    }
+    if (field.pdfRequired || field.type === 'drive') {
       const pdfResult = inspectDriveLink(value);
       if (!pdfResult.ok) {
         errors[field.id] = pdfResult.message;
@@ -301,6 +313,35 @@ export function validateUrl(value) {
     return '';
   } catch {
     return 'Use a complete link, including https://.';
+  }
+}
+
+export function isGoogleFormUrl(value) {
+  try {
+    const url = new URL(value);
+    return ['docs.google.com', 'forms.gle'].includes(url.hostname.toLowerCase())
+      && (url.hostname.toLowerCase() === 'forms.gle' || url.pathname.toLowerCase().includes('/forms/'));
+  } catch {
+    return false;
+  }
+}
+
+export function isGoogleSheetUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.hostname.toLowerCase() === 'docs.google.com' && url.pathname.toLowerCase().includes('/spreadsheets/');
+  } catch {
+    return false;
+  }
+}
+
+export function isDriveFolderUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.hostname.toLowerCase() === 'drive.google.com'
+      && (/\/drive\/folders\//i.test(url.pathname) || /\/folders\//i.test(url.pathname));
+  } catch {
+    return false;
   }
 }
 
@@ -333,6 +374,36 @@ export function isDocumentCheckCurrent(response) {
   return response.documentCheck.sourceResponseUpdatedAt === sourceTimestamp;
 }
 
+export function artifactDocumentCheck(response, field) {
+  if (!response || !field) return null;
+  if (field.definitionId && response.artifactChecks?.[field.definitionId]) {
+    return response.artifactChecks[field.definitionId];
+  }
+  // Compatibility for one-field deliverables checked before field-aware reports existed.
+  if ((response.artifactChecks == null || !Object.keys(response.artifactChecks).length)
+      && (field.id === 'documentPdf' || !field.definitionId)) {
+    return response.documentCheck || null;
+  }
+  return null;
+}
+
+export function isArtifactDocumentCheckCurrent(response, field) {
+  const report = artifactDocumentCheck(response, field);
+  if (!report || report.status === 'Unavailable' || !report.checkedAt) return false;
+  const currentUrl = String(response?.values?.[field?.id] || '').trim();
+  if (report.sourceUrl) return String(report.sourceUrl).trim() === currentUrl;
+  return isDocumentCheckCurrent({ ...response, documentCheck: report });
+}
+
+export function artifactDocumentCheckStatus(response, field) {
+  const report = artifactDocumentCheck(response, field);
+  if (!report) return 'Not checked';
+  if (report.status === 'Unavailable') return 'Not checked';
+  if (!isArtifactDocumentCheckCurrent(response, field)) return 'Outdated';
+  if (report.redFlags?.length || report.missingSections?.length || report.attentionRequired) return 'Needs attention';
+  return 'Ready for review';
+}
+
 export function isDocumentCheckUnavailable(response) {
   return response?.documentCheck?.status === 'Unavailable';
 }
@@ -341,6 +412,40 @@ export function isAiReportCurrent(response) {
   if (response?.aiReport?.status !== 'Current' || !response.aiReport.generatedAt) return false;
   const sourceTimestamp = response.updatedAt || response.submittedAt;
   return response.aiReport.sourceResponseUpdatedAt === sourceTimestamp;
+}
+
+export function artifactAiReview(response, field) {
+  if (!response || !field) return null;
+  if (field.definitionId && response.artifactAiReviews?.[field.definitionId]) {
+    return response.artifactAiReviews[field.definitionId];
+  }
+  if ((response.artifactAiReviews == null || !Object.keys(response.artifactAiReviews).length)
+      && (field.id === 'documentPdf' || !field.definitionId)) {
+    return response.aiReviewState || null;
+  }
+  return null;
+}
+
+export function isArtifactAiReviewCurrent(response, field) {
+  const review = artifactAiReview(response, field);
+  if (!review || review.status !== 'COMPLETED' || !review.report) return false;
+  const currentUrl = String(response?.values?.[field?.id] || '').trim();
+  if (review.sourceUrl) return String(review.sourceUrl).trim() === currentUrl;
+  return isAiReportCurrent({ ...response, aiReviewState: review, aiReport: {
+    ...review.report,
+    status: 'Current',
+    generatedAt: review.generatedAt,
+    sourceResponseUpdatedAt: review.sourceResponseUpdatedAt
+  }});
+}
+
+export function artifactAiReviewStatus(response, field) {
+  if (!field?.aiReviewEnabled) return 'Not applicable';
+  if (isArtifactAiReviewCurrent(response, field)) return 'Reviewed';
+  const review = artifactAiReview(response, field);
+  if (review?.status === 'UNCERTAIN') return 'Retry required';
+  if (review?.status === 'RUNNING') return 'Reviewing';
+  return 'Not reviewed';
 }
 
 export function aiReviewStatus(response) {
@@ -461,5 +566,13 @@ export function firstSubmissionLink(values) {
 }
 
 export function deliverableUsesDocumentCheck(deliverable) {
-  return Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
+  return Boolean(deliverable?.fields?.some((field) => field.pdfRequired && field.documentCheckPolicy !== 'OFF'));
+}
+
+export function reviewableSubmissionFields(deliverable) {
+  return (deliverable?.fields || []).filter((field) => field.pdfRequired && field.documentCheckPolicy !== 'OFF');
+}
+
+export function aiReviewableSubmissionFields(deliverable) {
+  return (deliverable?.fields || []).filter((field) => field.pdfRequired && field.aiReviewEnabled !== false && field.documentCheckPolicy !== 'OFF');
 }
