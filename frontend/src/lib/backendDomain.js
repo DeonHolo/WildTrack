@@ -4,6 +4,7 @@ export function mapProjects(items = []) {
   return items.map((project) => ({
     id: project.id,
     groupCode: project.groupCode,
+    sourceGroupCode: project.sourceGroupCode || project.groupCode,
     projectTitle: project.projectTitle || '',
     softwareName: project.softwareName || '',
     description: project.description || '',
@@ -34,9 +35,12 @@ export function mapStudents(studentItems = [], trackerRows = []) {
     studentNumber: student.studentNumber || '',
     name: student.studentName || '',
     teamCode: student.teamCode || '',
+    teamFormationCode: student.teamFormationCode || '',
     memberNumber: student.memberNumber || '',
     section: student.sectionName || '',
     adviser: student.adviserName || '',
+    softwareTitle: student.softwareTitle || '',
+    currentActive: student.currentActive !== false,
     email: student.institutionalEmail || '',
     milestones: {}
   }));
@@ -60,9 +64,11 @@ export function mapStudents(studentItems = [], trackerRows = []) {
       studentNumber: row.studentNumber || matched?.studentNumber || '',
       name: row.studentName || matched?.name || '',
       teamCode: row.teamCode || matched?.teamCode || '',
+      teamFormationCode: matched?.teamFormationCode || '',
       memberNumber: row.memberNumber || matched?.memberNumber || '',
       section: row.sectionName || matched?.section || '',
       adviser: row.adviserName || matched?.adviser || '',
+      softwareTitle: matched?.softwareTitle || '',
       email: matched?.email || '',
       milestones: Object.fromEntries((row.cells || []).map((cell) => [cell.columnKey, cell.rawValue || '']))
     };

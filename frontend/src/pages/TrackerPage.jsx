@@ -89,7 +89,7 @@ export function TrackerPage() {
                 {selected.studentNumber || 'No Student Number'} · {selected.teamCode} · Member {selected.memberNumber}
               </Text>
               <Text size="sm" c="dimmed">
-                {selectedProject?.softwareName || selectedProject?.projectTitle || 'Project metadata not loaded'} · {selectedAdviser}
+                {selected?.softwareTitle || selectedProject?.softwareName || selectedProject?.projectTitle || 'Project metadata not loaded'} · {selectedAdviser}
               </Text>
             </div>
             <div className="wt-tracker-student-metrics" aria-label="Selected student summary">

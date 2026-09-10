@@ -258,7 +258,7 @@ public class SheetImportService {
                     getCell(row, identity.email()),
                     sourceRowNumber
                 ));
-            record.updateFrom(
+            record.updateFromTeamFormation(
                 studentNumber,
                 name,
                 teamCode,
@@ -313,9 +313,35 @@ public class SheetImportService {
             SheetImportService::scoreTrackerHeader
         );
         IdentityColumns identity = applyIdentityOverrides(headerRow.headers(), inferIdentityColumns(headerRow.headers()), mappingOverrides);
-        Set<Integer> identityIndexes = identity.indexes();
-        List<TrackerColumn> trackerColumns = upsertTrackerColumns(workspaceId, headerRow.headers(), identityIndexes);
+        int softwareTitleIndex = findTrackerSoftwareTitleIndex(headerRow.headers());
+        int rowNumberIndex = findTrackerRowNumberIndex(headerRow.headers());
+        Set<Integer> metadataIndexes = identity.indexes();
+        if (softwareTitleIndex >= 0) metadataIndexes.add(softwareTitleIndex);
+        if (rowNumberIndex >= 0) metadataIndexes.add(rowNumberIndex);
+        Set<Integer> trackerColumnIndexes = findTrackerColumnIndexes(
+            workspaceId,
+            rows,
+            headerRow,
+            identity,
+            metadataIndexes
+        );
+        List<String> ignoredTrackerHeaders = new ArrayList<>();
+        for (int index = 0; index < headerRow.headers().size(); index += 1) {
+            String header = headerRow.headers().get(index).trim();
+            if (!header.isBlank() && !metadataIndexes.contains(index) && !trackerColumnIndexes.contains(index)) {
+                ignoredTrackerHeaders.add(header);
+            }
+        }
+        List<TrackerColumn> trackerColumns = upsertTrackerColumns(workspaceId, headerRow.headers(), trackerColumnIndexes);
         List<String> warnings = new ArrayList<>();
+        if (!ignoredTrackerHeaders.isEmpty()) {
+            warnings.add(
+                "Ignored Tracker header" + plural(ignoredTrackerHeaders.size())
+                    + " without deadline evidence or prior tracker-column history: "
+                    + String.join(", ", ignoredTrackerHeaders)
+                    + "."
+            );
+        }
         List<DeadlineSuggestionResponse> deadlineSuggestions = new ArrayList<>();
         int trackerRowsFound = 0;
         int officialIdsFound = 0;
@@ -324,6 +350,7 @@ public class SheetImportService {
         int matchedRows = 0;
         int unmatchedRows = 0;
         Set<Integer> detectedDeadlineRows = new LinkedHashSet<>();
+        Set<UUID> currentTrackerStudentIds = new LinkedHashSet<>();
 
         List<String> missingFields = new ArrayList<>();
         if (!hasStudentNameColumn(identity)) missingFields.add("Student name");
@@ -352,6 +379,7 @@ public class SheetImportService {
             String name = getStudentName(row, identity);
             String teamCode = getCell(row, identity.teamCode());
             String memberNumber = getCell(row, identity.memberNumber());
+            String softwareTitle = getCell(row, softwareTitleIndex);
 
             if (name.isBlank() || teamCode.isBlank()) {
                 List<DeadlineSuggestionResponse> detected = detectDeadlineSuggestions(row, trackerColumns, sourceRowNumber);
@@ -367,6 +395,34 @@ public class SheetImportService {
             String studentNumber = firstNonBlank(getCell(row, identity.studentNumber()), matchedStudent.map(StudentRecord::getStudentNumber).orElse(""));
             String section = firstNonBlank(getCell(row, identity.section()), matchedStudent.map(StudentRecord::getSectionName).orElse(""));
             String adviser = firstNonBlank(getCell(row, identity.adviser()), matchedStudent.map(StudentRecord::getAdviserName).orElse(""));
+
+            StudentRecord currentStudent = matchedStudent.orElseGet(() -> new StudentRecord(
+                workspaceId,
+                studentNumber,
+                name,
+                teamCode,
+                null,
+                memberNumber,
+                section,
+                adviser,
+                null,
+                softwareTitle,
+                sourceRowNumber
+            ));
+            currentStudent.updateFromTracker(
+                studentNumber,
+                name,
+                teamCode,
+                memberNumber,
+                section,
+                adviser,
+                softwareTitle,
+                sourceRowNumber
+            );
+            currentStudent.setCurrentActive(true);
+            currentStudent = studentRecordRepository.save(currentStudent);
+            currentTrackerStudentIds.add(currentStudent.getId());
+            reconcileProjectWithCurrentTracker(workspaceId, currentStudent, teamCode, softwareTitle, adviser);
 
             TrackerRow trackerRow = findTrackerRow(workspaceId, studentNumber, teamCode, memberNumber, name)
                 .orElseGet(() -> new TrackerRow(workspaceId, studentNumber, name, teamCode, memberNumber, section, adviser, sourceRowNumber));
@@ -392,6 +448,14 @@ public class SheetImportService {
 
             trackerRowsFound += 1;
             officialIdsFound += studentNumber.isBlank() ? 0 : 1;
+        }
+
+        for (StudentRecord student : studentRecordRepository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId)) {
+            boolean active = currentTrackerStudentIds.contains(student.getId());
+            if (student.isCurrentActive() != active) {
+                student.setCurrentActive(active);
+                studentRecordRepository.save(student);
+            }
         }
 
         if (skippedRows > 0) {
@@ -447,6 +511,16 @@ public class SheetImportService {
         int proposalRemarksFound = 0;
         int demoCommentsFound = 0;
         int categoriesFound = 0;
+        int outsideWorkspaceRows = 0;
+        Set<String> knownFormationTeams = studentRecordRepository
+            .findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId)
+            .stream()
+            .map(StudentRecord::getTeamFormationCode)
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .map(value -> value.toLowerCase(Locale.ROOT))
+            .collect(Collectors.toCollection(LinkedHashSet::new));
 
         List<String> missingFields = new ArrayList<>();
         if (columns.groupCode() < 0) missingFields.add("Group code");
@@ -474,6 +548,10 @@ public class SheetImportService {
             String groupCode = getCell(row, columns.groupCode());
             if (groupCode.isBlank()) {
                 skippedRows += 1;
+                continue;
+            }
+            if (!knownFormationTeams.isEmpty() && !knownFormationTeams.contains(groupCode.toLowerCase(Locale.ROOT))) {
+                outsideWorkspaceRows += 1;
                 continue;
             }
 
@@ -504,6 +582,7 @@ public class SheetImportService {
                 getCell(row, columns.category()),
                 sourceRowNumber
             );
+            applyCurrentTrackerContextFromRoster(workspaceId, metadata, groupCode, warnings);
             projectMetadataRepository.save(metadata);
             groupsFound += 1;
             projectTitlesFound += getCell(row, columns.projectTitle()).isBlank() ? 0 : 1;
@@ -517,6 +596,9 @@ public class SheetImportService {
 
         if (skippedRows > 0) {
             warnings.add("Skipped " + skippedRows + " Software Project Monitor row" + plural(skippedRows) + " without a group code.");
+        }
+        if (outsideWorkspaceRows > 0) {
+            warnings.add("Skipped " + outsideWorkspaceRows + " Software Project Monitor row" + plural(outsideWorkspaceRows) + " outside this workspace's Team Formation roster.");
         }
 
         return new ImportResult(
@@ -548,14 +630,62 @@ public class SheetImportService {
         );
     }
 
-    private List<TrackerColumn> upsertTrackerColumns(UUID workspaceId, List<String> headers, Set<Integer> identityIndexes) {
+    private Set<Integer> findTrackerColumnIndexes(
+        UUID workspaceId,
+        List<List<String>> rows,
+        HeaderRow headerRow,
+        IdentityColumns identity,
+        Set<Integer> metadataIndexes
+    ) {
+        Set<String> knownTrackerKeys = trackerColumnRepository.findAllByWorkspaceIdOrderByDisplayOrderAscLabelAsc(workspaceId)
+            .stream()
+            .map(TrackerColumn::getColumnKey)
+            .map(SheetImportService::normalizeHeader)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<Integer> indexes = new LinkedHashSet<>();
+        for (int columnIndex = 0; columnIndex < headerRow.headers().size(); columnIndex += 1) {
+            String header = headerRow.headers().get(columnIndex).trim();
+            if (header.isBlank() || metadataIndexes.contains(columnIndex)) {
+                continue;
+            }
+            if (knownTrackerKeys.contains(normalizeHeader(header))
+                || hasDeadlineEvidence(rows, headerRow.index(), identity, columnIndex)) {
+                indexes.add(columnIndex);
+            }
+        }
+        return indexes;
+    }
+
+    private static boolean hasDeadlineEvidence(
+        List<List<String>> rows,
+        int headerRowIndex,
+        IdentityColumns identity,
+        int columnIndex
+    ) {
+        for (int rowIndex = headerRowIndex + 1; rowIndex < rows.size(); rowIndex += 1) {
+            List<String> row = rows.get(rowIndex);
+            String name = getStudentName(row, identity);
+            String teamCode = getCell(row, identity.teamCode());
+            if (!name.isBlank() && !teamCode.isBlank()) {
+                continue;
+            }
+            if (!coerceDueAt(getCell(row, columnIndex)).isBlank()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<TrackerColumn> upsertTrackerColumns(UUID workspaceId, List<String> headers, Set<Integer> trackerColumnIndexes) {
         List<TrackerColumn> columns = new ArrayList<>();
+        Set<String> importedKeys = new LinkedHashSet<>();
         int displayOrder = 0;
         for (int index = 0; index < headers.size(); index += 1) {
             String header = headers.get(index).trim();
-            if (header.isBlank() || identityIndexes.contains(index)) {
+            if (header.isBlank() || !trackerColumnIndexes.contains(index)) {
                 continue;
             }
+            importedKeys.add(normalizeHeader(header));
             int sourceColumnIndex = index;
             int columnDisplayOrder = displayOrder;
             TrackerColumn column = trackerColumnRepository.findByWorkspaceIdAndColumnKeyIgnoreCase(workspaceId, header)
@@ -573,17 +703,74 @@ public class SheetImportService {
             columns.add(trackerColumnRepository.save(column));
             displayOrder += 1;
         }
+        for (TrackerColumn previous : trackerColumnRepository.findAllByWorkspaceIdOrderByDisplayOrderAscLabelAsc(workspaceId)) {
+            if (Boolean.TRUE.equals(previous.getActive()) && !importedKeys.contains(normalizeHeader(previous.getColumnKey()))) {
+                previous.updateFrom(
+                    previous.getColumnKey(),
+                    previous.getLabel(),
+                    previous.getSourceColumn(),
+                    previous.getSourceColumnIndex(),
+                    previous.getDisplayOrder(),
+                    false,
+                    previous.getPdfRequired()
+                );
+                trackerColumnRepository.save(previous);
+            }
+        }
         return columns.stream()
             .sorted(Comparator.comparing(TrackerColumn::getDisplayOrder))
             .toList();
     }
 
+    private void reconcileProjectWithCurrentTracker(
+        UUID workspaceId,
+        StudentRecord student,
+        String currentTeamCode,
+        String softwareTitle,
+        String adviser
+    ) {
+        String teamFormationCode = student.getTeamFormationCode();
+        Optional<ProjectMetadata> project = teamFormationCode == null || teamFormationCode.isBlank()
+            ? projectMetadataRepository.findForCurrentTeam(workspaceId, currentTeamCode)
+            : projectMetadataRepository.findByWorkspaceIdAndGroupCodeIgnoreCase(workspaceId, teamFormationCode)
+                .or(() -> projectMetadataRepository.findForCurrentTeam(workspaceId, currentTeamCode));
+        project.ifPresent(metadata -> {
+            metadata.applyCurrentTrackerContext(currentTeamCode, softwareTitle, adviser);
+            projectMetadataRepository.save(metadata);
+        });
+    }
+
+    private void applyCurrentTrackerContextFromRoster(
+        UUID workspaceId,
+        ProjectMetadata metadata,
+        String sourceGroupCode,
+        List<String> warnings
+    ) {
+        List<StudentRecord> linked = studentRecordRepository.findAllByWorkspaceIdAndTeamFormationCodeIgnoreCase(workspaceId, sourceGroupCode);
+        Set<String> currentTeams = linked.stream()
+            .filter(StudentRecord::isCurrentActive)
+            .map(StudentRecord::getTeamCode)
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (currentTeams.size() == 1) {
+            String currentTeam = currentTeams.iterator().next();
+            StudentRecord representative = linked.stream()
+                .filter(StudentRecord::isCurrentActive)
+                .filter(student -> currentTeam.equalsIgnoreCase(student.getTeamCode()))
+                .filter(student -> student.getSoftwareTitle() != null || student.getAdviserName() != null)
+                .findFirst()
+                .orElse(linked.getFirst());
+            metadata.applyCurrentTrackerContext(currentTeam, representative.getSoftwareTitle(), representative.getAdviserName());
+        } else if (currentTeams.size() > 1) {
+            warnings.add("Project Monitor group " + sourceGroupCode + " maps to multiple current Tracker teams; current-team linkage was left unresolved.");
+        }
+    }
+
     private Optional<StudentRecord> findStudentRecord(UUID workspaceId, String studentNumber, String teamCode, String memberNumber) {
         if (!studentNumber.isBlank()) {
-            Optional<StudentRecord> byNumber = studentRecordRepository.findByWorkspaceIdAndStudentNumberIgnoreCase(workspaceId, studentNumber);
-            if (byNumber.isPresent()) {
-                return byNumber;
-            }
+            return studentRecordRepository.findByWorkspaceIdAndStudentNumberIgnoreCase(workspaceId, studentNumber);
         }
         if (!teamCode.isBlank() && !memberNumber.isBlank()) {
             return studentRecordRepository.findFirstByWorkspaceIdAndTeamCodeIgnoreCaseAndMemberNumberIgnoreCase(workspaceId, teamCode, memberNumber);
@@ -659,7 +846,7 @@ public class SheetImportService {
             findHeader(normalized, "lastname", "surname", "familyname"),
             findHeader(normalized, "firstname", "givenname"),
             findHeader(normalized, "teamformation", "teamcode", "team"),
-            findHeader(normalized, "member", "memberno", "membernumber"),
+            findMemberNumberHeader(normalized),
             findHeader(normalized, "section", "classsection"),
             findExactHeader(normalized, "adviser", "advisor", "advisername", "advisorname", "facultyadviser", "capstoneadviser", "teacher", "instructor"),
             findHeader(normalized, "email", "gmail", "googleaccount", "citeduaccount", "institutionalemail", "citaccount")
@@ -677,6 +864,37 @@ public class SheetImportService {
             findHeader(normalized, "democomments", "demo"),
             findHeader(normalized, "statusadviser", "adviser", "advisor", "status"),
             findHeader(normalized, "category")
+        );
+    }
+
+    private static int findMemberNumberHeader(List<String> normalizedHeaders) {
+        int exact = findExactHeader(
+            normalizedHeaders,
+            "member", "memberno", "membernumber", "memberid", "mid", "teamdetailsmember"
+        );
+        if (exact >= 0) {
+            return exact;
+        }
+        for (int index = 0; index < normalizedHeaders.size(); index += 1) {
+            String header = normalizedHeaders.get(index);
+            if (header.contains("member") && !header.contains("teamcode") && !header.contains("teamlead")) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static int findTrackerSoftwareTitleIndex(List<String> headers) {
+        return findHeader(
+            headers.stream().map(SheetImportService::normalizeHeader).toList(),
+            "softwaretitle", "softwarename"
+        );
+    }
+
+    private static int findTrackerRowNumberIndex(List<String> headers) {
+        return findExactHeader(
+            headers.stream().map(SheetImportService::normalizeHeader).toList(),
+            "no", "number", "rowno", "rownumber"
         );
     }
 
@@ -765,7 +983,7 @@ public class SheetImportService {
 
     private static int scoreTrackerHeader(Object inferred, List<String> headers) {
         int identityScore = scoreTeamFormationHeader(inferred, headers);
-        List<String> trackerWords = List.of("prob", "convergence", "rrl", "proposal", "srs", "sdd", "source", "demo", "peer");
+        List<String> trackerWords = List.of("prob", "convergence", "rrl", "proposal", "srs", "sdd", "spmp", "source", "demo", "peer", "mvpvalidation", "refactored", "std");
         long trackerScore = headers.stream()
             .map(SheetImportService::normalizeHeader)
             .filter(header -> trackerWords.stream().anyMatch(header::contains))
@@ -936,7 +1154,17 @@ public class SheetImportService {
 
     private static boolean isLikelyPdfDeliverable(String header) {
         String key = normalizeHeader(header);
-        return Set.of("rrl", "projectproposal", "srs", "sdd", "adviserassessment").contains(key);
+        return Set.of(
+            "rrl",
+            "projectproposal",
+            "spmp",
+            "srs",
+            "sdd",
+            "refactoredspmp",
+            "refactoredsrs",
+            "refactoredsdd",
+            "adviserassessment"
+        ).contains(key);
     }
 
     private static String extractSheetId(String value) {

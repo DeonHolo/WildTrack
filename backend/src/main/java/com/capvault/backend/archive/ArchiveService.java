@@ -81,14 +81,14 @@ public class ArchiveService {
         var deliverable = deliverableRepository.findById(response.getDeliverableId())
             .filter(item -> workspaceId.equals(item.getWorkspaceId()))
             .orElseThrow(() -> new IllegalArgumentException("Deliverable not found."));
-        var project = projectRepository.findByWorkspaceIdAndGroupCodeIgnoreCase(workspaceId, response.getTeamCode()).orElse(null);
+        var project = projectRepository.findForCurrentTeam(workspaceId, response.getTeamCode()).orElse(null);
         int version = Math.toIntExact(archiveRepository.countByResponseId(responseId) + 1);
         String hash = sha256(response.getId() + "|" + response.getUpdatedAt() + "|" + response.getValuesJson());
         ArchiveRecord record = new ArchiveRecord(
             UUID.randomUUID(), workspaceId, responseId, response.getUpdatedAt(), workspace.getName(), deliverable.getTitle(),
             response.getTeamCode(), response.getStudentName(), response.getStudentNumber(),
-            project == null ? null : project.getProjectTitle(), project == null ? null : project.getSoftwareName(),
-            project == null ? null : project.getAdviserName(), version, firstLink(response.getValuesJson()), hash, clock.instant()
+            project == null ? null : project.getProjectTitle(), project == null ? null : project.getEffectiveSoftwareName(),
+            project == null ? null : project.getEffectiveAdviserName(), version, firstLink(response.getValuesJson()), hash, clock.instant()
         );
         return ArchiveRecordResponse.from(archiveRepository.save(record));
     }

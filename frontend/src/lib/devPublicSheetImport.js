@@ -267,27 +267,53 @@ function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
   const headers = headerInfo.headers;
   const identity = applyColumnOverrides(headers, inferIdentityColumns(headers), mappingOverrides);
   const identityIndexes = new Set(Object.values(identity).filter((index) => index >= 0));
-  const trackerColumns = headers
+  const normalizedHeaders = headers.map((header) => normalizeHeader(header));
+  const softwareTitleIndex = findHeader(normalizedHeaders, ['softwaretitle', 'softwarename']);
+  const rowNumberIndex = findExactHeader(normalizedHeaders, ['no', 'number', 'rowno', 'rownumber']);
+  if (softwareTitleIndex >= 0) identityIndexes.add(softwareTitleIndex);
+  if (rowNumberIndex >= 0) identityIndexes.add(rowNumberIndex);
+  const existingTrackerColumns = current.trackerColumns || [];
+  const existingTrackerByKey = new Map(existingTrackerColumns.map((column) => [normalizeHeader(column.key), column]));
+  const trackerColumnIndexes = new Set(headers
     .map((header, index) => ({ header, index }))
     .filter(({ header, index }) => header && !identityIndexes.has(index))
-    .map(({ header }, index) => ({
-      id: `col-import-${slugify(header) || index}`,
+    .filter(({ header, index }) => existingTrackerByKey.has(normalizeHeader(header))
+      || hasDeadlineEvidence(rows, headerInfo.index, identity, index))
+    .map(({ index }) => index));
+  const activeTrackerColumns = headers
+    .map((header, index) => ({ header, index }))
+    .filter(({ header, index }) => header && trackerColumnIndexes.has(index))
+    .map(({ header, index }, displayOrder) => ({
+      ...(existingTrackerByKey.get(normalizeHeader(header)) || {}),
+      id: existingTrackerByKey.get(normalizeHeader(header))?.id || `col-import-${slugify(header) || index}`,
       key: header,
       label: header,
       sourceColumn: header,
+      sourceColumnIndex: index,
+      displayOrder,
       active: true,
       pdfRequired: isLikelyPdfDeliverable(header)
     }));
+  const importedTrackerKeys = new Set(activeTrackerColumns.map((column) => normalizeHeader(column.key)));
+  const trackerColumns = [
+    ...activeTrackerColumns,
+    ...existingTrackerColumns
+      .filter((column) => !importedTrackerKeys.has(normalizeHeader(column.key)))
+      .map((column) => ({ ...column, active: false }))
+  ];
+  const unrecognizedFields = headers.filter((header, index) => (
+    header && !identityIndexes.has(index) && !trackerColumnIndexes.has(index)
+  ));
   const detectedFields = [
     identity.studentName >= 0 || identity.lastName >= 0 || identity.firstName >= 0 ? 'Student Name' : '',
     identity.teamCode >= 0 ? 'Team Code' : '',
     identity.memberNumber >= 0 ? 'Member Number' : '',
-    trackerColumns.length ? `${trackerColumns.length} deliverable column${trackerColumns.length === 1 ? '' : 's'}` : ''
+    activeTrackerColumns.length ? `${activeTrackerColumns.length} deliverable column${activeTrackerColumns.length === 1 ? '' : 's'}` : ''
   ].filter(Boolean);
   const missingFields = [
     identity.studentName < 0 && identity.lastName < 0 && identity.firstName < 0 ? 'Student Name' : '',
     identity.teamCode < 0 ? 'Team Code' : '',
-    trackerColumns.length === 0 ? 'Deliverable columns' : ''
+    activeTrackerColumns.length === 0 ? 'Deliverable columns' : ''
   ].filter(Boolean);
   const mappings = mappingSuggestions(headers, identity, [
     { key: 'studentName', label: 'Student name', required: true },
@@ -301,8 +327,10 @@ function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
     identity.studentNumber < 0 ? 'Student Number' : '',
     identity.memberNumber < 0 ? 'Member Number' : ''
   ].filter(Boolean);
-  // Every remaining Tracker header is a deliverable/progress column by design.
-  const unrecognizedFields = [];
+  const warnings = [];
+  if (unrecognizedFields.length) {
+    warnings.push(`Ignored Tracker header${unrecognizedFields.length === 1 ? '' : 's'} without deadline evidence or prior tracker-column history: ${unrecognizedFields.join(', ')}.`);
+  }
   if (missingFields.length) {
     return {
       ok: false,
@@ -329,6 +357,9 @@ function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
   }
 
   const existingStudents = current.students || [];
+  const existingByStudentNumber = new Map(existingStudents
+    .filter((student) => student.studentNumber)
+    .map((student) => [normalizeStudentNumber(student.studentNumber), student]));
   const existingByNameTeamMember = new Map(existingStudents.map((student) => [
     makeStudentMatchKey(student.name, student.teamCode, student.memberNumber),
     student
@@ -338,7 +369,6 @@ function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
     student
   ]));
 
-  const warnings = [];
   if (identity.studentNumber < 0) {
     warnings.push('Tracker has no Student Number column. Official IDs are preserved from Team Formation only.');
   }
@@ -351,7 +381,7 @@ function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
     const teamCode = getCell(row, identity.teamCode);
     const memberNumber = getCell(row, identity.memberNumber);
     if (!name || !teamCode) {
-      const suggestions = detectDeadlineSuggestions(row, headers, trackerColumns);
+      const suggestions = detectDeadlineSuggestions(row, headers, activeTrackerColumns);
       if (suggestions.length) {
         deadlineRows.push({ rowNumber: headerInfo.index + rowIndex + 2, suggestions });
       }
@@ -364,12 +394,19 @@ function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
       });
       return null;
     }
-    const matchedExisting = existingByTeamMember.get(makeTeamMemberKey(teamCode, memberNumber)) || existingByNameTeamMember.get(makeStudentMatchKey(name, teamCode, memberNumber)) || null;
-    const studentNumber = getCell(row, identity.studentNumber) || matchedExisting?.studentNumber || '';
-    const milestones = Object.fromEntries(trackerColumns.map((column) => [
-      column.key,
-      getCell(row, headers.indexOf(column.sourceColumn))
-    ]));
+    const trackerStudentNumber = getCell(row, identity.studentNumber);
+    const matchedExisting = (trackerStudentNumber ? existingByStudentNumber.get(normalizeStudentNumber(trackerStudentNumber)) : null)
+      || existingByTeamMember.get(makeTeamMemberKey(teamCode, memberNumber))
+      || existingByNameTeamMember.get(makeStudentMatchKey(name, teamCode, memberNumber))
+      || null;
+    const studentNumber = trackerStudentNumber || matchedExisting?.studentNumber || '';
+    const milestones = {
+      ...(matchedExisting?.milestones || {}),
+      ...Object.fromEntries(activeTrackerColumns.map((column) => [
+        column.key,
+        getCell(row, headers.indexOf(column.sourceColumn))
+      ]))
+    };
 
     return {
       ...matchedExisting,
@@ -377,25 +414,36 @@ function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
       studentNumber,
       name: name || `Student ${rowIndex + 1}`,
       teamCode: teamCode || 'Unassigned',
+      teamFormationCode: matchedExisting?.teamFormationCode || matchedExisting?.teamCode || '',
       memberNumber: Number(memberNumber) || memberNumber || '',
       section: getCell(row, identity.section) || matchedExisting?.section || 'IT332',
       adviser: resolveAdviser(current, teamCode, getCell(row, identity.adviser), matchedExisting?.adviser),
-      email: getCell(row, identity.email) || '',
+      softwareTitle: getCell(row, softwareTitleIndex) || matchedExisting?.softwareTitle || '',
+      email: getCell(row, identity.email) || matchedExisting?.email || '',
       milestones
     };
   }).filter(Boolean);
 
-  const trackerByNumber = new Map(trackerRows.filter((student) => student.studentNumber).map((student) => [normalizeStudentNumber(student.studentNumber), student]));
-  const trackerByTeamMember = new Map(trackerRows.map((student) => [makeTeamMemberKey(student.teamCode, student.memberNumber), student]));
-  const mergedExisting = existingStudents.length
-    ? existingStudents.map((student) => {
-      const tracker = trackerByNumber.get(normalizeStudentNumber(student.studentNumber)) || trackerByTeamMember.get(makeTeamMemberKey(student.teamCode, student.memberNumber));
-      return tracker ? { ...student, ...tracker, studentNumber: student.studentNumber || tracker.studentNumber, email: student.email || tracker.email } : student;
-    })
-    : [];
-  const mergedKeys = new Set(mergedExisting.map((student) => student.rowKey || makeTeamMemberKey(student.teamCode, student.memberNumber)));
-  const unmatchedTrackerRows = trackerRows.filter((student) => !mergedKeys.has(student.rowKey || makeTeamMemberKey(student.teamCode, student.memberNumber)));
-  const students = mergedExisting.length ? [...mergedExisting, ...unmatchedTrackerRows] : trackerRows;
+  // Once a current Tracker is imported, it defines the active roster for the
+  // workspace. Team Formation still enriches matching rows with stable IDs and
+  // email, but historical students absent from the current Tracker are not
+  // carried into the active UI.
+  const students = trackerRows;
+
+  const projectMetadata = (current.projectMetadata || []).map((project) => {
+    const sourceGroupCode = project.sourceGroupCode || project.groupCode;
+    const linked = students.filter((student) => normalizeLoose(student.teamFormationCode) === normalizeLoose(sourceGroupCode));
+    const currentTeams = [...new Set(linked.map((student) => student.teamCode).filter(Boolean))];
+    if (currentTeams.length !== 1) return null;
+    const representative = linked.find((student) => student.softwareTitle || isUsableAdviserName(student.adviser)) || linked[0];
+    return {
+      ...project,
+      sourceGroupCode,
+      groupCode: currentTeams[0],
+      softwareName: representative?.softwareTitle || project.softwareName,
+      adviserName: isUsableAdviserName(representative?.adviser) ? representative.adviser : project.adviserName
+    };
+  }).filter(Boolean);
 
   if (skippedRows) {
     warnings.push(`Skipped ${skippedRows} non-student row${skippedRows === 1 ? '' : 's'} without a name and team code.`);
@@ -414,8 +462,8 @@ function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
   )).length;
   const metrics = {
     studentRows: trackerRows.length,
-    trackerColumns: trackerColumns.length,
-    rawProgressCells: trackerRows.length * trackerColumns.length,
+    trackerColumns: activeTrackerColumns.length,
+    rawProgressCells: trackerRows.length * activeTrackerColumns.length,
     matchedRows,
     unmatchedRows: Math.max(0, trackerRows.length - matchedRows),
     deadlineValues: suggestedForms.length,
@@ -429,6 +477,7 @@ function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
     identity,
     trackerColumns,
     students,
+    projectMetadata,
     warnings,
     deadlineRows,
     suggestedForms,
@@ -437,7 +486,7 @@ function normalizeTrackerRows(rows, current, csvUrl, mappingOverrides = null) {
       resultStatus: warnings.length ? 'Imported with warnings' : 'Imported',
       studentsFound: trackerRows.length,
       officialIdsFound: students.filter((student) => student.studentNumber).length,
-      columnsFound: trackerColumns.length,
+      columnsFound: activeTrackerColumns.length,
       headerRow: headerInfo.index + 1,
       headers,
       mappings,
@@ -584,11 +633,19 @@ function inferIdentityColumns(headers) {
     lastName: findHeader(normalized, ['lastname', 'surname', 'familyname']),
     firstName: findHeader(normalized, ['firstname', 'givenname']),
     teamCode: findHeader(normalized, ['teamformation', 'teamcode', 'team']),
-    memberNumber: findHeader(normalized, ['member', 'memberno', 'membernumber']),
+    memberNumber: findMemberNumberHeader(normalized),
     section: findHeader(normalized, ['section', 'classsection']),
     adviser: findExactHeader(normalized, ['adviser', 'advisor', 'advisername', 'advisorname', 'facultyadviser', 'capstoneadviser', 'teacher', 'instructor']),
     email: findHeader(normalized, ['email', 'gmail', 'googleaccount', 'citeduaccount', 'institutionalemail', 'citaccount'])
   };
+}
+
+function findMemberNumberHeader(normalizedHeaders) {
+  const exact = findExactHeader(normalizedHeaders, ['member', 'memberno', 'membernumber', 'memberid', 'mid', 'teamdetailsmember']);
+  if (exact >= 0) return exact;
+  return normalizedHeaders.findIndex((header) => (
+    header.includes('member') && !header.includes('teamcode') && !header.includes('teamlead')
+  ));
 }
 
 function applyColumnOverrides(headers, inferred, overrides) {
@@ -709,9 +766,18 @@ function getCell(row, index) {
   return String(row[index] || '').trim();
 }
 
+function hasDeadlineEvidence(rows, headerRowIndex, identity, columnIndex) {
+  return rows.slice(headerRowIndex + 1).some((row) => {
+    const name = getStudentNameFromIdentity(row, identity);
+    const teamCode = getCell(row, identity.teamCode);
+    if (name && teamCode) return false;
+    return Boolean(coerceDueAt(getCell(row, columnIndex)));
+  });
+}
+
 function isLikelyPdfDeliverable(header) {
   const key = normalizeHeader(header);
-  return ['rrl', 'projectproposal', 'srs', 'sdd', 'adviserassessment'].includes(key);
+  return ['rrl', 'projectproposal', 'spmp', 'srs', 'sdd', 'refactoredspmp', 'refactoredsrs', 'refactoredsdd', 'adviserassessment'].includes(key);
 }
 
 function makeStudentMatchKey(name, teamCode, memberNumber) {

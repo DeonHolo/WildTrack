@@ -26,7 +26,7 @@ class PostgresMigrationIntegrationTest {
             MigrateResult firstMigration = flyway.migrate();
 
             assertThat(firstMigration.migrationsExecuted).isPositive();
-            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("16");
+            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("19");
             assertThat(tableExists(dataSource, "domain_audit_events")).isTrue();
             assertThat(tableExists(dataSource, "response_tracker_outbox")).isTrue();
             assertThat(tableExists(dataSource, "archive_records")).isTrue();
@@ -35,6 +35,12 @@ class PostgresMigrationIntegrationTest {
             assertThat(tableExists(dataSource, "form_responses")).isTrue();
             assertThat(tableExists(dataSource, "response_feedback")).isTrue();
             assertThat(columnExists(dataSource, "student_identity_conflicts", "decided_at")).isTrue();
+            assertThat(columnExists(dataSource, "academic_student_records", "team_formation_code")).isTrue();
+            assertThat(columnExists(dataSource, "academic_student_records", "software_title")).isTrue();
+            assertThat(columnExists(dataSource, "academic_student_records", "current_active")).isTrue();
+            assertThat(columnExists(dataSource, "academic_project_metadata", "current_group_code")).isTrue();
+            assertThat(columnExists(dataSource, "academic_project_metadata", "current_software_name")).isTrue();
+            assertThat(columnExists(dataSource, "academic_project_metadata", "current_adviser_name")).isTrue();
 
             MigrateResult secondMigration = flyway.migrate();
             assertThat(secondMigration.migrationsExecuted).isZero();

@@ -6,6 +6,7 @@ import java.util.UUID;
 public record ProjectMetadataResponse(
     UUID id,
     String groupCode,
+    String sourceGroupCode,
     String projectTitle,
     String softwareName,
     String description,
@@ -21,13 +22,14 @@ public record ProjectMetadataResponse(
     public static ProjectMetadataResponse from(ProjectMetadata metadata) {
         return new ProjectMetadataResponse(
             metadata.getId(),
+            metadata.getEffectiveGroupCode(),
             metadata.getGroupCode(),
             metadata.getProjectTitle(),
-            metadata.getSoftwareName(),
+            metadata.getEffectiveSoftwareName(),
             metadata.getDescription(),
             metadata.getProposalRemarks(),
             metadata.getDemoComments(),
-            metadata.getAdviserName(),
+            metadata.getEffectiveAdviserName(),
             metadata.getProjectStatus(),
             metadata.getCategory(),
             metadata.getSourceRowNumber(),

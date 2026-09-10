@@ -87,6 +87,7 @@ public class StudentAssociationService {
     public List<StudentRecordResponse> workspaceRosterOptions(UUID workspaceId) {
         return studentRecordRepository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId)
             .stream()
+            .filter(StudentRecord::isCurrentActive)
             .map(StudentRecordResponse::from)
             .toList();
     }
@@ -102,6 +103,9 @@ public class StudentAssociationService {
         StudentRecord record = studentRecordRepository
             .findByWorkspaceIdAndStudentNumberIgnoreCase(workspaceId, studentNumber)
             .orElseThrow(() -> new IllegalArgumentException("No Student Record with that number exists in this workspace."));
+        if (!record.isCurrentActive()) {
+            throw new IllegalArgumentException("That Student Record is not part of the current Tracker roster.");
+        }
 
         Optional<WorkspaceStudentAssociation> existingActive =
             associationRepository.findByWorkspaceIdAndGoogleSubjectAndActiveTrue(workspaceId, googleSubject);
@@ -260,6 +264,7 @@ public class StudentAssociationService {
 
     private Optional<AssociationView> toView(WorkspaceStudentAssociation association) {
         return studentRecordRepository.findById(association.getStudentRecordId())
+            .filter(StudentRecord::isCurrentActive)
             .map(record -> new AssociationView(
                 association.getId(),
                 association.getWorkspaceId(),

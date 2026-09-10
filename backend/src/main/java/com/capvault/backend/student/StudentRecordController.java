@@ -24,6 +24,7 @@ public class StudentRecordController {
     ) {
         return repository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId)
             .stream()
+            .filter(StudentRecord::isCurrentActive)
             .map(StudentRecordResponse::from)
             .toList();
     }

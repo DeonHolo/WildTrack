@@ -28,6 +28,9 @@ public class StudentRecord {
     @Column(name = "team_code", nullable = false, length = 160)
     private String teamCode;
 
+    @Column(name = "team_formation_code", length = 160)
+    private String teamFormationCode;
+
     @Column(name = "member_number", length = 40)
     private String memberNumber;
 
@@ -36,6 +39,12 @@ public class StudentRecord {
 
     @Column(name = "adviser_name", length = 200)
     private String adviserName;
+
+    @Column(name = "software_title", length = 500)
+    private String softwareTitle;
+
+    @Column(name = "current_active", nullable = false)
+    private Boolean currentActive = true;
 
     @Column(name = "institutional_email", length = 240)
     private String institutionalEmail;
@@ -64,12 +73,42 @@ public class StudentRecord {
         this.studentNumber = normalizeNullable(studentNumber);
         this.studentName = studentName;
         this.teamCode = teamCode;
+        this.teamFormationCode = teamCode;
         this.memberNumber = normalizeNullable(memberNumber);
         this.sectionName = normalizeNullable(sectionName);
         this.adviserName = normalizeNullable(adviserName);
         this.institutionalEmail = normalizeNullable(institutionalEmail);
         this.sourceRowNumber = sourceRowNumber;
         this.updatedAt = LocalDateTime.now();
+        this.currentActive = true;
+    }
+
+    public StudentRecord(
+        UUID workspaceId,
+        String studentNumber,
+        String studentName,
+        String teamCode,
+        String teamFormationCode,
+        String memberNumber,
+        String sectionName,
+        String adviserName,
+        String institutionalEmail,
+        String softwareTitle,
+        Integer sourceRowNumber
+    ) {
+        this.workspaceId = workspaceId;
+        this.studentNumber = normalizeNullable(studentNumber);
+        this.studentName = studentName;
+        this.teamCode = teamCode;
+        this.teamFormationCode = normalizeNullable(teamFormationCode);
+        this.memberNumber = normalizeNullable(memberNumber);
+        this.sectionName = normalizeNullable(sectionName);
+        this.adviserName = normalizeNullable(adviserName);
+        this.institutionalEmail = normalizeNullable(institutionalEmail);
+        this.softwareTitle = normalizeNullable(softwareTitle);
+        this.sourceRowNumber = sourceRowNumber;
+        this.updatedAt = LocalDateTime.now();
+        this.currentActive = true;
     }
 
     @PrePersist
@@ -103,6 +142,54 @@ public class StudentRecord {
         this.updatedAt = LocalDateTime.now();
     }
 
+    public void updateFromTeamFormation(
+        String studentNumber,
+        String studentName,
+        String sourceTeamCode,
+        String memberNumber,
+        String sectionName,
+        String adviserName,
+        String institutionalEmail,
+        Integer sourceRowNumber
+    ) {
+        String previousFormationCode = this.teamFormationCode;
+        boolean currentTeamStillComesFromTeamFormation = this.teamCode == null
+            || (previousFormationCode != null && this.teamCode.equalsIgnoreCase(previousFormationCode));
+        this.studentNumber = normalizeNullable(studentNumber);
+        this.studentName = studentName;
+        this.teamFormationCode = normalizeNullable(sourceTeamCode);
+        if (currentTeamStillComesFromTeamFormation) {
+            this.teamCode = sourceTeamCode;
+            this.memberNumber = normalizeNullable(memberNumber);
+            this.sectionName = normalizeNullable(sectionName);
+            this.adviserName = normalizeNullable(adviserName);
+        }
+        this.institutionalEmail = normalizeNullable(institutionalEmail);
+        this.sourceRowNumber = sourceRowNumber;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updateFromTracker(
+        String studentNumber,
+        String studentName,
+        String currentTeamCode,
+        String memberNumber,
+        String sectionName,
+        String adviserName,
+        String softwareTitle,
+        Integer sourceRowNumber
+    ) {
+        this.studentNumber = normalizeNullable(studentNumber);
+        this.studentName = studentName;
+        this.teamCode = currentTeamCode;
+        this.memberNumber = normalizeNullable(memberNumber);
+        this.sectionName = normalizeNullable(sectionName);
+        this.adviserName = normalizeNullable(adviserName);
+        this.softwareTitle = normalizeNullable(softwareTitle);
+        this.sourceRowNumber = sourceRowNumber;
+        this.updatedAt = LocalDateTime.now();
+    }
+
     public UUID getId() {
         return id;
     }
@@ -123,6 +210,10 @@ public class StudentRecord {
         return teamCode;
     }
 
+    public String getTeamFormationCode() {
+        return teamFormationCode;
+    }
+
     public String getMemberNumber() {
         return memberNumber;
     }
@@ -133,6 +224,19 @@ public class StudentRecord {
 
     public String getAdviserName() {
         return adviserName;
+    }
+
+    public String getSoftwareTitle() {
+        return softwareTitle;
+    }
+
+    public boolean isCurrentActive() {
+        return Boolean.TRUE.equals(currentActive);
+    }
+
+    public void setCurrentActive(boolean currentActive) {
+        this.currentActive = currentActive;
+        this.updatedAt = LocalDateTime.now();
     }
 
     public String getInstitutionalEmail() {
