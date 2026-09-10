@@ -18,6 +18,11 @@ import com.capvault.backend.drive.DriveFileMetadata;
 import com.capvault.backend.drive.DriveFileReference;
 import com.capvault.backend.drive.DriveLinkParser;
 import com.capvault.backend.drive.GoogleDriveGateway;
+import com.capvault.backend.deliverable.Deliverable;
+import com.capvault.backend.deliverable.DeliverableFieldRepository;
+import com.capvault.backend.deliverable.DeliverableFieldType;
+import com.capvault.backend.deliverable.DeliverableRepository;
+import com.capvault.backend.deliverable.DocumentCheckPolicy;
 
 /**
  * Official templates are stored durably in PostgreSQL. The legacy local
@@ -36,17 +41,23 @@ public class DocumentTemplateService {
     private final DocumentTextExtractor textExtractor;
     private final TemplateStorageProperties properties;
     private final GoogleDriveGateway driveGateway;
+    private final DeliverableRepository deliverableRepository;
+    private final DeliverableFieldRepository fieldRepository;
 
     public DocumentTemplateService(
         DocumentTemplateRepository repository,
         DocumentTextExtractor textExtractor,
         TemplateStorageProperties properties,
-        GoogleDriveGateway driveGateway
+        GoogleDriveGateway driveGateway,
+        DeliverableRepository deliverableRepository,
+        DeliverableFieldRepository fieldRepository
     ) {
         this.repository = repository;
         this.textExtractor = textExtractor;
         this.properties = properties;
         this.driveGateway = driveGateway;
+        this.deliverableRepository = deliverableRepository;
+        this.fieldRepository = fieldRepository;
     }
 
     @Transactional(readOnly = true)
@@ -64,7 +75,19 @@ public class DocumentTemplateService {
         String displayName,
         MultipartFile file
     ) {
+        return save(workspaceId, deliverableKey, null, displayName, file);
+    }
+
+    @Transactional
+    public DocumentTemplateResponse save(
+        UUID workspaceId,
+        String deliverableKey,
+        String fieldId,
+        String displayName,
+        MultipartFile file
+    ) {
         validateCommon(workspaceId, deliverableKey, displayName);
+        validateFieldAssociation(workspaceId, deliverableKey, fieldId);
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Choose a DOCX or PDF template file.");
         }
@@ -78,6 +101,7 @@ public class DocumentTemplateService {
         return saveBytes(
             workspaceId,
             deliverableKey,
+            normalizeNullable(fieldId),
             displayName,
             originalFilename,
             contentType,
@@ -93,7 +117,19 @@ public class DocumentTemplateService {
         String displayName,
         String driveUrl
     ) {
+        return saveFromDrive(workspaceId, deliverableKey, null, displayName, driveUrl);
+    }
+
+    @Transactional
+    public DocumentTemplateResponse saveFromDrive(
+        UUID workspaceId,
+        String deliverableKey,
+        String fieldId,
+        String displayName,
+        String driveUrl
+    ) {
         validateWorkspaceAndDeliverable(workspaceId, deliverableKey);
+        validateFieldAssociation(workspaceId, deliverableKey, fieldId);
         if (!driveGateway.isConfigured()) {
             throw new IllegalStateException("Google Drive API is not configured.");
         }
@@ -124,6 +160,7 @@ public class DocumentTemplateService {
         return saveBytes(
             workspaceId,
             deliverableKey,
+            normalizeNullable(fieldId),
             resolvedDisplayName,
             originalFilename,
             contentType,
@@ -155,13 +192,25 @@ public class DocumentTemplateService {
 
     @Transactional(readOnly = true)
     public DocumentTemplate find(UUID workspaceId, String deliverableKey) {
-        return repository.findByWorkspaceIdAndDeliverableKeyIgnoreCase(workspaceId, deliverableKey)
+        return repository.findByWorkspaceIdAndDeliverableKeyIgnoreCaseAndFieldIdIsNull(workspaceId, deliverableKey)
             .orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public DocumentTemplate find(UUID workspaceId, String deliverableKey, String fieldId) {
+        String normalizedField = normalizeNullable(fieldId);
+        if (normalizedField != null) {
+            return repository
+                .findByWorkspaceIdAndDeliverableKeyIgnoreCaseAndFieldId(workspaceId, deliverableKey, normalizedField)
+                .orElse(null);
+        }
+        return find(workspaceId, deliverableKey);
     }
 
     private DocumentTemplateResponse saveBytes(
         UUID workspaceId,
         String deliverableKey,
+        String fieldId,
         String displayName,
         String originalFilename,
         String contentType,
@@ -175,9 +224,9 @@ public class DocumentTemplateService {
             );
         }
 
-        DocumentTemplate existing = repository
-            .findByWorkspaceIdAndDeliverableKeyIgnoreCase(workspaceId, deliverableKey.trim())
-            .orElse(null);
+        DocumentTemplate existing = fieldId == null
+            ? repository.findByWorkspaceIdAndDeliverableKeyIgnoreCaseAndFieldIdIsNull(workspaceId, deliverableKey.trim()).orElse(null)
+            : repository.findByWorkspaceIdAndDeliverableKeyIgnoreCaseAndFieldId(workspaceId, deliverableKey.trim(), fieldId).orElse(null);
         String sha256 = sha256(bytes);
 
         DocumentTemplate template;
@@ -185,6 +234,7 @@ public class DocumentTemplateService {
             template = new DocumentTemplate(
                 workspaceId,
                 deliverableKey.trim(),
+                fieldId,
                 displayName.trim(),
                 originalFilename,
                 contentType,
@@ -231,6 +281,32 @@ public class DocumentTemplateService {
         }
     }
 
+    private void validateFieldAssociation(UUID workspaceId, String deliverableKey, String fieldId) {
+        String normalizedFieldId = normalizeNullable(fieldId);
+        if (normalizedFieldId == null) return;
+        Deliverable deliverable = deliverableRepository.findAllByWorkspaceIdOrderByDueAtAscTitleAsc(workspaceId).stream()
+            .filter(item -> matchesDeliverableKey(deliverableKey, item))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Template deliverable was not found in this workspace."));
+        var field = fieldRepository.findByIdAndDeliverableId(normalizedFieldId, deliverable.getId())
+            .orElseThrow(() -> new IllegalArgumentException("Template field does not belong to this deliverable."));
+        if (!field.isActive()
+            || field.getFieldType() != DeliverableFieldType.DRIVE_PDF
+            || field.getDocumentCheckPolicy() == DocumentCheckPolicy.OFF) {
+            throw new IllegalArgumentException("Templates are only available for active PDF fields with Document Check enabled.");
+        }
+    }
+
+    private static boolean matchesDeliverableKey(String requestedKey, Deliverable deliverable) {
+        String normalized = requestedKey == null ? "" : requestedKey.trim();
+        return equalsIgnoreCase(normalized, deliverable.getTrackerColumnKey())
+            || equalsIgnoreCase(normalized, deliverable.getTitle());
+    }
+
+    private static boolean equalsIgnoreCase(String left, String right) {
+        return right != null && !right.isBlank() && left.equalsIgnoreCase(right.trim());
+    }
+
     private void validateFileType(String filename, String contentType) {
         String lowerName = filename.toLowerCase(Locale.ROOT);
         boolean supportedName = lowerName.endsWith(".pdf") || lowerName.endsWith(".docx");
@@ -273,6 +349,12 @@ public class DocumentTemplateService {
         }
         clean = clean.trim();
         return clean.isBlank() ? "template.docx" : clean;
+    }
+
+    private static String normalizeNullable(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static String sha256(byte[] bytes) {

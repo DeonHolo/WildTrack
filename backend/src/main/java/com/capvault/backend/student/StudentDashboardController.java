@@ -6,8 +6,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DeliverableResponse;
+import com.capvault.backend.deliverable.DeliverableService;
 import com.capvault.backend.deliverable.DeliverableStatus;
 import com.capvault.backend.filecheck.FileCheckResponse;
 import com.capvault.backend.filecheck.FileCheckService;
@@ -41,7 +41,7 @@ public class StudentDashboardController {
     private final TrackerColumnRepository columns;
     private final TrackerRowRepository rows;
     private final TrackerCellRepository cells;
-    private final DeliverableRepository deliverables;
+    private final DeliverableService deliverables;
     private final FormResponseService responses;
     private final ReviewFeedbackService reviews;
     private final FileCheckService checks;
@@ -49,7 +49,7 @@ public class StudentDashboardController {
     public StudentDashboardController(StudentAssociationSecurity security, StudentAssociationService associations,
             AcademicWorkspaceRepository workspaces, StudentRecordRepository students, ProjectMetadataRepository projects,
             TrackerColumnRepository columns, TrackerRowRepository rows, TrackerCellRepository cells,
-            DeliverableRepository deliverables, FormResponseService responses, ReviewFeedbackService reviews,
+            DeliverableService deliverables, FormResponseService responses, ReviewFeedbackService reviews,
             FileCheckService checks) {
         this.security = security;
         this.associations = associations;
@@ -70,7 +70,8 @@ public class StudentDashboardController {
             List<ProjectMetadataResponse> projects, List<TrackerColumnResponse> trackerColumns,
             List<TrackerRowResponse> trackerRows, List<DeliverableResponse> deliverables,
             List<ScopedResponse> responses, Map<UUID, Map<String, Object>> reviewStates,
-            Map<UUID, FileCheckResponse> fileChecks) { }
+            Map<UUID, FileCheckResponse> fileChecks,
+            Map<UUID, Map<String, FileCheckResponse>> fileChecksByField) { }
 
     @GetMapping("/api/workspace/students/dashboard")
     @Transactional(readOnly = true)
@@ -94,6 +95,12 @@ public class StudentDashboardController {
             checks.findLatest(workspaceId, response.getId().toString())
                 .ifPresent(report -> fileChecks.put(response.getId(), report));
         }
+        Map<UUID, Map<String, FileCheckResponse>> fieldChecks = new LinkedHashMap<>();
+        checks.latestByFieldForResponses(workspaceId, owned.stream().map(item -> item.getId().toString()).toList())
+            .forEach((responseId, reports) -> {
+                try { fieldChecks.put(UUID.fromString(responseId), reports); }
+                catch (IllegalArgumentException ignored) { }
+            });
         return new DashboardResponse(association, associations.workspaceRosterOptions(workspaceId),
             students.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
                 .filter(com.capvault.backend.student.StudentRecord::isCurrentActive)
@@ -108,11 +115,11 @@ public class StudentDashboardController {
                     // Tracker marks are shared context, not an alternate route to submitted links.
                     .filter(cell -> cell.getRawValue() == null || !cell.getRawValue().toLowerCase(java.util.Locale.ROOT).contains("http"))
                     .toList())).toList(),
-            deliverables.findAllByWorkspaceIdOrderByDueAtAscTitleAsc(workspaceId).stream()
-                .filter(item -> item.getStatus() == DeliverableStatus.PUBLISHED || submittedDeliverables.contains(item.getId()))
-                .map(DeliverableResponse::from).toList(),
+            deliverables.listDeliverables(workspaceId).stream()
+                .filter(item -> item.status() == DeliverableStatus.PUBLISHED || submittedDeliverables.contains(item.id()))
+                .toList(),
             visible.values().stream().map(item -> ScopedResponse.from(item, session.googleSubject().equals(item.getGoogleSubject()))).toList(),
-            reviewStates, fileChecks);
+            reviewStates, fileChecks, fieldChecks);
     }
 
     private Map<String, Object> studentReviewState(FormResponse response) {

@@ -128,6 +128,16 @@ async function selectStudentByName(name = 'DELA CRUZ') {
   fireEvent.click(await screen.findByRole('option', { name: /DELA CRUZ, JUAN CARLOS M\./i }));
 }
 
+function mvpValidationApiFields() {
+  return [
+    { id: 'field-form', fieldKey: 'validationInstrument', label: 'Validation Instrument', fieldType: 'GOOGLE_FORM', required: true, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true },
+    { id: 'field-framework', fieldKey: 'frameworkModel', label: 'Framework / Model', fieldType: 'DRIVE_PDF', required: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true, active: true },
+    { id: 'field-sheet', fieldKey: 'responseSheet', label: 'Validation Response Sheet', fieldType: 'GOOGLE_SHEET', required: true, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true },
+    { id: 'field-highlights', fieldKey: 'validationHighlights', label: 'MVP Validation Highlights', fieldType: 'DRIVE_PDF', required: true, documentCheckPolicy: 'MANUAL', aiReviewEnabled: true, active: true },
+    { id: 'field-folder', fieldKey: 'validationEvidence', label: 'Validation Evidence', fieldType: 'DRIVE_FOLDER', required: true, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true }
+  ];
+}
+
 describe('public submission form', () => {
   it('accepts the workspace from a form link even when it matches the unconfirmed default', async () => {
     workspaceSession.needsWorkspaceChoice = true;
@@ -432,6 +442,66 @@ describe('public submission form', () => {
     expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
     expect(screen.getByRole('combobox', { name: /Team Code/i })).toHaveValue('2526-sem2-it332-11');
     expect(screen.queryByText(/class-record entries available/i)).not.toBeInTheDocument();
+  });
+
+  it('renders and validates the five MVP Validation artifact fields by their declared types', async () => {
+    api.getPublicSubmissionForm.mockResolvedValue({
+      workspace: workspaceSession.activeWorkspace,
+      deliverable: {
+        id: 'deliv-srs',
+        trackerColumnKey: 'SRS',
+        title: 'MVP Validation',
+        slug: 'week-9-srs',
+        instructions: 'Submit all five validation artifacts.',
+        dueAt: '2026-04-18T23:59:00',
+        pdfRequired: true,
+        status: 'PUBLISHED',
+        fields: mvpValidationApiFields()
+      }
+    });
+    renderForm();
+    await selectStudent();
+
+    const controls = [
+      screen.getByRole('textbox', { name: 'Validation Instrument' }),
+      screen.getByRole('textbox', { name: 'Framework / Model' }),
+      screen.getByRole('textbox', { name: 'Validation Response Sheet' }),
+      screen.getByRole('textbox', { name: 'MVP Validation Highlights' }),
+      screen.getByRole('textbox', { name: 'Validation Evidence' })
+    ];
+    expect(controls).toHaveLength(5);
+    expect(screen.getByText('Paste the shareable Google Form link.')).toBeInTheDocument();
+    expect(screen.getByText('Paste the shareable Google Sheet link.')).toBeInTheDocument();
+    expect(screen.getByText('Paste the shareable Google Drive folder link.')).toBeInTheDocument();
+    expect(screen.getAllByText('Share a Google Drive file link that opens to the final PDF.')).toHaveLength(2);
+
+    const invalidValues = [
+      'https://example.com/not-a-form',
+      'https://docs.google.com/document/d/editable-doc/edit',
+      'https://docs.google.com/forms/d/e/wrong-type/viewform',
+      'https://docs.google.com/spreadsheets/d/editable-sheet/edit',
+      'https://drive.google.com/file/d/not-a-folder/view'
+    ];
+    controls.forEach((control, index) => fireEvent.change(control, { target: { value: invalidValues[index] } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
+
+    expect(await screen.findByText('Use a Google Forms link for this field.')).toBeInTheDocument();
+    expect(screen.getByText('Use a Google Sheets link for this field.')).toBeInTheDocument();
+    expect(screen.getByText('Use a Google Drive folder link for this field.')).toBeInTheDocument();
+    expect(screen.getAllByText(/requires a PDF Drive link|Use a Google Drive file link to the PDF/)).toHaveLength(2);
+    expect(api.submitResponse).not.toHaveBeenCalled();
+
+    const validValues = {
+      validationInstrument: 'https://docs.google.com/forms/d/e/form-id/viewform',
+      frameworkModel: 'https://drive.google.com/file/d/framework-pdf/view',
+      responseSheet: 'https://docs.google.com/spreadsheets/d/sheet-id/edit',
+      validationHighlights: 'https://drive.google.com/file/d/highlights-pdf/view',
+      validationEvidence: 'https://drive.google.com/drive/folders/evidence-folder'
+    };
+    Object.values(validValues).forEach((value, index) => fireEvent.change(controls[index], { target: { value } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
+
+    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', validValues, null));
   });
 
   it('shows each identity result as only the value belonging to that field', async () => {

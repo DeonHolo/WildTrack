@@ -123,6 +123,51 @@ function createState() {
   };
 }
 
+function createMultiArtifactState() {
+  const state = createState();
+  const deliverable = state.deliverables.find((item) => item.id === 'deliv-srs');
+  deliverable.id = 'deliv-mvp-validation';
+  deliverable.slug = 'mvp-validation';
+  deliverable.title = 'MVP Validation';
+  deliverable.shortTitle = 'MVP Validation';
+  deliverable.trackerColumn = 'MVPValidation';
+  deliverable.fields = [
+    { definitionId: 'field-form', id: 'validationInstrument', label: 'Validation Instrument', type: 'googleForm', pdfRequired: false, documentCheckPolicy: 'OFF' },
+    { definitionId: 'field-framework', id: 'frameworkModel', label: 'Framework / Model', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO' },
+    { definitionId: 'field-sheet', id: 'validationResponseSheet', label: 'Validation Response Sheet', type: 'googleSheet', pdfRequired: false, documentCheckPolicy: 'OFF' },
+    { definitionId: 'field-highlights', id: 'validationHighlights', label: 'MVP Validation Highlights', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO' },
+    { definitionId: 'field-evidence', id: 'validationEvidence', label: 'Validation Evidence', type: 'driveFolder', pdfRequired: false, documentCheckPolicy: 'OFF' }
+  ];
+  state.attempts = state.attempts.map((response) => {
+    if (response.deliverableId !== 'deliv-srs') return response;
+    if (response.id !== 'owned-srs') return { ...response, deliverableId: 'deliv-mvp-validation' };
+    const values = {
+      validationInstrument: 'https://docs.google.com/forms/d/e/student-validation/viewform',
+      frameworkModel: 'https://drive.google.com/file/d/student-framework/view',
+      validationResponseSheet: 'https://docs.google.com/spreadsheets/d/student-validation-sheet/edit',
+      validationHighlights: 'https://drive.google.com/file/d/student-highlights/view',
+      validationEvidence: 'https://drive.google.com/drive/folders/student-validation-evidence'
+    };
+    return {
+      ...response,
+      deliverableId: 'deliv-mvp-validation',
+      values,
+      documentCheck: null,
+      artifactChecks: {
+        'field-framework': {
+          fieldId: 'field-framework',
+          status: 'Current',
+          checkedAt: '2026-04-18T20:40:00+08:00',
+          sourceUrl: values.frameworkModel,
+          sourceResponseUpdatedAt: response.updatedAt,
+          summary: 'Framework PDF is readable and accessible.'
+        }
+      }
+    };
+  });
+  return state;
+}
+
 const workflow = vi.hoisted(() => ({
   activeWorkspace: {
     id: 'workspace-it',
@@ -408,6 +453,35 @@ describe('student dashboard', () => {
     screen.getAllByRole('link', { name: /Open form|Edit response|Open file/i }).forEach((link) => {
       expect(link).toHaveAttribute('target', '_blank');
     });
+  });
+
+  it('shows every submitted artifact for a multi-artifact deliverable with independent PDF check state', () => {
+    workflow.state = createMultiArtifactState();
+    associateAccount();
+    renderDashboard();
+
+    const artifacts = screen.getByLabelText('MVP Validation submitted artifacts');
+    expect(within(artifacts).getByRole('group', { name: 'Validation Instrument artifact' })).toHaveTextContent('Google Form');
+    expect(within(artifacts).getByRole('link', { name: 'Open Validation Instrument' })).toHaveAttribute(
+      'href',
+      'https://docs.google.com/forms/d/e/student-validation/viewform'
+    );
+    const framework = within(artifacts).getByRole('group', { name: 'Framework / Model artifact' });
+    const highlights = within(artifacts).getByRole('group', { name: 'MVP Validation Highlights artifact' });
+    expect(framework).toHaveTextContent('Google Drive PDF');
+    expect(framework).toHaveTextContent('Ready for review');
+    expect(framework).toHaveTextContent('Framework PDF is readable and accessible.');
+    expect(highlights).toHaveTextContent('Google Drive PDF');
+    expect(highlights).toHaveTextContent('Not checked');
+    expect(within(artifacts).getByRole('link', { name: 'Open Validation Response Sheet' })).toHaveAttribute(
+      'href',
+      'https://docs.google.com/spreadsheets/d/student-validation-sheet/edit'
+    );
+    expect(within(artifacts).getByRole('link', { name: 'Open Validation Evidence' })).toHaveAttribute(
+      'href',
+      'https://drive.google.com/drive/folders/student-validation-evidence'
+    );
+    expect(screen.queryByRole('link', { name: 'Open file' })).not.toBeInTheDocument();
   });
 
   it('keeps long adviser feedback compact and reveals the full note in a dialog', async () => {

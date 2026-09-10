@@ -539,8 +539,8 @@ export function PublicSubmissionPage() {
                             required={field.required}
                             value={values[field.id] || ''}
                             error={fieldErrors[field.id]}
-                            description={field.pdfRequired ? 'Share a Google Drive link that opens to the final PDF.' : undefined}
-                            placeholder={field.pdfRequired ? 'https://drive.google.com/file/d/...' : 'https://'}
+                            description={submissionFieldDescription(field)}
+                            placeholder={submissionFieldPlaceholder(field)}
                             leftSection={field.pdfRequired ? <FilePdf size={18} aria-hidden="true" /> : null}
                             onChange={(event) => updateField(field.id, event.currentTarget.value)}
                           />
@@ -574,4 +574,20 @@ export function PublicSubmissionPage() {
       </Container>
     </main>
   );
+}
+
+function submissionFieldDescription(field) {
+  if (field.pdfRequired || field.type === 'drive') return 'Share a Google Drive file link that opens to the final PDF.';
+  if (field.type === 'googleForm') return 'Paste the shareable Google Form link.';
+  if (field.type === 'googleSheet') return 'Paste the shareable Google Sheet link.';
+  if (field.type === 'driveFolder') return 'Paste the shareable Google Drive folder link.';
+  return undefined;
+}
+
+function submissionFieldPlaceholder(field) {
+  if (field.pdfRequired || field.type === 'drive') return 'https://drive.google.com/file/d/...';
+  if (field.type === 'googleForm') return 'https://docs.google.com/forms/d/...';
+  if (field.type === 'googleSheet') return 'https://docs.google.com/spreadsheets/d/...';
+  if (field.type === 'driveFolder') return 'https://drive.google.com/drive/folders/...';
+  return 'https://';
 }

@@ -8,10 +8,13 @@ import {
   saveReviewFeedback
 } from './api.js';
 import {
+  applyAiReview,
+  applyFieldAiReviews,
+  applyFieldChecks,
   applyFileCheck,
   applyReviewState
 } from './backendDomain.js';
-import { firstSubmissionLink } from './workflow.js';
+import { aiReviewableSubmissionFields, reviewableSubmissionFields } from './workflow.js';
 
 export { emptyMonitoringState as emptyReviewDesk, loadMonitoringState as loadReviewDesk } from './monitoringClient.js';
 
@@ -33,58 +36,71 @@ export async function revokeAcceptance(responseId) {
   return getReviewState(responseId);
 }
 
-export async function runDocumentCheck(workspaceId, response, deliverable) {
-  const sourceUrl = firstSubmissionLink(response?.values);
+export async function runDocumentCheck(workspaceId, response, deliverable, field = null) {
+  const reviewableFields = reviewableSubmissionFields(deliverable);
+  const targetField = field || (reviewableFields.length === 1 ? reviewableFields[0] : null);
+  if (!targetField && reviewableFields.length > 1) {
+    return { ok: false, error: 'Choose which PDF artifact to check.' };
+  }
+  const sourceUrl = targetField ? String(response?.values?.[targetField.id] || '').trim() : '';
   if (!sourceUrl) return { ok: false, error: 'This response does not contain a submitted file link.' };
   try {
     const report = await requestDocumentCheck(workspaceId, {
       responseId: response.id,
+      fieldId: targetField?.definitionId || null,
       deliverableKey: deliverable?.trackerColumn || deliverable?.shortTitle || response.deliverableId,
       sourceUrl,
       sourceResponseUpdatedAt: response.updatedAt || response.submittedAt
     });
-    return { ok: true, report };
+    return { ok: true, report, field: targetField };
   } catch (error) {
     return { ok: false, error: error?.message || 'Document Check could not finish.' };
   }
 }
 
-export async function runDocumentChecks(workspaceId, responses, deliverables, options = {}) {
-  const candidates = responses || [];
+export async function runDocumentChecks(workspaceId, candidates, deliverables, options = {}) {
+  const sourceCandidates = candidates || [];
   const byId = new Map((deliverables || []).map((item) => [item.id, item]));
+  const targets = sourceCandidates.flatMap((candidate) => {
+    if (candidate?.response) return [candidate];
+    const deliverable = byId.get(candidate?.deliverableId);
+    const fields = reviewableSubmissionFields(deliverable);
+    return fields.length ? fields.map((field) => ({ response: candidate, field })) : [{ response: candidate, field: null }];
+  });
   const results = [];
   let completed = 0;
   let cursor = 0;
   const runWorker = async () => {
-    while (cursor < candidates.length && options.shouldContinue?.() !== false) {
-      const response = candidates[cursor++];
-      const result = await runDocumentCheck(workspaceId, response, byId.get(response.deliverableId));
-      results.push({ attemptId: response.id, ...result });
+    while (cursor < targets.length && options.shouldContinue?.() !== false) {
+      const target = targets[cursor++];
+      const response = target.response;
+      const result = await runDocumentCheck(workspaceId, response, byId.get(response.deliverableId), target.field);
+      results.push({ attemptId: response.id, fieldId: target.field?.definitionId || null, fieldKey: target.field?.id || null, ...result });
       completed += 1;
-      options.onProgress?.({ completed, total: candidates.length });
+      options.onProgress?.({ completed, total: targets.length });
     }
   };
-  await Promise.all(Array.from({ length: Math.min(3, candidates.length) }, runWorker));
+  await Promise.all(Array.from({ length: Math.min(3, targets.length) }, runWorker));
   return {
-    ok: completed === candidates.length && results.every((result) => result.ok),
-    cancelled: completed < candidates.length,
-    total: candidates.length,
+    ok: completed === targets.length && results.every((result) => result.ok),
+    cancelled: completed < targets.length,
+    total: targets.length,
     completed,
     failed: results.filter((result) => !result.ok).length,
     results
   };
 }
 
-export async function runAiReview(workspaceId, responseId, retryAcknowledged = false, retryToken = null, shouldContinue = () => true) {
+export async function runAiReview(workspaceId, responseId, fieldId = null, retryAcknowledged = false, retryToken = null, shouldContinue = () => true) {
   try {
-    let review = await requestAiReview(workspaceId, responseId, retryAcknowledged, retryToken);
+    let review = await requestAiReview(workspaceId, responseId, retryAcknowledged, retryToken, fieldId);
     const reused = review.reused;
     // Poll saved state only. Never repeat the generation POST after a timeout or lost connection.
     const deadline = Date.now() + 8 * 60 * 1000;
     while (review.status === 'RUNNING' && shouldContinue() && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 2500));
       if (!shouldContinue()) return { ok: false, cancelled: true };
-      review = { ...await getSavedAiReview(workspaceId, responseId), reused };
+      review = { ...await getSavedAiReview(workspaceId, responseId, fieldId), reused };
     }
     return { ok: review.status === 'COMPLETED', unavailable: review.status === 'UNAVAILABLE',
       pauseBatch: review.status === 'UNAVAILABLE' || review.status === 'RUNNING'
@@ -98,23 +114,36 @@ export async function runAiReview(workspaceId, responseId, retryAcknowledged = f
   }
 }
 
-export async function runAiReviews(workspaceId, ids, options = {}) {
+export async function runAiReviews(workspaceId, targets, options = {}) {
   const shouldContinue = options.shouldContinue || (() => true);
-  for (const id of ids) {
+  for (const target of targets) {
     if (!shouldContinue()) break;
-    const retryToken = options.retryTokens?.[id] || null;
-    const result = await runAiReview(workspaceId, id, Boolean(retryToken), retryToken, shouldContinue);
+    const normalized = typeof target === 'string' ? { responseId: target, fieldId: null } : target;
+    const targetKey = normalized.key || (normalized.fieldId ? `${normalized.responseId}:${normalized.fieldId}` : normalized.responseId);
+    const retryToken = options.retryTokens?.[targetKey] || null;
+    const result = await runAiReview(workspaceId, normalized.responseId, normalized.fieldId, Boolean(retryToken), retryToken, shouldContinue);
     if (!shouldContinue() || result.cancelled) break;
-    options.onResult?.(id, result);
+    options.onResult?.(normalized, result);
     // Document-specific failures remain available for explicit retry, but do not block other documents.
     if (result.pauseBatch) break;
   }
 }
 
 export function applyReviewMutation(response, reviewState) {
-  return applyReviewState(response, reviewState);
+  const updated = applyReviewState(response, reviewState);
+  return reviewState?.acceptance
+    ? updated
+    : { ...updated, archiveStatus: 'Not Archived' };
 }
 
 export function applyDocumentCheck(response, report) {
-  return applyReviewState(applyFileCheck(response, report), { feedback: response.feedback || [], acceptance: response.acceptance || null });
+  const updated = report?.fieldId
+    ? applyFieldChecks(response, { ...(response.artifactChecks || {}), [report.fieldId]: report })
+    : applyFileCheck(response, report);
+  return applyReviewState(updated, { feedback: response.feedback || [], acceptance: response.acceptance || null });
+}
+
+export function applyArtifactAiReview(response, review) {
+  if (!review?.fieldId) return applyAiReview(response, review);
+  return applyFieldAiReviews(response, { [review.fieldId]: review });
 }

@@ -225,6 +225,7 @@ function editableForm(item) {
     trackerColumn: item.trackerColumn,
     instructions: item.instructions || '',
     pdfRequired: item.fields?.some((field) => field.pdfRequired) || false,
+    fields: item.fields || [],
     status: item.status || 'Published'
   };
 }

@@ -57,7 +57,7 @@ class DeliverableControllerTest {
             .getResponse()
             .getContentAsString();
 
-        String id = createdJson.replaceAll(".*\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
+        String id = new com.fasterxml.jackson.databind.ObjectMapper().readTree(createdJson).path("id").asText();
 
         mockMvc.perform(put("/api/deliverables/" + id).with(session())
                 .contentType(MediaType.APPLICATION_JSON)
@@ -119,4 +119,3 @@ class DeliverableControllerTest {
             .andExpect(jsonPath("$.deliverable.status").value("PUBLISHED"));
     }
 }
-

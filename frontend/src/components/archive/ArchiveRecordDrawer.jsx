@@ -11,6 +11,7 @@ export function ArchiveRecordDrawer({ archive, opened, storageConfigured, onClos
   const canDownload = stored && Boolean(archive.downloadUrl);
   const canVerify = storageConfigured && stored && typeof onVerify === 'function';
   const canRetry = storageConfigured && archive.storageStatus === 'Failed' && typeof onRetry === 'function';
+  const artifacts = Array.isArray(archive.artifacts) ? archive.artifacts : [];
 
   async function copyValue(value, label) {
     await navigator.clipboard?.writeText(value || '');
@@ -49,7 +50,7 @@ export function ArchiveRecordDrawer({ archive, opened, storageConfigured, onClos
           <div className="wt-archive-preservation-state">
             <Text fw={750}>{stored ? status : 'Independent PDF copy not stored'}</Text>
             <Text size="sm" c="dimmed">
-              {stored ? 'An independent file is associated with this archive record.' : 'The submitted Drive link remains a source reference, not an independently preserved file.'}
+              {stored ? 'An independent file is associated with this archive record.' : 'Submitted artifact links remain source references, not independently preserved files.'}
             </Text>
           </div>
           <DetailCode
@@ -80,12 +81,46 @@ export function ArchiveRecordDrawer({ archive, opened, storageConfigured, onClos
           {stored ? <DetailCode label="Archive storage key" value={archive.storageKey} onCopy={copyValue} /> : null}
         </section>
 
+        {artifacts.length ? (
+          <>
+            <Divider />
+            <section className="wt-archive-drawer-section">
+              <Title order={3}>Archived submission artifacts</Title>
+              <Text size="sm" c="dimmed" mb="sm">These values were captured with this immutable response version.</Text>
+              <Stack gap="sm">
+                {artifacts.map((artifact, index) => (
+                  <div key={`${artifact.fieldKey || 'artifact'}-${index}`}>
+                    <Text size="sm" fw={750}>{artifact.label || artifact.fieldKey || `Artifact ${index + 1}`}</Text>
+                    <Text size="xs" c="dimmed">{archiveArtifactTypeLabel(artifact.fieldType)}</Text>
+                    {isWebLink(artifact.value) ? (
+                      <Button
+                        component="a"
+                        href={makeDriveViewUrl(artifact.value)}
+                        target="_blank"
+                        rel="noreferrer"
+                        variant="default"
+                        size="xs"
+                        mt={6}
+                        leftSection={<ArrowSquareOut size={15} />}
+                      >
+                        Open archived source
+                      </Button>
+                    ) : (
+                      <Text size="sm" mt={4}>{artifact.value}</Text>
+                    )}
+                  </div>
+                ))}
+              </Stack>
+            </section>
+          </>
+        ) : null}
+
         <Divider />
 
         <section className="wt-archive-drawer-section">
           <Title order={3}>Actions</Title>
           <Group gap="sm" className="wt-archive-drawer-actions">
-            {archive.sourceLink ? (
+            {!artifacts.length && archive.sourceLink ? (
               <Button
                 component="a"
                 href={makeDriveViewUrl(archive.sourceLink)}
@@ -133,6 +168,22 @@ export function ArchiveRecordDrawer({ archive, opened, storageConfigured, onClos
       </Stack>
     </Drawer>
   );
+}
+
+function isWebLink(value) {
+  return /^https?:\/\//i.test(String(value || '').trim());
+}
+
+function archiveArtifactTypeLabel(type) {
+  return ({
+    DRIVE_PDF: 'Google Drive PDF',
+    GOOGLE_FORM: 'Google Form',
+    GOOGLE_SHEET: 'Google Sheet',
+    DRIVE_FOLDER: 'Google Drive folder',
+    GENERAL_URL: 'Link',
+    TEXTAREA: 'Text response',
+    LEGACY: 'Legacy response field'
+  })[type] || 'Submission artifact';
 }
 
 function Detail({ label, value, mono = false, wide = false }) {

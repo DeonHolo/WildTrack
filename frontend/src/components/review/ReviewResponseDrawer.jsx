@@ -5,6 +5,7 @@ import {
   Divider,
   Drawer,
   Group,
+  Paper,
   ScrollArea,
   Stack,
   Text,
@@ -18,14 +19,16 @@ import {
   MagnifyingGlass,
   Sparkle
 } from '@phosphor-icons/react';
-import { compactMissingSections, documentCheckStatus } from './DocumentCheckDialog.jsx';
+import { compactMissingSections } from './DocumentCheckDialog.jsx';
 import {
-  firstSubmissionLink,
+  artifactAiReview,
+  artifactAiReviewStatus,
+  artifactDocumentCheck,
+  artifactDocumentCheckStatus,
   formatDateTime,
   getProjectMetadata,
-  isAiReportCurrent,
-  aiReviewStatus,
-  isDocumentCheckCurrent,
+  isArtifactAiReviewCurrent,
+  isArtifactDocumentCheckCurrent,
   makeDriveViewUrl
 } from '../../lib/workflow.js';
 import { StatusIndicator } from '../ui.jsx';
@@ -36,8 +39,7 @@ export function ReviewResponseDrawer({
   student,
   state,
   deliverable,
-  documentCheckEnabled,
-  checking = false,
+  checkingFields = new Set(),
   checkError = '',
   onClose,
   onDocumentCheck,
@@ -47,21 +49,17 @@ export function ReviewResponseDrawer({
   onArchive
 }) {
   if (!response || !student || !deliverable) return null;
-  const fileLink = firstSubmissionLink(response.values);
   const project = getProjectMetadata(state, student.teamCode || response.teamCode);
-  const report = response.documentCheck;
-  const aiReport = response.aiReport;
   const accepted = response.reviewStatus === 'Accepted';
   const archived = response.archiveStatus === 'Archived';
-  const checkRunning = checking || response.fileCheckStatus === 'Checking';
-  const missingPreview = compactMissingSections(report?.missingSections, 4);
+  const fields = deliverable.fields || [];
 
   return (
     <Drawer
       opened={opened}
       onClose={onClose}
       position="right"
-      size="min(620px, 96vw)"
+      size="min(680px, 96vw)"
       title={`Review ${student.name}`}
       aria-label={`Review ${student.name}`}
       classNames={{ content: 'wt-review-drawer', header: 'wt-review-drawer-header', body: 'wt-review-drawer-body' }}
@@ -80,85 +78,25 @@ export function ReviewResponseDrawer({
           </Group>
         </section>
 
-        <Group gap="sm" className="wt-review-drawer-file-actions">
-          {fileLink ? (
-            <Button
-              component="a"
-              href={makeDriveViewUrl(fileLink)}
-              target="_blank"
-              rel="noreferrer"
-              variant="default"
-              leftSection={<ArrowSquareOut size={17} aria-hidden="true" />}
-              aria-label="Open submitted file"
-            >
-              Open submitted file
-            </Button>
-          ) : <StatusIndicator status="No file link" />}
-          {documentCheckEnabled ? (
-            <Button
-              variant="light"
-              color="wildtrackMaroon"
-              leftSection={<MagnifyingGlass size={17} aria-hidden="true" />}
-              loading={checkRunning}
-              onClick={onDocumentCheck}
-            >
-              {isDocumentCheckCurrent(response) ? 'View Document Check' : 'Check document'}
-            </Button>
-          ) : null}
-          <Button
-            variant="light"
-            color="wildtrackGold"
-            leftSection={<Sparkle size={17} />}
-            disabled={!documentCheckEnabled || !isDocumentCheckCurrent(response)}
-            onClick={onAiReview}
-          >
-            {aiReviewStatus(response) === 'Retry required' ? 'Retry AI review' : isAiReportCurrent(response) ? 'Rerun AI Review' : 'Run AI Review'}
-          </Button>
-        </Group>
-
         <Divider />
 
-        <section className="wt-review-detail-section" aria-labelledby="document-check-detail-heading">
-          <Group justify="space-between" gap="sm">
-            <Text component="h3" id="document-check-detail-heading" fw={750}>Document Check</Text>
-            <StatusIndicator status={documentCheckEnabled ? documentCheckStatus(response) : 'Not checked'} />
-          </Group>
-          {documentCheckEnabled ? (
-            <>
-              <Text size="sm">{report?.summary || response.checkSummary || 'This response has not been checked yet.'}</Text>
-              {report?.redFlags?.length ? (
-                <Group gap="xs">{report.redFlags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}</Group>
-              ) : null}
-              {missingPreview ? <Text size="xs" c="dimmed">Template headings not detected: {missingPreview}</Text> : null}
-              {report?.document ? (
-                <Text size="xs" c="dimmed" className="wt-tabular">
-                  {report.document.pageCount} pages | {report.document.extractedCharacterCount.toLocaleString()} readable characters
-                </Text>
-              ) : null}
-            </>
-          ) : <Text size="sm" c="dimmed">This link-based deliverable does not require PDF Document Check.</Text>}
-        </section>
-
-        <section className="wt-review-detail-section" aria-labelledby="ai-review-detail-heading">
-          <Group justify="space-between" gap="sm">
-            <Text component="h3" id="ai-review-detail-heading" fw={750}>AI Review</Text>
-            <StatusIndicator status={aiReviewStatus(response)} />
-          </Group>
-          {isAiReportCurrent(response) ? (
-            <ScrollArea.Autosize mah={220} type="auto" offsetScrollbars>
-              <Stack gap="xs" pr="sm">
-                <Text size="sm">{aiReport.summary}</Text>
-                <Text size="xs" c="dimmed">Saved review of the checked PDF. Running AI review again verifies the file and reuses this result if unchanged.</Text>
-                {aiReport.flags?.length ? <Text size="xs"><strong>Flags:</strong> {aiReport.flags.join(', ')}</Text> : null}
-                {aiReport.missingSections?.length ? <Text size="xs"><strong>Missing or weak:</strong> {aiReport.missingSections.join(', ')}</Text> : null}
-                {aiReport.suggestedAction ? <Text size="xs"><strong>Suggested action:</strong> {aiReport.suggestedAction}</Text> : null}
-              </Stack>
-            </ScrollArea.Autosize>
-          ) : (
-            <Text size="sm" c="dimmed">{['Retry required', 'Reviewing'].includes(aiReviewStatus(response))
-              ? response.aiReviewState?.message || 'The AI review has not completed yet.'
-              : 'No current AI Review is available for this response.'}</Text>
-          )}
+        <section className="wt-review-detail-section" aria-labelledby="submission-artifacts-heading">
+          <Stack gap="sm">
+            <div>
+              <Text component="h3" id="submission-artifacts-heading" fw={750}>Submission artifacts</Text>
+              <Text size="xs" c="dimmed">Only PDF artifacts configured for review are sent through Document Check or AI Review.</Text>
+            </div>
+            {fields.map((field) => (
+              <ArtifactCard
+                key={field.definitionId || field.id}
+                response={response}
+                field={field}
+                checking={checkingFields.has(artifactKey(response.id, field))}
+                onDocumentCheck={() => onDocumentCheck?.(field)}
+                onAiReview={() => onAiReview?.(field)}
+              />
+            ))}
+          </Stack>
         </section>
 
         <section className="wt-review-detail-section" aria-labelledby="project-context-heading">
@@ -177,7 +115,7 @@ export function ReviewResponseDrawer({
         <Divider />
         <Group justify="flex-end" gap="sm" className="wt-review-decision-actions">
           {accepted ? (
-            <Button variant="default" leftSection={<ArrowCounterClockwise size={17} />} disabled={archived} onClick={onRevoke}>
+            <Button variant="default" leftSection={<ArrowCounterClockwise size={17} />} onClick={onRevoke}>
               Revoke acceptance
             </Button>
           ) : (
@@ -192,4 +130,92 @@ export function ReviewResponseDrawer({
       </Stack>
     </Drawer>
   );
+}
+
+function ArtifactCard({ response, field, checking, onDocumentCheck, onAiReview }) {
+  const value = String(response.values?.[field.id] || '').trim();
+  const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
+  const report = artifactDocumentCheck(response, field);
+  const checkStatus = reviewablePdf ? artifactDocumentCheckStatus(response, field) : 'Not applicable';
+  const aiState = artifactAiReview(response, field);
+  const aiCurrent = isArtifactAiReviewCurrent(response, field);
+  const aiStatus = artifactAiReviewStatus(response, field);
+  const aiReport = aiCurrent ? aiState?.report : null;
+  const missingPreview = compactMissingSections(report?.missingSections, 4);
+
+  return (
+    <Paper withBorder p="md" radius="md">
+      <Stack gap="sm">
+        <Group justify="space-between" align="flex-start" wrap="nowrap">
+          <div>
+            <Text fw={750} size="sm">{field.label}</Text>
+            <Text size="xs" c="dimmed">{fieldTypeLabel(field)}</Text>
+          </div>
+          {reviewablePdf ? <StatusIndicator status={checkStatus} /> : null}
+        </Group>
+        {value ? (
+          <Button component="a" href={makeDriveViewUrl(value)} target="_blank" rel="noreferrer" variant="default"
+            size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
+            Open submitted link
+          </Button>
+        ) : <StatusIndicator status="No file link" />}
+
+        {reviewablePdf ? (
+          <>
+            <Group gap="xs">
+              <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<MagnifyingGlass size={15} />}
+                loading={checking} disabled={!value} onClick={onDocumentCheck}>
+                {isArtifactDocumentCheckCurrent(response, field) ? 'View Document Check' : field.documentCheckPolicy === 'MANUAL' ? 'Check document' : 'Check again'}
+              </Button>
+              {field.aiReviewEnabled ? (
+                <Button variant="light" color="wildtrackGold" size="xs" leftSection={<Sparkle size={15} />}
+                  disabled={!isArtifactDocumentCheckCurrent(response, field)} onClick={onAiReview}>
+                  {aiStatus === 'Retry required' ? 'Retry AI review' : aiCurrent ? 'Rerun AI Review' : 'Run AI Review'}
+                </Button>
+              ) : null}
+            </Group>
+            {report ? (
+              <Stack gap={3}>
+                <Text size="sm">{report.summary || 'Document Check completed.'}</Text>
+                {report.redFlags?.length ? <Group gap="xs">{report.redFlags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}</Group> : null}
+                {missingPreview ? <Text size="xs" c="dimmed">Template headings not detected: {missingPreview}</Text> : null}
+              </Stack>
+            ) : <Text size="xs" c="dimmed">No Document Check result is available for this PDF yet.</Text>}
+            {field.aiReviewEnabled ? (
+              <Stack gap={3}>
+                <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={aiStatus} /></Group>
+                {aiReport ? (
+                  <ScrollArea.Autosize mah={180} type="auto" offsetScrollbars>
+                    <Stack gap={3} pr="sm">
+                      <Text size="sm">{aiReport.summary}</Text>
+                      {aiReport.flags?.length ? <Text size="xs"><strong>Flags:</strong> {aiReport.flags.join(', ')}</Text> : null}
+                      {aiReport.missingSections?.length ? <Text size="xs"><strong>Missing or weak:</strong> {aiReport.missingSections.join(', ')}</Text> : null}
+                      {aiReport.suggestedAction ? <Text size="xs"><strong>Suggested action:</strong> {aiReport.suggestedAction}</Text> : null}
+                    </Stack>
+                  </ScrollArea.Autosize>
+                ) : <Text size="xs" c="dimmed">{aiState?.message || 'No current AI Review is available for this PDF.'}</Text>}
+              </Stack>
+            ) : null}
+          </>
+        ) : (
+          <Text size="xs" c="dimmed">This artifact is recorded for submission evidence only. Document Check and AI Review are disabled.</Text>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
+function artifactKey(responseId, field) {
+  return `${responseId}:${field.definitionId || field.id}`;
+}
+
+function fieldTypeLabel(field) {
+  return ({
+    drive: 'Google Drive PDF',
+    googleForm: 'Google Form',
+    googleSheet: 'Google Sheet',
+    driveFolder: 'Google Drive folder',
+    textarea: 'Text response',
+    url: 'Link'
+  })[field.type] || 'Submission field';
 }

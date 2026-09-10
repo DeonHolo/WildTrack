@@ -1,6 +1,7 @@
 import { getStudentDashboard } from './api.js';
 import {
   applyFileCheck,
+  applyFieldChecks,
   applyReviewState,
   emptyDomainState,
   mapDeliverables,
@@ -28,7 +29,7 @@ export async function loadStudentDashboard(workspaceId) {
       const response = mapResponse(raw);
       if (!raw.owned) return response;
       return applyReviewState(
-        applyFileCheck(response, dashboard.fileChecks?.[raw.id]),
+        applyFieldChecks(applyFileCheck(response, dashboard.fileChecks?.[raw.id]), dashboard.fileChecksByField?.[raw.id]),
         dashboard.reviewStates?.[raw.id]
       );
     })

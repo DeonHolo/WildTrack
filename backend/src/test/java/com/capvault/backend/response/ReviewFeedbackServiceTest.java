@@ -140,4 +140,19 @@ class ReviewFeedbackServiceTest {
         assertThat(service.activeAcceptance(rid)).isEmpty();
         assertThat(jdbc.queryForObject("select actor_subject from domain_audit_events where target_id = ? and action = 'ACCEPTANCE_REVOKED'", String.class, rid)).isEqualTo("sub-adviser");
     }
+
+    @Test
+    void reacceptAfterRevokeReusesTheSingleAcceptanceRow() {
+        UUID rid = responseId();
+        var first = service.accept(rid, "sub-adviser", "adv@school.edu", "ADVISER");
+        service.revoke(rid, "sub-adviser", "ADVISER");
+
+        var second = service.accept(rid, "sub-adviser", "adv@school.edu", "ADVISER");
+
+        assertThat(second.getId()).isEqualTo(first.getId());
+        assertThat(second.getRevokedAt()).isNull();
+        assertThat(service.activeAcceptance(rid)).isPresent();
+        assertThat(jdbc.queryForObject("select count(*) from response_acceptances where response_id = ?", Long.class, rid))
+            .isEqualTo(1L);
+    }
 }

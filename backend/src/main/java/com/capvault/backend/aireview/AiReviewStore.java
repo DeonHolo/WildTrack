@@ -131,6 +131,58 @@ public class AiReviewStore {
         return result;
     }
 
+    public void linkField(UUID responseId, String fieldId, String sourceValueHash, String key) {
+        try {
+            tx.executeWithoutResult(status -> jdbc.update("""
+                INSERT INTO ai_review_field_links(response_id, field_id, source_value_sha256, cache_key)
+                VALUES (?, ?, ?, ?)
+                """, responseId, fieldId, sourceValueHash, key));
+        } catch (DuplicateKeyException duplicate) {
+            tx.executeWithoutResult(status -> jdbc.update("""
+                UPDATE ai_review_field_links SET source_value_sha256 = ?, cache_key = ?
+                WHERE response_id = ? AND field_id = ?
+                """, sourceValueHash, key, responseId, fieldId));
+        }
+    }
+
+    public Optional<Job> linkedField(UUID responseId, String fieldId, String sourceValueHash) {
+        return jdbc.query("""
+            SELECT cache_key FROM ai_review_field_links
+            WHERE response_id = ? AND field_id = ? AND source_value_sha256 = ?
+            """, (rs, n) -> rs.getString(1), responseId, fieldId, sourceValueHash)
+            .stream().findFirst().flatMap(this::find);
+    }
+
+    public void unlinkField(UUID responseId, String fieldId, String sourceValueHash, String key) {
+        tx.executeWithoutResult(status -> jdbc.update("""
+            DELETE FROM ai_review_field_links
+            WHERE response_id = ? AND field_id = ? AND source_value_sha256 = ? AND cache_key = ?
+            """, responseId, fieldId, sourceValueHash, key));
+    }
+
+    public record FieldLink(String sourceValueHash, Job job) { }
+
+    public Map<UUID, Map<String, FieldLink>> linkedFieldsFor(List<UUID> ids) {
+        Map<UUID, Map<String, FieldLink>> result = new HashMap<>();
+        for (int offset = 0; offset < ids.size(); offset += 500) {
+            var batch = ids.subList(offset, Math.min(offset + 500, ids.size()));
+            if (batch.isEmpty()) continue;
+            String placeholders = String.join(",", java.util.Collections.nCopies(batch.size(), "?"));
+            jdbc.query("""
+                SELECT l.response_id, l.field_id, l.source_value_sha256, j.*
+                FROM ai_review_field_links l JOIN ai_review_jobs j ON j.cache_key = l.cache_key
+                WHERE l.response_id IN (""" + placeholders + ")", rs -> {
+                Job job = new Job(rs.getString("cache_key"), rs.getString("context_sha256"), rs.getString("state"),
+                    rs.getObject("claim_token", UUID.class), rs.getTimestamp("started_at").toInstant(),
+                    rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant(),
+                    rs.getString("report_json"), rs.getString("failure_code"));
+                result.computeIfAbsent(rs.getObject("response_id", UUID.class), ignored -> new HashMap<>())
+                    .put(rs.getString("field_id"), new FieldLink(rs.getString("source_value_sha256"), job));
+            }, batch.toArray());
+        }
+        return result;
+    }
+
     public String displayState(Job job) {
         return job.state().equals("RUNNING") && job.startedAt().isBefore(clock.instant().minus(ABANDONED_AFTER))
             ? "UNCERTAIN" : job.state();

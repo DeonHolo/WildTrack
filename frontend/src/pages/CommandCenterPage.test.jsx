@@ -149,13 +149,13 @@ describe("today's work queues", () => {
     workflow.activeWorkspaceId = 'ws-old';
     workflow.runDocumentCheck.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     const view = renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Check Student unchecked-001 document' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check Student unchecked-001 reviewable PDF artifacts' }));
     if (change === 'workspace') workflow.activeWorkspaceId = 'ws-new';
     else workflow.session = { authenticated: true, email: 'other@example.com' };
     view.rerender(pageTree());
     await act(async () => { finish({ ok: false, error: 'Private old document failure' }); });
     expect(screen.queryByText('Private old document failure')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Check Student unchecked-001 document' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Check Student unchecked-001 reviewable PDF artifacts' })).toBeEnabled();
   });
 
   it('shows only unresolved operational work without metric cards or recent activity', () => {
@@ -185,14 +185,14 @@ describe("today's work queues", () => {
     });
     const view = renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Check Student unchecked-001 document' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check Student unchecked-001 reviewable PDF artifacts' }));
     await waitFor(() => expect(workflow.runDocumentCheck).toHaveBeenCalledWith('unchecked-001'));
     view.rerender(
       <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
         <ModalsProvider><Notifications /><MemoryRouter><CommandCenterPage /></MemoryRouter></ModalsProvider>
       </MantineProvider>
     );
-    expect(screen.queryByRole('button', { name: 'Check Student unchecked-001 document' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check Student unchecked-001 reviewable PDF artifacts' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Archive Student accepted-004 final' }));
     const confirmation = await screen.findByRole('dialog', { name: 'Archive this accepted response?' });
@@ -221,6 +221,47 @@ describe("today's work queues", () => {
       .toHaveAttribute('href', '/workspace?source=tracker');
     expect(screen.getByRole('link', { name: 'Open failed archive record' }))
       .toHaveAttribute('href', '/archive?record=archive-failed-1');
+  });
+
+  it('keeps two pending PDF artifacts in one response task and checks both explicit fields', async () => {
+    const attempt = response('mvp-001', {
+      values: {
+        validationInstrument: 'https://docs.google.com/forms/d/e/form-id/viewform',
+        frameworkModel: 'https://drive.google.com/file/d/framework-pdf/view',
+        responseSheet: 'https://docs.google.com/spreadsheets/d/sheet-id/edit',
+        validationHighlights: 'https://drive.google.com/file/d/highlights-pdf/view',
+        validationEvidence: 'https://drive.google.com/drive/folders/evidence-folder'
+      }
+    });
+    workflow.state = makeState([attempt]);
+    workflow.state.deliverables[0] = {
+      ...workflow.state.deliverables[0],
+      title: 'MVP Validation',
+      shortTitle: 'MVP Validation',
+      fields: [
+        { id: 'validationInstrument', definitionId: 'field-form', label: 'Validation Instrument', type: 'googleForm', pdfRequired: false, documentCheckPolicy: 'OFF' },
+        { id: 'frameworkModel', definitionId: 'field-framework', label: 'Framework / Model', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO' },
+        { id: 'responseSheet', definitionId: 'field-sheet', label: 'Validation Response Sheet', type: 'googleSheet', pdfRequired: false, documentCheckPolicy: 'OFF' },
+        { id: 'validationHighlights', definitionId: 'field-highlights', label: 'MVP Validation Highlights', type: 'drive', pdfRequired: true, documentCheckPolicy: 'MANUAL' },
+        { id: 'validationEvidence', definitionId: 'field-folder', label: 'Validation Evidence', type: 'driveFolder', pdfRequired: false, documentCheckPolicy: 'OFF' }
+      ]
+    };
+    workflow.runDocumentChecks.mockResolvedValue({ ok: true, completed: 2, total: 2, failed: 0, results: [] });
+    renderPage();
+
+    const queue = screen.getByRole('table', { name: "Today's work queue" });
+    expect(within(queue).getAllByText('Document Check')).toHaveLength(1);
+    expect(within(queue).getByText('2 PDF artifacts · 0 checked · 2 need checking')).toBeInTheDocument();
+    expect(within(queue).getByRole('button', { name: 'Check Student mvp-001 reviewable PDF artifacts' })).toHaveTextContent('Check 2 PDFs');
+
+    fireEvent.click(within(queue).getByRole('button', { name: 'Check Student mvp-001 reviewable PDF artifacts' }));
+    await waitFor(() => expect(workflow.runDocumentChecks).toHaveBeenCalled());
+    const targets = workflow.runDocumentChecks.mock.calls[0][1];
+    expect(targets).toHaveLength(2);
+    expect(targets.map(target => [target.field.definitionId, target.response.values[target.field.id]])).toEqual([
+      ['field-framework', 'https://drive.google.com/file/d/framework-pdf/view'],
+      ['field-highlights', 'https://drive.google.com/file/d/highlights-pdf/view']
+    ]);
   });
 
   it('stays compact at realistic workload volume and filters by work type', () => {

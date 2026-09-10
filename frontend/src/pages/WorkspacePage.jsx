@@ -84,6 +84,7 @@ const SUMMARY_METRIC_LABELS = {
 
 const EMPTY_TEMPLATE = {
   deliverable: '',
+  fieldId: null,
   name: '',
   sourceType: 'upload',
   file: null,
@@ -133,6 +134,8 @@ export function WorkspacePage() {
   });
 
   const activeColumns = getActiveTrackerColumns(state);
+  const templateDeliverable = state.deliverables.find((item) => item.trackerColumn === template.deliverable) || null;
+  const templateFieldOptions = getTemplateFieldOptions(templateDeliverable);
   const classRecord = state.classRecord;
   const sourceStatuses = useMemo(() => SOURCE_CONFIG.map((source) => ({
     ...source,
@@ -222,8 +225,13 @@ export function WorkspacePage() {
   }
 
   function openTemplateModal(item = null) {
+    const initialDeliverable = item?.deliverable
+      ? state.deliverables.find((deliverable) => deliverable.trackerColumn === item.deliverable) || null
+      : state.deliverables.find((deliverable) => getTemplateFieldOptions(deliverable).length) || null;
+    const initialFieldOptions = getTemplateFieldOptions(initialDeliverable);
     setTemplate({
-      deliverable: item?.deliverable || activeColumns[0]?.label || '',
+      deliverable: item?.deliverable || initialDeliverable?.trackerColumn || '',
+      fieldId: item ? (item.fieldId || null) : (initialFieldOptions.length === 1 ? initialFieldOptions[0].value : null),
       name: item?.name || '',
       sourceType: 'upload',
       file: null,
@@ -249,8 +257,12 @@ export function WorkspacePage() {
     const needsUpload = template.sourceType === 'upload' && !template.file;
     const needsDriveLink = template.sourceType === 'drive' && !template.driveUrl.trim();
     const needsName = template.sourceType === 'upload' && !template.name.trim();
-    if (!template.deliverable || needsName || needsUpload || needsDriveLink) {
-      setTemplateError('Choose a deliverable and template file or Drive link.');
+    const needsArtifact = !template.replacing && templateFieldOptions.length > 1 && !template.fieldId;
+    const noCheckableArtifact = !template.replacing && !templateFieldOptions.length;
+    if (!template.deliverable || needsArtifact || noCheckableArtifact || needsName || needsUpload || needsDriveLink) {
+      setTemplateError(noCheckableArtifact
+        ? 'Choose a deliverable with a PDF artifact that uses Document Check.'
+        : 'Choose a deliverable, PDF artifact, and template file or Drive link.');
       return;
     }
     setTemplateSaving(true);
@@ -511,35 +523,39 @@ export function WorkspacePage() {
         <div className="panel-header">
           <div>
             <h2>Official templates</h2>
-            <p>Maintain one comparison template per deliverable. Replacing a template keeps the deliverable mapping.</p>
+            <p>Maintain one comparison template per checkable PDF artifact. Replacing a template keeps its deliverable and artifact mapping.</p>
           </div>
           <Button type="button" icon={PlusCircle} onClick={() => openTemplateModal()}>Add official template</Button>
         </div>
         <div className="table-wrap">
           <table aria-label="Official document templates" className="wt-template-table">
-            <thead><tr><th>Deliverable</th><th>Template</th><th>Source</th><th>Updated</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Deliverable</th><th>Artifact</th><th>Template</th><th>Source</th><th>Updated</th><th>Actions</th></tr></thead>
             <tbody>
-              {state.templates.map((item) => (
-                <tr key={item.id}>
-                  <td><strong>{item.deliverable}</strong></td>
-                  <td><strong>{item.name}</strong><small>{item.extractedCharacterCount ? `${item.extractedCharacterCount.toLocaleString()} readable characters` : 'Ready for comparison'}</small></td>
-                  <td>{item.originalFilename || item.sourceUrl || 'Starter template reference'}</td>
-                  <td>{item.extractedAt ? formatDateTime(item.extractedAt) : 'Starter data'}</td>
-                  <td>
-                    <div className="wt-row-actions">
-                      {item.originalFilename || item.fileUrl ? (
-                        <Button component="a" type="button" size="sm" variant="secondary" icon={ArrowSquareOut} href={item.fileUrl || getDocumentTemplateFileUrl(activeWorkspaceId, item.id)} target="_blank" rel="noreferrer">
-                          Open
-                        </Button>
-                      ) : null}
-                      <Button type="button" size="sm" variant="secondary" icon={PencilSimple} onClick={() => openTemplateModal(item)}>Replace</Button>
-                      <Button type="button" size="sm" variant="secondary" icon={Trash} onClick={() => setTemplateToRemove(item)}>Remove</Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {state.templates.map((item) => {
+                const artifactLabel = templateArtifactLabel(item, state.deliverables);
+                return (
+                  <tr key={item.id}>
+                    <td><strong>{item.deliverable}</strong></td>
+                    <td><strong>{artifactLabel}</strong></td>
+                    <td><strong>{item.name}</strong><small>{item.extractedCharacterCount ? `${item.extractedCharacterCount.toLocaleString()} readable characters` : 'Ready for comparison'}</small></td>
+                    <td>{item.originalFilename || item.sourceUrl || 'Starter template reference'}</td>
+                    <td>{item.extractedAt ? formatDateTime(item.extractedAt) : 'Starter data'}</td>
+                    <td>
+                      <div className="wt-row-actions">
+                        {item.originalFilename || item.fileUrl ? (
+                          <Button component="a" type="button" size="sm" variant="secondary" icon={ArrowSquareOut} href={item.fileUrl || getDocumentTemplateFileUrl(activeWorkspaceId, item.id)} target="_blank" rel="noreferrer">
+                            Open
+                          </Button>
+                        ) : null}
+                        <Button type="button" size="sm" variant="secondary" icon={PencilSimple} onClick={() => openTemplateModal(item)}>Replace</Button>
+                        <Button type="button" size="sm" variant="secondary" icon={Trash} onClick={() => setTemplateToRemove(item)}>Remove</Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {!state.templates.length ? (
-                <tr><td colSpan="5"><div className="wt-empty-row"><FileText aria-hidden="true" /><span>No official templates added for this workspace.</span></div></td></tr>
+                <tr><td colSpan="6"><div className="wt-empty-row"><FileText aria-hidden="true" /><span>No official templates added for this workspace.</span></div></td></tr>
               ) : null}
             </tbody>
           </table>
@@ -573,9 +589,35 @@ export function WorkspacePage() {
               aria-label="Template deliverable"
               value={template.deliverable}
               disabled={Boolean(template.replacing)}
-              onChange={(event) => setTemplate({ ...template, deliverable: event.currentTarget.value })}
+              onChange={(event) => {
+                const deliverable = event.currentTarget.value;
+                const selected = state.deliverables.find((item) => item.trackerColumn === deliverable) || null;
+                const options = getTemplateFieldOptions(selected);
+                setTemplate({
+                  ...template,
+                  deliverable,
+                  fieldId: options.length === 1 ? options[0].value : null
+                });
+              }}
               data={activeColumns.map((column) => ({ value: column.label, label: column.label }))}
             />
+            <NativeSelect
+              label="Artifact / PDF field"
+              description="Templates are associated with one Document Check-enabled PDF artifact."
+              required={!template.replacing && templateFieldOptions.length > 1}
+              aria-label="Template artifact field"
+              value={template.fieldId || ''}
+              disabled={Boolean(template.replacing) || templateFieldOptions.length <= 1}
+              onChange={(event) => setTemplate({ ...template, fieldId: event.currentTarget.value || null })}
+              data={[
+                ...(!template.fieldId && (template.replacing || templateFieldOptions.length !== 1)
+                  ? [{ value: '', label: template.replacing ? 'Legacy/default PDF artifact' : 'Choose a PDF artifact' }]
+                  : []),
+                ...templateFieldOptions
+              ]}
+            />
+          </div>
+          <div className="two-col">
             <TextInput
               label="Template name"
               description={template.sourceType === 'drive' ? 'Optional; the Drive filename is used when blank.' : 'Defaults to the uploaded filename.'}
@@ -654,13 +696,13 @@ export function WorkspacePage() {
       <ConfirmDialog
         open={Boolean(templateToRemove)}
         title="Remove this official template?"
-        description="Future Document Checks for this deliverable will no longer compare against this template. Existing reports remain."
+        description="Future Document Checks for this PDF artifact will no longer compare against this template. Existing reports remain."
         confirmLabel="Remove template"
         intent="danger"
         onClose={() => setTemplateToRemove(null)}
         onConfirm={confirmRemoveTemplate}
       >
-        <strong>{templateToRemove?.name}</strong><span>{templateToRemove?.deliverable}</span>
+        <strong>{templateToRemove?.name}</strong><span>{templateToRemove?.deliverable} | {templateArtifactLabel(templateToRemove, state.deliverables)}</span>
       </ConfirmDialog>
 
     </div>
@@ -774,4 +816,20 @@ function filenameToTemplateName(filename = '') {
     .replace(/[_-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function getTemplateFieldOptions(deliverable) {
+  return (deliverable?.fields || [])
+    .filter((field) => field.pdfRequired && field.documentCheckPolicy !== 'OFF' && field.definitionId)
+    .map((field) => ({ value: field.definitionId, label: field.label }));
+}
+
+function templateArtifactLabel(template, deliverables = []) {
+  const deliverable = deliverables.find((item) => item.trackerColumn === template?.deliverable) || null;
+  const fields = (deliverable?.fields || []).filter((field) => field.pdfRequired && field.documentCheckPolicy !== 'OFF');
+  if (template?.fieldId) {
+    return fields.find((field) => field.definitionId === template.fieldId)?.label || 'PDF artifact';
+  }
+  if (fields.length === 1) return fields[0].label;
+  return 'Legacy/default PDF artifact';
 }

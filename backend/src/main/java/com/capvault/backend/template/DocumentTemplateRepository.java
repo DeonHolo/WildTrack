@@ -14,4 +14,10 @@ public interface DocumentTemplateRepository extends JpaRepository<DocumentTempla
         UUID workspaceId,
         String deliverableKey
     );
+
+    Optional<DocumentTemplate> findByWorkspaceIdAndDeliverableKeyIgnoreCaseAndFieldId(
+        UUID workspaceId, String deliverableKey, String fieldId);
+
+    Optional<DocumentTemplate> findByWorkspaceIdAndDeliverableKeyIgnoreCaseAndFieldIdIsNull(
+        UUID workspaceId, String deliverableKey);
 }

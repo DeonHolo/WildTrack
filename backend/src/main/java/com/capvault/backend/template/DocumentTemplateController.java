@@ -45,10 +45,11 @@ public class DocumentTemplateController {
     public DocumentTemplateResponse save(
         @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
         @RequestParam String deliverableKey,
+        @RequestParam(required = false) String fieldId,
         @RequestParam String displayName,
         @RequestParam MultipartFile file
     ) {
-        return service.save(workspaceId, deliverableKey, displayName, file);
+        return service.save(workspaceId, deliverableKey, fieldId, displayName, file);
     }
 
     @PostMapping("/from-drive")
@@ -60,6 +61,7 @@ public class DocumentTemplateController {
         return service.saveFromDrive(
             workspaceId,
             request.deliverableKey(),
+            request.fieldId(),
             request.displayName(),
             request.driveUrl()
         );

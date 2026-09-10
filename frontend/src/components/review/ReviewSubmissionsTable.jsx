@@ -10,8 +10,14 @@ import {
   VisuallyHidden
 } from '@mantine/core';
 import { WarningCircle, CaretRight } from '@phosphor-icons/react';
-import { documentCheckStatus } from './DocumentCheckDialog.jsx';
-import { findStudent, formatDateTime, aiReviewStatus } from '../../lib/workflow.js';
+import {
+  aiReviewableSubmissionFields,
+  artifactAiReviewStatus,
+  artifactDocumentCheckStatus,
+  findStudent,
+  formatDateTime,
+  reviewableSubmissionFields
+} from '../../lib/workflow.js';
 import { StatusIndicator } from '../ui.jsx';
 
 export function ReviewSubmissionsTable({
@@ -66,6 +72,8 @@ export function ReviewSubmissionsTable({
                 const studentName = student?.name || response.studentName || response.studentNumber;
                 const archived = response.archiveStatus === 'Archived';
                 const decision = archived ? 'Archived' : response.reviewStatus || response.primaryStatus || 'Received';
+                const documentStatus = aggregateDocumentStatus(response, deliverable);
+                const aiStatus = aggregateAiStatus(response, deliverable);
                 return (
                   <Table.Tr key={response.id} data-selected={selectedResponseId === response.id || undefined}>
                     <Table.Td className="wt-review-select-cell">
@@ -89,8 +97,8 @@ export function ReviewSubmissionsTable({
                     </Table.Td>
                     <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{student?.teamCode || response.teamCode || 'Not assigned'}</Text></Table.Td>
                     <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{formatDateTime(response.updatedAt || response.submittedAt)}</Text></Table.Td>
-                    <Table.Td className="wt-review-status-cell"><StatusIndicator status={documentCheckEnabled ? documentCheckStatus(response) : 'Not applicable'} /></Table.Td>
-                    <Table.Td className="wt-review-status-cell"><StatusIndicator status={aiReviewStatus(response)} /></Table.Td>
+                    <Table.Td className="wt-review-status-cell"><StatusIndicator status={documentCheckEnabled ? documentStatus : 'Not applicable'} /></Table.Td>
+                    <Table.Td className="wt-review-status-cell"><StatusIndicator status={aiStatus} /></Table.Td>
                     <Table.Td className="wt-review-status-cell"><StatusIndicator status={decision} /></Table.Td>
                     <Table.Td className="wt-review-open-cell">
                       <Tooltip label={`Review ${studentName}`}>
@@ -108,4 +116,24 @@ export function ReviewSubmissionsTable({
       ) : null}
     </div>
   );
+}
+
+function aggregateDocumentStatus(response, deliverable) {
+  const fields = reviewableSubmissionFields(deliverable);
+  if (!fields.length) return 'Not applicable';
+  const statuses = fields.map((field) => artifactDocumentCheckStatus(response, field));
+  if (statuses.includes('Needs attention')) return 'Needs attention';
+  if (statuses.includes('Outdated')) return 'Outdated';
+  if (statuses.every((status) => status === 'Ready for review')) return 'Ready for review';
+  return 'Not checked';
+}
+
+function aggregateAiStatus(response, deliverable) {
+  const fields = aiReviewableSubmissionFields(deliverable);
+  if (!fields.length) return 'Not applicable';
+  const statuses = fields.map((field) => artifactAiReviewStatus(response, field));
+  if (statuses.includes('Retry required')) return 'Retry required';
+  if (statuses.includes('Reviewing')) return 'Reviewing';
+  if (statuses.every((status) => status === 'Reviewed')) return 'Reviewed';
+  return 'Not reviewed';
 }

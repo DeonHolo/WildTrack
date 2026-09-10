@@ -12,7 +12,12 @@ it('restores current archived status in review, monitoring and archive after rel
     let body;
     if (path === '/api/monitoring') body = {
       responses: ['current', 'edited'].map(id => ({ id, updatedAt, valuesJson: '{}' })),
-      archivedResponseIds: ['current'], allTeams: true
+      archivedResponseIds: ['current'],
+      reviewStates: {
+        current: { acceptance: { sourceResponseUpdatedAt: updatedAt }, feedback: [] },
+        edited: { acceptance: null, feedback: [] }
+      },
+      allTeams: true
     };
     else if (path === '/api/archive') body = [{ attemptId: 'current' }, { attemptId: 'edited' }];
     else if (path.endsWith('/review-state')) body = { acceptance: { sourceResponseUpdatedAt: updatedAt }, feedback: [] };

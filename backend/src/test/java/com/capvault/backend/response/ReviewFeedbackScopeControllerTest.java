@@ -14,8 +14,12 @@ import java.util.UUID;
 import com.capvault.backend.auth.GoogleIdentity;
 import com.capvault.backend.auth.WildTrackSessionService;
 import com.capvault.backend.deliverable.Deliverable;
+import com.capvault.backend.deliverable.DeliverableField;
+import com.capvault.backend.deliverable.DeliverableFieldRepository;
+import com.capvault.backend.deliverable.DeliverableFieldType;
 import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DeliverableStatus;
+import com.capvault.backend.deliverable.DocumentCheckPolicy;
 import com.capvault.backend.staff.AdviserTeamAssignment;
 import com.capvault.backend.staff.AdviserTeamAssignmentRepository;
 import com.capvault.backend.staff.StaffRole;
@@ -78,6 +82,9 @@ class ReviewFeedbackScopeControllerTest {
     private DeliverableRepository deliverableRepository;
 
     @Autowired
+    private DeliverableFieldRepository deliverableFieldRepository;
+
+    @Autowired
     private StaffRoleAssignmentRepository staffRoleRepository;
 
     @Autowired
@@ -116,6 +123,126 @@ class ReviewFeedbackScopeControllerTest {
             response.getGoogleSubject(), response.getGoogleEmail(), Map.of("value", "new version"), response.getRevision()));
         mockMvc.perform(get("/api/monitoring").param("workspaceId", workspaceId.toString())
                 .cookie(sessionCookie(admin)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.archivedResponseIds").isEmpty());
+    }
+
+    @Test
+    void revokeHidesCurrentArchiveWithoutDeletingSnapshotAndReacceptRestoresIt() throws Exception {
+        String admin = sessionTokenFor("archive-revoke-admin", "archive-revoke-admin@school.edu", StaffRole.ADMIN);
+        Cookie cookie = sessionCookie(admin);
+        String body = "{\"responseIds\":[\"" + assignedResponseId + "\"]}";
+
+        mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/accept")
+                .cookie(cookie).with(csrf()))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString())
+                .cookie(cookie).with(csrf()).contentType("application/json").content(body))
+            .andExpect(status().isOk());
+
+        var response = responseRepository.findById(assignedResponseId).orElseThrow();
+        var archived = archiveRepository.findByResponseIdAndSourceResponseUpdatedAt(
+            assignedResponseId, response.getUpdatedAt()).orElseThrow();
+
+        mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/revoke")
+                .cookie(cookie).with(csrf()))
+            .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/monitoring").param("workspaceId", workspaceId.toString())
+                .cookie(cookie))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.archivedResponseIds").isEmpty());
+        org.assertj.core.api.Assertions.assertThat(archiveRepository.findById(archived.getId())).isPresent();
+        org.assertj.core.api.Assertions.assertThat(archiveRepository.countByResponseId(assignedResponseId)).isEqualTo(1);
+
+        mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/accept")
+                .cookie(cookie).with(csrf()))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/monitoring").param("workspaceId", workspaceId.toString())
+                .cookie(cookie))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.archivedResponseIds[0]").value(assignedResponseId.toString()));
+        mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString())
+                .cookie(cookie).with(csrf()).contentType("application/json").content(body))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].id").value(archived.getId().toString()))
+            .andExpect(jsonPath("$[0].version").value("v1"));
+        org.assertj.core.api.Assertions.assertThat(archiveRepository.countByResponseId(assignedResponseId)).isEqualTo(1);
+        var reused = archiveRepository.findById(archived.getId()).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(reused.getArchivedAt()).isEqualTo(archived.getArchivedAt());
+        org.assertj.core.api.Assertions.assertThat(reused.getMetadataSha256()).isEqualTo(archived.getMetadataSha256());
+    }
+
+    @Test
+    void archiveSnapshotsAllTypedArtifactsInsteadOfOnlyTheFirstSubmittedLink() throws Exception {
+        var response = responseRepository.findById(assignedResponseId).orElseThrow();
+        UUID deliverableId = response.getDeliverableId();
+        deliverableFieldRepository.saveAll(java.util.List.of(
+            new DeliverableField("archive-form", deliverableId, "validationInstrument", "Validation Instrument",
+                DeliverableFieldType.GOOGLE_FORM, true, 0, DocumentCheckPolicy.OFF, false, true),
+            new DeliverableField("archive-framework", deliverableId, "frameworkModel", "Framework / Model",
+                DeliverableFieldType.DRIVE_PDF, true, 1, DocumentCheckPolicy.MANUAL, true, true),
+            new DeliverableField("archive-sheet", deliverableId, "responseSheet", "Validation Response Sheet",
+                DeliverableFieldType.GOOGLE_SHEET, true, 2, DocumentCheckPolicy.OFF, false, true),
+            new DeliverableField("archive-highlights", deliverableId, "validationHighlights", "MVP Validation Highlights",
+                DeliverableFieldType.DRIVE_PDF, true, 3, DocumentCheckPolicy.MANUAL, true, true),
+            new DeliverableField("archive-evidence", deliverableId, "validationEvidence", "Validation Evidence",
+                DeliverableFieldType.DRIVE_FOLDER, true, 4, DocumentCheckPolicy.OFF, false, true)
+        ));
+        response.setValuesJson("""
+            {"validationInstrument":"https://docs.google.com/forms/d/e/form/viewform",
+             "frameworkModel":"https://drive.google.com/file/d/framework/view",
+             "responseSheet":"https://docs.google.com/spreadsheets/d/sheet/edit",
+             "validationHighlights":"https://drive.google.com/file/d/highlights/view",
+             "validationEvidence":"https://drive.google.com/drive/folders/evidence"}
+            """);
+        responseRepository.saveAndFlush(response);
+
+        String admin = sessionTokenFor("archive-artifacts-admin", "archive-artifacts-admin@school.edu", StaffRole.ADMIN);
+        Cookie cookie = sessionCookie(admin);
+        mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/accept")
+                .cookie(cookie).with(csrf()))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString())
+                .cookie(cookie).with(csrf()).contentType("application/json")
+                .content("{\"responseIds\":[\"" + assignedResponseId + "\"]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].artifacts.length()").value(5))
+            .andExpect(jsonPath("$[0].artifacts[0].label").value("Validation Instrument"))
+            .andExpect(jsonPath("$[0].artifacts[0].fieldType").value("GOOGLE_FORM"))
+            .andExpect(jsonPath("$[0].artifacts[1].label").value("Framework / Model"))
+            .andExpect(jsonPath("$[0].artifacts[1].fieldType").value("DRIVE_PDF"))
+            .andExpect(jsonPath("$[0].artifacts[3].label").value("MVP Validation Highlights"))
+            .andExpect(jsonPath("$[0].artifacts[4].fieldType").value("DRIVE_FOLDER"));
+
+        var archived = archiveRepository.findByResponseIdAndSourceResponseUpdatedAt(
+            assignedResponseId, response.getUpdatedAt()).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(archived.getArtifactSnapshotJson())
+            .contains("validationInstrument", "frameworkModel", "responseSheet", "validationHighlights", "validationEvidence");
+    }
+
+    @Test
+    void monitoringRequiresAcceptanceToMatchCurrentVersionEvenWhenArchiveSnapshotMatches() throws Exception {
+        String admin = sessionTokenFor("archive-version-admin", "archive-version-admin@school.edu", StaffRole.ADMIN);
+        Cookie cookie = sessionCookie(admin);
+        String body = "{\"responseIds\":[\"" + assignedResponseId + "\"]}";
+
+        mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/accept")
+                .cookie(cookie).with(csrf()))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString())
+                .cookie(cookie).with(csrf()).contentType("application/json").content(body))
+            .andExpect(status().isOk());
+
+        var response = responseRepository.findById(assignedResponseId).orElseThrow();
+        var acceptance = acceptanceRepository.findByResponseIdAndRevokedAtIsNull(assignedResponseId).orElseThrow();
+        acceptance.reactivate(acceptance.getAcceptedBySubject(), acceptance.getAcceptedByEmail(),
+            acceptance.getAcceptedByRole(), response.getUpdatedAt().minusSeconds(1), acceptance.getAcceptedAt());
+        acceptanceRepository.saveAndFlush(acceptance);
+
+        org.assertj.core.api.Assertions.assertThat(archiveRepository.findByResponseIdAndSourceResponseUpdatedAt(
+            assignedResponseId, response.getUpdatedAt())).isPresent();
+        mockMvc.perform(get("/api/monitoring").param("workspaceId", workspaceId.toString())
+                .cookie(cookie))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.archivedResponseIds").isEmpty());
     }

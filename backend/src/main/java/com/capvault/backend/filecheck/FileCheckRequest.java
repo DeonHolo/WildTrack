@@ -8,6 +8,9 @@ public record FileCheckRequest(
     @Size(max = 240, message = "Response ID is too long")
     String responseId,
 
+    @Size(max = 80, message = "Field ID is too long")
+    String fieldId,
+
     @NotBlank(message = "Deliverable is required")
     @Size(max = 180, message = "Deliverable key is too long")
     String deliverableKey,
@@ -19,4 +22,7 @@ public record FileCheckRequest(
     @Size(max = 80, message = "Response timestamp is too long")
     String sourceResponseUpdatedAt
 ) {
+    public FileCheckRequest(String responseId, String deliverableKey, String sourceUrl, String sourceResponseUpdatedAt) {
+        this(responseId, null, deliverableKey, sourceUrl, sourceResponseUpdatedAt);
+    }
 }

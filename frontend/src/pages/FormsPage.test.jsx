@@ -77,6 +77,16 @@ function createState() {
   };
 }
 
+function mvpValidationFields() {
+  return [
+    { id: 'validationInstrument', definitionId: 'field-form', label: 'Validation Instrument', type: 'googleForm', required: true, pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true },
+    { id: 'frameworkModel', definitionId: 'field-framework', label: 'Framework / Model', type: 'drive', required: true, pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true, active: true },
+    { id: 'responseSheet', definitionId: 'field-sheet', label: 'Validation Response Sheet', type: 'googleSheet', required: true, pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true },
+    { id: 'validationHighlights', definitionId: 'field-highlights', label: 'MVP Validation Highlights', type: 'drive', required: true, pdfRequired: true, documentCheckPolicy: 'MANUAL', aiReviewEnabled: true, active: true },
+    { id: 'validationEvidence', definitionId: 'field-folder', label: 'Validation Evidence', type: 'driveFolder', required: true, pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true }
+  ];
+}
+
 function PageHarness() {
   return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
@@ -170,6 +180,31 @@ describe('forms management', () => {
       slug: 'week-9-srs',
       title: 'Revised SRS Submission'
     })));
+  });
+
+  it('preserves one MVP Validation form with exactly five typed artifact fields', async () => {
+    workflow.state.deliverables[0] = {
+      ...workflow.state.deliverables[0],
+      title: 'MVP Validation',
+      shortTitle: 'MVP Validation',
+      fields: mvpValidationFields()
+    };
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit MVP Validation form' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Edit MVP Validation form' });
+    expect(within(dialog).getAllByRole('textbox', { name: 'Field label' })).toHaveLength(5);
+    expect(within(dialog).getAllByRole('textbox', { name: 'Field type' })).toHaveLength(5);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalledWith('workspace-it', expect.objectContaining({
+      id: 'deliverable-srs',
+      title: 'MVP Validation',
+      fields: mvpValidationFields()
+    })));
+    const savedFields = submissionClient.saveDeliverable.mock.calls[0][1].fields;
+    expect(savedFields.map(field => field.type)).toEqual(['googleForm', 'drive', 'googleSheet', 'drive', 'driveFolder']);
+    expect(savedFields.filter(field => field.pdfRequired).map(field => field.definitionId)).toEqual(['field-framework', 'field-highlights']);
   });
 
   it('shows a rejected server mutation without replacing the authoritative form row', async () => {

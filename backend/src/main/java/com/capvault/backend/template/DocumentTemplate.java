@@ -23,6 +23,9 @@ public class DocumentTemplate {
     @Column(name = "deliverable_key", nullable = false, length = 180)
     private String deliverableKey;
 
+    @Column(name = "field_id", length = 80)
+    private String fieldId;
+
     @Column(name = "display_name", nullable = false, length = 240)
     private String displayName;
 
@@ -65,6 +68,7 @@ public class DocumentTemplate {
     public DocumentTemplate(
         UUID workspaceId,
         String deliverableKey,
+        String fieldId,
         String displayName,
         String originalFilename,
         String contentType,
@@ -75,6 +79,7 @@ public class DocumentTemplate {
     ) {
         this.workspaceId = workspaceId;
         this.deliverableKey = deliverableKey;
+        this.fieldId = fieldId;
         this.displayName = displayName;
         this.originalFilename = originalFilename;
         this.contentType = contentType;
@@ -84,6 +89,21 @@ public class DocumentTemplate {
         this.sha256 = sha256;
         this.extractedText = extractedText;
         this.extractedCharacterCount = extractedText.length();
+    }
+
+    public DocumentTemplate(
+        UUID workspaceId,
+        String deliverableKey,
+        String displayName,
+        String originalFilename,
+        String contentType,
+        byte[] contentBytes,
+        String legacyStoragePath,
+        String sha256,
+        String extractedText
+    ) {
+        this(workspaceId, deliverableKey, null, displayName, originalFilename, contentType,
+            contentBytes, legacyStoragePath, sha256, extractedText);
     }
 
     @PrePersist
@@ -135,6 +155,8 @@ public class DocumentTemplate {
     public String getDeliverableKey() {
         return deliverableKey;
     }
+
+    public String getFieldId() { return fieldId; }
 
     public String getDisplayName() {
         return displayName;

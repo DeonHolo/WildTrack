@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Button,
+  Checkbox,
   Group,
   Modal,
+  Paper,
   Select,
   SimpleGrid,
   Stack,
@@ -10,7 +12,7 @@ import {
   TextInput,
   Textarea
 } from '@mantine/core';
-import { CheckCircle, PlusCircle } from '@phosphor-icons/react';
+import { ArrowDown, ArrowUp, CheckCircle, PlusCircle, Trash } from '@phosphor-icons/react';
 import { dateAt2359 } from '../../lib/forms.js';
 import { slugify } from '../../lib/workflow.js';
 
@@ -45,6 +47,44 @@ export function FormEditorModal({
   function submit(event) {
     event.preventDefault();
     onSave(draft);
+  }
+
+  function updateField(index, changes) {
+    setDraft((current) => ({
+      ...current,
+      fields: current.fields.map((field, fieldIndex) => fieldIndex === index ? { ...field, ...changes } : field)
+    }));
+  }
+
+  function addField() {
+    setDraft((current) => ({
+      ...current,
+      fields: [...(current.fields || []), {
+        id: newFieldKey(),
+        definitionId: null,
+        label: 'New submission link',
+        type: 'url',
+        required: true,
+        pdfRequired: false,
+        documentCheckPolicy: 'OFF',
+        aiReviewEnabled: false,
+        active: true
+      }]
+    }));
+  }
+
+  function removeField(index) {
+    setDraft((current) => ({ ...current, fields: current.fields.filter((_, fieldIndex) => fieldIndex !== index) }));
+  }
+
+  function moveField(index, direction) {
+    setDraft((current) => {
+      const fields = [...current.fields];
+      const target = index + direction;
+      if (target < 0 || target >= fields.length) return current;
+      [fields[index], fields[target]] = [fields[target], fields[index]];
+      return { ...current, fields };
+    });
   }
 
   return (
@@ -98,15 +138,6 @@ export function FormEditorModal({
               required
             />
           </SimpleGrid>
-          <Select
-            label="Document rule"
-            data={[
-              { value: 'pdf', label: 'PDF Drive link only' },
-              { value: 'link', label: 'General link fields' }
-            ]}
-            value={draft.pdfRequired ? 'pdf' : 'link'}
-            onChange={(value) => setDraft((current) => ({ ...current, pdfRequired: value === 'pdf' }))}
-          />
           <Textarea
             label="Instructions"
             value={draft.instructions}
@@ -118,6 +149,76 @@ export function FormEditorModal({
             minRows={3}
             maxRows={7}
           />
+          <Stack gap="sm">
+            <Group justify="space-between" align="flex-end">
+              <div>
+                <Text fw={750}>Submission fields</Text>
+                <Text size="xs" c="dimmed">Add each link or response the student must submit. PDF-only review controls appear only for Google Drive PDF fields.</Text>
+              </div>
+              <Button type="button" variant="default" size="sm" leftSection={<PlusCircle size={16} />} onClick={addField}>
+                Add field
+              </Button>
+            </Group>
+            {(draft.fields || []).map((field, index) => (
+              <Paper key={field.id} withBorder p="md" radius="md">
+                <Stack gap="sm">
+                  <Group justify="space-between" align="center">
+                    <Text size="sm" fw={750}>Field {index + 1}</Text>
+                    <Group gap={4}>
+                      <Button type="button" variant="subtle" size="compact-sm" aria-label={`Move ${field.label} up`} disabled={index === 0} onClick={() => moveField(index, -1)}><ArrowUp size={16} /></Button>
+                      <Button type="button" variant="subtle" size="compact-sm" aria-label={`Move ${field.label} down`} disabled={index === draft.fields.length - 1} onClick={() => moveField(index, 1)}><ArrowDown size={16} /></Button>
+                      <Button type="button" variant="subtle" color="red" size="compact-sm" aria-label={`Remove ${field.label}`} disabled={draft.fields.length === 1} onClick={() => removeField(index)}><Trash size={16} /></Button>
+                    </Group>
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                    <TextInput label="Field label" value={field.label} onChange={(event) => updateField(index, { label: event.currentTarget.value })} required />
+                    <Select
+                      label="Field type"
+                      value={field.type}
+                      data={FIELD_TYPES}
+                      allowDeselect={false}
+                      onChange={(value) => {
+                        const drive = value === 'drive';
+                        updateField(index, {
+                          type: value,
+                          pdfRequired: drive,
+                          documentCheckPolicy: drive ? (field.documentCheckPolicy === 'OFF' ? 'AUTO' : field.documentCheckPolicy || 'AUTO') : 'OFF',
+                          aiReviewEnabled: drive ? field.aiReviewEnabled !== false : false
+                        });
+                      }}
+                    />
+                  </SimpleGrid>
+                  <Checkbox checked={field.required !== false} onChange={(event) => updateField(index, { required: event.currentTarget.checked })} label="Required field" />
+                  {field.type === 'drive' ? (
+                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                      <Select
+                        label="Document Check"
+                        description="Auto runs after this PDF changes; Manual waits for staff; Off never queues it."
+                        value={field.documentCheckPolicy || 'AUTO'}
+                        allowDeselect={false}
+                        data={[
+                          { value: 'AUTO', label: 'Automatic' },
+                          { value: 'MANUAL', label: 'Manual' },
+                          { value: 'OFF', label: 'Off' }
+                        ]}
+                        onChange={(value) => updateField(index, {
+                          documentCheckPolicy: value,
+                          aiReviewEnabled: value === 'OFF' ? false : field.aiReviewEnabled
+                        })}
+                      />
+                      <Checkbox
+                        mt="xl"
+                        checked={Boolean(field.aiReviewEnabled)}
+                        disabled={field.documentCheckPolicy === 'OFF'}
+                        onChange={(event) => updateField(index, { aiReviewEnabled: event.currentTarget.checked })}
+                        label="Allow Admin AI Review"
+                      />
+                    </SimpleGrid>
+                  ) : null}
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
           <div className="wt-generated-link-preview">
             <Text size="xs" fw={750} c="dimmed">Public link</Text>
             <Text component="code" size="sm">/w/{workspaceKey}/submit/{generatedSlug}</Text>
@@ -136,6 +237,20 @@ export function FormEditorModal({
       </form>
     </Modal>
   );
+}
+
+const FIELD_TYPES = [
+  { value: 'url', label: 'General URL' },
+  { value: 'drive', label: 'Google Drive PDF' },
+  { value: 'googleForm', label: 'Google Form' },
+  { value: 'googleSheet', label: 'Google Sheet' },
+  { value: 'driveFolder', label: 'Google Drive folder' },
+  { value: 'textarea', label: 'Long text response' }
+];
+
+function newFieldKey() {
+  const token = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `field-${token}`;
 }
 
 function splitLocalDateTime(value) {

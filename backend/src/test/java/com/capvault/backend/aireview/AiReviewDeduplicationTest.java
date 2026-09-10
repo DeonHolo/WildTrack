@@ -33,11 +33,13 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class AiReviewDeduplicationTest {
     private final UUID workspace = UUID.randomUUID(), deliverableId = UUID.randomUUID();
     private final FormResponseRepository responses = mock(FormResponseRepository.class);
     private final DeliverableRepository deliverables = mock(DeliverableRepository.class);
+    private final DeliverableFieldRepository fields = mock(DeliverableFieldRepository.class);
     private final DocumentTemplateService templates = mock(DocumentTemplateService.class);
     private final GoogleDriveGateway drive = mock(GoogleDriveGateway.class);
     private final PdfInspector pdf = mock(PdfInspector.class);
@@ -60,11 +62,21 @@ class AiReviewDeduplicationTest {
         jdbc.execute("CREATE TABLE academic_deliverables(id UUID PRIMARY KEY)");
         jdbc.execute("CREATE TABLE form_responses(id UUID PRIMARY KEY)");
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__deduplicated_ai_reviews.sql")).execute(datasource);
+        jdbc.execute("""
+            CREATE TABLE ai_review_field_links(
+                response_id UUID NOT NULL REFERENCES form_responses(id),
+                field_id VARCHAR(80) NOT NULL,
+                source_value_sha256 VARCHAR(64) NOT NULL,
+                cache_key VARCHAR(64) NOT NULL REFERENCES ai_review_jobs(cache_key),
+                PRIMARY KEY(response_id, field_id)
+            )
+            """);
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", workspace);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", deliverableId);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(datasource), Clock.systemUTC());
         service = newService(store);
         deliverable = new Deliverable(workspace, "SRS", "Requirements", "srs", "Check requirements", LocalDateTime.now(), true, DeliverableStatus.PUBLISHED);
+        ReflectionTestUtils.setField(deliverable, "id", deliverableId);
         when(deliverables.findById(deliverableId)).thenReturn(Optional.of(deliverable));
         when(roles.activeRolesFor("admin")).thenReturn(Set.of(StaffRole.ADMIN));
         when(provider.isConfigured()).thenReturn(true);
@@ -85,7 +97,7 @@ class AiReviewDeduplicationTest {
         return newService(storage, Runnable::run);
     }
     private AiReviewService newService(AiReviewStore storage, java.util.concurrent.Executor executor) {
-        return new AiReviewService(provider, storage, responses, deliverables, templates, drive,
+        return new AiReviewService(provider, storage, responses, deliverables, fields, templates, drive,
             new GoogleDriveProperties(true, "", 25_000_000), pdf, access, roles, new ObjectMapper(), executor);
     }
     private FormResponse response(String fileId, String team) {
@@ -157,11 +169,59 @@ class AiReviewDeduplicationTest {
         assertThat(run(first).reused()).isFalse();
         var template = mock(com.capvault.backend.template.DocumentTemplate.class);
         when(template.getSha256()).thenReturn("updated-template"); when(template.getExtractedText()).thenReturn("New template requirements");
-        when(templates.find(workspace, "SRS")).thenReturn(template);
+        when(templates.find(eq(workspace), eq("SRS"), anyString())).thenReturn(template);
         assertThat(run(first).reused()).isFalse();
         when(provider.cacheVersion()).thenReturn("fake-provider:model-2:temperature-0");
         assertThat(run(first).reused()).isFalse();
         verify(provider, times(5)).review(any());
+    }
+
+    @Test void twoPdfArtifactsInOneResponseKeepIndependentSavedLinksAndReviews() {
+        var framework = new DeliverableField("framework-field", deliverableId, "frameworkModel", "Framework / Model",
+            DeliverableFieldType.DRIVE_PDF, true, 0, DocumentCheckPolicy.MANUAL, true, true);
+        var highlights = new DeliverableField("highlights-field", deliverableId, "validationHighlights", "MVP Validation Highlights",
+            DeliverableFieldType.DRIVE_PDF, true, 1, DocumentCheckPolicy.MANUAL, true, true);
+        when(fields.findAllByDeliverableIdAndActiveTrueOrderByDisplayOrderAscLabelAsc(deliverableId))
+            .thenReturn(List.of(framework, highlights));
+        var response = responseWithValues("multi-field", "team-mvp", """
+            {"frameworkModel":"https://drive.google.com/file/d/framework-file/view",
+             "validationHighlights":"https://drive.google.com/file/d/highlights-file/view"}
+            """);
+        files.put("framework-file", "%PDF-framework-content".getBytes(StandardCharsets.UTF_8));
+        files.put("highlights-file", "%PDF-highlights-content".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(service.review(workspace, response.getId(), "framework-field", "admin", false, null).status()).isEqualTo("COMPLETED");
+        assertThat(service.review(workspace, response.getId(), "highlights-field", "admin", false, null).status()).isEqualTo("COMPLETED");
+
+        var frameworkSaved = service.saved(workspace, response.getId(), "framework-field", "admin");
+        var highlightsSaved = service.saved(workspace, response.getId(), "highlights-field", "admin");
+        assertThat(frameworkSaved.status()).isEqualTo("COMPLETED");
+        assertThat(highlightsSaved.status()).isEqualTo("COMPLETED");
+        assertThat(frameworkSaved.fieldId()).isEqualTo("framework-field");
+        assertThat(highlightsSaved.fieldId()).isEqualTo("highlights-field");
+        assertThat(frameworkSaved.sourceUrl()).contains("framework-file");
+        assertThat(highlightsSaved.sourceUrl()).contains("highlights-file");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_field_links WHERE response_id = ?", Integer.class, response.getId())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isEqualTo(2);
+    }
+
+    @Test void multiPdfResponseRequiresExplicitArtifactInsteadOfReviewingTheFirstPdf() {
+        var framework = new DeliverableField("framework-field", deliverableId, "frameworkModel", "Framework / Model",
+            DeliverableFieldType.DRIVE_PDF, true, 0, DocumentCheckPolicy.MANUAL, true, true);
+        var highlights = new DeliverableField("highlights-field", deliverableId, "validationHighlights", "MVP Validation Highlights",
+            DeliverableFieldType.DRIVE_PDF, true, 1, DocumentCheckPolicy.MANUAL, true, true);
+        when(fields.findAllByDeliverableIdAndActiveTrueOrderByDisplayOrderAscLabelAsc(deliverableId))
+            .thenReturn(List.of(framework, highlights));
+        var response = responseWithValues("multi-ambiguous", "team-mvp", """
+            {"validationInstrument":"https://docs.google.com/forms/d/e/form/viewform",
+             "frameworkModel":"https://drive.google.com/file/d/framework-file/view",
+             "validationHighlights":"https://drive.google.com/file/d/highlights-file/view"}
+            """);
+
+        assertThatThrownBy(() -> service.review(workspace, response.getId(), null, "admin", false, null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Choose which PDF artifact");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isZero();
     }
 
     @Test void uncertainProviderFailuresRequireExplicitRetryAndAreNeverTreatedAsSuccess() {
@@ -178,6 +238,14 @@ class AiReviewDeduplicationTest {
         assertThat(service.review(workspace, second.getId(), "admin", true, retried.retryToken()).status()).isEqualTo("COMPLETED");
         assertThat(run(first).reused()).isTrue();
         verify(provider, times(3)).review(any());
+    }
+
+    private FormResponse responseWithValues(String subject, String team, String valuesJson) {
+        var response = new FormResponse(UUID.randomUUID(), workspace, deliverableId, subject, subject + "@example.com", UUID.randomUUID(), subject,
+            "Student", team, valuesJson, Instant.now(), Instant.now());
+        when(responses.findById(response.getId())).thenReturn(Optional.of(response));
+        jdbc.update("INSERT INTO form_responses VALUES (?)", response.getId());
+        return response;
     }
 
     @Test void changedResponseDuringReviewDoesNotReceiveAnObsoleteResult() {
