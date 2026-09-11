@@ -82,19 +82,47 @@ for (const viewport of artworkViewports) {
       const image = new Image();
       image.src = match?.[1] || '';
       await image.decode();
+
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let minX = canvas.width;
+      let maxX = -1;
+      for (let y = 0; y < canvas.height; y += 1) {
+        for (let x = 0; x < canvas.width; x += 1) {
+          if (pixels[(y * canvas.width + x) * 4 + 3] > 8) {
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+          }
+        }
+      }
+
       const percent = Number.parseFloat(styles.backgroundSize.split(' ')[1]) / 100;
-      const renderedWidth = element.clientHeight * percent * (image.naturalWidth / image.naturalHeight);
+      const imageHeight = element.clientHeight * percent;
+      const scale = imageHeight / image.naturalHeight;
+      const imageWidth = image.naturalWidth * scale;
+      const positionX = Number.parseFloat(styles.backgroundPosition.split(' ')[0]) / 100;
+      const imageLeft = (element.clientWidth - imageWidth) * positionX;
+      const visibleLeft = imageLeft + minX * scale;
+      const visibleRight = imageLeft + (maxX + 1) * scale;
       const box = element.getBoundingClientRect();
       const parentBox = element.parentElement.getBoundingClientRect();
+
       return {
         position: styles.backgroundPosition,
-        renderedWidth,
+        size: styles.backgroundSize,
+        visibleLeft,
+        visibleRight,
         clientWidth: element.clientWidth,
         withinParent: box.left >= parentBox.left - 1 && box.right <= parentBox.right + 1
       };
     });
-    expect(composition.position).toBe('100% 100%');
-    expect(composition.renderedWidth).toBeLessThanOrEqual(composition.clientWidth + 1);
+    expect(composition.position).toBe('50% 100%');
+    expect(composition.visibleLeft).toBeGreaterThanOrEqual(-1);
+    expect(composition.visibleRight).toBeLessThanOrEqual(composition.clientWidth + 1);
     expect(composition.withinParent).toBe(true);
     await expectNoPageOverflow(page);
   });
