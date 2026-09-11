@@ -1,7 +1,7 @@
 import { Box, Text } from '@mantine/core';
 import { STUDENT_ARTWORK } from '../../lib/studentArtwork.js';
 
-export function FormArtwork({ success = false, artwork: artworkOverride = null, ariaLabel, children }) {
+export function FormArtwork({ success = false, artwork: artworkOverride = null, ariaLabel, mascotClassName = '', children }) {
   const artwork = artworkOverride || (success
     ? STUDENT_ARTWORK.submissionSuccess
     : STUDENT_ARTWORK.submissionForm);
@@ -16,7 +16,7 @@ export function FormArtwork({ success = false, artwork: artworkOverride = null, 
         {children || <Text component="strong">{success ? 'Submission recorded' : 'Submit with a clear trail'}</Text>}
       </div>
       <div
-        className="wt-artwork-mascot"
+        className={`wt-artwork-mascot ${mascotClassName}`.trim()}
         role="img"
         aria-label={artwork.alt}
         style={{

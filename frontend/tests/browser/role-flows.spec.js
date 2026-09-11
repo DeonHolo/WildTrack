@@ -76,11 +76,26 @@ for (const viewport of artworkViewports) {
     await expect(page.getByRole('heading', { level: 1, name: 'Welcome to WildTrack' })).toBeVisible();
     const artwork = page.getByRole('img', { name: 'WildTrack mascot exploring quest nodes' });
     await expectRenderedArtwork(artwork, 'FIND QUEST NODES.webp');
-    const composition = await artwork.evaluate((element) => ({
-      position: element.style.backgroundPosition,
-      size: element.style.backgroundSize
-    }));
-    expect(composition).toEqual({ position: 'right bottom', size: 'auto 100%' });
+    const composition = await artwork.evaluate(async (element) => {
+      const styles = getComputedStyle(element);
+      const match = styles.backgroundImage.match(/url\(["']?(.*?)["']?\)/);
+      const image = new Image();
+      image.src = match?.[1] || '';
+      await image.decode();
+      const percent = Number.parseFloat(styles.backgroundSize.split(' ')[1]) / 100;
+      const renderedWidth = element.clientHeight * percent * (image.naturalWidth / image.naturalHeight);
+      const box = element.getBoundingClientRect();
+      const parentBox = element.parentElement.getBoundingClientRect();
+      return {
+        position: styles.backgroundPosition,
+        renderedWidth,
+        clientWidth: element.clientWidth,
+        withinParent: box.left >= parentBox.left - 1 && box.right <= parentBox.right + 1
+      };
+    });
+    expect(composition.position).toBe('100% 100%');
+    expect(composition.renderedWidth).toBeLessThanOrEqual(composition.clientWidth + 1);
+    expect(composition.withinParent).toBe(true);
     await expectNoPageOverflow(page);
   });
 }
