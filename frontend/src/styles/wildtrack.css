@@ -255,10 +255,6 @@
   box-shadow: inset 3px 0 0 var(--wt-maroon);
 }
 
-html {
-  scrollbar-gutter: stable;
-}
-
 .wt-public-root {
   min-height: 100dvh;
   background: var(--wt-bg);

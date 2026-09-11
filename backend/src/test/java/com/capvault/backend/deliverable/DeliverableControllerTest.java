@@ -1,8 +1,10 @@
 package com.capvault.backend.deliverable;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 import com.capvault.backend.workspace.AcademicWorkspace;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -97,6 +99,55 @@ class DeliverableControllerTest {
             .andExpect(jsonPath("$.fieldErrors.trackerColumnKey").value("Tracker column is required"))
             .andExpect(jsonPath("$.fieldErrors.title").value("Title is required"))
             .andExpect(jsonPath("$.fieldErrors.dueAt").value("Due date is required"));
+    }
+
+    @Test
+    void adminCanUnpublishEveryPublishedDeliverableInOneServerSideBatch() throws Exception {
+        repository.deleteAll();
+        UUID otherWorkspaceId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        repository.save(new Deliverable(
+            AcademicWorkspace.DEFAULT_IT_ID,
+            "SRS",
+            "SRS Submission",
+            "srs-submission",
+            "Submit SRS.",
+            LocalDateTime.of(2026, 4, 18, 23, 59),
+            true,
+            DeliverableStatus.PUBLISHED
+        ));
+        repository.save(new Deliverable(
+            AcademicWorkspace.DEFAULT_IT_ID,
+            "SDD",
+            "SDD Submission",
+            "sdd-submission",
+            "Submit SDD.",
+            LocalDateTime.of(2026, 4, 25, 23, 59),
+            true,
+            DeliverableStatus.PUBLISHED
+        ));
+        repository.save(new Deliverable(
+            otherWorkspaceId,
+            "RFL",
+            "Other Workspace RFL",
+            "other-rfl",
+            "Submit RFL.",
+            LocalDateTime.of(2026, 4, 30, 23, 59),
+            true,
+            DeliverableStatus.PUBLISHED
+        ));
+
+        mockMvc.perform(post("/api/deliverables/unpublish-all").with(adminSession()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[0].status").value("UNPUBLISHED"))
+            .andExpect(jsonPath("$[1].status").value("UNPUBLISHED"));
+
+        assertThat(repository.findAllByWorkspaceIdOrderByDueAtAscTitleAsc(AcademicWorkspace.DEFAULT_IT_ID))
+            .allSatisfy(deliverable -> assertThat(deliverable.getStatus()).isEqualTo(DeliverableStatus.UNPUBLISHED));
+        assertThat(repository.findAllByWorkspaceIdOrderByDueAtAscTitleAsc(otherWorkspaceId))
+            .singleElement()
+            .extracting(Deliverable::getStatus)
+            .isEqualTo(DeliverableStatus.PUBLISHED);
     }
 
     @Test

@@ -66,6 +66,7 @@ public class SecurityConfig {
                     "/api/workspaces",
                     "/api/sheets/import/**",
                     "/api/deliverables",
+                    "/api/deliverables/unpublish-all",
                     "/api/templates",
                     "/api/templates/from-drive",
                     "/api/tracker/writebacks").hasRole("ADMIN")

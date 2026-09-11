@@ -49,6 +49,13 @@ public class DeliverableController {
         return service.createDeliverable(workspaceId, request);
     }
 
+    @PostMapping("/unpublish-all")
+    public List<DeliverableResponse> unpublishAllDeliverables(
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+    ) {
+        return service.unpublishAll(workspaceId);
+    }
+
     @PutMapping("/{id}")
     public DeliverableResponse updateDeliverable(
         @PathVariable UUID id,

@@ -25,6 +25,7 @@ const workspaceSession = vi.hoisted(() => ({
 
 const submissionClient = vi.hoisted(() => ({
   saveDeliverable: vi.fn(),
+  unpublishAllDeliverables: vi.fn(),
   unpublishDeliverable: vi.fn()
 }));
 
@@ -125,6 +126,9 @@ describe('forms management', () => {
       id: payload.id || 'deliverable-created'
     }));
     submissionClient.unpublishDeliverable.mockReset().mockImplementation(async (_workspaceId, item) => ({ ...item, status: 'Unpublished' }));
+    submissionClient.unpublishAllDeliverables.mockReset().mockImplementation(async () => (
+      workflow.state.deliverables.map((item) => ({ ...item, status: 'Unpublished' }))
+    ));
   });
 
   it('renders scalable rows with an opening link and a separate accessible copy action', async () => {
@@ -316,6 +320,8 @@ describe('forms management', () => {
   });
 
   it('unpublishes every currently published form in one confirmed end-of-semester cleanup action', async () => {
+    let finishBatch;
+    submissionClient.unpublishAllDeliverables.mockImplementationOnce(() => new Promise((resolve) => { finishBatch = resolve; }));
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Unpublish all' }));
 
@@ -323,10 +329,38 @@ describe('forms management', () => {
     expect(confirmation).toHaveTextContent('1 existing response will remain recorded');
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Unpublish all' }));
 
-    await waitFor(() => expect(submissionClient.unpublishDeliverable).toHaveBeenCalledTimes(2));
-    expect(submissionClient.unpublishDeliverable).toHaveBeenNthCalledWith(1, 'workspace-it', expect.objectContaining({ id: 'deliverable-srs' }));
-    expect(submissionClient.unpublishDeliverable).toHaveBeenNthCalledWith(2, 'workspace-it', expect.objectContaining({ id: 'deliverable-sdd' }));
+    const progress = await screen.findByRole('status', { name: 'Unpublishing all forms' });
+    expect(progress).toHaveTextContent('Unpublishing 2 forms');
+    expect(progress).toHaveTextContent('one server-side batch');
+    expect(submissionClient.unpublishAllDeliverables).toHaveBeenCalledTimes(1);
+    expect(submissionClient.unpublishAllDeliverables).toHaveBeenCalledWith('workspace-it');
+    expect(submissionClient.unpublishDeliverable).not.toHaveBeenCalled();
+    const beforeUnload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(beforeUnload);
+    expect(beforeUnload.defaultPrevented).toBe(true);
+
+    await act(async () => finishBatch(workflow.state.deliverables.map((item) => ({ ...item, status: 'Unpublished' }))));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Unpublish all' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('status', { name: 'Unpublishing all forms' })).not.toBeInTheDocument();
+  });
+
+  it('restores controls and reports failure when bulk cleanup cannot be confirmed by a reload', async () => {
+    submissionClient.unpublishAllDeliverables.mockRejectedValueOnce(new Error('Bulk cleanup failed.'));
+    formsClient.loadFormsState
+      .mockReset()
+      .mockResolvedValueOnce(workflow.state)
+      .mockRejectedValueOnce(new Error('Authoritative reload unavailable.'));
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Unpublish all' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Unpublish all 2 published forms?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Unpublish all' }));
+
+    expect(await screen.findByRole('alert', { name: 'Form error' })).toHaveTextContent('Bulk cleanup failed.');
+    expect(screen.queryByRole('status', { name: 'Unpublishing all forms' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Unpublish all 2 published forms?' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Unpublish all' })).toBeEnabled();
+    expect(screen.getByText('Software Requirements Specification')).toBeInTheDocument();
   });
 
   it('shows one row per real deliverable when saved state still holds duplicate copies', async () => {
