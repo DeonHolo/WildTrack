@@ -1287,6 +1287,14 @@ html {
   pointer-events: none;
 }
 
+.wt-login-hero-mascot {
+  width: 292px;
+  justify-self: end;
+  transform: translateX(6px);
+  background-position: right bottom !important;
+  background-size: auto 94% !important;
+}
+
 @media (max-width: 640px) {
   .wt-public-header-inner {
     min-height: auto;
@@ -1312,6 +1320,13 @@ html {
     min-height: 150px;
     grid-template-columns: minmax(0, 1fr) 152px;
     padding: 0 20px;
+  }
+
+  .wt-login-hero-mascot {
+    z-index: 0;
+    width: 190px;
+    transform: translateX(10px);
+    background-size: auto 70% !important;
   }
 
   .wt-form-title {

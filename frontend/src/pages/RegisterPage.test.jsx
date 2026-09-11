@@ -28,10 +28,11 @@ describe('RegisterPage layout & responsiveness (ticket 02)', () => {
     expect(banner).toHaveClass('wt-form-artwork');
     const art = screen.getByRole('img', { name: 'WildTrack mascot exploring quest nodes' });
     expect(art).toHaveClass('wt-artwork-mascot');
+    expect(art).toHaveClass('wt-login-hero-mascot');
     expect(art).not.toHaveClass('wt-login-banner-art');
     expect(art).toHaveStyle('background-image: url("/assets/FIND%20QUEST%20NODES.webp")');
     expect(art).toHaveStyle('background-position: right bottom');
-    expect(art).toHaveStyle('background-size: auto 100%');
+    expect(art).toHaveStyle('background-size: auto 94%');
 
     const footerNote = container.querySelector('.wt-login-footer-note');
     expect(footerNote).toBeInTheDocument();

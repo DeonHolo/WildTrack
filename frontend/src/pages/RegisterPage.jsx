@@ -37,7 +37,11 @@ export function RegisterPage() {
     <main className="wt-student-access-page">
       <Container size="sm" className="wt-student-access-container">
         <Stack gap="md">
-          <FormArtwork artwork={STUDENT_ARTWORK.loginHero} ariaLabel="WildTrack sign in banner">
+          <FormArtwork
+            artwork={STUDENT_ARTWORK.loginHero}
+            mascotClassName="wt-login-hero-mascot"
+            ariaLabel="WildTrack sign in banner"
+          >
             <div className="wt-login-banner-copy">
               <Title order={1} className="wt-login-banner-title">Welcome to WildTrack</Title>
               <Text className="wt-login-banner-subtitle">
