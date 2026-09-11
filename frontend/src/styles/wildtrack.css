@@ -1290,8 +1290,8 @@ html {
 .wt-login-hero-mascot {
   width: 292px;
   justify-self: end;
-  transform: translateX(6px);
-  background-position: right bottom !important;
+  transform: translateX(20px);
+  background-position: center bottom !important;
   background-size: auto 94% !important;
 }
 
@@ -1325,8 +1325,8 @@ html {
   .wt-login-hero-mascot {
     z-index: 0;
     width: 190px;
-    transform: translateX(10px);
-    background-size: auto 70% !important;
+    transform: translateX(21px);
+    background-size: auto 90% !important;
   }
 
   .wt-form-title {
