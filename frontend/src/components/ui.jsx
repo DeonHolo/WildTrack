@@ -96,6 +96,7 @@ export function ConfirmDialog({
   intent = 'primary',
   loading = false,
   confirmDisabled = false,
+  size = 'md',
   children
 }) {
   const descriptionId = useId();
@@ -108,6 +109,7 @@ export function ConfirmDialog({
       onClose={onClose}
       title={title}
       centered
+      size={size}
       closeOnClickOutside={!loading}
       closeOnEscape={!loading}
       withCloseButton={!loading}

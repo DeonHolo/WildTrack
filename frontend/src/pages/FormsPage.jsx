@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
+  Group,
   Paper,
   Skeleton,
   Stack,
@@ -11,7 +12,7 @@ import {
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
-import { PlusCircle } from '@phosphor-icons/react';
+import { PlusCircle, Prohibit } from '@phosphor-icons/react';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
@@ -43,12 +44,18 @@ export function FormsPage() {
   const workspaceKey = getWorkspacePublicKey(activeWorkspace);
   const [editor, setEditor] = useState({ opened: false, form: null });
   const [copyStatus, setCopyStatus] = useState('');
+  const [bulkUnpublishing, setBulkUnpublishing] = useState(false);
   const columnOptions = activeColumns.map((column) => ({ value: column.key, label: column.label }));
+  const publishedDeliverables = useMemo(
+    () => orderedDeliverables.filter((item) => item.status !== 'Unpublished'),
+    [orderedDeliverables]
+  );
 
   useEffect(() => {
     setFormsError('');
     setEditor({ opened: false, form: null });
     setCopyStatus('');
+    setBulkUnpublishing(false);
   }, [isCurrentScope]);
 
   useEffect(() => {
@@ -137,6 +144,58 @@ export function FormsPage() {
     });
   }
 
+  function confirmUnpublishAll() {
+    if (!publishedDeliverables.length) return;
+    const publishedIds = new Set(publishedDeliverables.map((item) => item.id));
+    const responseCount = state.attempts.filter((attempt) => publishedIds.has(attempt.deliverableId)).length;
+    modals.openConfirmModal({
+      title: `Unpublish all ${publishedDeliverables.length} published forms?`,
+      children: (
+        <Stack gap="xs">
+          <Text size="sm">All current public form links in this workspace will stop accepting new responses.</Text>
+          <Text size="sm" fw={700}>
+            {responseCount} existing response{responseCount === 1 ? '' : 's'} will remain recorded. Forms can be republished later.
+          </Text>
+        </Stack>
+      ),
+      labels: { confirm: 'Unpublish all', cancel: 'Keep published' },
+      confirmProps: { color: 'red' },
+      centered: true,
+      onConfirm: unpublishAll
+    });
+  }
+
+  async function unpublishAll() {
+    if (!isCurrentScope() || !publishedDeliverables.length) return;
+    const workspaceId = activeWorkspaceId;
+    const targets = [...publishedDeliverables];
+    setFormsError('');
+    setBulkUnpublishing(true);
+    const saved = [];
+    const failed = [];
+    for (const item of targets) {
+      try {
+        saved.push(await unpublishDeliverable(workspaceId, item));
+      } catch (error) {
+        failed.push({ item, error });
+      }
+    }
+    if (!isCurrentScope()) return;
+    const savedById = new Map(saved.map((item) => [item.id, item]));
+    setState((current) => ({
+      ...current,
+      deliverables: current.deliverables.map((item) => savedById.get(item.id) || item)
+    }));
+    setBulkUnpublishing(false);
+    if (failed.length) {
+      const message = `${saved.length} form${saved.length === 1 ? '' : 's'} unpublished. ${failed.length} could not be updated; retry those forms individually.`;
+      setFormsError(message);
+      notifications.show({ color: 'orange', title: 'Cleanup partly completed', message });
+      return;
+    }
+    notifications.show({ color: 'green', title: 'Forms unpublished', message: `${saved.length} public form${saved.length === 1 ? '' : 's'} stopped accepting responses.` });
+  }
+
   async function setPublishedStatus(item, published) {
     if (!isCurrentScope()) return;
     const workspaceId = activeWorkspaceId;
@@ -173,9 +232,22 @@ export function FormsPage() {
           <Title order={1}>Forms</Title>
           <Text c="dimmed">Publish and maintain one student submission form per deliverable.</Text>
         </div>
-        <Button color="wildtrackMaroon" leftSection={<PlusCircle size={18} />} onClick={openCreate} disabled={!activeColumns.length}>
-          Publish form
-        </Button>
+        <Group gap="sm">
+          {publishedDeliverables.length ? (
+            <Button
+              variant="default"
+              color="red"
+              leftSection={<Prohibit size={18} />}
+              onClick={confirmUnpublishAll}
+              disabled={bulkUnpublishing}
+            >
+              Unpublish all
+            </Button>
+          ) : null}
+          <Button color="wildtrackMaroon" leftSection={<PlusCircle size={18} />} onClick={openCreate} disabled={!activeColumns.length || bulkUnpublishing}>
+            Publish form
+          </Button>
+        </Group>
       </header>
 
       {formsStatus === 'loading' ? (
@@ -199,6 +271,7 @@ export function FormsPage() {
         onEdit={openEditor}
         onRepublish={republish}
         onUnpublish={confirmUnpublish}
+        actionsDisabled={bulkUnpublishing}
       /> : null}
       <VisuallyHidden role="status" aria-live="polite">{copyStatus}</VisuallyHidden>
 

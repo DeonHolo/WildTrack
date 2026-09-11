@@ -18,7 +18,7 @@ import {
   Table,
   Trash
 } from '@phosphor-icons/react';
-import { Badge, Button as MantineButton, Checkbox, Collapse, Input, Modal, NativeSelect, Tabs, TextInput, Tooltip } from '@mantine/core';
+import { Badge, Button as MantineButton, Collapse, Input, Modal, NativeSelect, Tabs, TextInput, Tooltip } from '@mantine/core';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, ConfirmDialog, PageHeader, StatusIndicator } from '../components/ui.jsx';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
@@ -28,13 +28,11 @@ import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/
 import { getDocumentTemplateFileUrl, getDriveConnectionStatus } from '../lib/api.js';
 import { removeSubmissionTemplate, saveSubmissionTemplate } from '../lib/submissionClient.js';
 import {
-  addTrackerColumn as addServerTrackerColumn,
   emptyWorkspaceAdmin,
   importWorkspaceSheet,
   loadWorkspaceArchiveReadiness,
   loadWorkspaceAdmin,
-  publishSuggestedForms,
-  updateTrackerColumn as updateServerTrackerColumn
+  publishSuggestedForms
 } from '../lib/workspaceAdminClient.js';
 import { StaffManagementPanel } from '../components/workspace/StaffManagementPanel.jsx';
 
@@ -127,8 +125,6 @@ export function WorkspacePage() {
   const [sources, setSources] = useState(() => sourceValues(state));
   const [workspaceName, setWorkspaceName] = useState(activeWorkspace?.name || '');
   const [trackerSheet, setTrackerSheet] = useState(`${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
-  const [newColumn, setNewColumn] = useState('');
-  const [columnsOpen, setColumnsOpen] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [template, setTemplate] = useState(EMPTY_TEMPLATE);
   const [templateSaving, setTemplateSaving] = useState(false);
@@ -185,7 +181,6 @@ export function WorkspacePage() {
     setTrackerSheet(`${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
     setSummary(null);
     setMessage('');
-    setColumnsOpen(false);
     setTemplateModalOpen(false);
     setMappingDraft({});
     setImporting('');
@@ -244,19 +239,6 @@ export function WorkspacePage() {
   function applyMapping() {
     if (!summary?.sourceKey) return;
     importSource(summary.sourceKey, mappingDraft);
-  }
-
-  async function submitColumn(event) {
-    event.preventDefault();
-    try {
-      const saved = await addServerTrackerColumn(activeWorkspaceId, newColumn, state.trackerColumns);
-      if (!isCurrentScope()) return;
-      setState((current) => ({ ...current, trackerColumns: [...current.trackerColumns, saved] }));
-      setNewColumn('');
-    } catch (error) {
-      if (!isCurrentScope()) return;
-      setMessage(error?.message || 'Tracker column could not be added.');
-    }
   }
 
   function openTemplateModal(item = null) {
@@ -459,54 +441,35 @@ export function WorkspacePage() {
     setMessage(result ? 'Backend data refreshed.' : 'Backend data could not be refreshed.');
   }
 
-  function editTrackerColumn(columnId, updates) {
-    setState((current) => ({
-      ...current,
-      trackerColumns: current.trackerColumns.map((column) => column.id === columnId ? { ...column, ...updates } : column)
-    }));
-  }
-
-  async function persistTrackerColumn(columnId, updates = {}) {
-    const column = state.trackerColumns.find((item) => item.id === columnId);
-    if (!column) return;
-    try {
-      const saved = await updateServerTrackerColumn(activeWorkspaceId, column, updates);
-      setState((current) => ({
-        ...current,
-        trackerColumns: current.trackerColumns.map((item) => item.id === columnId ? saved : item)
-      }));
-    } catch (error) {
-      if (!isCurrentScope()) return;
-      setMessage(error?.message || 'Tracker column change could not be saved.');
-      await reload();
-    }
-  }
-
   return (
     <div className="page-stack wt-workspace-page">
       <PageHeader
         title="Workspace setup"
-        description="Manage the class sources, deliverables, and document templates for the selected academic workspace."
+        description="Manage academic workspaces, source imports, official templates, and staff access. Edit submission forms on the Forms page."
         actions={<Button type="button" variant="secondary" icon={PlusCircle} onClick={openCreateWorkspace}>New workspace</Button>}
       />
 
-      <section className="panel wt-management-section" aria-label="Academic workspace management">
-        <button
-          type="button"
-          className="wt-section-toggle"
-          aria-expanded={workspaceManagementOpen}
-          onClick={() => setWorkspaceManagementOpen((current) => !current)}
-        >
-          <div className="wt-section-toggle-copy">
-            <strong>Academic workspaces</strong>
-            <small>{activeWorkspaceCount} active · {archivedWorkspaceCount} archived. Archived workspaces stay out of normal selectors until restored.</small>
-          </div>
-          <div className="wt-section-toggle-actions">
-            {workspaceManagementOpen ? <CaretUp aria-hidden="true" /> : <CaretDown aria-hidden="true" />}
-          </div>
-        </button>
+      <section className="panel wt-collapsible-panel wt-management-section" aria-label="Academic workspace management">
+        <div className="wt-collapsible-header">
+          <button
+            type="button"
+            className="wt-collapsible-trigger"
+            aria-label={`${workspaceManagementOpen ? 'Collapse' : 'Expand'} Academic workspaces`}
+            aria-expanded={workspaceManagementOpen}
+            onClick={() => setWorkspaceManagementOpen((current) => !current)}
+          >
+            <div className="wt-collapsible-copy">
+              <strong>Academic workspaces</strong>
+              <small>{activeWorkspaceCount} active · {archivedWorkspaceCount} archived. Archived workspaces stay out of normal selectors until restored.</small>
+            </div>
+            <span className="wt-collapsible-state" aria-hidden="true">
+              <span>{workspaceManagementOpen ? 'Hide' : 'Show'}</span>
+              {workspaceManagementOpen ? <CaretUp /> : <CaretDown />}
+            </span>
+          </button>
+        </div>
         <Collapse in={workspaceManagementOpen}>
-          <div className="wt-management-section-body">
+          <div className="wt-collapsible-body wt-management-section-body">
             <div className="table-wrap">
               <table aria-label="Academic workspaces">
                 <thead><tr><th>Workspace</th><th>Academic context</th><th>Status</th><th>Actions</th></tr></thead>
@@ -534,7 +497,7 @@ export function WorkspacePage() {
             </div>
           </div>
         </Collapse>
-        {workspaceNotice ? <div role="status" className={`inline-alert ${/(created|updated|archived|restored)/i.test(workspaceNotice) ? 'success' : 'danger'}`}>{workspaceNotice}</div> : null}
+        {workspaceNotice ? <div role="status" className={`inline-alert wt-collapsible-notice ${/(created|updated|archived|restored)/i.test(workspaceNotice) ? 'success' : 'danger'}`}>{workspaceNotice}</div> : null}
       </section>
 
       {activeWorkspaceId ? <ResourceBoundary status={workspaceStatus} error={workspaceError} onRetry={reload}>
@@ -630,66 +593,17 @@ export function WorkspacePage() {
           </table>
         </div>
         {message ? <div role="status" className={`inline-alert ${/(imported|refreshed|restored|generated|ready)/i.test(message) ? 'success' : 'danger'}`}>{message}</div> : null}
-      </section>
-
-      <section className="panel wt-columns-section">
-        <button
-          type="button"
-          className="wt-section-toggle"
-          aria-expanded={columnsOpen}
-          onClick={() => setColumnsOpen((current) => !current)}
-        >
-          <div className="wt-section-toggle-copy">
-            <span className="eyebrow">Tracker configuration</span>
-            <strong>Deliverable columns</strong>
-            <small>{state.trackerColumns.length} columns mapped; {activeColumns.length} currently used in forms and tracker views.</small>
-          </div>
-          <div className="wt-section-toggle-actions">
-            {pendingSuggestions.length ? <Badge variant="light" color="wildtrackMaroon">{pendingSuggestions.length} form suggestions</Badge> : null}
-            {columnsOpen ? <CaretUp aria-hidden="true" /> : <CaretDown aria-hidden="true" />}
-          </div>
-        </button>
-        <Collapse in={columnsOpen}>
-          <div className="wt-column-editor">
-            {pendingSuggestions.length ? (
-              <div className="suggested-forms-banner">
-                <div>
-                  <strong>Detected deadlines are ready</strong>
-                  <span>Forms will be created in deadline order. Existing deliverable forms are updated, not duplicated.</span>
-                </div>
-                <Button type="button" icon={CheckCircle} onClick={() => generateSuggestedForms(pendingSuggestions)}>
-                  Generate {pendingSuggestions.length} suggested form{pendingSuggestions.length === 1 ? '' : 's'}
-                </Button>
-              </div>
-            ) : null}
-            <div className="wt-column-list">
-              {state.trackerColumns.map((column) => (
-                <div className="wt-column-row" key={column.id}>
-                  <TextInput
-                    label="Display name"
-                    aria-label={`${column.label} display name`}
-                    value={column.label}
-                    onChange={(event) => editTrackerColumn(column.id, { label: event.currentTarget.value })}
-                    onBlur={() => persistTrackerColumn(column.id)}
-                  />
-                  <TextInput
-                    label="Source column"
-                    aria-label={`${column.label} source column`}
-                    value={column.sourceColumn}
-                    onChange={(event) => editTrackerColumn(column.id, { sourceColumn: event.currentTarget.value })}
-                    onBlur={() => persistTrackerColumn(column.id)}
-                  />
-                  <Checkbox label="Active" checked={column.active !== false} onChange={(event) => { const active = event.currentTarget.checked; editTrackerColumn(column.id, { active }); persistTrackerColumn(column.id, { active }); }} />
-                  <Checkbox label="PDF" checked={Boolean(column.pdfRequired)} onChange={(event) => { const pdfRequired = event.currentTarget.checked; editTrackerColumn(column.id, { pdfRequired }); persistTrackerColumn(column.id, { pdfRequired }); }} />
-                </div>
-              ))}
+        {pendingSuggestions.length ? (
+          <div className="suggested-forms-banner wt-source-suggestions">
+            <div>
+              <strong>{pendingSuggestions.length} form suggestion{pendingSuggestions.length === 1 ? '' : 's'} ready</strong>
+              <span>Tracker deadlines are ready to create or update on the Forms page. Existing forms are updated, not duplicated.</span>
             </div>
-            <form className="inline-form" onSubmit={submitColumn}>
-              <TextInput aria-label="New Tracker column" value={newColumn} onChange={(event) => setNewColumn(event.currentTarget.value)} placeholder="Add a Tracker column" />
-              <Button size="sm" icon={PlusCircle}>Add column</Button>
-            </form>
+            <Button type="button" icon={CheckCircle} onClick={() => generateSuggestedForms(pendingSuggestions)}>
+              Generate suggested forms
+            </Button>
           </div>
-        </Collapse>
+        ) : null}
       </section>
 
       <section className="panel wt-template-section">
@@ -861,8 +775,9 @@ export function WorkspacePage() {
 
       <ConfirmDialog
         open={Boolean(workspaceToArchive)}
-        title={`Archive ${workspaceToArchive?.name || 'workspace'}?`}
-        description="Run these closeout checks before hiding the workspace. Archiving preserves imported data, submissions, reviews, and archive history."
+        title="Archive workspace?"
+        description="Complete these end-of-semester checks before archiving. Existing data, reviews, and archive history are preserved."
+        size="lg"
         confirmLabel={archiveReadiness.status === 'ready' && archiveReadiness.data?.ready ? 'Archive workspace' : 'Archive anyway'}
         intent="danger"
         loading={workspaceLifecycleSaving}
@@ -872,8 +787,8 @@ export function WorkspacePage() {
       >
         <div className="wt-archive-readiness">
           <div className="wt-archive-readiness-context">
-            <strong>{workspaceToArchive?.program} | {workspaceToArchive?.courseCode}</strong>
-            <span>{workspaceToArchive?.semester} | {workspaceToArchive?.academicYear}</span>
+            <strong>{workspaceToArchive?.name}</strong>
+            <span>{workspaceToArchive?.program} | {workspaceToArchive?.courseCode} · {workspaceToArchive?.semester} | {workspaceToArchive?.academicYear}</span>
           </div>
           {archiveReadiness.status === 'loading' ? <span className="muted-copy">Checking current submissions and form status...</span> : null}
           {archiveReadiness.status === 'error' ? (
@@ -884,38 +799,40 @@ export function WorkspacePage() {
           ) : null}
           {archiveReadiness.status === 'ready' ? (
             <div className="wt-archive-readiness-list">
-              <div className="wt-archive-readiness-row">
-                <StatusIndicator status={archiveReadiness.data.unarchivedResponseCount === 0 ? 'Ready' : 'Needs attention'} />
-                <div>
-                  <strong>Current submissions archived</strong>
-                  <span>{archiveReadiness.data.responseCount
-                    ? `${archiveReadiness.data.archivedResponseCount} of ${archiveReadiness.data.responseCount} current response versions are archived.${archiveReadiness.data.unacceptedResponseCount ? ` ${archiveReadiness.data.unacceptedResponseCount} still need acceptance.` : ''}${archiveReadiness.data.acceptedUnarchivedResponseCount ? ` ${archiveReadiness.data.acceptedUnarchivedResponseCount} accepted response${archiveReadiness.data.acceptedUnarchivedResponseCount === 1 ? ' is' : 's are'} waiting for archive.` : ''}`
-                    : 'No submitted responses need archiving.'}</span>
+              <div className="wt-archive-readiness-card">
+                <div className="wt-archive-readiness-card-heading">
+                  <StatusIndicator status={archiveReadiness.data.unarchivedResponseCount === 0 ? 'Ready' : 'Needs attention'} />
+                  <strong>Submissions archived</strong>
                 </div>
+                <span>{archiveReadiness.data.responseCount
+                  ? `${archiveReadiness.data.archivedResponseCount} of ${archiveReadiness.data.responseCount} current response versions are archived.`
+                  : 'No submitted responses need archiving.'}</span>
+                {archiveReadiness.data.unacceptedResponseCount > 0 ? <small>{archiveReadiness.data.unacceptedResponseCount} still need adviser acceptance.</small> : null}
+                {archiveReadiness.data.acceptedUnarchivedResponseCount > 0 ? <small>{archiveReadiness.data.acceptedUnarchivedResponseCount} accepted response{archiveReadiness.data.acceptedUnarchivedResponseCount === 1 ? ' still needs' : 's still need'} Final Archive.</small> : null}
                 {archiveReadiness.data.unarchivedResponseCount > 0 ? (
                   <div className="wt-archive-readiness-actions">
                     {archiveReadiness.data.unacceptedResponseCount > 0 ? (
                       <Button type="button" size="sm" variant="secondary" onClick={() => goToArchiveTask('/review')}>Review responses</Button>
                     ) : null}
                     {archiveReadiness.data.acceptedUnarchivedResponseCount > 0 ? (
-                      <Button type="button" size="sm" variant="secondary" onClick={() => goToArchiveTask('/archive')}>Open final archive</Button>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => goToArchiveTask('/archive')}>Final archive</Button>
                     ) : null}
                   </div>
                 ) : null}
               </div>
-              <div className="wt-archive-readiness-row">
-                <StatusIndicator status={archiveReadiness.data.publishedFormCount === 0 ? 'Ready' : 'Needs attention'} />
-                <div>
+              <div className="wt-archive-readiness-card">
+                <div className="wt-archive-readiness-card-heading">
+                  <StatusIndicator status={archiveReadiness.data.publishedFormCount === 0 ? 'Ready' : 'Needs attention'} />
                   <strong>Forms unpublished</strong>
-                  <span>{archiveReadiness.data.publishedFormCount === 0
-                    ? 'No public form is currently accepting responses.'
-                    : `${archiveReadiness.data.publishedFormCount} published form${archiveReadiness.data.publishedFormCount === 1 ? '' : 's'} still accepting responses. Unpublish them so restoring this workspace does not reopen old links unexpectedly.`}</span>
                 </div>
+                <span>{archiveReadiness.data.publishedFormCount === 0
+                  ? 'No public form is currently accepting responses.'
+                  : `${archiveReadiness.data.publishedFormCount} published form${archiveReadiness.data.publishedFormCount === 1 ? '' : 's'} still accepting responses.`}</span>
                 {archiveReadiness.data.publishedFormCount > 0 ? (
                   <Button type="button" size="sm" variant="secondary" onClick={() => goToArchiveTask('/forms')}>Manage forms</Button>
                 ) : null}
               </div>
-              {!archiveReadiness.data.ready ? <small className="muted-copy">You can still archive an intentionally incomplete or abandoned workspace. Unresolved items remain preserved as-is.</small> : null}
+              {!archiveReadiness.data.ready ? <small className="wt-archive-readiness-note">You can still archive an intentionally incomplete workspace. Unresolved items remain preserved.</small> : null}
             </div>
           ) : null}
         </div>
