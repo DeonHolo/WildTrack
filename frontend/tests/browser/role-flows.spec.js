@@ -68,19 +68,19 @@ for (const viewport of artworkViewports) {
 }
 
 for (const viewport of artworkViewports) {
-  test('login reuses the public submission artwork on ' + viewport.label, async ({ page }) => {
+  test('login reuses the shared artwork layout while keeping its own mascot on ' + viewport.label, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     page.apiFixture = await installApiFixtures(page, { role: 'anonymous' });
     await page.goto('/login');
 
     await expect(page.getByRole('heading', { level: 1, name: 'Welcome to WildTrack' })).toBeVisible();
-    const artwork = page.getByRole('img', { name: 'WildTrack mascot presenting a PDF' });
-    await expectRenderedArtwork(artwork, 'Showing PDF.webp');
+    const artwork = page.getByRole('img', { name: 'WildTrack mascot exploring quest nodes' });
+    await expectRenderedArtwork(artwork, 'FIND QUEST NODES.webp');
     const composition = await artwork.evaluate((element) => ({
       position: element.style.backgroundPosition,
       size: element.style.backgroundSize
     }));
-    expect(composition).toEqual({ position: 'center bottom', size: 'auto 100%' });
+    expect(composition).toEqual({ position: 'right bottom', size: 'auto 100%' });
     await expectNoPageOverflow(page);
   });
 }
