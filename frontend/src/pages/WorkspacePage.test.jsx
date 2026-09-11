@@ -25,8 +25,6 @@ const workflow = vi.hoisted(() => ({
   generateFormsFromSuggestions: vi.fn(),
   refreshBackendData: vi.fn(),
   reset: vi.fn(),
-  updateTrackerColumn: vi.fn(),
-  addTrackerColumn: vi.fn(),
   saveTemplate: vi.fn(),
   removeTemplate: vi.fn()
 }));
@@ -65,9 +63,7 @@ vi.mock('../lib/workspaceAdminClient.js', () => ({
   loadWorkspaceAdmin: vi.fn(),
   loadWorkspaceArchiveReadiness: (...args) => workflow.loadArchiveReadiness(...args),
   importWorkspaceSheet: (_workspaceId, sourceType, payload) => workflow.connectSheetSource(sourceType, payload),
-  publishSuggestedForms: (...args) => workflow.generateFormsFromSuggestions(...args),
-  addTrackerColumn: (_workspaceId, column) => workflow.addTrackerColumn(column),
-  updateTrackerColumn: (...args) => workflow.updateTrackerColumn(...args)
+  publishSuggestedForms: (...args) => workflow.generateFormsFromSuggestions(...args)
 }));
 
 vi.mock('../lib/submissionClient.js', () => ({
@@ -361,8 +357,9 @@ describe('workspace operations', () => {
     expect(within(activeRow).queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
     fireEvent.click(within(activeRow).getByRole('button', { name: 'Archive' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Archive IT Capstone - IT332?' });
-    expect(dialog).toHaveTextContent('preserves imported data, submissions, reviews, and archive history');
+    const dialog = await screen.findByRole('dialog', { name: 'Archive workspace?' });
+    expect(dialog).toHaveTextContent('IT Capstone - IT332');
+    expect(dialog).toHaveTextContent('Existing data, reviews, and archive history are preserved');
     expect(workflow.loadArchiveReadiness).toHaveBeenCalledWith('workspace-it');
     expect(await within(dialog).findAllByText('Ready')).toHaveLength(2);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Archive workspace' }));
@@ -386,11 +383,13 @@ describe('workspace operations', () => {
     const activeRow = within(management).getByText('IT Capstone - IT332').closest('tr');
     fireEvent.click(within(activeRow).getByRole('button', { name: 'Archive' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Archive IT Capstone - IT332?' });
-    expect(await within(dialog).findByText(/3 of 5 current response versions are archived/)).toHaveTextContent('1 still need acceptance. 1 accepted response is waiting for archive.');
+    const dialog = await screen.findByRole('dialog', { name: 'Archive workspace?' });
+    expect(await within(dialog).findByText('3 of 5 current response versions are archived.')).toBeInTheDocument();
+    expect(within(dialog).getByText('1 still need adviser acceptance.')).toBeInTheDocument();
+    expect(within(dialog).getByText('1 accepted response still needs Final Archive.')).toBeInTheDocument();
     expect(within(dialog).getByText(/4 published forms still accepting responses/)).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Review responses' })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'Open final archive' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Final archive' })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Manage forms' })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Archive anyway' })).toBeInTheDocument();
   });
@@ -454,19 +453,15 @@ describe('workspace operations', () => {
     expect(within(dialog).getByText(/Row 10/)).toBeInTheDocument();
   });
 
-  it('keeps edits local until blur and saves the edited column to its workspace', async () => {
-    workflow.updateTrackerColumn.mockImplementation(async (_id, column, updates) => ({ ...column, ...updates }));
+  it('keeps Tracker form suggestions accessible without a duplicate deliverable-column editor', async () => {
+    const suggestions = [{ trackerColumnKey: 'SRS', shortTitle: 'SRS', title: 'SRS', dueAt: '2026-04-18T23:59:00+08:00' }];
+    workflow.state.classRecord.pendingFormSuggestions = suggestions;
+    workflow.generateFormsFromSuggestions.mockResolvedValue([{ id: 'deliverable-srs' }]);
     renderPage();
-    const toggle = screen.getByRole('button', { name: /Deliverable columns/ });
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.change(screen.getByLabelText('SRS display name'), { target: { value: 'Requirements' } });
-    expect(workflow.updateTrackerColumn).not.toHaveBeenCalled();
-    fireEvent.blur(screen.getByLabelText('Requirements display name'));
-    await waitFor(() => expect(workflow.updateTrackerColumn).toHaveBeenCalledWith(
-      'workspace-it', expect.objectContaining({ id: 'col-srs', label: 'Requirements' }), {}
-    ));
+    expect(screen.queryByText('Deliverable columns')).not.toBeInTheDocument();
+    expect(screen.getByText('1 form suggestion ready')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Generate suggested forms' }));
+    await waitFor(() => expect(workflow.generateFormsFromSuggestions).toHaveBeenCalledWith('workspace-it', expect.anything(), suggestions));
   });
 
   it('adds uploaded or Drive-linked templates from a focused dialog', async () => {

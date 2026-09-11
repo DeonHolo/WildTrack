@@ -132,7 +132,8 @@ describe('forms management', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     renderPage();
 
-    const table = await screen.findByRole('table', { name: 'Published submission forms' });
+    const table = await screen.findByRole('table', { name: 'Submission forms' });
+    expect(screen.getByRole('heading', { name: 'Submission forms' })).toBeInTheDocument();
     await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(3));
     within(table).getAllByText('Published').forEach((label) => {
       expect(label.closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'success');
@@ -314,6 +315,20 @@ describe('forms management', () => {
     await waitFor(() => expect(submissionClient.unpublishDeliverable).toHaveBeenCalledWith('workspace-it', expect.objectContaining({ id: 'deliverable-srs' })));
   });
 
+  it('unpublishes every currently published form in one confirmed end-of-semester cleanup action', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Unpublish all' }));
+
+    const confirmation = await screen.findByRole('dialog', { name: 'Unpublish all 2 published forms?' });
+    expect(confirmation).toHaveTextContent('1 existing response will remain recorded');
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Unpublish all' }));
+
+    await waitFor(() => expect(submissionClient.unpublishDeliverable).toHaveBeenCalledTimes(2));
+    expect(submissionClient.unpublishDeliverable).toHaveBeenNthCalledWith(1, 'workspace-it', expect.objectContaining({ id: 'deliverable-srs' }));
+    expect(submissionClient.unpublishDeliverable).toHaveBeenNthCalledWith(2, 'workspace-it', expect.objectContaining({ id: 'deliverable-sdd' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Unpublish all' })).not.toBeInTheDocument());
+  });
+
   it('shows one row per real deliverable when saved state still holds duplicate copies', async () => {
     workflow.state.deliverables = [
       ...workflow.state.deliverables,
@@ -341,7 +356,7 @@ describe('forms management', () => {
 
     renderPage();
 
-    const table = await screen.findByRole('table', { name: 'Published submission forms' });
+    const table = await screen.findByRole('table', { name: 'Submission forms' });
     await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(3));
     expect(within(table).getAllByRole('link', { name: /submission form$/ })).toHaveLength(2);
   });

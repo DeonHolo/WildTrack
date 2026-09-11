@@ -224,8 +224,14 @@ for (const viewport of artworkViewports) {
     await openAs(page, 'admin', '/workspace');
 
     const workspaceToggle = page.getByRole('button', { name: /Academic workspaces/i });
+    const staffToggle = page.getByRole('button', { name: 'Collapse Staff & Advisers' });
+    await expect(workspaceToggle).toHaveClass(/wt-collapsible-trigger/);
+    await expect(staffToggle).toHaveClass(/wt-collapsible-trigger/);
     await expect(workspaceToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(workspaceToggle).toContainText('Show');
+    await expect(page.getByText('Deliverable columns', { exact: true })).toHaveCount(0);
     await workspaceToggle.click();
+    await expect(workspaceToggle).toContainText('Hide');
     await expect(page.getByRole('table', { name: 'Academic workspaces' })).toBeVisible();
 
     await expect(page.getByText('1 assigned capstone team. Open Edit access to review assignments.')).toBeVisible();
@@ -239,6 +245,59 @@ for (const viewport of artworkViewports) {
     await expectNoPageOverflow(page);
   });
 }
+
+test('workspace archive closeout preflight stays readable without overlapping controls on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openAs(page, 'admin', '/workspace');
+  await page.getByRole('button', { name: 'Expand Academic workspaces' }).click();
+  await page.getByRole('button', { name: 'Archive' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Archive workspace?' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Submissions archived')).toBeVisible();
+  await expect(dialog.getByText('Forms unpublished')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Manage forms' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Archive anyway' })).toBeVisible();
+
+  const metrics = await dialog.evaluate((element) => {
+    const dialogBox = element.getBoundingClientRect();
+    const cards = [...element.querySelectorAll('.wt-archive-readiness-card')];
+    return {
+      insideViewport: dialogBox.left >= 0 && dialogBox.right <= window.innerWidth,
+      noHorizontalOverflow: element.scrollWidth <= element.clientWidth + 1,
+      cards: cards.map((card) => {
+        const copy = card.querySelector(':scope > span');
+        const button = card.querySelector('.mantine-Button-root');
+        return {
+          noOverflow: card.scrollWidth <= card.clientWidth + 1,
+          noButtonOverlap: !copy || !button || button.getBoundingClientRect().top >= copy.getBoundingClientRect().bottom - 1
+        };
+      })
+    };
+  });
+  expect(metrics.insideViewport).toBe(true);
+  expect(metrics.noHorizontalOverflow).toBe(true);
+  expect(metrics.cards).toHaveLength(2);
+  for (const card of metrics.cards) {
+    expect(card.noOverflow).toBe(true);
+    expect(card.noButtonOverlap).toBe(true);
+  }
+  await expectNoPageOverflow(page);
+});
+
+test('forms exposes one guarded unpublish-all cleanup action', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openAs(page, 'admin', '/forms');
+
+  const cleanup = page.getByRole('button', { name: 'Unpublish all' });
+  await expect(cleanup).toBeVisible();
+  await cleanup.click();
+  const dialog = page.getByRole('dialog', { name: 'Unpublish all 2 published forms?' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('existing response');
+  await expect(dialog.getByRole('button', { name: 'Unpublish all' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Keep published' }).click();
+});
 
 test('adviser lands on assigned-team review', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });

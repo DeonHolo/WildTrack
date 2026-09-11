@@ -169,35 +169,41 @@ export function StaffManagementPanel({ workspaceId }) {
     </Paper>)}</Stack>;
   }
 
-  return <section className="panel wt-staff-panel" aria-label="Staff and advisers">
-    <div className="panel-header"><div><Group gap="xs"><UsersThree size={22} /><h2>Staff & Advisers</h2></Group>
-      <p>Add Google accounts and choose their capstone teams. {activeStaff.length} active{revokedStaff.length ? ` · ${revokedStaff.length} revoked` : ''}.</p></div>
-      <Group gap="xs">
-        <Button variant="default" leftSection={<UserPlus size={18} />} onClick={() => openEditor()} disabled={status !== 'ready'}>Add staff / adviser</Button>
-        <ActionIcon
-          variant="default"
-          size="lg"
-          aria-label={sectionOpen ? 'Collapse Staff & Advisers' : 'Expand Staff & Advisers'}
-          aria-expanded={sectionOpen}
-          onClick={() => setSectionOpen((current) => !current)}
-        >
+  return <section className="panel wt-collapsible-panel wt-staff-panel" aria-label="Staff and advisers">
+    <div className="wt-collapsible-header">
+      <button
+        type="button"
+        className="wt-collapsible-trigger"
+        aria-label={sectionOpen ? 'Collapse Staff & Advisers' : 'Expand Staff & Advisers'}
+        aria-expanded={sectionOpen}
+        onClick={() => setSectionOpen((current) => !current)}
+      >
+        <div className="wt-collapsible-copy">
+          <Group gap="xs"><UsersThree size={22} aria-hidden="true" /><strong>Staff & Advisers</strong></Group>
+          <small>Add Google accounts and choose their capstone teams. {activeStaff.length} active{revokedStaff.length ? ` · ${revokedStaff.length} revoked` : ''}.</small>
+        </div>
+        <span className="wt-collapsible-state" aria-hidden="true">
+          <span>{sectionOpen ? 'Hide' : 'Show'}</span>
           {sectionOpen ? <CaretUp size={18} /> : <CaretDown size={18} />}
-        </ActionIcon>
-      </Group>
+        </span>
+      </button>
+      <Button className="wt-collapsible-header-action" variant="default" leftSection={<UserPlus size={18} />} onClick={() => openEditor()} disabled={status !== 'ready'}>Add staff / adviser</Button>
     </div>
     <Collapse in={sectionOpen}>
-      <ResourceBoundary status={status} error={loadError} onRetry={reload}>
-        {!staffList.length ? <Text c="dimmed">No staff or advisers registered yet.</Text> : revokedStaff.length ? (
-          <Tabs value={staffTab} onChange={setStaffTab} keepMounted={false}>
-            <Tabs.List mb="sm">
-              <Tabs.Tab value="active">Active ({activeStaff.length})</Tabs.Tab>
-              <Tabs.Tab value="revoked">Revoked access ({revokedStaff.length})</Tabs.Tab>
-            </Tabs.List>
-            <Tabs.Panel value="active">{staffCards(activeStaff, 'No active staff or advisers.')}</Tabs.Panel>
-            <Tabs.Panel value="revoked">{staffCards(revokedStaff, 'No revoked staff access.')}</Tabs.Panel>
-          </Tabs>
-        ) : staffCards(activeStaff, 'No active staff or advisers.')}
-      </ResourceBoundary>
+      <div className="wt-collapsible-body">
+        <ResourceBoundary status={status} error={loadError} onRetry={reload}>
+          {!staffList.length ? <Text c="dimmed">No staff or advisers registered yet.</Text> : revokedStaff.length ? (
+            <Tabs value={staffTab} onChange={setStaffTab} keepMounted={false}>
+              <Tabs.List mb="sm">
+                <Tabs.Tab value="active">Active ({activeStaff.length})</Tabs.Tab>
+                <Tabs.Tab value="revoked">Revoked access ({revokedStaff.length})</Tabs.Tab>
+              </Tabs.List>
+              <Tabs.Panel value="active">{staffCards(activeStaff, 'No active staff or advisers.')}</Tabs.Panel>
+              <Tabs.Panel value="revoked">{staffCards(revokedStaff, 'No revoked staff access.')}</Tabs.Panel>
+            </Tabs>
+          ) : staffCards(activeStaff, 'No active staff or advisers.')}
+        </ResourceBoundary>
+      </div>
     </Collapse>
     <Modal opened={opened && status === 'ready'} onClose={() => { if (!busy.current) setOpened(false); }}
       closeOnEscape={!saving} closeOnClickOutside={!saving} withCloseButton={!saving}

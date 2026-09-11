@@ -20,20 +20,21 @@ export function PublishedFormsTable({
   onCopy,
   onEdit,
   onRepublish,
-  onUnpublish
+  onUnpublish,
+  actionsDisabled = false
 }) {
   return (
     <Paper className="wt-forms-table-surface" withBorder radius="md">
       <div className="wt-section-heading-row">
         <div>
-          <Text component="h2" fw={750} size="lg">Published forms</Text>
-          <Text size="sm" c="dimmed">One stable public link per mapped deliverable.</Text>
+          <Text component="h2" fw={750} size="lg">Submission forms</Text>
+          <Text size="sm" c="dimmed">One stable public link per mapped deliverable. Unpublished forms stay here for republishing.</Text>
         </div>
         <Text size="sm" fw={700} c="dimmed">{deliverables.length} form{deliverables.length === 1 ? '' : 's'}</Text>
       </div>
       {deliverables.length ? (
         <ScrollArea type="auto" scrollbarSize={10}>
-          <Table aria-label="Published submission forms" className="wt-forms-table" verticalSpacing="sm" horizontalSpacing="md">
+          <Table aria-label="Submission forms" className="wt-forms-table" verticalSpacing="sm" horizontalSpacing="md">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Deliverable</Table.Th>
@@ -71,6 +72,7 @@ export function PublishedFormsTable({
                             size="lg"
                             aria-label={`Copy ${item.shortTitle} form link`}
                             onClick={() => onCopy(item, path)}
+                            disabled={actionsDisabled}
                           >
                             <Copy size={17} aria-hidden="true" />
                           </ActionIcon>
@@ -98,6 +100,7 @@ export function PublishedFormsTable({
                           leftSection={<PencilSimple size={16} aria-hidden="true" />}
                           aria-label={`Edit ${item.shortTitle} form`}
                           onClick={() => onEdit(item)}
+                          disabled={actionsDisabled}
                         >
                           Edit
                         </Button>
@@ -109,6 +112,7 @@ export function PublishedFormsTable({
                             leftSection={<Prohibit size={16} aria-hidden="true" />}
                             aria-label={`Unpublish ${item.shortTitle} form`}
                             onClick={() => onUnpublish(item)}
+                            disabled={actionsDisabled}
                           >
                             Unpublish
                           </Button>
@@ -120,6 +124,7 @@ export function PublishedFormsTable({
                             leftSection={<CheckCircle size={16} aria-hidden="true" />}
                             aria-label={`Republish ${item.shortTitle} form`}
                             onClick={() => onRepublish(item)}
+                            disabled={actionsDisabled}
                           >
                             Republish
                           </Button>
