@@ -4,6 +4,7 @@ import {
   Button,
   Group,
   Paper,
+  Progress,
   Skeleton,
   Stack,
   Text,
@@ -19,7 +20,7 @@ import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { FormEditorModal } from '../components/forms/FormEditorModal.jsx';
 import { PublishedFormsTable } from '../components/forms/PublishedFormsTable.jsx';
 import { buildDeliverableFormPayload, makeDeliverableFormDraft } from '../lib/forms.js';
-import { saveDeliverable, unpublishDeliverable } from '../lib/submissionClient.js';
+import { saveDeliverable, unpublishAllDeliverables, unpublishDeliverable } from '../lib/submissionClient.js';
 import { emptyFormsState, loadFormsState } from '../lib/formsClient.js';
 import {
   getActiveTrackerColumns,
@@ -45,6 +46,7 @@ export function FormsPage() {
   const [editor, setEditor] = useState({ opened: false, form: null });
   const [copyStatus, setCopyStatus] = useState('');
   const [bulkUnpublishing, setBulkUnpublishing] = useState(false);
+  const [bulkUnpublishCount, setBulkUnpublishCount] = useState(0);
   const columnOptions = activeColumns.map((column) => ({ value: column.key, label: column.label }));
   const publishedDeliverables = useMemo(
     () => orderedDeliverables.filter((item) => item.status !== 'Unpublished'),
@@ -56,7 +58,18 @@ export function FormsPage() {
     setEditor({ opened: false, form: null });
     setCopyStatus('');
     setBulkUnpublishing(false);
+    setBulkUnpublishCount(0);
   }, [isCurrentScope]);
+
+  useEffect(() => {
+    if (!bulkUnpublishing) return undefined;
+    const warnBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [bulkUnpublishing]);
 
   useEffect(() => {
     if (formsStatus === 'error') setEditor({ opened: false, form: null });
@@ -168,32 +181,42 @@ export function FormsPage() {
   async function unpublishAll() {
     if (!isCurrentScope() || !publishedDeliverables.length) return;
     const workspaceId = activeWorkspaceId;
-    const targets = [...publishedDeliverables];
+    const targetCount = publishedDeliverables.length;
     setFormsError('');
+    setBulkUnpublishCount(targetCount);
     setBulkUnpublishing(true);
-    const saved = [];
-    const failed = [];
-    for (const item of targets) {
-      try {
-        saved.push(await unpublishDeliverable(workspaceId, item));
-      } catch (error) {
-        failed.push({ item, error });
+    try {
+      const saved = await unpublishAllDeliverables(workspaceId);
+      if (!isCurrentScope()) return;
+      setState((current) => ({ ...current, deliverables: saved }));
+      notifications.show({
+        color: 'green',
+        title: 'Forms unpublished',
+        message: `${targetCount} public form${targetCount === 1 ? '' : 's'} stopped accepting responses.`
+      });
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      const latest = await reload();
+      if (!isCurrentScope()) return;
+      const remaining = Array.isArray(latest?.deliverables)
+        ? latest.deliverables.filter((item) => item.status !== 'Unpublished').length
+        : null;
+      const completed = remaining === 0;
+      const message = completed
+        ? 'The cleanup completed on the server, but the browser lost the final response. The latest form status has been restored.'
+        : error?.message || 'The forms could not be unpublished. No partial browser-side batch will continue in the background.';
+      setFormsError(completed ? '' : message);
+      notifications.show({
+        color: completed ? 'green' : 'red',
+        title: completed ? 'Forms unpublished' : 'Cleanup not completed',
+        message
+      });
+    } finally {
+      if (isCurrentScope()) {
+        setBulkUnpublishing(false);
+        setBulkUnpublishCount(0);
       }
     }
-    if (!isCurrentScope()) return;
-    const savedById = new Map(saved.map((item) => [item.id, item]));
-    setState((current) => ({
-      ...current,
-      deliverables: current.deliverables.map((item) => savedById.get(item.id) || item)
-    }));
-    setBulkUnpublishing(false);
-    if (failed.length) {
-      const message = `${saved.length} form${saved.length === 1 ? '' : 's'} unpublished. ${failed.length} could not be updated; retry those forms individually.`;
-      setFormsError(message);
-      notifications.show({ color: 'orange', title: 'Cleanup partly completed', message });
-      return;
-    }
-    notifications.show({ color: 'green', title: 'Forms unpublished', message: `${saved.length} public form${saved.length === 1 ? '' : 's'} stopped accepting responses.` });
   }
 
   async function setPublishedStatus(item, published) {
@@ -249,6 +272,19 @@ export function FormsPage() {
           </Button>
         </Group>
       </header>
+
+      {bulkUnpublishing ? (
+        <Paper className="wt-bulk-unpublish-progress" withBorder p="md" role="status" aria-live="polite" aria-label="Unpublishing all forms">
+          <Group justify="space-between" align="flex-start" gap="md">
+            <div>
+              <Text fw={750}>Unpublishing {bulkUnpublishCount} form{bulkUnpublishCount === 1 ? '' : 's'}...</Text>
+              <Text size="sm" c="dimmed">WildTrack is completing this cleanup as one server-side batch. Keep this page open until it finishes.</Text>
+            </div>
+            <Text size="sm" fw={700} c="dimmed">In progress</Text>
+          </Group>
+          <Progress mt="sm" value={100} animated color="wildtrackMaroon" aria-label="Bulk unpublish in progress" />
+        </Paper>
+      ) : null}
 
       {formsStatus === 'loading' ? (
         <Paper withBorder p="lg" role="status" aria-label="Loading published forms">

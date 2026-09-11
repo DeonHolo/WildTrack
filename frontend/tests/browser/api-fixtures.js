@@ -94,6 +94,10 @@ export async function installApiFixtures(page, { role = 'student', connected = f
       response = makeResponse(JSON.parse(request.postDataJSON().valuesJson));
       return reply({ changed: true, responseId: response.id, revision: response.revision, valuesJson: response.valuesJson });
     }
+    if (path === '/deliverables/unpublish-all' && method === 'POST') {
+      deliverables.forEach((item) => { item.status = 'UNPUBLISHED'; });
+      return reply(deliverables);
+    }
     const responses = response ? [response] : [];
     if (path === '/workspace/students/dashboard' && method === 'GET') return reply({
       association, rosterOptions: [student], students: association ? [student] : [],

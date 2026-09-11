@@ -84,6 +84,12 @@ export async function getDeliverables(workspaceId) {
   return request(withWorkspace('/deliverables', workspaceId));
 }
 
+export async function unpublishAllBackendDeliverables(workspaceId) {
+  return request(withWorkspace('/deliverables/unpublish-all', workspaceId), {
+    method: 'POST'
+  });
+}
+
 export async function getStudents(workspaceId) {
   return request(withWorkspace('/students', workspaceId));
 }

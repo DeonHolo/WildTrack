@@ -299,6 +299,39 @@ test('forms exposes one guarded unpublish-all cleanup action', async ({ page }) 
   await dialog.getByRole('button', { name: 'Keep published' }).click();
 });
 
+test('forms shows server-side cleanup progress while unpublishing all forms', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openAs(page, 'admin', '/forms');
+  await page.route('**/api/deliverables/unpublish-all**', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.fallback();
+  });
+
+  await page.getByRole('button', { name: 'Unpublish all' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Unpublish all 2 published forms?' });
+  await dialog.getByRole('button', { name: 'Unpublish all' }).click();
+
+  const progress = page.getByRole('status', { name: 'Unpublishing all forms' });
+  await expect(progress).toBeVisible();
+  await expect(progress).toContainText('one server-side batch');
+  await expect(page.getByRole('button', { name: 'Publish form' })).toBeDisabled();
+  await expect(progress).toHaveCount(0, { timeout: 5000 });
+  await expect(page.getByText('Unpublished', { exact: true })).toHaveCount(2);
+});
+
+test('short desktop pages do not reserve an empty global scrollbar gutter', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openAs(page, 'admin', '/forms');
+
+  const metrics = await page.evaluate(() => ({
+    gutter: getComputedStyle(document.documentElement).scrollbarGutter,
+    innerWidth: window.innerWidth,
+    headerRight: document.querySelector('.wt-staff-header')?.getBoundingClientRect().right ?? 0
+  }));
+  expect(metrics.gutter).toBe('auto');
+  expect(Math.abs(metrics.innerWidth - metrics.headerRight)).toBeLessThanOrEqual(1);
+});
+
 test('adviser lands on assigned-team review', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await openAs(page, 'adviser', '/adviser');

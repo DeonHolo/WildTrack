@@ -11,6 +11,7 @@ import {
   saveDeliverable,
   saveSubmissionDraft,
   saveSubmissionTemplate,
+  unpublishAllDeliverables,
   unpublishDeliverable
 } from './submissionClient.js';
 
@@ -26,6 +27,7 @@ const api = vi.hoisted(() => ({
   saveBackendDeliverable: vi.fn(),
   saveDraft: vi.fn(),
   submitResponse: vi.fn(),
+  unpublishAllBackendDeliverables: vi.fn(),
   uploadDocumentTemplate: vi.fn(),
   uploadDriveDocumentTemplate: vi.fn()
 }));
@@ -76,6 +78,24 @@ describe('SubmissionClient deliverables', () => {
 
     expect(api.saveBackendDeliverable).toHaveBeenCalledWith('workspace-1', expect.objectContaining({ id: 'deliverable-1' }));
     expect(saved).toEqual(expect.objectContaining({ id: 'deliverable-1', title: 'Updated SRS', status: 'Published' }));
+  });
+
+  it('maps one server-side unpublish-all result back to form-facing deliverables', async () => {
+    api.unpublishAllBackendDeliverables.mockResolvedValue([{
+      id: 'deliverable-1',
+      trackerColumnKey: 'SRS',
+      title: 'SRS Submission',
+      slug: 'srs',
+      dueAt: '2026-09-30T23:59:00',
+      status: 'UNPUBLISHED',
+      instructions: 'Submit the SRS.',
+      pdfRequired: true
+    }]);
+
+    await expect(unpublishAllDeliverables('workspace-1')).resolves.toEqual([
+      expect.objectContaining({ id: 'deliverable-1', status: 'Unpublished' })
+    ]);
+    expect(api.unpublishAllBackendDeliverables).toHaveBeenCalledWith('workspace-1');
   });
 
   it('unpublishes through the server instead of changing only local state', async () => {

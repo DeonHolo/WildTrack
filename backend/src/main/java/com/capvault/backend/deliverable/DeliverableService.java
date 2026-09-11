@@ -97,6 +97,17 @@ public class DeliverableService {
         return response(deliverable);
     }
 
+    @Transactional
+    public List<DeliverableResponse> unpublishAll(UUID workspaceId) {
+        List<Deliverable> deliverables = repository.findAllByWorkspaceIdOrderByDueAtAscTitleAsc(workspaceId);
+        List<Deliverable> changed = deliverables.stream()
+            .filter(deliverable -> deliverable.getStatus() == DeliverableStatus.PUBLISHED)
+            .peek(deliverable -> deliverable.setStatus(DeliverableStatus.UNPUBLISHED))
+            .toList();
+        if (!changed.isEmpty()) repository.saveAll(changed);
+        return deliverables.stream().map(this::response).toList();
+    }
+
     private DeliverableResponse response(Deliverable deliverable) {
         List<DeliverableField> fields = activeOrLegacyFields(deliverable);
         return DeliverableResponse.from(deliverable, fields);

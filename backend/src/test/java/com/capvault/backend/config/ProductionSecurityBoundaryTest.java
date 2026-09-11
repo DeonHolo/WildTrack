@@ -93,6 +93,8 @@ class ProductionSecurityBoundaryTest {
             .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/deliverables").with(session()))
             .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/deliverables/unpublish-all").with(session()))
+            .andExpect(status().isForbidden());
         mockMvc.perform(put("/api/deliverables/" + id).with(session()))
             .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/templates").with(session()))

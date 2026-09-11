@@ -10,6 +10,7 @@ import {
   saveBackendDeliverable,
   saveDraft,
   submitResponse,
+  unpublishAllBackendDeliverables,
   uploadDocumentTemplate,
   uploadDriveDocumentTemplate
 } from './api.js';
@@ -25,6 +26,11 @@ export async function saveDeliverable(workspaceId, payload) {
 
 export function unpublishDeliverable(workspaceId, deliverable) {
   return saveDeliverable(workspaceId, { ...deliverable, status: 'Unpublished' });
+}
+
+export async function unpublishAllDeliverables(workspaceId) {
+  const deliverables = await unpublishAllBackendDeliverables(workspaceId);
+  return (deliverables || []).map(mapDeliverable);
 }
 
 export function saveSubmissionTemplate(workspaceId, payload) {
