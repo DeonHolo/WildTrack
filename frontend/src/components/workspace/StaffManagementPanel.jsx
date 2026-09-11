@@ -1,6 +1,6 @@
-import { ActionIcon, Alert, Autocomplete, Button, Checkbox, Group, Modal, Paper, ScrollArea, Select, Stack, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Alert, Autocomplete, Button, Checkbox, Collapse, Group, Modal, Paper, ScrollArea, Select, Stack, Tabs, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { PencilSimple, Trash, UserPlus, UsersThree } from '@phosphor-icons/react';
+import { CaretDown, CaretUp, PencilSimple, Trash, UserPlus, UsersThree } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { emptyStaffAccess, loadStaffDirectory, revokeStaff, saveStaff } from '../../lib/staffAccessClient.js';
 import { useWorkspaceResource } from '../../hooks/useWorkspaceResource.js';
@@ -32,6 +32,8 @@ export function StaffManagementPanel({ workspaceId }) {
   const [revokeTarget, setRevokeTarget] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [sectionOpen, setSectionOpen] = useState(true);
+  const [staffTab, setStaffTab] = useState('active');
   const busy = useRef(false);
 
   const imported = useMemo(() => {
@@ -75,6 +77,8 @@ export function StaffManagementPanel({ workspaceId }) {
   const initialRole = editing?.roles?.includes('ADMIN') ? 'ADMIN' : 'ADVISER';
   const roleChanged = editing && role !== initialRole;
   const needsReview = transfers.length > 0 || removals.length > 0 || roleChanged || editing?.enabled === false;
+  const activeStaff = staffList.filter(profile => profile.enabled !== false);
+  const revokedStaff = staffList.filter(profile => profile.enabled === false);
   const teamOptions = unique([...imported.teams, ...(editing?.assignedTeams || [])]).map(team => {
     const holder = holderFor(team);
     return { value: team, label: holder && holder.googleEmail !== editing?.googleEmail
@@ -83,8 +87,10 @@ export function StaffManagementPanel({ workspaceId }) {
   useEffect(() => {
     setOpened(false); setRevokeTarget(null); setEditing(null); setEmail(''); setName('');
     setSelectedTeams([]); setError(''); setSaving(false); busy.current = false;
+    setStaffTab('active');
   }, [isCurrentScope]);
   useEffect(() => { if (status === 'error') { setOpened(false); setRevokeTarget(null); } }, [status]);
+  useEffect(() => { if (!revokedStaff.length && staffTab === 'revoked') setStaffTab('active'); }, [revokedStaff.length, staffTab]);
 
   function openEditor(profile = null) {
     setTeamSearch('');
@@ -138,26 +144,61 @@ export function StaffManagementPanel({ workspaceId }) {
     finally { if (isCurrentScope()) { busy.current = false; setSaving(false); } }
   }
 
+  function staffSummary(profile) {
+    if (profile.enabled === false) return 'Access revoked. Open Edit access to review or reactivate this account.';
+    if (profile.roles.includes('ADMIN')) return 'Administrator access. Personal team assignments are not required.';
+    const count = profile.assignedTeams?.length || 0;
+    return count
+      ? `${count} assigned capstone team${count === 1 ? '' : 's'}. Open Edit access to review assignments.`
+      : 'Pending assignment · no team review access.';
+  }
+
+  function staffCards(profiles, emptyCopy) {
+    if (!profiles.length) return <Text c="dimmed">{emptyCopy}</Text>;
+    return <Stack gap="sm">{profiles.map(profile => <Paper key={profile.id} p="md" withBorder>
+      <Group justify="space-between" align="flex-start"><Stack gap={4}>
+        {profile.adviserName ? <Text fw={600}>{profile.adviserName}</Text> : null}<Text size="sm">{profile.googleEmail}</Text>
+        <Group gap="md">{profile.roles.map(value => <Text key={value} size="xs">{value === 'ADMIN' ? 'Administrator' : 'Adviser'}</Text>)}
+          <StatusIndicator status={!profile.enabled ? 'Disabled' : profile.googleSubject.startsWith('pending:') ? 'Pending sign-in' : 'Active'} /></Group>
+        <Text size="xs" c="dimmed">{staffSummary(profile)}</Text>
+      </Stack><Group gap="xs"><Button size="xs" variant="default" leftSection={<PencilSimple size={14} />} onClick={() => openEditor(profile)}>Edit access</Button>
+        {profile.enabled ? <ActionIcon color="red" variant="subtle" aria-label={'Revoke access for ' + profile.googleEmail}
+          onClick={() => { setError(''); setRevokeTarget(profile); }}><Trash size={16} /></ActionIcon> : null}</Group></Group>
+      {profile.enabled && imported.advisers.length ? <Button mt="xs" variant="subtle" size="xs"
+        onClick={() => openEditor(profile)}>Review imported adviser teams</Button> : null}
+    </Paper>)}</Stack>;
+  }
+
   return <section className="panel wt-staff-panel" aria-label="Staff and advisers">
     <div className="panel-header"><div><Group gap="xs"><UsersThree size={22} /><h2>Staff & Advisers</h2></Group>
-      <p>Add Google accounts and choose their capstone teams.</p></div>
-      <Button variant="default" leftSection={<UserPlus size={18} />} onClick={() => openEditor()} disabled={status !== 'ready'}>Add staff / adviser</Button>
+      <p>Add Google accounts and choose their capstone teams. {activeStaff.length} active{revokedStaff.length ? ` · ${revokedStaff.length} revoked` : ''}.</p></div>
+      <Group gap="xs">
+        <Button variant="default" leftSection={<UserPlus size={18} />} onClick={() => openEditor()} disabled={status !== 'ready'}>Add staff / adviser</Button>
+        <ActionIcon
+          variant="default"
+          size="lg"
+          aria-label={sectionOpen ? 'Collapse Staff & Advisers' : 'Expand Staff & Advisers'}
+          aria-expanded={sectionOpen}
+          onClick={() => setSectionOpen((current) => !current)}
+        >
+          {sectionOpen ? <CaretUp size={18} /> : <CaretDown size={18} />}
+        </ActionIcon>
+      </Group>
     </div>
-    <ResourceBoundary status={status} error={loadError} onRetry={reload}>
-      {!staffList.length ? <Text c="dimmed">No staff or advisers registered yet.</Text> :
-        <Stack gap="sm">{staffList.map(profile => <Paper key={profile.id} p="md" withBorder>
-          <Group justify="space-between" align="flex-start"><Stack gap={4}>
-            {profile.adviserName ? <Text fw={600}>{profile.adviserName}</Text> : null}<Text size="sm">{profile.googleEmail}</Text>
-            <Group gap="md">{profile.roles.map(value => <Text key={value} size="xs">{value === 'ADMIN' ? 'Administrator' : 'Adviser'}</Text>)}
-              <StatusIndicator status={!profile.enabled ? 'Disabled' : profile.googleSubject.startsWith('pending:') ? 'Pending sign-in' : 'Active'} /></Group>
-            <Text size="xs" c="dimmed">{profile.assignedTeams.length ? profile.assignedTeams.map(teamLabel).join(', ') : profile.roles.includes('ADMIN') ? 'Administrator access. No personal teams assigned.' : 'Pending assignment — no team review access.'}</Text>
-          </Stack><Group gap="xs"><Button size="xs" variant="default" leftSection={<PencilSimple size={14} />} onClick={() => openEditor(profile)}>Edit access</Button>
-            {profile.enabled ? <ActionIcon color="red" variant="subtle" aria-label={'Revoke access for ' + profile.googleEmail}
-              onClick={() => { setError(''); setRevokeTarget(profile); }}><Trash size={16} /></ActionIcon> : null}</Group></Group>
-          {imported.advisers.length ? <Button mt="xs" variant="subtle" size="xs"
-            onClick={() => openEditor(profile)}>Review imported adviser teams</Button> : null}
-        </Paper>)}</Stack>}
-    </ResourceBoundary>
+    <Collapse in={sectionOpen}>
+      <ResourceBoundary status={status} error={loadError} onRetry={reload}>
+        {!staffList.length ? <Text c="dimmed">No staff or advisers registered yet.</Text> : revokedStaff.length ? (
+          <Tabs value={staffTab} onChange={setStaffTab} keepMounted={false}>
+            <Tabs.List mb="sm">
+              <Tabs.Tab value="active">Active ({activeStaff.length})</Tabs.Tab>
+              <Tabs.Tab value="revoked">Revoked access ({revokedStaff.length})</Tabs.Tab>
+            </Tabs.List>
+            <Tabs.Panel value="active">{staffCards(activeStaff, 'No active staff or advisers.')}</Tabs.Panel>
+            <Tabs.Panel value="revoked">{staffCards(revokedStaff, 'No revoked staff access.')}</Tabs.Panel>
+          </Tabs>
+        ) : staffCards(activeStaff, 'No active staff or advisers.')}
+      </ResourceBoundary>
+    </Collapse>
     <Modal opened={opened && status === 'ready'} onClose={() => { if (!busy.current) setOpened(false); }}
       closeOnEscape={!saving} closeOnClickOutside={!saving} withCloseButton={!saving}
       title={editing ? 'Edit staff access' : 'Add staff member or adviser'} centered size="lg" scrollAreaComponent={ScrollArea.Autosize}>

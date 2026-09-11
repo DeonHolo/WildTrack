@@ -4220,6 +4220,10 @@ textarea:not(.mantine-Input-input):focus {
   align-items: end;
 }
 
+.wt-management-section-body {
+  padding-top: 16px;
+}
+
 .wt-workspace-facts {
   display: grid;
   grid-template-columns: repeat(4, minmax(110px, 1fr));
@@ -4415,6 +4419,58 @@ textarea:not(.mantine-Input-input):focus {
   justify-content: flex-end;
 }
 
+.wt-archive-readiness {
+  display: grid;
+  gap: 14px;
+}
+
+.wt-archive-readiness-context {
+  display: grid;
+  gap: 2px;
+}
+
+.wt-archive-readiness-context span,
+.wt-archive-readiness-row span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.wt-archive-readiness-list {
+  display: grid;
+  gap: 10px;
+}
+
+.wt-archive-readiness-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.wt-archive-readiness-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.wt-archive-readiness-actions {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px !important;
+}
+
+.wt-archive-readiness .inline-alert.warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .wt-empty-row {
   display: flex;
   justify-content: center;
@@ -4578,6 +4634,25 @@ textarea:not(.mantine-Input-input):focus {
 
   .wt-section-toggle-actions {
     align-self: center;
+  }
+
+  .wt-archive-readiness-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .wt-archive-readiness-row .mantine-Button-root {
+    width: 100%;
+  }
+
+  .wt-archive-readiness-actions {
+    display: grid !important;
+    width: 100%;
+  }
+
+  .wt-archive-readiness .inline-alert.warning {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .wt-suggestion-banner {

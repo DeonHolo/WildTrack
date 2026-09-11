@@ -95,6 +95,7 @@ export function ConfirmDialog({
   onClose,
   intent = 'primary',
   loading = false,
+  confirmDisabled = false,
   children
 }) {
   const descriptionId = useId();
@@ -133,7 +134,7 @@ export function ConfirmDialog({
           <MantineButton
             color={intent === 'danger' ? 'red' : 'wildtrackMaroon'}
             loading={loading}
-            disabled={!canConfirm || loading}
+            disabled={!canConfirm || loading || confirmDisabled}
             onClick={onConfirm}
           >
             {confirmLabel}

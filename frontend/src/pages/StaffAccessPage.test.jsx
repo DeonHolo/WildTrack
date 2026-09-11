@@ -37,5 +37,6 @@ it('shows a rejected revoke without removing existing access locally', async () 
   fireEvent.click(await screen.findByRole('button', { name: 'Revoke access', exact: true }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Access changed. Reload and try again.');
   expect(screen.getByText('adviser@example.test')).toBeInTheDocument();
-  expect(screen.getByText('TEAM-A')).toBeInTheDocument();
+  expect(screen.getByText('1 assigned capstone team. Open Edit access to review assignments.')).toBeInTheDocument();
+  expect(screen.queryByText('TEAM-A')).not.toBeInTheDocument();
 });
