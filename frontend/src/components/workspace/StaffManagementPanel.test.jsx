@@ -100,14 +100,45 @@ describe('StaffManagementPanel', () => {
     expect(await screen.findByText('ralph@example.com')).toBeInTheDocument();
   });
 
-  it('renders staff members with role badges and assigned teams', async () => {
+  it('renders concise staff summaries without dumping assigned team identifiers into each card', async () => {
     renderPanel();
 
     expect(await screen.findByText('ralph@example.com')).toBeInTheDocument();
     expect(screen.getByText('Administrator')).toBeInTheDocument();
     expect(screen.getByText('adviser@example.com')).toBeInTheDocument();
     expect(screen.getByText('Adviser')).toBeInTheDocument();
-    expect(screen.getByText(/2526-sem2-it332-01/)).toBeInTheDocument();
+    expect(screen.getByText('1 assigned capstone team. Open Edit access to review assignments.')).toBeInTheDocument();
+    expect(screen.queryByText(/2526-sem2-it332-01/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Revoked access/i })).not.toBeInTheDocument();
+  });
+
+  it('shows revoked staff on a separate tab only when revoked access exists', async () => {
+    api.getStaffProfiles.mockResolvedValueOnce([
+      {
+        id: 'staff-1', googleSubject: 'sub-ralph', googleEmail: 'ralph@example.com', roles: ['ADMIN'], enabled: true, assignedTeams: []
+      },
+      {
+        id: 'staff-disabled', googleSubject: 'sub-disabled', googleEmail: 'disabled@example.com', adviserName: 'Former Adviser', roles: ['ADVISER'], enabled: false, assignedTeams: []
+      }
+    ]);
+    renderPanel();
+
+    expect(await screen.findByRole('tab', { name: 'Revoked access (1)' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Active (1)' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByText('disabled@example.com')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Revoked access (1)' }));
+    expect(await screen.findByText('disabled@example.com')).toBeInTheDocument();
+    expect(screen.getByText('Access revoked. Open Edit access to review or reactivate this account.')).toBeInTheDocument();
+  });
+
+  it('lets the staff section be collapsed without hiding its management header', async () => {
+    renderPanel();
+    await screen.findByText('ralph@example.com');
+    const collapse = screen.getByRole('button', { name: 'Collapse Staff & Advisers' });
+    expect(collapse).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(collapse);
+    expect(screen.getByRole('button', { name: 'Expand Staff & Advisers' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /Add staff \/ adviser/i })).toBeInTheDocument();
   });
 
   it('shows a recoverable staff load error instead of claiming the workspace has no staff', async () => {

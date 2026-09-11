@@ -21,6 +21,7 @@ const workflow = vi.hoisted(() => ({
   updateWorkspace: vi.fn(),
   refreshWorkspaceManagementCatalog: vi.fn(),
   connectSheetSource: vi.fn(),
+  loadArchiveReadiness: vi.fn(),
   generateFormsFromSuggestions: vi.fn(),
   refreshBackendData: vi.fn(),
   reset: vi.fn(),
@@ -62,6 +63,7 @@ vi.mock('../hooks/useWorkspaceResource.js', async () => {
 vi.mock('../lib/workspaceAdminClient.js', () => ({
   emptyWorkspaceAdmin: () => ({}),
   loadWorkspaceAdmin: vi.fn(),
+  loadWorkspaceArchiveReadiness: (...args) => workflow.loadArchiveReadiness(...args),
   importWorkspaceSheet: (_workspaceId, sourceType, payload) => workflow.connectSheetSource(sourceType, payload),
   publishSuggestedForms: (...args) => workflow.generateFormsFromSuggestions(...args),
   addTrackerColumn: (_workspaceId, column) => workflow.addTrackerColumn(column),
@@ -225,6 +227,12 @@ function renderPage(initialEntry = '/workspace', pageProps = {}) {
   return render(workspaceTree(initialEntry, pageProps));
 }
 
+function expandWorkspaceManagement() {
+  const toggle = screen.getByRole('button', { name: /Academic workspaces/i });
+  if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle);
+  return toggle;
+}
+
 function workspaceTree(initialEntry = '/workspace', pageProps = {}) {
   return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
@@ -253,6 +261,16 @@ describe('workspace operations', () => {
     workflow.state = createState();
     Object.values(workflow).forEach((value) => value?.mockReset?.());
     workflow.refreshWorkspaceManagementCatalog.mockResolvedValue({ ok: true, workspaces: workflow.allWorkspaces });
+    workflow.loadArchiveReadiness.mockResolvedValue({
+      responseCount: 0,
+      archivedResponseCount: 0,
+      unarchivedResponseCount: 0,
+      unacceptedResponseCount: 0,
+      acceptedUnarchivedResponseCount: 0,
+      deliverableCount: 0,
+      publishedFormCount: 0,
+      ready: true
+    });
     workflow.createWorkspace.mockImplementation(async (payload) => ({ ok: true, workspace: { id: 'workspace-new', ...payload, active: true } }));
     workflow.updateWorkspace.mockImplementation(async (workspaceId, updates) => {
       const workspace = workflow.allWorkspaces.find((item) => item.id === workspaceId);
@@ -301,7 +319,9 @@ describe('workspace operations', () => {
     ]);
     expect(within(selector).queryByRole('option', { name: 'Archived IT Capstone' })).not.toBeInTheDocument();
 
-    const management = screen.getByRole('table', { name: 'Academic workspaces' });
+    const toggle = expandWorkspaceManagement();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const management = await screen.findByRole('table', { name: 'Academic workspaces' });
     const archivedRow = within(management).getByText('Archived IT Capstone').closest('tr');
     expect(archivedRow).toHaveTextContent('Archived');
     fireEvent.click(within(archivedRow).getByRole('button', { name: 'Restore' }));
@@ -310,7 +330,8 @@ describe('workspace operations', () => {
 
   it('edits workspace metadata through the existing update lifecycle', async () => {
     renderPage();
-    const management = screen.getByRole('table', { name: 'Academic workspaces' });
+    expandWorkspaceManagement();
+    const management = await screen.findByRole('table', { name: 'Academic workspaces' });
     const activeRow = within(management).getByText('IT Capstone - IT332').closest('tr');
     fireEvent.click(within(activeRow).getByRole('button', { name: 'Edit' }));
 
@@ -332,15 +353,46 @@ describe('workspace operations', () => {
 
   it('archives a workspace without offering hard delete', async () => {
     renderPage();
-    const management = screen.getByRole('table', { name: 'Academic workspaces' });
+    const toggle = screen.getByRole('button', { name: /Academic workspaces/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    const management = await screen.findByRole('table', { name: 'Academic workspaces' });
     const activeRow = within(management).getByText('IT Capstone - IT332').closest('tr');
     expect(within(activeRow).queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
     fireEvent.click(within(activeRow).getByRole('button', { name: 'Archive' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Archive IT Capstone - IT332?' });
-    expect(dialog).toHaveTextContent('submissions, reviews, and archive history are preserved');
+    expect(dialog).toHaveTextContent('preserves imported data, submissions, reviews, and archive history');
+    expect(workflow.loadArchiveReadiness).toHaveBeenCalledWith('workspace-it');
+    expect(await within(dialog).findAllByText('Ready')).toHaveLength(2);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Archive workspace' }));
     await waitFor(() => expect(workflow.updateWorkspace).toHaveBeenCalledWith('workspace-it', { active: false }));
+  });
+
+  it('shows archive closeout blockers with direct remediation actions while allowing intentional archive', async () => {
+    workflow.loadArchiveReadiness.mockResolvedValueOnce({
+      responseCount: 5,
+      archivedResponseCount: 3,
+      unarchivedResponseCount: 2,
+      unacceptedResponseCount: 1,
+      acceptedUnarchivedResponseCount: 1,
+      deliverableCount: 5,
+      publishedFormCount: 4,
+      ready: false
+    });
+    renderPage();
+    expandWorkspaceManagement();
+    const management = await screen.findByRole('table', { name: 'Academic workspaces' });
+    const activeRow = within(management).getByText('IT Capstone - IT332').closest('tr');
+    fireEvent.click(within(activeRow).getByRole('button', { name: 'Archive' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Archive IT Capstone - IT332?' });
+    expect(await within(dialog).findByText(/3 of 5 current response versions are archived/)).toHaveTextContent('1 still need acceptance. 1 accepted response is waiting for archive.');
+    expect(within(dialog).getByText(/4 published forms still accepting responses/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Review responses' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Open final archive' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Manage forms' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Archive anyway' })).toBeInTheDocument();
   });
 
   it('shows friendly backend duplicate-identity validation while editing', async () => {
@@ -349,7 +401,8 @@ describe('workspace operations', () => {
       error: 'A workspace already exists for this program, course, semester, and academic year.'
     });
     renderPage();
-    const management = screen.getByRole('table', { name: 'Academic workspaces' });
+    expandWorkspaceManagement();
+    const management = await screen.findByRole('table', { name: 'Academic workspaces' });
     const activeRow = within(management).getByText('IT Capstone - IT332').closest('tr');
     fireEvent.click(within(activeRow).getByRole('button', { name: 'Edit' }));
     const dialog = await screen.findByRole('form', { name: 'Edit academic workspace' });

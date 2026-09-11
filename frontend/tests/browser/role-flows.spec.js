@@ -23,7 +23,7 @@ async function expectNoPageOverflow(page) {
 }
 
 async function expectStatusIndicatorsReadable(page) {
-  const indicators = page.locator('.wt-status-indicator');
+  const indicators = page.locator('.wt-status-indicator:visible');
   await expect(indicators.first()).toBeVisible();
   const clippedLabels = await indicators.locator('.wt-status-indicator-label').evaluateAll((labels) => (
     labels.filter((label) => label.scrollWidth > label.clientWidth + 1).map((label) => label.textContent)
@@ -174,6 +174,28 @@ test('workspace source imports fit at desktop width', async ({ page }) => {
     element.scrollWidth <= element.clientWidth + 1
   ))).toBe(true);
 });
+
+for (const viewport of artworkViewports) {
+  test('workspace administration keeps inactive records out of the main flow on ' + viewport.label, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await openAs(page, 'admin', '/workspace');
+
+    const workspaceToggle = page.getByRole('button', { name: /Academic workspaces/i });
+    await expect(workspaceToggle).toHaveAttribute('aria-expanded', 'false');
+    await workspaceToggle.click();
+    await expect(page.getByRole('table', { name: 'Academic workspaces' })).toBeVisible();
+
+    await expect(page.getByText('1 assigned capstone team. Open Edit access to review assignments.')).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Revoked access (1)' })).toBeVisible();
+    await expect(page.getByText('revoked.browser-test@gmail.com')).toHaveCount(0);
+    await page.getByRole('tab', { name: 'Revoked access (1)' }).click();
+    await expect(page.getByText('revoked.browser-test@gmail.com')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Collapse Staff & Advisers' }).click();
+    await expect(page.getByRole('button', { name: 'Expand Staff & Advisers' })).toHaveAttribute('aria-expanded', 'false');
+    await expectNoPageOverflow(page);
+  });
+}
 
 test('adviser lands on assigned-team review', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });

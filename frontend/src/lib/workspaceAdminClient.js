@@ -49,6 +49,38 @@ export async function loadWorkspaceAdmin(workspaceId) {
   };
 }
 
+export async function loadWorkspaceArchiveReadiness(workspaceId) {
+  const monitoring = await getStaffMonitoring(workspaceId, true);
+  const responses = monitoring.responses || [];
+  const archivedIds = new Set((monitoring.archivedResponseIds || []).map((id) => String(id)));
+  const deliverables = monitoring.deliverables || [];
+  const unarchivedResponses = responses.filter((response) => !archivedIds.has(String(response.id)));
+  const acceptedResponseIds = new Set(responses.filter((response) => {
+    const acceptance = monitoring.reviewStates?.[response.id]?.acceptance;
+    return sameInstant(acceptance?.sourceResponseUpdatedAt, response.updatedAt || response.submittedAt);
+  }).map((response) => String(response.id)));
+  const unacceptedResponses = responses.filter((response) => !acceptedResponseIds.has(String(response.id)));
+  const acceptedUnarchivedResponses = unarchivedResponses.filter((response) => acceptedResponseIds.has(String(response.id)));
+  const publishedDeliverables = deliverables.filter((deliverable) => String(deliverable.status || '').toUpperCase() === 'PUBLISHED');
+
+  return {
+    responseCount: responses.length,
+    archivedResponseCount: responses.length - unarchivedResponses.length,
+    unarchivedResponseCount: unarchivedResponses.length,
+    unacceptedResponseCount: unacceptedResponses.length,
+    acceptedUnarchivedResponseCount: acceptedUnarchivedResponses.length,
+    deliverableCount: deliverables.length,
+    publishedFormCount: publishedDeliverables.length,
+    ready: unarchivedResponses.length === 0 && publishedDeliverables.length === 0
+  };
+}
+
+function sameInstant(first, second) {
+  const firstTime = Date.parse(first || '');
+  const secondTime = Date.parse(second || '');
+  return Number.isFinite(firstTime) && firstTime === secondTime;
+}
+
 export async function importWorkspaceSheet(workspaceId, sourceType, payload) {
   const imported = await importSheetSource(sourceType, payload, workspaceId);
   const state = await loadWorkspaceAdmin(workspaceId);

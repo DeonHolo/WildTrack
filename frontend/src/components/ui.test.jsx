@@ -2,7 +2,7 @@ import { MantineProvider } from '@mantine/core';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
-import { StatusIndicator } from './ui.jsx';
+import { ConfirmDialog, StatusIndicator } from './ui.jsx';
 
 function renderStatus(status) {
   return render(
@@ -40,5 +40,25 @@ describe('shared status indicator', () => {
       </MantineProvider>
     );
     expect(screen.getByText('No file link').parentElement).toHaveAttribute('data-tone', 'danger');
+  });
+});
+
+describe('shared confirmation dialog', () => {
+  it('can pause confirmation without locking the cancel action', () => {
+    render(
+      <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
+        <ConfirmDialog
+          open
+          title="Check first"
+          confirmLabel="Archive anyway"
+          confirmDisabled
+          onConfirm={() => {}}
+          onClose={() => {}}
+        />
+      </MantineProvider>
+    );
+
+    expect(screen.getByRole('button', { name: 'Archive anyway' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
   });
 });

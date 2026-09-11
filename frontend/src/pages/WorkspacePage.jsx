@@ -1,5 +1,5 @@
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Archive,
   ArrowClockwise,
@@ -19,7 +19,7 @@ import {
   Trash
 } from '@phosphor-icons/react';
 import { Badge, Button as MantineButton, Checkbox, Collapse, Input, Modal, NativeSelect, Tabs, TextInput, Tooltip } from '@mantine/core';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, ConfirmDialog, PageHeader, StatusIndicator } from '../components/ui.jsx';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
@@ -31,6 +31,7 @@ import {
   addTrackerColumn as addServerTrackerColumn,
   emptyWorkspaceAdmin,
   importWorkspaceSheet,
+  loadWorkspaceArchiveReadiness,
   loadWorkspaceAdmin,
   publishSuggestedForms,
   updateTrackerColumn as updateServerTrackerColumn
@@ -102,8 +103,11 @@ const EMPTY_WORKSPACE_FORM = {
   academicYear: '2026-27'
 };
 
+const EMPTY_ARCHIVE_READINESS = { status: 'idle', data: null, error: '' };
+
 export function WorkspacePage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const linkedSource = searchParams.get('source') || '';
   const {
     workspaces,
@@ -145,6 +149,9 @@ export function WorkspacePage() {
   const [workspaceToArchive, setWorkspaceToArchive] = useState(null);
   const [workspaceLifecycleSaving, setWorkspaceLifecycleSaving] = useState(false);
   const [workspaceNotice, setWorkspaceNotice] = useState('');
+  const [workspaceManagementOpen, setWorkspaceManagementOpen] = useState(false);
+  const [archiveReadiness, setArchiveReadiness] = useState(EMPTY_ARCHIVE_READINESS);
+  const archiveReadinessRequest = useRef(0);
 
   const activeColumns = getActiveTrackerColumns(state);
   const templateDeliverable = state.deliverables.find((item) => item.trackerColumn === template.deliverable) || null;
@@ -158,6 +165,8 @@ export function WorkspacePage() {
   const importedCount = sourceStatuses.filter((item) => item.status === 'Imported').length;
   const backendSyncError = state.backendSync?.lastError || '';
   const manageableWorkspaces = allWorkspaces?.length ? allWorkspaces : workspaces || [];
+  const activeWorkspaceCount = manageableWorkspaces.filter((workspace) => workspace.active !== false).length;
+  const archivedWorkspaceCount = manageableWorkspaces.length - activeWorkspaceCount;
 
   useEffect(() => {
     setSources((current) => {
@@ -393,12 +402,50 @@ export function WorkspacePage() {
     setWorkspaceNotice(result.ok ? `${result.workspace.name} restored.` : result.error || 'Workspace could not be restored.');
   }
 
+  async function openArchiveWorkspace(workspace) {
+    const requestId = ++archiveReadinessRequest.current;
+    setWorkspaceToArchive(workspace);
+    setArchiveReadiness({ status: 'loading', data: null, error: '' });
+    try {
+      const data = await loadWorkspaceArchiveReadiness(workspace.id);
+      if (archiveReadinessRequest.current !== requestId) return;
+      setArchiveReadiness({ status: 'ready', data, error: '' });
+    } catch (error) {
+      if (archiveReadinessRequest.current !== requestId) return;
+      setArchiveReadiness({
+        status: 'error',
+        data: null,
+        error: error?.message || 'Workspace archive readiness could not be checked.'
+      });
+    }
+  }
+
+  function closeArchiveWorkspace() {
+    archiveReadinessRequest.current += 1;
+    setWorkspaceToArchive(null);
+    setArchiveReadiness(EMPTY_ARCHIVE_READINESS);
+  }
+
+  async function goToArchiveTask(path) {
+    const workspace = workspaceToArchive;
+    if (!workspace) return;
+    closeArchiveWorkspace();
+    if (workspace.id !== activeWorkspaceId) {
+      const result = await switchWorkspace(workspace.id);
+      if (!result?.ok) {
+        setWorkspaceNotice(result?.error || 'Could not switch to that workspace.');
+        return;
+      }
+    }
+    navigate(path);
+  }
+
   async function confirmArchiveWorkspace() {
     if (!workspaceToArchive) return;
     setWorkspaceLifecycleSaving(true);
     const result = await updateWorkspace(workspaceToArchive.id, { active: false });
     setWorkspaceLifecycleSaving(false);
-    setWorkspaceToArchive(null);
+    closeArchiveWorkspace();
     setWorkspaceNotice(result.ok ? `${result.workspace.name} archived.` : result.error || 'Workspace could not be archived.');
   }
 
@@ -443,38 +490,50 @@ export function WorkspacePage() {
         actions={<Button type="button" variant="secondary" icon={PlusCircle} onClick={openCreateWorkspace}>New workspace</Button>}
       />
 
-      <section className="panel" aria-label="Academic workspace management">
-        <div className="panel-header">
-          <div>
-            <h2>Academic workspaces</h2>
-            <p>Archived workspaces keep their data and history, but stay out of normal workspace selectors until restored.</p>
+      <section className="panel wt-management-section" aria-label="Academic workspace management">
+        <button
+          type="button"
+          className="wt-section-toggle"
+          aria-expanded={workspaceManagementOpen}
+          onClick={() => setWorkspaceManagementOpen((current) => !current)}
+        >
+          <div className="wt-section-toggle-copy">
+            <strong>Academic workspaces</strong>
+            <small>{activeWorkspaceCount} active · {archivedWorkspaceCount} archived. Archived workspaces stay out of normal selectors until restored.</small>
           </div>
-        </div>
-        <div className="table-wrap">
-          <table aria-label="Academic workspaces">
-            <thead><tr><th>Workspace</th><th>Academic context</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>
-              {manageableWorkspaces.map((workspace) => (
-                <tr key={workspace.id}>
-                  <td><strong>{workspace.name}</strong></td>
-                  <td><span>{workspace.program} | {workspace.courseCode}</span><small>{workspace.semester} | {workspace.academicYear}</small></td>
-                  <td><StatusIndicator status={workspace.active === false ? 'Archived' : 'Active'} /></td>
-                  <td>
-                    <div className="wt-row-actions">
-                      <Button type="button" size="sm" variant="secondary" icon={PencilSimple} onClick={() => openEditWorkspace(workspace)}>Edit</Button>
-                      {workspace.active === false ? (
-                        <Button type="button" size="sm" variant="secondary" icon={ArrowCounterClockwise} disabled={workspaceLifecycleSaving} onClick={() => restoreWorkspace(workspace)}>Restore</Button>
-                      ) : (
-                        <Button type="button" size="sm" variant="secondary" icon={Archive} disabled={workspaceLifecycleSaving} onClick={() => setWorkspaceToArchive(workspace)}>Archive</Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!manageableWorkspaces.length ? <tr><td colSpan="4"><span className="muted-copy">No academic workspaces have been created yet.</span></td></tr> : null}
-            </tbody>
-          </table>
-        </div>
+          <div className="wt-section-toggle-actions">
+            {workspaceManagementOpen ? <CaretUp aria-hidden="true" /> : <CaretDown aria-hidden="true" />}
+          </div>
+        </button>
+        <Collapse in={workspaceManagementOpen}>
+          <div className="wt-management-section-body">
+            <div className="table-wrap">
+              <table aria-label="Academic workspaces">
+                <thead><tr><th>Workspace</th><th>Academic context</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {manageableWorkspaces.map((workspace) => (
+                    <tr key={workspace.id}>
+                      <td><strong>{workspace.name}</strong></td>
+                      <td><span>{workspace.program} | {workspace.courseCode}</span><small>{workspace.semester} | {workspace.academicYear}</small></td>
+                      <td><StatusIndicator status={workspace.active === false ? 'Archived' : 'Active'} /></td>
+                      <td>
+                        <div className="wt-row-actions">
+                          <Button type="button" size="sm" variant="secondary" icon={PencilSimple} onClick={() => openEditWorkspace(workspace)}>Edit</Button>
+                          {workspace.active === false ? (
+                            <Button type="button" size="sm" variant="secondary" icon={ArrowCounterClockwise} disabled={workspaceLifecycleSaving} onClick={() => restoreWorkspace(workspace)}>Restore</Button>
+                          ) : (
+                            <Button type="button" size="sm" variant="secondary" icon={Archive} disabled={workspaceLifecycleSaving} onClick={() => openArchiveWorkspace(workspace)}>Archive</Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {!manageableWorkspaces.length ? <tr><td colSpan="4"><span className="muted-copy">No academic workspaces have been created yet.</span></td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Collapse>
         {workspaceNotice ? <div role="status" className={`inline-alert ${/(created|updated|archived|restored)/i.test(workspaceNotice) ? 'success' : 'danger'}`}>{workspaceNotice}</div> : null}
       </section>
 
@@ -803,15 +862,63 @@ export function WorkspacePage() {
       <ConfirmDialog
         open={Boolean(workspaceToArchive)}
         title={`Archive ${workspaceToArchive?.name || 'workspace'}?`}
-        description="The workspace will disappear from normal selectors and published access, but its imported data, submissions, reviews, and archive history are preserved. You can restore it here later."
-        confirmLabel="Archive workspace"
+        description="Run these closeout checks before hiding the workspace. Archiving preserves imported data, submissions, reviews, and archive history."
+        confirmLabel={archiveReadiness.status === 'ready' && archiveReadiness.data?.ready ? 'Archive workspace' : 'Archive anyway'}
         intent="danger"
         loading={workspaceLifecycleSaving}
-        onClose={() => setWorkspaceToArchive(null)}
+        confirmDisabled={archiveReadiness.status === 'loading'}
+        onClose={closeArchiveWorkspace}
         onConfirm={confirmArchiveWorkspace}
       >
-        <strong>{workspaceToArchive?.program} | {workspaceToArchive?.courseCode}</strong>
-        <span>{workspaceToArchive?.semester} | {workspaceToArchive?.academicYear}</span>
+        <div className="wt-archive-readiness">
+          <div className="wt-archive-readiness-context">
+            <strong>{workspaceToArchive?.program} | {workspaceToArchive?.courseCode}</strong>
+            <span>{workspaceToArchive?.semester} | {workspaceToArchive?.academicYear}</span>
+          </div>
+          {archiveReadiness.status === 'loading' ? <span className="muted-copy">Checking current submissions and form status...</span> : null}
+          {archiveReadiness.status === 'error' ? (
+            <div className="inline-alert warning">
+              <span>{archiveReadiness.error}</span>
+              <Button type="button" size="sm" variant="secondary" onClick={() => openArchiveWorkspace(workspaceToArchive)}>Retry checks</Button>
+            </div>
+          ) : null}
+          {archiveReadiness.status === 'ready' ? (
+            <div className="wt-archive-readiness-list">
+              <div className="wt-archive-readiness-row">
+                <StatusIndicator status={archiveReadiness.data.unarchivedResponseCount === 0 ? 'Ready' : 'Needs attention'} />
+                <div>
+                  <strong>Current submissions archived</strong>
+                  <span>{archiveReadiness.data.responseCount
+                    ? `${archiveReadiness.data.archivedResponseCount} of ${archiveReadiness.data.responseCount} current response versions are archived.${archiveReadiness.data.unacceptedResponseCount ? ` ${archiveReadiness.data.unacceptedResponseCount} still need acceptance.` : ''}${archiveReadiness.data.acceptedUnarchivedResponseCount ? ` ${archiveReadiness.data.acceptedUnarchivedResponseCount} accepted response${archiveReadiness.data.acceptedUnarchivedResponseCount === 1 ? ' is' : 's are'} waiting for archive.` : ''}`
+                    : 'No submitted responses need archiving.'}</span>
+                </div>
+                {archiveReadiness.data.unarchivedResponseCount > 0 ? (
+                  <div className="wt-archive-readiness-actions">
+                    {archiveReadiness.data.unacceptedResponseCount > 0 ? (
+                      <Button type="button" size="sm" variant="secondary" onClick={() => goToArchiveTask('/review')}>Review responses</Button>
+                    ) : null}
+                    {archiveReadiness.data.acceptedUnarchivedResponseCount > 0 ? (
+                      <Button type="button" size="sm" variant="secondary" onClick={() => goToArchiveTask('/archive')}>Open final archive</Button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+              <div className="wt-archive-readiness-row">
+                <StatusIndicator status={archiveReadiness.data.publishedFormCount === 0 ? 'Ready' : 'Needs attention'} />
+                <div>
+                  <strong>Forms unpublished</strong>
+                  <span>{archiveReadiness.data.publishedFormCount === 0
+                    ? 'No public form is currently accepting responses.'
+                    : `${archiveReadiness.data.publishedFormCount} published form${archiveReadiness.data.publishedFormCount === 1 ? '' : 's'} still accepting responses. Unpublish them so restoring this workspace does not reopen old links unexpectedly.`}</span>
+                </div>
+                {archiveReadiness.data.publishedFormCount > 0 ? (
+                  <Button type="button" size="sm" variant="secondary" onClick={() => goToArchiveTask('/forms')}>Manage forms</Button>
+                ) : null}
+              </div>
+              {!archiveReadiness.data.ready ? <small className="muted-copy">You can still archive an intentionally incomplete or abandoned workspace. Unresolved items remain preserved as-is.</small> : null}
+            </div>
+          ) : null}
+        </div>
       </ConfirmDialog>
 
       <ConfirmDialog

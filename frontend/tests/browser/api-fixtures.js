@@ -41,6 +41,40 @@ export async function installApiFixtures(page, { role = 'student', connected = f
       return reply({ workspace, deliverable });
     }
     if (method === 'GET' && path === '/workspaces') return reply([workspace]);
+    if (method === 'GET' && path === '/workspace/staff/me') return reply(role === 'adviser'
+      ? {
+          adviserName: student.adviserName,
+          assignments: [{ workspaceId: workspace.id, teamCode: student.teamCode }],
+          workspaces: [workspace]
+        }
+      : { adviserName: '', assignments: [], workspaces: [] });
+    if (method === 'GET' && path === '/workspace/staff/directory') return reply({
+      workspaceIds: [workspace.id],
+      profiles: [
+        {
+          profile: {
+            id: 'staff-admin', googleSubject: 'sub-admin', googleEmail: 'admin.browser-test@gmail.com',
+            roles: ['ADMIN'], enabled: true, assignedTeams: [], adviserName: '', revision: 'admin-r1'
+          },
+          assignments: []
+        },
+        {
+          profile: {
+            id: 'staff-adviser', googleSubject: 'sub-adviser', googleEmail: 'adviser.browser-test@gmail.com',
+            roles: ['ADVISER'], enabled: true, assignedTeams: [student.teamCode], adviserName: 'Browser Adviser', revision: 'adviser-r1'
+          },
+          assignments: [{ workspaceId: workspace.id, teamCode: student.teamCode }]
+        },
+        {
+          profile: {
+            id: 'staff-revoked', googleSubject: 'sub-revoked', googleEmail: 'revoked.browser-test@gmail.com',
+            roles: ['ADVISER'], enabled: false, assignedTeams: [], adviserName: 'Former Browser Adviser', revision: 'revoked-r1'
+          },
+          assignments: []
+        }
+      ],
+      teams: [{ workspaceId: workspace.id, workspaceName: workspace.name, teamCode: student.teamCode, adviserNames: ['Browser Adviser'] }]
+    });
     if (path === '/workspace/students/me' && method === 'GET') return reply(association);
     if (path === '/workspace/students/options' && method === 'GET') return reply([student]);
     if (path === '/workspace/students/associate' && method === 'POST') {
