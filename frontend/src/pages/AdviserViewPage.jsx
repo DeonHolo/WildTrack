@@ -1,6 +1,7 @@
 import { useStaffIdentity } from '../app/StaffIdentity.jsx';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ActionIcon,
   Alert,
@@ -85,11 +86,10 @@ export function AdviserViewPage() {
   const isAdmin = role === APPLICATION_ROLES.ADMIN;
   const adviserOptions = useMemo(() => getAdviserOptions(state), [state]);
   const { data: staffIdentity, status: identityStatus, error: identityError, reload: reloadIdentity } = useStaffIdentity();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [viewOtherAdviser, setViewOtherAdviser] = useState(false);
   const [adviserName, setAdviserName] = useState('');
   const [query, setQuery] = useState('');
-  const [selectedTeamCode, setSelectedTeamCode] = useState('');
-  const [selectedDeliverableId, setSelectedDeliverableId] = useState('');
   const [selectedOutputIds, setSelectedOutputIds] = useState({});
   const [feedback, setFeedback] = useState('');
   const [feedbackError, setFeedbackError] = useState(null);
@@ -97,17 +97,27 @@ export function AdviserViewPage() {
   const [batchProgress, setBatchProgress] = useState(null);
   const [checkingIds, setCheckingIds] = useState(new Set());
 
-  const teams = useMemo(
-    () => buildAdviserTeams(state, isAdmin && viewOtherAdviser ? adviserName : null, query)
+  const allTeams = useMemo(
+    () => buildAdviserTeams(state, isAdmin && viewOtherAdviser ? adviserName : null, '')
       .filter(team => isAdmin && viewOtherAdviser || (staffIdentity.assignments || []).some(a => a.workspaceId === activeWorkspaceId && a.teamCode === team.teamCode)),
-    [adviserName, isAdmin, viewOtherAdviser, staffIdentity, activeWorkspaceId, query, state]
+    [adviserName, isAdmin, viewOtherAdviser, staffIdentity, activeWorkspaceId, state]
   );
-  const selectedTeam = teams.find((team) => team.teamCode === selectedTeamCode) || teams[0] || null;
+  const teams = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return allTeams;
+    return allTeams.filter((team) => (
+      `${team.teamCode} ${team.project?.projectTitle || ''} ${team.project?.softwareName || ''}`.toLowerCase().includes(needle)
+    ));
+  }, [allTeams, query]);
+  const requestedTeamCode = searchParams.get('team') || '';
+  const requestedDeliverableId = searchParams.get('deliverable') || '';
+  const selectedTeam = allTeams.find((team) => team.teamCode === requestedTeamCode) || allTeams[0] || null;
+  const selectedTeamCode = selectedTeam?.teamCode || '';
   const deliverableRows = useMemo(
     () => selectedTeam ? buildTeamDeliverableRows(state, selectedTeam) : [],
     [selectedTeam, state]
   );
-  const selectedRow = deliverableRows.find((row) => row.deliverable.id === selectedDeliverableId) || deliverableRows[0] || null;
+  const selectedRow = deliverableRows.find((row) => row.deliverable.id === requestedDeliverableId) || deliverableRows[0] || null;
   const selectedOutputId = selectedRow ? selectedOutputIds[selectedRow.deliverable.id] : '';
   const selectedOutput = selectedRow?.outputs.find((output) => output.id === selectedOutputId) || selectedRow?.currentOutput || null;
   const selectedResponse = selectedOutput?.latest || null;
@@ -139,17 +149,34 @@ export function AdviserViewPage() {
   }, [adviserName, adviserOptions, reviewStatus, viewOtherAdviser]);
 
   useEffect(() => {
-    if (!selectedTeamCode && teams[0]) setSelectedTeamCode(teams[0].teamCode);
-    if (selectedTeamCode && !teams.some((team) => team.teamCode === selectedTeamCode)) {
-      setSelectedTeamCode(teams[0]?.teamCode || '');
-    }
-  }, [selectedTeamCode, teams]);
-
-  useEffect(() => {
-    setSelectedDeliverableId('');
     setSelectedOutputIds({});
     setBatchProgress(null);
   }, [selectedTeamCode]);
+
+  useEffect(() => {
+    if (reviewStatus !== 'ready' || identityStatus !== 'ready') return;
+    const teamIsValid = !requestedTeamCode || allTeams.some((team) => team.teamCode === requestedTeamCode);
+    const deliverableIsValid = !requestedDeliverableId || deliverableRows.some((row) => row.deliverable.id === requestedDeliverableId);
+    if (teamIsValid && deliverableIsValid) return;
+
+    const next = new URLSearchParams(searchParams);
+    if (allTeams.length) next.set('team', selectedTeamCode);
+    else next.delete('team');
+    if (selectedRow) next.set('deliverable', selectedRow.deliverable.id);
+    else next.delete('deliverable');
+    setSearchParams(next, { replace: true });
+  }, [
+    allTeams,
+    deliverableRows,
+    identityStatus,
+    requestedDeliverableId,
+    requestedTeamCode,
+    reviewStatus,
+    searchParams,
+    selectedRow,
+    selectedTeamCode,
+    setSearchParams
+  ]);
 
   useEffect(() => {
     setFeedback(currentFeedback?.note || '');
@@ -160,11 +187,26 @@ export function AdviserViewPage() {
     if (!value) return;
     setAdviserName(value);
     setStoredPreviewAdviser(value);
-    setSelectedTeamCode('');
+    const next = new URLSearchParams(searchParams);
+    next.delete('team');
+    next.delete('deliverable');
+    setSearchParams(next, { replace: true });
   }
 
   function selectDeliverable(deliverableId) {
-    setSelectedDeliverableId(deliverableId);
+    const next = new URLSearchParams(searchParams);
+    if (selectedTeamCode) next.set('team', selectedTeamCode);
+    if (deliverableId) next.set('deliverable', deliverableId);
+    else next.delete('deliverable');
+    setSearchParams(next);
+  }
+
+  function selectTeam(teamCode) {
+    const next = new URLSearchParams(searchParams);
+    if (teamCode) next.set('team', teamCode);
+    else next.delete('team');
+    if (selectedRow?.deliverable.id) next.set('deliverable', selectedRow.deliverable.id);
+    setSearchParams(next);
   }
 
   function selectOutput(outputId) {
@@ -365,7 +407,7 @@ export function AdviserViewPage() {
                   type="button"
                   className={`wt-adviser-team-button ${team.teamCode === selectedTeam?.teamCode ? 'is-selected' : ''}`}
                   aria-current={team.teamCode === selectedTeam?.teamCode ? 'true' : undefined}
-                  onClick={() => setSelectedTeamCode(team.teamCode)}
+                  onClick={() => selectTeam(team.teamCode)}
                 >
                   <span>
                     <strong>{team.teamCode}</strong>

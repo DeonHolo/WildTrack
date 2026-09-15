@@ -1,7 +1,7 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
 import { AdviserViewPage } from './AdviserViewPage.jsx';
@@ -186,22 +186,32 @@ function createMultiArtifactState({ accepted = false, archived = false } = {}) {
   return state;
 }
 
-function renderPage(role = 'adviser') {
+function renderPage(role = 'adviser', initialEntry = '/adviser') {
   localStorage.setItem('wildtrack.v2.preview-role', role);
   localStorage.setItem('wildtrack.v2.preview-adviser', 'Dr. Elena Mercado');
-  return render(adviserTree());
+  return render(adviserTree(initialEntry));
 }
 
-function adviserTree() {
+function adviserTree(initialEntry = '/adviser') {
   return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
-        <MemoryRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+        <MemoryRouter initialEntries={[initialEntry]} future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
           <AdviserViewPage />
+          <LocationProbe />
         </MemoryRouter>
       </ModalsProvider>
     </MantineProvider>
   );
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return <>
+    <span data-testid="current-adviser-location">{`${location.pathname}${location.search}`}</span>
+    <button type="button" data-testid="adviser-history-back" style={{ display: 'none' }} onClick={() => navigate(-1)}>Back</button>
+  </>;
 }
 
 describe('adviser My advised teams review', () => {
@@ -382,6 +392,64 @@ describe('adviser My advised teams review', () => {
       note: 'Clarify the revised acceptance criteria.',
       visibility: 'Student'
     });
+  });
+
+  it('restores the selected team and deliverable from the URL after a reload', () => {
+    workflow.staffIdentity.assignments = [
+      { workspaceId: 'workspace-it', teamCode: TEAM_A },
+      { workspaceId: 'workspace-it', teamCode: TEAM_B }
+    ];
+
+    renderPage('adviser', `/adviser?team=${TEAM_B}&deliverable=deliv-sdd`);
+
+    expect(screen.getByRole('button', { name: new RegExp(TEAM_B) })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('heading', { name: 'Software Design Description' })).toBeInTheDocument();
+    expect(screen.getByTestId('current-adviser-location')).toHaveTextContent(`team=${TEAM_B}`);
+    expect(screen.getByTestId('current-adviser-location')).toHaveTextContent('deliverable=deliv-sdd');
+  });
+
+  it('updates the URL when the adviser changes team or deliverable', async () => {
+    workflow.staffIdentity.assignments = [
+      { workspaceId: 'workspace-it', teamCode: TEAM_A },
+      { workspaceId: 'workspace-it', teamCode: TEAM_B }
+    ];
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(TEAM_B) }));
+    await waitFor(() => expect(screen.getByTestId('current-adviser-location')).toHaveTextContent(`team=${TEAM_B}`));
+
+    fireEvent.click(screen.getByText('SDD').closest('tr'));
+    await waitFor(() => expect(screen.getByTestId('current-adviser-location')).toHaveTextContent('deliverable=deliv-sdd'));
+    expect(screen.getByRole('heading', { name: 'Software Design Description' })).toBeInTheDocument();
+  });
+
+  it('restores earlier team and deliverable selections through browser history', async () => {
+    workflow.staffIdentity.assignments = [
+      { workspaceId: 'workspace-it', teamCode: TEAM_A },
+      { workspaceId: 'workspace-it', teamCode: TEAM_B }
+    ];
+    renderPage('adviser', `/adviser?team=${TEAM_A}&deliverable=deliv-srs`);
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(TEAM_B) }));
+    fireEvent.click(screen.getByText('SDD').closest('tr'));
+    await waitFor(() => expect(screen.getByTestId('current-adviser-location')).toHaveTextContent('deliverable=deliv-sdd'));
+
+    fireEvent.click(screen.getByTestId('adviser-history-back'));
+    await waitFor(() => expect(screen.getByTestId('current-adviser-location')).toHaveTextContent(`team=${TEAM_B}`));
+    expect(screen.getByTestId('current-adviser-location')).toHaveTextContent('deliverable=deliv-srs');
+    expect(screen.getByRole('heading', { name: 'Software Requirements Specification' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('adviser-history-back'));
+    await waitFor(() => expect(screen.getByTestId('current-adviser-location')).toHaveTextContent(`team=${TEAM_A}`));
+    expect(screen.getByRole('button', { name: new RegExp(TEAM_A) })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('rejects a stale or unauthorized team in the URL and falls back to an assigned team', async () => {
+    renderPage('adviser', `/adviser?team=${TEAM_B}&deliverable=deliv-sdd`);
+
+    expect(screen.queryByText(TEAM_B)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('current-adviser-location')).toHaveTextContent(`team=${TEAM_A}`));
+    expect(screen.getByRole('button', { name: new RegExp(TEAM_A) })).toHaveAttribute('aria-current', 'true');
   });
 
   it('keeps persisted feedback editable when the already-selected deliverable is opened again', () => {
