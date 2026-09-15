@@ -79,6 +79,37 @@ export function mapDeliverables(items = []) {
   return items.map(mapDeliverable);
 }
 
+export function applySubmissionProgress(students = [], deliverables = [], responses = []) {
+  if (!students.length || !deliverables.length || !responses.length) return students;
+  const deliverableById = new Map(deliverables.map(item => [String(item.id), item]));
+  const byStudentNumber = new Map(students
+    .filter(student => student.studentNumber)
+    .map(student => [normalizeStudentNumber(student.studentNumber), student]));
+  const updates = new Map();
+
+  for (const response of responses) {
+    const deliverable = deliverableById.get(String(response.deliverableId));
+    const trackerColumn = deliverable?.trackerColumn;
+    if (!trackerColumn) continue;
+    const studentNumber = normalizeStudentNumber(response.studentNumber);
+    const student = studentNumber ? byStudentNumber.get(studentNumber) : null;
+    if (!student) continue;
+    const submittedAt = Date.parse(response.submittedAt || '');
+    const dueAt = Date.parse(deliverable.dueAt || '');
+    if (!Number.isFinite(submittedAt) || !Number.isFinite(dueAt)) continue;
+    const daysLate = Math.max(0, Math.ceil((submittedAt - dueAt) / 86_400_000));
+    const key = student.rowKey || student.studentNumber;
+    updates.set(key, { ...(updates.get(key) || {}), [trackerColumn]: daysLate });
+  }
+
+  if (!updates.size) return students;
+  return students.map(student => {
+    const key = student.rowKey || student.studentNumber;
+    const progress = updates.get(key);
+    return progress ? { ...student, milestones: { ...(student.milestones || {}), ...progress } } : student;
+  });
+}
+
 export function mapTemplates(items = []) {
   return items.map((template) => ({
     id: template.id,

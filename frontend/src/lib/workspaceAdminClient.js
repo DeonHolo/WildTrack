@@ -8,11 +8,13 @@ import {
 } from './api.js';
 import {
   emptyDomainState,
+  applySubmissionProgress,
   mapDeliverables,
   mapProjects,
   mapSources,
   mapStudents,
   mapTemplates,
+  mapResponse,
   mapTrackerColumns
 } from './backendDomain.js';
 import { saveDeliverable } from './submissionClient.js';
@@ -32,12 +34,18 @@ export async function loadWorkspaceAdmin(workspaceId) {
     getWorkspaceSources(workspaceId)
   ]);
   const trackerColumns = mapTrackerColumns(monitoring.trackerColumns || []);
+  const deliverables = mapDeliverables(monitoring.deliverables || []);
+  const responses = (monitoring.responses || []).map(mapResponse);
   return {
     ...emptyWorkspaceAdmin(),
-    students: mapStudents(monitoring.students || [], monitoring.trackerRows || []),
+    students: applySubmissionProgress(
+      mapStudents(monitoring.students || [], monitoring.trackerRows || []),
+      deliverables,
+      responses
+    ),
     projectMetadata: mapProjects(monitoring.projects || []),
     trackerColumns,
-    deliverables: mapDeliverables(monitoring.deliverables || []),
+    deliverables,
     templates: mapTemplates(templates || []),
     classRecord: {
       sources: mapSources(sources || []),

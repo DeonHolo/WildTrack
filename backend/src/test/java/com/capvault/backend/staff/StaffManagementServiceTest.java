@@ -106,22 +106,25 @@ class StaffManagementServiceTest {
     }
 
     @Test
-    void transferRequiresConfirmationAndRejectsStaleOwnerWithoutPartialSave() {
+    void teamCanHaveMultipleAdvisersWithoutTransferringExistingAccess() {
         service.assignTeam("sub-adviser-1", workspaceId, "team-x");
-        var owners = java.util.Map.of("team-x", "sub-adviser-1");
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.saveProfile(workspaceId,
-            new StaffManagementService.SaveRequest("new@school.edu", "ADVISER", "New Adviser", List.of("team-x"), null, owners, false, false)))
-            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
-        assertThat(service.listStaff(workspaceId)).noneMatch(p -> p.googleEmail().equals("new@school.edu"));
-        assertThat(service.assignedTeams("sub-adviser-1", workspaceId)).containsExactly("team-x");
         var saved = service.saveProfile(workspaceId, new StaffManagementService.SaveRequest(
-            "new@school.edu", "ADVISER", "New Adviser", List.of("team-x"), null, owners, true, false));
+            "new@school.edu", "ADVISER", "New Adviser", List.of("team-x"), null, java.util.Map.of(), false, false));
         assertThat(saved.assignedTeams()).containsExactly("team-x");
-        assertThat(service.assignedTeams("sub-adviser-1", workspaceId)).isEmpty();
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.saveProfile(workspaceId,
-            new StaffManagementService.SaveRequest("other@school.edu", "ADVISER", "Other", List.of("team-x"), null, owners, true, false)))
-            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThat(service.assignedTeams("sub-adviser-1", workspaceId)).containsExactly("team-x");
         assertThat(service.assignedTeams(saved.googleSubject(), workspaceId)).containsExactly("team-x");
+    }
+
+    @Test
+    void importedCompoundAdviserNameCreatesChoicesForEachAdviser() {
+        students.save(new com.capvault.backend.student.StudentRecord(workspaceId, null, "Shared Student", "shared-team",
+            "1", "A", "Erica Jean Abadinas / Jasmine Tulin", null, 2));
+
+        var shared = service.staffDirectory().teams().stream()
+            .filter(team -> team.teamCode().equals("shared-team"))
+            .findFirst().orElseThrow();
+
+        assertThat(shared.adviserNames()).containsExactlyInAnyOrder("Erica Jean Abadinas", "Jasmine Tulin");
     }
     @Test
     void administratorCanOwnTeamsWithTheSameCodeAcrossActiveWorkspaces() {

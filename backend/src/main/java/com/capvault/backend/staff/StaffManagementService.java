@@ -100,17 +100,6 @@ public class StaffManagementService {
                 if (canonical == null) throw conflict("Team " + code + " is no longer in the imported records. Reload the teams.");
                 return canonical;
             }).distinct().toList();
-            for (String team : selected) {
-                var holders = allTeams.stream().filter(t -> t.getTeamCode().equalsIgnoreCase(team))
-                    .filter(t -> !subjects.contains(t.getGoogleSubject())).map(AdviserTeamAssignment::getGoogleSubject).distinct().toList();
-                if (holders.size() > 1) throw conflict("Team " + team + " has conflicting assignments. Resolve them before transferring.");
-                String holder = holders.isEmpty() ? "" : holders.get(0);
-                String expected = request.teamOwners() == null ? "" : Objects.requireNonNullElse(request.teamOwners().get(team), "");
-                // The editor may include this person's current ownership in its snapshot.
-                if (subjects.contains(expected)) expected = "";
-                if (!holder.equals(expected)) throw conflict("The adviser for " + team + " changed. Reload and review the assignment.");
-                if (!holder.isBlank() && !request.confirmTransfers()) throw conflict("Confirm the transfer of " + team + " before saving.");
-            }
         }
         // Reuse each existing role; an unchanged selection preserves multiple existing roles.
         for (StaffRole role : StaffRole.values()) {
@@ -131,10 +120,15 @@ public class StaffManagementService {
         if (selected != null) {
             var desired = selected.stream().map(StaffManagementService::normalize).collect(Collectors.toSet());
             var removals = allTeams.stream().filter(t -> subjects.contains(t.getGoogleSubject())
-                || desired.contains(normalize(t.getTeamCode()))).toList();
+                && !desired.contains(normalize(t.getTeamCode()))).toList();
             teamRepository.deleteAll(removals);
             teamRepository.flush();
-            for (String team : selected) teamRepository.save(new AdviserTeamAssignment(UUID.randomUUID(), workspaceId, subject, team, clock.instant()));
+            var current = allTeams.stream().filter(t -> subjects.contains(t.getGoogleSubject()))
+                .map(t -> normalize(t.getTeamCode())).collect(Collectors.toSet());
+            for (String team : selected) {
+                if (!current.contains(normalize(team)))
+                    teamRepository.save(new AdviserTeamAssignment(UUID.randomUUID(), workspaceId, subject, team, clock.instant()));
+            }
         }
         roleRepository.flush();
         return listStaff(workspaceId).stream().filter(p -> p.googleEmail().equals(email)).findFirst().orElseThrow();
@@ -173,9 +167,8 @@ public class StaffManagementService {
             throw new IllegalArgumentException("Choose an enabled adviser.");
         var holders = teamRepository.findAllByWorkspaceId(workspaceId).stream()
             .filter(t -> t.getTeamCode().equalsIgnoreCase(canonicalTeam)).toList();
-        if (holders.stream().anyMatch(t -> !t.getGoogleSubject().equals(subject)))
-            throw conflict("This team already has an adviser. Use the reviewed transfer workflow.");
-        if (holders.isEmpty()) teamRepository.save(new AdviserTeamAssignment(UUID.randomUUID(), workspaceId, subject, canonicalTeam, clock.instant()));
+        if (holders.stream().noneMatch(t -> t.getGoogleSubject().equals(subject)))
+            teamRepository.save(new AdviserTeamAssignment(UUID.randomUUID(), workspaceId, subject, canonicalTeam, clock.instant()));
     }
 
     @Transactional
@@ -265,8 +258,11 @@ public class StaffManagementService {
     }
 
     private void addImportedName(Map<String, Set<String>> names, String team, String name) {
-        if (team != null && !team.isBlank() && name != null && !name.isBlank())
-            names.computeIfAbsent(normalize(team), key -> new TreeSet<>()).add(name.trim());
+        if (team == null || team.isBlank() || name == null || name.isBlank()) return;
+        for (String adviser : name.split("\\s*/\\s*")) {
+            String clean = adviser.trim().replaceAll("\\s+", " ");
+            if (!clean.isBlank()) names.computeIfAbsent(normalize(team), key -> new TreeSet<>()).add(clean);
+        }
     }
 
     private DirectoryProfile directoryProfile(List<StaffRoleAssignment> rows, List<AdviserTeamAssignment> assignments, List<UUID> activeIds) {

@@ -25,7 +25,7 @@ import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/workflow.js';
-import { getDocumentTemplateFileUrl, getDriveConnectionStatus } from '../lib/api.js';
+import { getDocumentTemplateFileUrl } from '../lib/api.js';
 import { removeSubmissionTemplate, saveSubmissionTemplate } from '../lib/submissionClient.js';
 import {
   emptyWorkspaceAdmin,
@@ -130,7 +130,6 @@ export function WorkspacePage() {
   const [templateSaving, setTemplateSaving] = useState(false);
   const [templateError, setTemplateError] = useState('');
   const [templateToRemove, setTemplateToRemove] = useState(null);
-  const [driveStatus, setDriveStatus] = useState({ configured: false, message: 'Checking connection...' });
   const [message, setMessage] = useState('');
   const [summary, setSummary] = useState(null);
   const [mappingDraft, setMappingDraft] = useState({});
@@ -193,12 +192,6 @@ export function WorkspacePage() {
     setWorkspaceFormError('');
     setWorkspaceSaving(false);
   }, [isCurrentScope]);
-
-  useEffect(() => {
-    getDriveConnectionStatus()
-      .then(setDriveStatus)
-      .catch((error) => setDriveStatus({ configured: false, message: `Backend unavailable: ${error.message}` }));
-  }, [activeWorkspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -647,7 +640,6 @@ export function WorkspacePage() {
             </tbody>
           </table>
         </div>
-        <small className="integration-note">{driveStatus.message}</small>
       </section>
 
       <StaffManagementPanel

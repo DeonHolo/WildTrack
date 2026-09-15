@@ -9,7 +9,7 @@ export function StudentProgressPanel({ activeColumns, student }) {
       <div className="wt-student-section-head">
         <div>
           <Title order={2}>Progress</Title>
-          <Text size="sm" c="dimmed">Your current class-record tracker values.</Text>
+          <Text size="sm" c="dimmed">Tracker values with recorded WildTrack submissions reflected immediately.</Text>
         </div>
       </div>
 
