@@ -110,6 +110,37 @@ describe('StaffManagementPanel', () => {
     expect(screen.getByText('1 assigned capstone team. Open Edit access to review assignments.')).toBeInTheDocument();
     expect(screen.queryByText(/2526-sem2-it332-01/)).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /Revoked access/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Review imported adviser teams/i })).not.toBeInTheDocument();
+  });
+
+  it('puts already assigned teams at the top of the edit picker', async () => {
+    renderPanel();
+    await screen.findByText('adviser@example.com');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit access' })[1]);
+
+    await screen.findByText(/Assigned capstone teams/i);
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes[0]).toHaveAttribute('value', 'ws-123::2526-sem2-it332-01');
+    expect(checkboxes[0]).toBeChecked();
+  });
+
+  it('shows a shared team as a co-adviser assignment instead of a transfer', async () => {
+    api.getStaffProfiles.mockResolvedValueOnce([
+      {
+        id: 'staff-a', googleSubject: 'sub-a', googleEmail: 'erica@example.com', adviserName: 'Erica Jean Abadinas',
+        roles: ['ADVISER'], enabled: true, assignedTeams: ['2526-sem2-it332-02']
+      },
+      {
+        id: 'staff-b', googleSubject: 'sub-b', googleEmail: 'jasmine@example.com', adviserName: 'Jasmine Tulin',
+        roles: ['ADVISER'], enabled: true, assignedTeams: ['2526-sem2-it332-02']
+      }
+    ]);
+    renderPanel();
+    await screen.findByText('Erica Jean Abadinas');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit access' })[0]);
+
+    expect(await screen.findByText('also assigned to Jasmine Tulin')).toBeInTheDocument();
+    expect(screen.queryByText(/transfer/i)).not.toBeInTheDocument();
   });
 
   it('shows revoked staff on a separate tab only when revoked access exists', async () => {

@@ -426,6 +426,8 @@ export function PublicSubmissionPage() {
       clearSubmissionDraft(activeWorkspaceId, deliverable.id).catch(() => {});
       setMyServerResponse((current) => ({ ...current, id: saved.responseId, revision: saved.revision, values }));
       setValuesEdited(false);
+      window.dispatchEvent(new Event('wildtrack:server-mutation'));
+      window.dispatchEvent(new Event('wildtrack:refresh-resources'));
       setResult({
         ok: true,
         updated: saved.changed && Boolean(myServerResponse),

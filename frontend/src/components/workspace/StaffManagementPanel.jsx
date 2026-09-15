@@ -11,7 +11,6 @@ import { isUsableAdviserName } from '../../lib/workflow.js';
 
 const normalize = value => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 const unique = values => [...new Map(values.filter(Boolean).map(value => [normalize(value), value])).values()].sort();
-const ownerSnapshot = profiles => Object.fromEntries(profiles.flatMap(p => (p.assignedTeams || []).map(team => [team, p.googleSubject])));
 
 export function StaffManagementPanel({ workspaceId }) {
   const { data, status, error: loadError, reload } = useWorkspaceResource('staff-directory', loadStaffDirectory, emptyStaffAccess, 'staff-directory-v2');
@@ -26,7 +25,6 @@ export function StaffManagementPanel({ workspaceId }) {
   const [teamsEdited, setTeamsEdited] = useState(false);
   const [teamSearch, setTeamSearch] = useState('');
   const [replacement, setReplacement] = useState(null);
-  const [owners, setOwners] = useState({});
   const [reactivate, setReactivate] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState(null);
@@ -66,23 +64,25 @@ export function StaffManagementPanel({ workspaceId }) {
     const item = data.teams?.find(team => team.workspaceId + '::' + team.teamCode === id);
     return item ? item.teamCode + ' · ' + item.workspaceName : id.split('::').slice(1).join('::') || id;
   };
-  const holderFor = team => staffList.find(p => p.assignedTeams?.some(value => normalize(value) === normalize(team)));
+  const holdersFor = team => staffList.filter(p => p.assignedTeams?.some(value => normalize(value) === normalize(team)));
   const duplicate = !editing && staffList.find(p => normalize(p.googleEmail) === normalize(email));
   const additions = selectedTeams.filter(team => !editing?.assignedTeams?.includes(team));
   const removals = (editing?.assignedTeams || []).filter(team => !selectedTeams.includes(team));
-  const transfers = selectedTeams.filter(team => {
-    const holder = holderFor(team);
-    return holder && holder.googleEmail !== editing?.googleEmail;
-  });
   const initialRole = editing?.roles?.includes('ADMIN') ? 'ADMIN' : 'ADVISER';
   const roleChanged = editing && role !== initialRole;
-  const needsReview = transfers.length > 0 || removals.length > 0 || roleChanged || editing?.enabled === false;
+  const needsReview = removals.length > 0 || roleChanged || editing?.enabled === false;
   const activeStaff = staffList.filter(profile => profile.enabled !== false);
   const revokedStaff = staffList.filter(profile => profile.enabled === false);
   const teamOptions = unique([...imported.teams, ...(editing?.assignedTeams || [])]).map(team => {
-    const holder = holderFor(team);
-    return { value: team, label: holder && holder.googleEmail !== editing?.googleEmail
-      ? teamLabel(team) + ' — currently ' + (holder.adviserName || holder.googleEmail) : teamLabel(team) };
+    const coAdvisers = holdersFor(team).filter(holder => holder.googleEmail !== editing?.googleEmail);
+    return { value: team, label: coAdvisers.length
+      ? teamLabel(team) + ' — also assigned to ' + coAdvisers.map(holder => holder.adviserName || holder.googleEmail).join(', ')
+      : teamLabel(team) };
+  }).sort((a, b) => {
+    const aSelected = selectedTeams.includes(a.value);
+    const bSelected = selectedTeams.includes(b.value);
+    if (aSelected !== bSelected) return aSelected ? -1 : 1;
+    return a.label.localeCompare(b.label);
   });
   useEffect(() => {
     setOpened(false); setRevokeTarget(null); setEditing(null); setEmail(''); setName('');
@@ -97,7 +97,7 @@ export function StaffManagementPanel({ workspaceId }) {
     setEditing(profile); setEmail(profile?.googleEmail || '');
     setRole(profile?.roles?.includes('ADMIN') ? 'ADMIN' : 'ADVISER');
     setName(profile?.adviserName || ''); setSelectedTeams(profile?.assignedTeams || []);
-    setTeamsEdited(Boolean(profile)); setReplacement(null); setOwners(ownerSnapshot(staffList));
+    setTeamsEdited(Boolean(profile)); setReplacement(null);
     setReactivate(false); setReviewing(false); setError(''); setOpened(true);
   }
   function selectImported(value) {
@@ -113,7 +113,7 @@ export function StaffManagementPanel({ workspaceId }) {
     if (!latest || !isCurrentScope()) return;
     const profile = latest.profiles.find(p => normalize(p.googleEmail) === normalize(email));
     if (editing && profile) setEditing(profile);
-    setOwners(ownerSnapshot(latest.profiles)); setReviewing(false);
+    setReviewing(false);
     setError('Latest staff assignments loaded. Review your choices before saving.');
   }
   async function submit(event) {
@@ -124,8 +124,8 @@ export function StaffManagementPanel({ workspaceId }) {
     busy.current = true; setSaving(true); setError('');
     try {
       await saveStaff(workspaceId, { googleEmail: email.trim().toLowerCase(), role: editing && !roleChanged ? null : role,
-        adviserName: name.trim(), teamCodes: selectedTeams, teamOwners: owners, workspaceIds: data.workspaceIds,
-        expectedRevision: editing?.revision || null, confirmTransfers: reviewing && transfers.length > 0, reactivate });
+        adviserName: name.trim(), teamCodes: selectedTeams, teamOwners: {}, workspaceIds: data.workspaceIds,
+        expectedRevision: editing?.revision || null, confirmTransfers: false, reactivate });
       if (!isCurrentScope()) return;
       setOpened(false); window.dispatchEvent(new Event('wildtrack:refresh-resources'));
       notifications.show({ color: 'green', message: 'Staff access saved.' }); await reload();
@@ -164,8 +164,6 @@ export function StaffManagementPanel({ workspaceId }) {
       </Stack><Group gap="xs"><Button size="xs" variant="default" leftSection={<PencilSimple size={14} />} onClick={() => openEditor(profile)}>Edit access</Button>
         {profile.enabled ? <ActionIcon color="red" variant="subtle" aria-label={'Revoke access for ' + profile.googleEmail}
           onClick={() => { setError(''); setRevokeTarget(profile); }}><Trash size={16} /></ActionIcon> : null}</Group></Group>
-      {profile.enabled && imported.advisers.length ? <Button mt="xs" variant="subtle" size="xs"
-        onClick={() => openEditor(profile)}>Review imported adviser teams</Button> : null}
     </Paper>)}</Stack>;
   }
 
@@ -243,7 +241,7 @@ export function StaffManagementPanel({ workspaceId }) {
                 <Paper withBorder p="sm" style={{ maxHeight: 176, overflowY: 'auto', overscrollBehavior: 'contain' }}>
                   <Stack gap="sm">{teamOptions.filter(team => normalize(team.label).includes(normalize(teamSearch))).map(team => (
                     <Checkbox key={team.value} value={team.value} label={teamLabel(team.value)} disabled={saving}
-                      description={team.label.includes(' — currently ') ? team.label.split(' — ')[1] : undefined} />
+                      description={team.label.includes(' — also assigned to ') ? team.label.split(' — ')[1] : undefined} />
                   ))}
                     {!teamOptions.some(team => normalize(team.label).includes(normalize(teamSearch))) ? <Text size="sm" c="dimmed">No matching teams.</Text> : null}
                   </Stack>
@@ -259,7 +257,6 @@ export function StaffManagementPanel({ workspaceId }) {
           {roleChanged ? <Text size="sm">Role: {initialRole} → {role}. This changes institution-wide staff permissions.</Text> : null}
           {additions.length > 0 ? <Text size="sm">Add: {additions.map(teamLabel).join(', ')}</Text> : null}
           {removals.length > 0 ? <Text size="sm">Remove: {removals.map(teamLabel).join(', ')}</Text> : null}
-          {transfers.map(team => <Text size="sm" key={team}>{teamLabel(team)}: {holderFor(team)?.googleEmail} → {email}</Text>)}
           {reactivate ? <Text size="sm">Restore this account's staff access.</Text> : null}</Stack></Alert> : null}
         <Group justify="flex-end"><Button variant="default" disabled={saving} onClick={() => setOpened(false)}>Cancel</Button>
           <Button type="submit" loading={saving} disabled={Boolean(duplicate) || Boolean(replacement)}>

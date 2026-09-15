@@ -731,6 +731,10 @@ describe('public submission form', () => {
     [{ updated: true }, 'Response updated'],
     [{ unchanged: true }, 'No changes saved']
   ])('shows the complete result state after submission', async (overrides, expectedTitle) => {
+    const serverMutation = vi.fn();
+    const refreshResources = vi.fn();
+    window.addEventListener('wildtrack:server-mutation', serverMutation);
+    window.addEventListener('wildtrack:refresh-resources', refreshResources);
     if (overrides.updated || overrides.unchanged) {
       api.getMyResponse.mockResolvedValue({ id: 'server-response', revision: 1, valuesJson: '{}' });
     }
@@ -754,6 +758,10 @@ describe('public submission form', () => {
     expect(screen.getByText('Student Number')).toBeInTheDocument();
     expect(screen.getByText('22-1001-001')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open student dashboard/i })).toBeInTheDocument();
+    expect(serverMutation).toHaveBeenCalledTimes(1);
+    expect(refreshResources).toHaveBeenCalledTimes(1);
+    window.removeEventListener('wildtrack:server-mutation', serverMutation);
+    window.removeEventListener('wildtrack:refresh-resources', refreshResources);
   });
 
   it('shows an unavailable state for an unpublished form', async () => {

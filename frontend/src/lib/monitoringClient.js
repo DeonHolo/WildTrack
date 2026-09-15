@@ -5,6 +5,7 @@ import {
   applyAiReview,
   applyFieldAiReviews,
   applyReviewState,
+  applySubmissionProgress,
   emptyDomainState,
   mapDeliverables,
   mapProjects,
@@ -31,12 +32,18 @@ export async function loadMonitoringState(workspaceId) {
     response = applyFieldAiReviews(response, payload.aiReviewsByField?.[raw.id]);
     return response;
   });
+  const deliverables = mapDeliverables(payload.deliverables || []);
+  const students = applySubmissionProgress(
+    mapStudents(payload.students || [], payload.trackerRows || []),
+    deliverables,
+    attempts
+  );
   return {
     ...emptyDomainState(),
-    students: mapStudents(payload.students || [], payload.trackerRows || []),
+    students,
     projectMetadata: mapProjects(payload.projects || []),
     trackerColumns: mapTrackerColumns(payload.trackerColumns || []),
-    deliverables: mapDeliverables(payload.deliverables || []),
+    deliverables,
     attempts: attempts.map(response => ({
       ...response,
       archiveStatus: (payload.archivedResponseIds || []).includes(response.id) ? 'Archived' : 'Not Archived'

@@ -3,6 +3,7 @@ import {
   applyFileCheck,
   applyFieldChecks,
   applyReviewState,
+  applySubmissionProgress,
   emptyDomainState,
   mapDeliverables,
   mapProjects,
@@ -17,21 +18,27 @@ export function emptyStudentDashboardState() {
 
 export async function loadStudentDashboard(workspaceId) {
   const dashboard = await getStudentDashboard(workspaceId);
+  const deliverables = mapDeliverables(dashboard.deliverables || []);
+  const attempts = (dashboard.responses || []).map((raw) => {
+    const response = mapResponse(raw);
+    if (!raw.owned) return response;
+    return applyReviewState(
+      applyFieldChecks(applyFileCheck(response, dashboard.fileChecks?.[raw.id]), dashboard.fileChecksByField?.[raw.id]),
+      dashboard.reviewStates?.[raw.id]
+    );
+  });
   return {
     ...emptyDomainState(),
     association: dashboard.association || null,
     rosterOptions: mapStudents(dashboard.rosterOptions || []),
-    students: mapStudents(dashboard.students || [], dashboard.trackerRows || []),
+    students: applySubmissionProgress(
+      mapStudents(dashboard.students || [], dashboard.trackerRows || []),
+      deliverables,
+      attempts
+    ),
     projectMetadata: mapProjects(dashboard.projects || []),
     trackerColumns: mapTrackerColumns(dashboard.trackerColumns || []),
-    deliverables: mapDeliverables(dashboard.deliverables || []),
-    attempts: (dashboard.responses || []).map((raw) => {
-      const response = mapResponse(raw);
-      if (!raw.owned) return response;
-      return applyReviewState(
-        applyFieldChecks(applyFileCheck(response, dashboard.fileChecks?.[raw.id]), dashboard.fileChecksByField?.[raw.id]),
-        dashboard.reviewStates?.[raw.id]
-      );
-    })
+    deliverables,
+    attempts
   };
 }
