@@ -325,10 +325,9 @@ describe('identity conflicts from the server', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Review identity conflict for 20-0649-750' }));
     fireEvent.click(await screen.findByRole('radio', { name: 'rontaghoy@gmail.com' }));
-    fireEvent.change(screen.getByRole('textbox', { name: /Decision note/ }), { target: { value: 'Verified in person.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Record decision' }));
     await waitFor(() => expect(api.decideIdentityConflict)
-      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'RESOLVED', 'Verified in person.', 'sub-first'));
+      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'RESOLVED', '', 'sub-first'));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Review identity conflict for 20-0649-750' })).not.toBeInTheDocument());
     expect(screen.getByText('All clear for this workspace')).toBeInTheDocument();
   });
@@ -338,12 +337,11 @@ describe('identity conflicts from the server', () => {
     renderPage();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Review identity conflict for 20-0649-750' }));
-    fireEvent.click(await screen.findByRole('radio', { name: 'rontaghoy@gmail.com' }));
-    fireEvent.change(screen.getByRole('textbox', { name: /Decision note/ }), { target: { value: 'Verified in person.' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Decision' }), { target: { value: 'DISMISSED' } });
+    expect(screen.getByRole('textbox', { name: /Decision note \(optional\)/ })).not.toBeRequired();
     fireEvent.click(screen.getByRole('button', { name: 'Record decision' }));
     await waitFor(() => expect(api.decideIdentityConflict)
-      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'DISMISSED', 'Verified in person.', null));
+      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'DISMISSED', '', null));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Review identity conflict for 20-0649-750' })).not.toBeInTheDocument());
   });
 

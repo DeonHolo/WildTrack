@@ -384,6 +384,33 @@ describe('adviser My advised teams review', () => {
     });
   });
 
+  it('keeps persisted feedback editable when the already-selected deliverable is opened again', () => {
+    workflow.state = createState();
+    workflow.state.attempts.find((response) => response.id === 'response-a2').feedback = [{
+      id: 'feedback-existing',
+      note: 'This feedback must survive reopening the current deliverable.',
+      author: 'adviser@school.edu',
+      visibility: 'Student',
+      updatedAt: '2026-09-15T12:11:00+08:00'
+    }];
+    renderPage();
+
+    const editor = screen.getByRole('textbox', { name: 'Feedback for student' });
+    expect(editor).toHaveValue('This feedback must survive reopening the current deliverable.');
+
+    fireEvent.click(screen.getByText('SRS', { selector: 'p' }).closest('tr'));
+
+    expect(editor).toHaveValue('This feedback must survive reopening the current deliverable.');
+    expect(screen.getByRole('button', { name: 'Update feedback' })).toBeDisabled();
+  });
+
+  it('uses a compact artifact-specific link action instead of a full-width submitted-link button', () => {
+    renderPage();
+
+    expect(screen.getByRole('link', { name: 'Open PDF' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open submitted link' })).not.toBeInTheDocument();
+  });
+
   it('accepts and revokes the selected group output without changing duplicate member records', async () => {
     const { unmount } = renderPage();
 

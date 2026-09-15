@@ -14,4 +14,7 @@ public interface StudentIdentityConflictRepository extends JpaRepository<Student
     List<StudentIdentityConflict> findAllByWorkspaceIdOrderByCreatedAtDesc(UUID workspaceId);
 
     List<StudentIdentityConflict> findAllByWorkspaceIdAndStatusOrderByCreatedAtDesc(UUID workspaceId, String status);
+
+    List<StudentIdentityConflict> findAllByWorkspaceIdAndStudentRecordIdAndStatusOrderByCreatedAtDesc(
+        UUID workspaceId, UUID studentRecordId, String status);
 }

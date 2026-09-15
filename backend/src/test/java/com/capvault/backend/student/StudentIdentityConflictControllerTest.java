@@ -2,6 +2,7 @@ package com.capvault.backend.student;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -126,11 +127,11 @@ class StudentIdentityConflictControllerTest {
                 .cookie(sessionCookie(token))
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"decision\":\"RESOLVED\",\"confirmedSubject\":\"sub-first-owner\",\"note\":\"Kept the first account.\"}"))
+                .content("{\"decision\":\"RESOLVED\",\"confirmedSubject\":\"sub-first-owner\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("RESOLVED"))
             .andExpect(jsonPath("$.decidedBySubject").value("sub-admin"))
-            .andExpect(jsonPath("$.decisionNote").value("Confirmed account: rontaghoy@gmail.com. Kept the first account."))
+            .andExpect(jsonPath("$.decisionNote").value("Confirmed account: rontaghoy@gmail.com."))
             .andExpect(jsonPath("$.decidedAt").exists());
 
         mockMvc.perform(get("/api/workspace/students/identity-conflicts")
@@ -177,6 +178,35 @@ class StudentIdentityConflictControllerTest {
                 .cookie(sessionCookie(token)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
+    void studentDisconnectAutomaticallyResolvesTheConflictIntoHistory() throws Exception {
+        String studentToken = sessionTokenFor(SECOND_SUBJECT, SECOND_EMAIL);
+        String adminToken = sessionTokenFor("sub-admin", "admin@school.edu", StaffRole.ADMIN);
+
+        mockMvc.perform(delete("/api/workspace/students/associate")
+                .param("workspaceId", workspaceId.toString())
+                .cookie(sessionCookie(studentToken))
+                .with(csrf()))
+            .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/workspace/students/identity-conflicts")
+                .param("workspaceId", workspaceId.toString())
+                .cookie(sessionCookie(adminToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(0)));
+
+        mockMvc.perform(get("/api/workspace/students/identity-conflicts")
+                .param("workspaceId", workspaceId.toString())
+                .param("includeClosed", "true")
+                .cookie(sessionCookie(adminToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(1)))
+            .andExpect(jsonPath("$[0].status").value("RESOLVED"))
+            .andExpect(jsonPath("$[0].existingIdentity.active").value(true))
+            .andExpect(jsonPath("$[0].conflictingIdentity.active").value(false))
+            .andExpect(jsonPath("$[0].decisionNote").value(org.hamcrest.Matchers.containsString("Automatically resolved")));
     }
 
     @Test

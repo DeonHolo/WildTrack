@@ -259,7 +259,10 @@ public class StaffManagementService {
 
     private void addImportedName(Map<String, Set<String>> names, String team, String name) {
         if (team == null || team.isBlank() || name == null || name.isBlank()) return;
-        for (String adviser : name.split("\\s*/\\s*")) {
+        // Imported sheets are human-authored, so shared advisers commonly arrive as
+        // "A / B", "A & B", or "A and B". Treat those spellings equivalently while
+        // keeping the persisted adviser/team model delimiter-independent.
+        for (String adviser : name.split("(?i)\\s*(?:/|&|\\band\\b)\\s*")) {
             String clean = adviser.trim().replaceAll("\\s+", " ");
             if (!clean.isBlank()) names.computeIfAbsent(normalize(team), key -> new TreeSet<>()).add(clean);
         }

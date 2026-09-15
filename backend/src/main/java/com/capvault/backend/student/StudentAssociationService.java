@@ -107,36 +107,29 @@ public class StudentAssociationService {
             throw new IllegalArgumentException("That Student Record is not part of the current Tracker roster.");
         }
 
-        Optional<WorkspaceStudentAssociation> existingActive =
-            associationRepository.findByWorkspaceIdAndGoogleSubjectAndActiveTrue(workspaceId, googleSubject);
+        Optional<WorkspaceStudentAssociation> existing =
+            associationRepository.findByWorkspaceIdAndGoogleSubject(workspaceId, googleSubject);
+        Optional<WorkspaceStudentAssociation> existingActive = existing.filter(WorkspaceStudentAssociation::isActive);
 
         if (existingActive.isPresent() && existingActive.get().getStudentRecordId().equals(record.getId())) {
             // Idempotent re-confirm: no-op returning current view
             return toView(existingActive.get()).orElseThrow();
         }
 
-        boolean otherIdentityHoldsRecord = associationRepository
-            .existsByWorkspaceIdAndStudentRecordIdAndGoogleSubjectNotAndActiveTrue(workspaceId, record.getId(), googleSubject);
-        if (otherIdentityHoldsRecord) {
-            String holder = associationRepository
-                .findFirstByStudentRecordIdAndActiveTrueOrderByUpdatedAtDesc(record.getId())
-                .map(WorkspaceStudentAssociation::getGoogleSubject)
-                .orElse("unknown");
-            conflictRepository.save(new StudentIdentityConflict(
-                UUID.randomUUID(),
-                workspaceId,
-                record.getId(),
-                holder,
-                googleSubject,
-                CONFLICT_OPEN,
-                clock.instant()
-            ));
-        }
-
         Instant now = clock.instant();
+        UUID previousRecordId = existingActive
+            .map(WorkspaceStudentAssociation::getStudentRecordId)
+            .filter(id -> !id.equals(record.getId()))
+            .orElse(null);
+        var otherHolders = associationRepository
+            .findAllByWorkspaceIdAndStudentRecordIdAndActiveTrueOrderByUpdatedAtDesc(workspaceId, record.getId())
+            .stream()
+            .filter(association -> !association.getGoogleSubject().equals(googleSubject))
+            .toList();
+        boolean otherIdentityHoldsRecord = !otherHolders.isEmpty();
+
         // One row per (workspace, subject): update or reactivate instead of inserting duplicates.
-        WorkspaceStudentAssociation saved = associationRepository
-            .findByWorkspaceIdAndGoogleSubject(workspaceId, googleSubject)
+        WorkspaceStudentAssociation saved = existing
             .map(association -> {
                 association.setActive(true);
                 association.setStudentRecordId(record.getId());
@@ -156,6 +149,11 @@ public class StudentAssociationService {
                 now,
                 now
             )));
+        ensureOpenConflicts(workspaceId, record.getId(), googleSubject, otherHolders, now);
+        if (previousRecordId != null) {
+            closeConflictsForDisconnectedIdentity(workspaceId, previousRecordId, googleSubject, googleEmail,
+                googleSubject, googleEmail, now, "REASSOCIATED");
+        }
         events.record(workspaceId, saved.getId(), googleSubject, "ASSOCIATION_CONFIRMED",
             java.util.Map.of("studentRecordId", record.getId(), "assurance", ASSURANCE_SELF_DECLARED, "identityConflict", otherIdentityHoldsRecord));
         return toView(saved).orElseThrow();
@@ -193,6 +191,9 @@ public class StudentAssociationService {
         if (!CONFLICT_RESOLVED.equals(normalized) && !CONFLICT_DISMISSED.equals(normalized)) {
             throw new IllegalArgumentException("Decision must be RESOLVED or DISMISSED.");
         }
+        if (CONFLICT_RESOLVED.equals(normalized) && (confirmedSubject == null || confirmedSubject.isBlank())) {
+            throw new IllegalArgumentException("Choose the correct account before resolving this conflict.");
+        }
         StudentIdentityConflict conflict = conflictRepository.findForDecision(conflictId)
             .filter(candidate -> candidate.getWorkspaceId().equals(workspaceId))
             .orElseThrow(() -> new IllegalArgumentException("No identity conflict with that id exists in this workspace."));
@@ -201,7 +202,9 @@ public class StudentAssociationService {
         if (!CONFLICT_OPEN.equals(conflict.getStatus())) throw new org.springframework.web.server.ResponseStatusException(
             org.springframework.http.HttpStatus.CONFLICT, "This conflict was already decided. Reload its history.");
         if (trimmedNote != null && trimmedNote.length() > 700) throw new IllegalArgumentException("Keep the decision note within 700 characters.");
-        if (CONFLICT_RESOLVED.equals(normalized) && confirmedSubject != null) {
+        WorkspaceStudentAssociation disconnected = null;
+        Instant decidedAt = clock.instant();
+        if (CONFLICT_RESOLVED.equals(normalized)) {
             if (!confirmedSubject.equals(conflict.getExistingSubject()) && !confirmedSubject.equals(conflict.getConflictingSubject()))
                 throw new IllegalArgumentException("Choose one of the two conflicting accounts.");
             var winner = associationRepository.findByWorkspaceIdAndGoogleSubject(workspaceId, confirmedSubject)
@@ -209,15 +212,24 @@ public class StudentAssociationService {
                 .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
                     "That account no longer holds this student record. Reload before deciding."));
             String other = confirmedSubject.equals(conflict.getExistingSubject()) ? conflict.getConflictingSubject() : conflict.getExistingSubject();
-            associationRepository.findByWorkspaceIdAndGoogleSubject(workspaceId, other)
-                .filter(a -> a.getStudentRecordId().equals(conflict.getStudentRecordId())).ifPresent(a -> {
-                    a.setActive(false); a.setUpdatedAt(clock.instant());
-                });
-            trimmedNote = "Confirmed account: " + winner.getGoogleEmail() + ". " + (trimmedNote == null ? "" : trimmedNote);
+            disconnected = associationRepository.findByWorkspaceIdAndGoogleSubject(workspaceId, other)
+                .filter(a -> a.getStudentRecordId().equals(conflict.getStudentRecordId()))
+                .orElse(null);
+            if (disconnected != null) {
+                disconnected.setActive(false);
+                disconnected.setUpdatedAt(decidedAt);
+                associationRepository.save(disconnected);
+            }
+            trimmedNote = "Confirmed account: " + winner.getGoogleEmail() + "." + (trimmedNote == null ? "" : " " + trimmedNote);
         }
-        conflict.decide(normalized, decidedBySubject, decidedByEmail, trimmedNote, clock.instant());
+        conflict.decide(normalized, decidedBySubject, decidedByEmail, trimmedNote, decidedAt);
         events.record(workspaceId, conflictId, decidedBySubject, "IDENTITY_CONFLICT_DECIDED", java.util.Map.of("decision", normalized));
-        return toDetail(conflictRepository.save(conflict));
+        StudentIdentityConflict saved = conflictRepository.save(conflict);
+        if (disconnected != null) {
+            closeConflictsForDisconnectedIdentity(workspaceId, conflict.getStudentRecordId(), disconnected.getGoogleSubject(),
+                disconnected.getGoogleEmail(), decidedBySubject, decidedByEmail, decidedAt, "ADMIN_RESOLUTION");
+        }
+        return toDetail(saved);
     }
 
     private ConflictDetail toDetail(StudentIdentityConflict conflict) {
@@ -230,8 +242,8 @@ public class StudentAssociationService {
             record == null ? null : record.getTeamCode(),
             conflict.getStatus(),
             conflict.getCreatedAt(),
-            identityOf(conflict.getWorkspaceId(), conflict.getExistingSubject()),
-            identityOf(conflict.getWorkspaceId(), conflict.getConflictingSubject()),
+            identityOf(conflict.getWorkspaceId(), conflict.getStudentRecordId(), conflict.getExistingSubject()),
+            identityOf(conflict.getWorkspaceId(), conflict.getStudentRecordId(), conflict.getConflictingSubject()),
             conflict.getDecidedAt(),
             conflict.getDecidedBySubject(),
             conflict.getDecidedByEmail(),
@@ -239,12 +251,12 @@ public class StudentAssociationService {
         );
     }
 
-    private ConflictIdentity identityOf(UUID workspaceId, String googleSubject) {
+    private ConflictIdentity identityOf(UUID workspaceId, UUID studentRecordId, String googleSubject) {
         return associationRepository.findByWorkspaceIdAndGoogleSubject(workspaceId, googleSubject)
             .map(association -> new ConflictIdentity(
                 googleSubject,
                 association.getGoogleEmail(),
-                association.isActive(),
+                association.isActive() && association.getStudentRecordId().equals(studentRecordId),
                 association.getUpdatedAt()
             ))
             .orElseGet(() -> new ConflictIdentity(googleSubject, null, false, null));
@@ -255,11 +267,79 @@ public class StudentAssociationService {
     public void disconnect(UUID workspaceId, String googleSubject) {
         associationRepository.findByWorkspaceIdAndGoogleSubjectAndActiveTrue(workspaceId, googleSubject)
             .ifPresent(association -> {
+                Instant disconnectedAt = clock.instant();
                 association.setActive(false);
-                association.setUpdatedAt(clock.instant());
+                association.setUpdatedAt(disconnectedAt);
                 associationRepository.save(association);
                 events.record(workspaceId, association.getId(), googleSubject, "ASSOCIATION_DISCONNECTED", java.util.Map.of());
+                closeConflictsForDisconnectedIdentity(workspaceId, association.getStudentRecordId(), googleSubject,
+                    association.getGoogleEmail(), googleSubject, association.getGoogleEmail(), disconnectedAt, "SELF_DISCONNECT");
             });
+    }
+
+    private void ensureOpenConflicts(UUID workspaceId, UUID studentRecordId, String newSubject,
+            List<WorkspaceStudentAssociation> existingHolders, Instant createdAt) {
+        if (existingHolders.isEmpty()) return;
+        var open = conflictRepository.findAllByWorkspaceIdAndStudentRecordIdAndStatusOrderByCreatedAtDesc(
+            workspaceId, studentRecordId, CONFLICT_OPEN);
+        for (var holder : existingHolders) {
+            boolean pairAlreadyOpen = open.stream().anyMatch(conflict -> samePair(
+                conflict, holder.getGoogleSubject(), newSubject));
+            if (!pairAlreadyOpen) {
+                conflictRepository.save(new StudentIdentityConflict(
+                    UUID.randomUUID(), workspaceId, studentRecordId, holder.getGoogleSubject(), newSubject, CONFLICT_OPEN, createdAt));
+            }
+        }
+    }
+
+    /**
+     * A self-disconnect or reassociation is itself enough evidence that this Google identity no
+     * longer claims the record. Close only conflicts involving that identity; collisions among
+     * any other still-connected claimants remain OPEN for Admin review.
+     */
+    private void closeConflictsForDisconnectedIdentity(UUID workspaceId, UUID studentRecordId,
+            String disconnectedSubject, String disconnectedEmail, String decidedBySubject, String decidedByEmail,
+            Instant decidedAt, String reason) {
+        var open = conflictRepository.findAllByWorkspaceIdAndStudentRecordIdAndStatusOrderByCreatedAtDesc(
+            workspaceId, studentRecordId, CONFLICT_OPEN);
+        for (var conflict : open) {
+            if (!conflict.getExistingSubject().equals(disconnectedSubject)
+                    && !conflict.getConflictingSubject().equals(disconnectedSubject)) continue;
+            String otherSubject = conflict.getExistingSubject().equals(disconnectedSubject)
+                ? conflict.getConflictingSubject() : conflict.getExistingSubject();
+            var remaining = associationRepository.findByWorkspaceIdAndGoogleSubject(workspaceId, otherSubject)
+                .filter(association -> association.isActive() && association.getStudentRecordId().equals(studentRecordId));
+            String status;
+            String note;
+            if (remaining.isPresent()) {
+                status = CONFLICT_RESOLVED;
+                note = autoDecisionPrefix(reason, disconnectedEmail, true)
+                    + " Confirmed account: " + remaining.get().getGoogleEmail() + ".";
+            } else {
+                status = CONFLICT_DISMISSED;
+                note = autoDecisionPrefix(reason, disconnectedEmail, false)
+                    + " Neither conflicting account remains connected to this student record.";
+            }
+            conflict.decide(status, decidedBySubject, decidedByEmail, note, decidedAt);
+            conflictRepository.save(conflict);
+            events.record(workspaceId, conflict.getId(), decidedBySubject, "IDENTITY_CONFLICT_AUTO_DECIDED",
+                java.util.Map.of("decision", status, "reason", reason));
+        }
+    }
+
+    private static String autoDecisionPrefix(String reason, String disconnectedEmail, boolean resolved) {
+        String action = resolved ? "Automatically resolved" : "Automatically closed";
+        return switch (reason) {
+            case "REASSOCIATED" -> action + " after " + disconnectedEmail + " connected to a different student record.";
+            case "ADMIN_RESOLUTION" -> action + " because " + disconnectedEmail
+                + " was disconnected by another identity-conflict decision.";
+            default -> action + " after " + disconnectedEmail + " disconnected this student record.";
+        };
+    }
+
+    private static boolean samePair(StudentIdentityConflict conflict, String firstSubject, String secondSubject) {
+        return (conflict.getExistingSubject().equals(firstSubject) && conflict.getConflictingSubject().equals(secondSubject))
+            || (conflict.getExistingSubject().equals(secondSubject) && conflict.getConflictingSubject().equals(firstSubject));
     }
 
     private Optional<AssociationView> toView(WorkspaceStudentAssociation association) {

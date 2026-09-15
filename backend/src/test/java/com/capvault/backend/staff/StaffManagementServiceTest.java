@@ -117,14 +117,24 @@ class StaffManagementServiceTest {
 
     @Test
     void importedCompoundAdviserNameCreatesChoicesForEachAdviser() {
-        students.save(new com.capvault.backend.student.StudentRecord(workspaceId, null, "Shared Student", "shared-team",
-            "1", "A", "Erica Jean Abadinas / Jasmine Tulin", null, 2));
+        var separators = List.of(
+            "Erica Jean Abadinas / Jasmine Tulin",
+            "Erica Jean Abadinas & Jasmine Tulin",
+            "Erica Jean Abadinas and Jasmine Tulin",
+            "Erica Jean Abadinas AND Jasmine Tulin"
+        );
+        for (int index = 0; index < separators.size(); index++) {
+            String team = "shared-team-" + index;
+            students.save(new com.capvault.backend.student.StudentRecord(workspaceId, null, "Shared Student", team,
+                "1", "A", separators.get(index), null, 2 + index));
+        }
 
-        var shared = service.staffDirectory().teams().stream()
-            .filter(team -> team.teamCode().equals("shared-team"))
-            .findFirst().orElseThrow();
-
-        assertThat(shared.adviserNames()).containsExactlyInAnyOrder("Erica Jean Abadinas", "Jasmine Tulin");
+        var directory = service.staffDirectory();
+        for (int index = 0; index < separators.size(); index++) {
+            String team = "shared-team-" + index;
+            var shared = directory.teams().stream().filter(choice -> choice.teamCode().equals(team)).findFirst().orElseThrow();
+            assertThat(shared.adviserNames()).containsExactlyInAnyOrder("Erica Jean Abadinas", "Jasmine Tulin");
+        }
     }
     @Test
     void administratorCanOwnTeamsWithTheSameCodeAcrossActiveWorkspaces() {
