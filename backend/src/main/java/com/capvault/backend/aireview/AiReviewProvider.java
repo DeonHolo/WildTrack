@@ -15,5 +15,9 @@ public interface AiReviewProvider {
 
     record Input(String idempotencyKey, byte[] pdf, String extractedText, String systemInstruction,
                  String deliverableTitle, String instructions, String templateText) { }
-    record Result(String summary, List<String> flags, List<String> missingSections, String suggestedAction) { }
+    enum FindingSource { DOCUMENT, DELIVERABLE_REQUIREMENTS, OFFICIAL_TEMPLATE }
+    record Finding(String issue, FindingSource source, String evidence, String requirement) { }
+    record MissingRequiredSection(String section, FindingSource source, String requirement) { }
+    record Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
+                  List<String> limitations, String suggestedAction) { }
 }

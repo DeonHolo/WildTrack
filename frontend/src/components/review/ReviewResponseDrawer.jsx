@@ -20,6 +20,7 @@ import {
   Sparkle
 } from '@phosphor-icons/react';
 import { compactMissingSections } from './DocumentCheckDialog.jsx';
+import { AiReviewReport } from './AiReviewReport.jsx';
 import {
   artifactAiReview,
   artifactAiReviewStatus,
@@ -186,12 +187,9 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onAiReview }
                 <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={aiStatus} /></Group>
                 {aiReport ? (
                   <ScrollArea.Autosize mah={180} type="auto" offsetScrollbars>
-                    <Stack gap={3} pr="sm">
-                      <Text size="sm">{aiReport.summary}</Text>
-                      {aiReport.flags?.length ? <Text size="xs"><strong>Flags:</strong> {aiReport.flags.join(', ')}</Text> : null}
-                      {aiReport.missingSections?.length ? <Text size="xs"><strong>Missing or weak:</strong> {aiReport.missingSections.join(', ')}</Text> : null}
-                      {aiReport.suggestedAction ? <Text size="xs"><strong>Suggested action:</strong> {aiReport.suggestedAction}</Text> : null}
-                    </Stack>
+                    <div style={{ paddingRight: 'var(--mantine-spacing-sm)' }}>
+                      <AiReviewReport report={aiReport} />
+                    </div>
                   </ScrollArea.Autosize>
                 ) : <Text size="xs" c="dimmed">{aiState?.message || 'No current AI Review is available for this PDF.'}</Text>}
               </Stack>

@@ -41,7 +41,7 @@ class GeminiAiReviewProviderTest {
             "content", Map.of("parts", List.of(Map.of("text", report)))))));
     }
     private String validResponse() throws Exception {
-        return response("{\"summary\":\"Requirements need clearer acceptance criteria.\",\"flags\":[\"Section 3: requirement R1 has no measurable threshold.\"],\"missingSections\":[],\"suggestedAction\":\"Ask the team to clarify R1.\"}", "STOP");
+        return response("{\"summary\":\"Requirements need clearer acceptance criteria.\",\"findings\":[{\"issue\":\"Requirement R1 has no measurable threshold.\",\"source\":\"DELIVERABLE_REQUIREMENTS\",\"evidence\":\"Section 3, requirement R1\",\"requirement\":\"Include functional requirements\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Ask the team to clarify R1.\"}", "STOP");
     }
 
     @Test void sendsOnePdfWithBoundedStructuredOutputAndNoDuplicatedText() throws Exception {
@@ -52,13 +52,38 @@ class GeminiAiReviewProviderTest {
             .andExpect(jsonPath("$.generationConfig.maxOutputTokens").value(2048))
             .andExpect(jsonPath("$.generationConfig.responseMimeType").value("application/json"))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required.length()").value(4))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.source.enum.length()").value(3))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.missingRequiredSections.items.properties.source.enum.length()").value(2))
             .andExpect(jsonPath("$.contents[0].parts[1].inlineData.mimeType").value("application/pdf"))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("hasOfficialTemplate")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("hasDeliverableInstructions")))
             .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("DO NOT SEND THIS DUPLICATE TEXT"))))
             .andRespond(withSuccess(validResponse(), MediaType.APPLICATION_JSON));
         var result = provider.review(input());
-        assertThat(result.flags()).hasSize(1);
-        assertThat(result.missingSections()).isEmpty();
-        assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "thinking-minimal", "output-2048");
+        assertThat(result.findings()).hasSize(1);
+        assertThat(result.findings().get(0).source()).isEqualTo(AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS);
+        assertThat(result.missingRequiredSections()).isEmpty();
+        assertThat(result.limitations()).isEmpty();
+        assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v2", "thinking-minimal", "output-2048");
+        server.verify();
+    }
+
+    @Test void noTemplateIsExplicitInputStateAndProducesDeterministicReviewLimit() throws Exception {
+        var noTemplate = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), "duplicate",
+            "Instructor review only", "Refactored SPMP", "", "");
+        String report = response("{\"summary\":\"The PDF identifies itself as an Individual Problem Exploration report rather than the requested Refactored SPMP.\",\"findings\":[{\"issue\":\"The submitted PDF identifies itself as Individual Problem Exploration.\",\"source\":\"DOCUMENT\",\"evidence\":\"Page 1: Part A: Individual Problem Exploration\",\"requirement\":\"\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Verify that the correct Refactored SPMP file was submitted.\"}", "STOP");
+        server.expect(requestTo(GENERATE))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("hasOfficialTemplate")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("false")))
+            .andRespond(withSuccess(report, MediaType.APPLICATION_JSON));
+
+        var result = provider.review(noTemplate);
+        assertThat(result.findings()).extracting(AiReviewProvider.Finding::source)
+            .containsExactly(AiReviewProvider.FindingSource.DOCUMENT);
+        assertThat(result.missingRequiredSections()).isEmpty();
+        assertThat(result.limitations()).containsExactly(
+            "No official template was supplied, so compliance with a specific template structure was not assessed.",
+            "No deliverable Instructions were supplied, so requirement compliance is limited to the requested deliverable identity and document evidence.");
         server.verify();
     }
 

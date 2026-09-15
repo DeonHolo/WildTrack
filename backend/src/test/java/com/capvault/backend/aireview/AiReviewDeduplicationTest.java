@@ -53,7 +53,11 @@ class AiReviewDeduplicationTest {
     private AiReviewService service;
     private Deliverable deliverable;
     private FormResponse first, second;
-    private final AiReviewProvider.Result result = new AiReviewProvider.Result("Evidence-based feedback", List.of(), List.of("Limitations"), "Review the highlighted section.");
+    private final AiReviewProvider.Result result = new AiReviewProvider.Result(
+        "Evidence-based feedback",
+        List.of(new AiReviewProvider.Finding("The submitted PDF contains a document-level issue.",
+            AiReviewProvider.FindingSource.DOCUMENT, "Page 2", "")),
+        List.of(), List.of(), "Review the highlighted section.");
 
     @BeforeEach void setup() {
         datasource = new DriverManagerDataSource("jdbc:h2:mem:ai_" + UUID.randomUUID() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1", "sa", "");
@@ -174,6 +178,64 @@ class AiReviewDeduplicationTest {
         when(provider.cacheVersion()).thenReturn("fake-provider:model-2:temperature-0");
         assertThat(run(first).reused()).isFalse();
         verify(provider, times(5)).review(any());
+    }
+
+    @Test void wrongDocumentEvidenceRemainsAllowedWithoutInstructionsOrOfficialTemplate() {
+        deliverable.setInstructions("");
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result(
+            "Project Scope and Schedule are mandatory SPMP sections and are missing.",
+            List.of(new AiReviewProvider.Finding(
+                "The submitted PDF identifies itself as an Individual Problem Exploration report.",
+                AiReviewProvider.FindingSource.DOCUMENT,
+                "Page 1: Part A: Individual Problem Exploration",
+                "")),
+            List.of(), List.of(), "Add Project Scope, Schedule, and Resource Planning before approval."));
+
+        var completed = run(first);
+
+        assertThat(completed.status()).isEqualTo("COMPLETED");
+        assertThat(completed.report().findings()).extracting(AiReviewProvider.Finding::source)
+            .containsExactly(AiReviewProvider.FindingSource.DOCUMENT);
+        assertThat(completed.report().missingRequiredSections()).isEmpty();
+        assertThat(completed.report().summary()).contains("Document evidence:", "Individual Problem Exploration")
+            .doesNotContain("Project Scope", "Schedule", "mandatory SPMP");
+        assertThat(completed.report().suggestedAction()).contains("Verify that the submitted PDF is the intended deliverable")
+            .doesNotContain("Project Scope", "Schedule", "Resource Planning");
+        assertThat(completed.report().limitations()).containsExactly(
+            "No official template was supplied, so compliance with a specific template structure was not assessed.",
+            "No deliverable Instructions were supplied, so requirement compliance is limited to the requested deliverable identity and document evidence.");
+    }
+
+    @Test void genericInstructionsCannotAuthorizeAnInventedMissingSpmpSection() {
+        deliverable.setInstructions("Submit the final Refactored SPMP PDF.");
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result(
+            "Project Scope is missing.", List.of(),
+            List.of(new AiReviewProvider.MissingRequiredSection("Project Scope",
+                AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS,
+                "Submit the final Refactored SPMP PDF.")),
+            List.of(), "Add Project Scope."));
+
+        var rejected = run(first);
+
+        assertThat(rejected.status()).isEqualTo("UNCERTAIN");
+        assertThat(rejected.failureCode()).isEqualTo("INVALID_RESPONSE");
+        assertThat(rejected.report()).isNull();
+    }
+
+    @Test void explicitlyNamedInstructionCanAuthorizeAMissingRequiredSection() {
+        deliverable.setInstructions("Include a Project Scope section and a Risk Management section.");
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result(
+            "The supplied Instructions require Project Scope, which was not found.", List.of(),
+            List.of(new AiReviewProvider.MissingRequiredSection("Project Scope",
+                AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS,
+                "Include a Project Scope section and a Risk Management section.")),
+            List.of(), "Ask the team to add the explicitly required Project Scope section."));
+
+        var completed = run(first);
+
+        assertThat(completed.status()).isEqualTo("COMPLETED");
+        assertThat(completed.report().missingRequiredSections()).extracting(AiReviewProvider.MissingRequiredSection::section)
+            .containsExactly("Project Scope");
     }
 
     @Test void twoPdfArtifactsInOneResponseKeepIndependentSavedLinksAndReviews() {

@@ -116,8 +116,18 @@ function createState({ conflicting = false, accepted = false } = {}) {
           generatedAt: '2026-04-17T10:30:00+08:00',
           sourceResponseUpdatedAt: '2026-04-17T10:00:00+08:00',
           summary: 'Requirements are present, but traceability needs staff review.',
-          flags: ['Traceability weak'],
-          missingSections: ['Acceptance criteria'],
+          findings: [{
+            issue: 'The submitted PDF does not clearly connect requirements to acceptance evidence.',
+            source: 'DOCUMENT',
+            evidence: 'Requirements matrix section',
+            requirement: ''
+          }],
+          missingRequiredSections: [{
+            section: 'Acceptance criteria',
+            source: 'DELIVERABLE_REQUIREMENTS',
+            requirement: 'Include Acceptance criteria.'
+          }],
+          limitations: ['No official template was supplied, so compliance with a specific template structure was not assessed.'],
           suggestedAction: 'Review the requirements matrix.'
         },
         feedback: []
@@ -272,7 +282,10 @@ describe('adviser My advised teams review', () => {
     renderPage();
 
     expect(screen.getByText('Requirements are present, but traceability needs staff review.')).toBeInTheDocument();
+    expect(screen.getByText(/Document evidence:/)).toBeInTheDocument();
+    expect(screen.getByText(/Missing required sections:/)).toBeInTheDocument();
     expect(screen.getByText(/Acceptance criteria/)).toBeInTheDocument();
+    expect(screen.getByText(/No official template was supplied/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Run AI Review|Rerun AI Review/i })).not.toBeInTheDocument();
   });
 

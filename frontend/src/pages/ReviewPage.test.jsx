@@ -170,8 +170,18 @@ function createState() {
           generatedAt: checkedAt,
           sourceResponseUpdatedAt: ronSavedAt,
           summary: 'The submission describes its requirements, but traceability and interface constraints require manual review.',
-          flags: ['Weak traceability'],
-          missingSections: ['Requirements traceability matrix'],
+          findings: [{
+            issue: 'The traceability links in the submitted PDF are incomplete.',
+            source: 'DOCUMENT',
+            evidence: 'Section 4, requirements matrix',
+            requirement: ''
+          }],
+          missingRequiredSections: [{
+            section: 'Requirements traceability matrix',
+            source: 'OFFICIAL_TEMPLATE',
+            requirement: 'Include a Requirements traceability matrix.'
+          }],
+          limitations: [],
           suggestedAction: 'Ask the team to connect each requirement to its source and design element.'
         },
         aiReviewState: {
@@ -180,8 +190,18 @@ function createState() {
           sourceResponseUpdatedAt: ronSavedAt,
           report: {
             summary: 'The submission describes its requirements, but traceability and interface constraints require manual review.',
-            flags: ['Weak traceability'],
-            missingSections: ['Requirements traceability matrix'],
+            findings: [{
+              issue: 'The traceability links in the submitted PDF are incomplete.',
+              source: 'DOCUMENT',
+              evidence: 'Section 4, requirements matrix',
+              requirement: ''
+            }],
+            missingRequiredSections: [{
+              section: 'Requirements traceability matrix',
+              source: 'OFFICIAL_TEMPLATE',
+              requirement: 'Include a Requirements traceability matrix.'
+            }],
+            limitations: [],
             suggestedAction: 'Ask the team to connect each requirement to its source and design element.'
           }
         }
