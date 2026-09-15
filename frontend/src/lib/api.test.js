@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, describeSnapshotFailures, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getMyResponse, logout, submitResponse } from './api.js';
+import { ApiError, decideIdentityConflict, describeSnapshotFailures, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getMyResponse, logout, submitResponse } from './api.js';
 import { fetchCurrentSession, logoutSession } from './session.js';
 
 describe('production API delivery', () => {
@@ -53,6 +53,23 @@ describe('production API delivery', () => {
       credentials: 'include',
       headers: expect.objectContaining({ 'X-XSRF-TOKEN': 'csrf-token' })
     }));
+  });
+
+  it('sends the selected conflict owner even when the optional decision note is blank', async () => {
+    document.cookie = 'XSRF-TOKEN=csrf-token; path=/';
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ status: 'RESOLVED' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+
+    await decideIdentityConflict('workspace-1', 'conflict-1', 'RESOLVED', '', 'sub-correct');
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      decision: 'RESOLVED',
+      confirmedSubject: 'sub-correct'
+    });
   });
 
   it('preserves an expired-session response as a typed API error', async () => {

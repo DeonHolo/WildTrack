@@ -84,12 +84,60 @@ class StudentAssociationServiceTest {
     }
 
     @Test
+    void selfDisconnectAutomaticallyResolvesTheOpenIdentityConflict() {
+        service.confirmAssociation(workspaceId, "sub-A", "a@gmail.com", "20-0649-750");
+        service.confirmAssociation(workspaceId, "sub-B", "b@gmail.com", "20-0649-750");
+
+        service.disconnect(workspaceId, "sub-B");
+
+        assertThat(service.openConflictDetails(workspaceId)).isEmpty();
+        var history = service.conflictHistory(workspaceId);
+        assertThat(history).hasSize(1);
+        assertThat(history.get(0).status()).isEqualTo("RESOLVED");
+        assertThat(history.get(0).decisionNote()).contains("Automatically resolved", "Confirmed account: a@gmail.com");
+        assertThat(history.get(0).existingIdentity().active()).isTrue();
+        assertThat(history.get(0).conflictingIdentity().active()).isFalse();
+        assertThat(service.activeAssociation(workspaceId, "sub-A")).isPresent();
+        assertThat(service.activeAssociation(workspaceId, "sub-B")).isEmpty();
+    }
+
+    @Test
+    void disconnectClosesOnlyThatClaimantsConflictsWhenOtherClaimantsStillCollide() {
+        service.confirmAssociation(workspaceId, "sub-A", "a@gmail.com", "20-0649-750");
+        service.confirmAssociation(workspaceId, "sub-B", "b@gmail.com", "20-0649-750");
+        service.confirmAssociation(workspaceId, "sub-C", "c@gmail.com", "20-0649-750");
+
+        assertThat(service.openConflictDetails(workspaceId)).hasSize(3);
+        service.disconnect(workspaceId, "sub-B");
+
+        var open = service.openConflictDetails(workspaceId);
+        assertThat(open).hasSize(1);
+        assertThat(java.util.Set.of(open.get(0).existingIdentity().googleSubject(), open.get(0).conflictingIdentity().googleSubject()))
+            .containsExactlyInAnyOrder("sub-A", "sub-C");
+        assertThat(service.conflictHistory(workspaceId).stream().filter(item -> item.status().equals("RESOLVED"))).hasSize(2);
+    }
+
+    @Test
     void reselectingDifferentRecordDeactivatesPriorAssociation() {
         service.confirmAssociation(workspaceId, "sub-A", "a@gmail.com", "20-0649-750");
         service.confirmAssociation(workspaceId, "sub-A", "a@gmail.com", "20-0000-001");
 
         var current = service.activeAssociation(workspaceId, "sub-A").orElseThrow();
         assertThat(current.studentNumber()).isEqualTo("20-0000-001");
+    }
+
+    @Test
+    void movingToAnotherRecordAlsoResolvesTheOldCollision() {
+        service.confirmAssociation(workspaceId, "sub-A", "a@gmail.com", "20-0649-750");
+        service.confirmAssociation(workspaceId, "sub-B", "b@gmail.com", "20-0649-750");
+
+        service.confirmAssociation(workspaceId, "sub-B", "b@gmail.com", "20-0000-001");
+
+        assertThat(service.openConflictDetails(workspaceId)).isEmpty();
+        var resolved = service.conflictHistory(workspaceId).get(0);
+        assertThat(resolved.status()).isEqualTo("RESOLVED");
+        assertThat(resolved.existingIdentity().active()).isTrue();
+        assertThat(resolved.conflictingIdentity().active()).isFalse();
     }
 
     @Test

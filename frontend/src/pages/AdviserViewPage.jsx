@@ -165,7 +165,6 @@ export function AdviserViewPage() {
 
   function selectDeliverable(deliverableId) {
     setSelectedDeliverableId(deliverableId);
-    setFeedback('');
   }
 
   function selectOutput(outputId) {
@@ -617,7 +616,9 @@ function SelectedGroupOutput({
         <form onSubmit={onSubmitFeedback}>
           <Textarea
             label="Feedback for student"
-            description="Students can read this note from their deliverable details."
+            description={currentFeedback
+              ? 'Students see the latest saved version. Edit it here and save again whenever feedback changes.'
+              : 'Students can read this note from their deliverable details. You can edit it later.'}
             minRows={4}
             autosize
             maxRows={7}
@@ -675,9 +676,11 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck }) {
 
         {value ? (
           isLink ? (
-            <Button component="a" href={makeDriveViewUrl(value)} target="_blank" rel="noreferrer" variant="default" size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
-              Open submitted link
-            </Button>
+            <Group gap="xs">
+              <Button component="a" href={makeDriveViewUrl(value)} target="_blank" rel="noreferrer" variant="default" size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
+                {artifactOpenLabel(field)}
+              </Button>
+            </Group>
           ) : <Text size="sm">{value}</Text>
         ) : <Text size="sm" c="dimmed">No value submitted for this artifact.</Text>}
 
@@ -715,6 +718,14 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck }) {
       </Stack>
     </Paper>
   );
+}
+
+function artifactOpenLabel(field) {
+  if (field?.type === 'drive' || field?.pdfRequired) return 'Open PDF';
+  if (field?.type === 'googleForm') return 'Open form';
+  if (field?.type === 'googleSheet') return 'Open sheet';
+  if (field?.type === 'driveFolder') return 'Open folder';
+  return 'Open link';
 }
 
 function submissionFieldTypeLabel(field) {

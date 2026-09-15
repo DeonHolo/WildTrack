@@ -23,7 +23,7 @@ export function IdentityConflictDesk({ workspaceId, conflict, history = false, o
   useEffect(() => { if (records.status === 'error' && records.error) setError(records.error); }, [records.status, records.error]);
   function choose(item) { setSelected(item); setNote(''); setConfirmedSubject(''); setError(''); }
   async function save() {
-    if (busy.current || !isCurrent() || !note.trim() || (decision === 'RESOLVED' && !confirmedSubject)) return;
+    if (busy.current || !isCurrent() || (decision === 'RESOLVED' && !confirmedSubject)) return;
     busy.current = true; setSaving(true); setError('');
     try {
       const updated = await decideIdentityConflict(workspaceId, selected.id, decision, note.trim(), decision === 'RESOLVED' ? confirmedSubject : null);
@@ -57,14 +57,14 @@ export function IdentityConflictDesk({ workspaceId, conflict, history = false, o
             data={[{ value: 'RESOLVED', label: 'Confirm the correct account' }, { value: 'DISMISSED', label: 'Dismiss: no correction needed' }]} />
           <Text size="sm">{decision === 'RESOLVED' ? 'Verify the student outside the app, then select their correct Google account above. The other account is disconnected from this record; submitted files and history remain intact.'
             : 'Dismiss only after checking the claims. This records your decision without changing either account connection.'}</Text>
-          <Textarea label="Decision note" required maxLength={700} minRows={3} value={note} disabled={saving}
-            placeholder="How was the correct account verified, or why is no correction needed?" onChange={event => setNote(event.currentTarget.value)} />
+          <Textarea label="Decision note (optional)" maxLength={700} minRows={3} value={note} disabled={saving}
+            placeholder="Optional context about how the account was verified or why no correction is needed." onChange={event => setNote(event.currentTarget.value)} />
         </> : <Paper withBorder p="md"><Text fw={600}>{selected.status === 'RESOLVED' ? 'Resolution recorded' : 'Dismissal recorded'}</Text>
           <Text size="sm">{selected.decidedByEmail} · {formatDateTime(selected.decidedAt)}</Text>
           <Text size="sm" mt="xs" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{selected.decisionNote || 'No note recorded.'}</Text></Paper>}
         {error ? <Alert color="red"><Text size="sm">{error}</Text><Button variant="subtle" size="xs" onClick={refresh} disabled={saving}>Reload conflict</Button></Alert> : null}
         <Group justify="flex-end"><Button variant="default" onClick={onClose} disabled={saving}>Close</Button>
-          {selected.status === 'OPEN' ? <Button loading={saving} disabled={!note.trim() || (decision === 'RESOLVED' && !confirmedSubject)} onClick={save}>Record decision</Button> : null}</Group>
+          {selected.status === 'OPEN' ? <Button loading={saving} disabled={decision === 'RESOLVED' && !confirmedSubject} onClick={save}>Record decision</Button> : null}</Group>
       </> : <ResourceBoundary status={records.status} error={records.error} onRetry={records.reload}>
         {!records.data.length ? <Text c="dimmed">No identity conflicts have been recorded in this workspace.</Text> : records.data.map(item => (
           <Paper withBorder p="sm" key={item.id}><Group justify="space-between" wrap="wrap"><div>

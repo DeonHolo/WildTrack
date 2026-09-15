@@ -517,9 +517,12 @@ export async function getIdentityConflicts(workspaceId, includeClosed = false) {
 /** Admin-only: records RESOLVED or DISMISSED for one identity conflict. */
 export async function decideIdentityConflict(workspaceId, conflictId, decision, note, confirmedSubject) {
   await ensureCsrfToken();
+  const body = { decision };
+  if (note?.trim()) body.note = note.trim();
+  if (confirmedSubject) body.confirmedSubject = confirmedSubject;
   return request(
     `/workspace/students/identity-conflicts/${encodeURIComponent(conflictId)}/decision?workspaceId=${encodeURIComponent(workspaceId)}`,
-    { method: 'POST', body: note ? { decision, note } : { decision } }
+    { method: 'POST', body }
   );
 }
 
