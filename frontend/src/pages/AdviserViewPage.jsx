@@ -37,6 +37,7 @@ import {
 } from '@phosphor-icons/react';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
+import { AiReviewReport } from '../components/review/AiReviewReport.jsx';
 import { StatusIndicator } from '../components/ui.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../hooks/useApplicationRole.js';
 import { getStoredPreviewAdviser, setStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
@@ -745,12 +746,7 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck }) {
             <Text size="sm" c="dimmed">{check?.summary || 'No current Document Check is available for this PDF.'}</Text>
             {aiEnabled ? (
               aiReport ? (
-                <Stack gap={3}>
-                  <Text size="sm">{aiReport.summary}</Text>
-                  {aiReport.flags?.length ? <Text size="xs"><strong>Flags:</strong> {aiReport.flags.join(', ')}</Text> : null}
-                  {aiReport.missingSections?.length ? <Text size="xs"><strong>Missing or weak:</strong> {aiReport.missingSections.join(', ')}</Text> : null}
-                  {aiReport.suggestedAction ? <Text size="xs"><strong>Suggested action:</strong> {aiReport.suggestedAction}</Text> : null}
-                </Stack>
+                <AiReviewReport report={aiReport} />
               ) : <Text size="xs" c="dimmed">No current AI Review is available. AI Review is initiated by Sir/Admin.</Text>
             ) : null}
           </Stack>

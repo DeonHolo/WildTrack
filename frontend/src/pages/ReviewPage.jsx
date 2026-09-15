@@ -25,6 +25,7 @@ import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { archiveAttempts as archiveServerAttempts } from '../lib/archiveClient.js';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { AiReviewDialog } from '../components/review/AiReviewDialog.jsx';
+import { AiReviewReportDialog } from '../components/review/AiReviewReportDialog.jsx';
 import { ReviewDeliverablesTable } from '../components/review/ReviewDeliverablesTable.jsx';
 import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
 import { ReviewSubmissionsTable } from '../components/review/ReviewSubmissionsTable.jsx';
@@ -48,6 +49,7 @@ import {
   deliverableUsesDocumentCheck,
   findStudent,
   getIdentityStudents,
+  isArtifactAiReviewCurrent,
   isArtifactDocumentCheckCurrent,
   reviewableSubmissionFields,
   sortDeliverables
@@ -94,6 +96,7 @@ export function ReviewPage() {
   const [conflictStudentNumbers, setConflictStudentNumbers] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [checkDialogTarget, setCheckDialogTarget] = useState(null);
+  const [aiReportDialogTarget, setAiReportDialogTarget] = useState(null);
   const [batchProgress, setBatchProgress] = useState(null);
   const [aiProgress, setAiProgress] = useState(null);
   const aiBusy = useRef(false);
@@ -107,6 +110,7 @@ export function ReviewPage() {
     setCheckingIds(new Set());
     setCheckError(null);
     setCheckDialogTarget(null);
+    setAiReportDialogTarget(null);
     setSelectedIds(new Set());
     setSelectedResponseId('');
     setConflictStudentNumbers([]);
@@ -143,6 +147,19 @@ export function ReviewPage() {
   const checkDialogReport = checkDialogField
     ? (checkDialogResponse?.artifactChecks?.[checkDialogField.definitionId]
       || (!checkDialogField.definitionId ? checkDialogResponse?.documentCheck : null))
+    : null;
+  const aiReportDialogResponse = state.attempts.find((response) => response.id === aiReportDialogTarget?.responseId) || null;
+  const aiReportDialogDeliverable = aiReportDialogResponse
+    ? state.deliverables.find((item) => item.id === aiReportDialogResponse.deliverableId) || null
+    : null;
+  const aiReportDialogField = aiReportDialogDeliverable?.fields?.find((field) => (
+    (field.definitionId || field.id) === aiReportDialogTarget?.fieldId
+  )) || null;
+  const aiReportDialogReview = aiReportDialogField
+    ? artifactAiReview(aiReportDialogResponse, aiReportDialogField)
+    : null;
+  const aiReportDialogReport = aiReportDialogField && isArtifactAiReviewCurrent(aiReportDialogResponse, aiReportDialogField)
+    ? aiReportDialogReview?.report || null
     : null;
   const documentCheckEnabled = deliverableUsesDocumentCheck(selectedDeliverable);
   const uncheckedDocumentTargets = useMemo(() => documentCheckEnabled
@@ -186,6 +203,7 @@ export function ReviewPage() {
     setSelectedResponseId('');
     setSelectedIds(new Set());
     setCheckDialogTarget(null);
+    setAiReportDialogTarget(null);
     setBatchProgress(current => current?.done ? null : current);
   }
 
@@ -628,6 +646,10 @@ export function ReviewPage() {
         checkError={checkError?.targetKey?.startsWith(`${selectedResponse?.id}:`) ? checkError?.message : ''}
         onClose={() => setSelectedResponseId('')}
         onDocumentCheck={(field) => openOrRunDocumentCheck(selectedResponse, field)}
+        onViewAiReview={(field) => setAiReportDialogTarget({
+          responseId: selectedResponse.id,
+          fieldId: field.definitionId || field.id
+        })}
         onAiReview={(field) => {
           const review = artifactAiReview(selectedResponse, field);
           const retry = artifactAiReviewStatus(selectedResponse, field) === 'Retry required' && Boolean(review?.retryToken);
@@ -647,6 +669,13 @@ export function ReviewPage() {
         error={checkDialogField && checkError?.targetKey === artifactTargetKey(checkDialogResponse?.id, checkDialogField) ? checkError?.message : ''}
         onClose={() => setCheckDialogTarget(null)}
         onRecheck={recheckFromDialog}
+      />
+      <AiReviewReportDialog
+        opened={Boolean(aiReportDialogReport)}
+        report={aiReportDialogReport}
+        review={aiReportDialogReview}
+        fieldLabel={aiReportDialogField?.label}
+        onClose={() => setAiReportDialogTarget(null)}
       />
       </ResourceBoundary>
     </Stack>

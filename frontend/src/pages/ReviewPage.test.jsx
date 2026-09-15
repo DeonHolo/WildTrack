@@ -170,8 +170,18 @@ function createState() {
           generatedAt: checkedAt,
           sourceResponseUpdatedAt: ronSavedAt,
           summary: 'The submission describes its requirements, but traceability and interface constraints require manual review.',
-          flags: ['Weak traceability'],
-          missingSections: ['Requirements traceability matrix'],
+          findings: [{
+            issue: 'The traceability links in the submitted PDF are incomplete.',
+            source: 'DOCUMENT',
+            evidence: 'Section 4, requirements matrix',
+            requirement: ''
+          }],
+          missingRequiredSections: [{
+            section: 'Requirements traceability matrix',
+            source: 'OFFICIAL_TEMPLATE',
+            requirement: 'Include a Requirements traceability matrix.'
+          }],
+          limitations: [],
           suggestedAction: 'Ask the team to connect each requirement to its source and design element.'
         },
         aiReviewState: {
@@ -180,8 +190,18 @@ function createState() {
           sourceResponseUpdatedAt: ronSavedAt,
           report: {
             summary: 'The submission describes its requirements, but traceability and interface constraints require manual review.',
-            flags: ['Weak traceability'],
-            missingSections: ['Requirements traceability matrix'],
+            findings: [{
+              issue: 'The traceability links in the submitted PDF are incomplete.',
+              source: 'DOCUMENT',
+              evidence: 'Section 4, requirements matrix',
+              requirement: ''
+            }],
+            missingRequiredSections: [{
+              section: 'Requirements traceability matrix',
+              source: 'OFFICIAL_TEMPLATE',
+              requirement: 'Include a Requirements traceability matrix.'
+            }],
+            limitations: [],
             suggestedAction: 'Ask the team to connect each requirement to its source and design element.'
           }
         }
@@ -367,13 +387,28 @@ describe('deliverable-first submission review', () => {
     const drawer = screen.getByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' });
     expect(drawer).toHaveTextContent('This is a deliberately long Document Check summary');
     expect(drawer).toHaveTextContent('The submission describes its requirements');
-    expect(within(drawer).getByRole('link', { name: 'Open submitted link' })).toHaveAttribute(
+    expect(drawer).toHaveTextContent('Project context');
+    expect(within(drawer).getByRole('link', { name: 'Open PDF' })).toHaveAttribute(
       'href',
       'https://drive.google.com/file/d/ron-srs/view'
     );
+    fireEvent.click(within(drawer).getByRole('button', { name: 'View AI Review' }));
+    const aiDialog = screen.getByRole('dialog', { name: 'AI Review: PDF Drive Link' });
+    expect(aiDialog).toHaveTextContent('The traceability links in the submitted PDF are incomplete.');
+    expect(aiDialog).toHaveTextContent('Requirements traceability matrix');
+    expect(aiDialog).toHaveTextContent('AI Review is advisory first-pass feedback');
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Search submissions' }), { target: { value: 'Ron Luigi' } });
     expect(screen.getByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' })).toBeInTheDocument();
+  });
+
+  it('omits Project context when the selected team has no meaningful project metadata', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Pacio, Muriel D. response' }));
+
+    const drawer = screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' });
+    expect(within(drawer).queryByText('Project context')).not.toBeInTheDocument();
+    expect(within(drawer).queryByText('Project metadata not loaded yet.')).not.toBeInTheDocument();
   });
 
   it('checks selected responses as a non-blocking batch and reports completion', async () => {

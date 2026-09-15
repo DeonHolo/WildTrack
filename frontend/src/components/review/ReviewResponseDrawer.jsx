@@ -6,7 +6,6 @@ import {
   Drawer,
   Group,
   Paper,
-  ScrollArea,
   Stack,
   Text,
   Title
@@ -16,6 +15,7 @@ import {
   ArrowCounterClockwise,
   ArrowSquareOut,
   CheckCircle,
+  Eye,
   MagnifyingGlass,
   Sparkle
 } from '@phosphor-icons/react';
@@ -43,6 +43,7 @@ export function ReviewResponseDrawer({
   checkError = '',
   onClose,
   onDocumentCheck,
+  onViewAiReview,
   onAiReview,
   onAccept,
   onRevoke,
@@ -50,6 +51,8 @@ export function ReviewResponseDrawer({
 }) {
   if (!response || !student || !deliverable) return null;
   const project = getProjectMetadata(state, student.teamCode || response.teamCode);
+  const hasProjectContext = [project?.projectTitle, project?.softwareName, project?.proposalRemarks]
+    .some((value) => String(value || '').trim());
   const accepted = response.reviewStatus === 'Accepted';
   const archived = response.archiveStatus === 'Archived';
   const fields = deliverable.fields || [];
@@ -93,18 +96,21 @@ export function ReviewResponseDrawer({
                 field={field}
                 checking={checkingFields.has(artifactKey(response.id, field))}
                 onDocumentCheck={() => onDocumentCheck?.(field)}
+                onViewAiReview={() => onViewAiReview?.(field)}
                 onAiReview={() => onAiReview?.(field)}
               />
             ))}
           </Stack>
         </section>
 
-        <section className="wt-review-detail-section" aria-labelledby="project-context-heading">
-          <Text component="h3" id="project-context-heading" fw={750}>Project context</Text>
-          <Text size="sm" fw={650}>{project?.projectTitle || 'Project metadata not loaded yet.'}</Text>
-          {project?.softwareName ? <Text size="xs" c="dimmed">Software: {project.softwareName}</Text> : null}
-          {project?.proposalRemarks ? <Text size="xs" c="dimmed">{project.proposalRemarks}</Text> : null}
-        </section>
+        {hasProjectContext ? (
+          <section className="wt-review-detail-section" aria-labelledby="project-context-heading">
+            <Text component="h3" id="project-context-heading" fw={750}>Project context</Text>
+            {project?.projectTitle ? <Text size="sm" fw={650}>{project.projectTitle}</Text> : null}
+            {project?.softwareName ? <Text size="xs" c="dimmed">Software: {project.softwareName}</Text> : null}
+            {project?.proposalRemarks ? <Text size="xs" c="dimmed">{project.proposalRemarks}</Text> : null}
+          </section>
+        ) : null}
 
         {response.acceptance ? (
           <Text size="xs" c="dimmed">
@@ -132,7 +138,7 @@ export function ReviewResponseDrawer({
   );
 }
 
-function ArtifactCard({ response, field, checking, onDocumentCheck, onAiReview }) {
+function ArtifactCard({ response, field, checking, onDocumentCheck, onViewAiReview, onAiReview }) {
   const value = String(response.values?.[field.id] || '').trim();
   const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
   const report = artifactDocumentCheck(response, field);
@@ -154,19 +160,27 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onAiReview }
           {reviewablePdf ? <StatusIndicator status={checkStatus} /> : null}
         </Group>
         {value ? (
-          <Button component="a" href={makeDriveViewUrl(value)} target="_blank" rel="noreferrer" variant="default"
-            size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
-            Open submitted link
-          </Button>
+          <Group gap="xs">
+            <Button component="a" href={makeDriveViewUrl(value)} target="_blank" rel="noreferrer" variant="default"
+              size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
+              {artifactOpenLabel(field)}
+            </Button>
+          </Group>
         ) : <StatusIndicator status="No file link" />}
 
         {reviewablePdf ? (
           <>
-            <Group gap="xs">
+            <Group gap="xs" wrap="wrap">
               <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<MagnifyingGlass size={15} />}
                 loading={checking} disabled={!value} onClick={onDocumentCheck}>
                 {isArtifactDocumentCheckCurrent(response, field) ? 'View Document Check' : field.documentCheckPolicy === 'MANUAL' ? 'Check document' : 'Check again'}
               </Button>
+              {aiReport ? (
+                <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<Eye size={15} aria-hidden="true" />}
+                  onClick={onViewAiReview}>
+                  View AI Review
+                </Button>
+              ) : null}
               {field.aiReviewEnabled ? (
                 <Button variant="light" color="wildtrackGold" size="xs" leftSection={<Sparkle size={15} />}
                   disabled={!isArtifactDocumentCheckCurrent(response, field)} onClick={onAiReview}>
@@ -185,14 +199,7 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onAiReview }
               <Stack gap={3}>
                 <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={aiStatus} /></Group>
                 {aiReport ? (
-                  <ScrollArea.Autosize mah={180} type="auto" offsetScrollbars>
-                    <Stack gap={3} pr="sm">
-                      <Text size="sm">{aiReport.summary}</Text>
-                      {aiReport.flags?.length ? <Text size="xs"><strong>Flags:</strong> {aiReport.flags.join(', ')}</Text> : null}
-                      {aiReport.missingSections?.length ? <Text size="xs"><strong>Missing or weak:</strong> {aiReport.missingSections.join(', ')}</Text> : null}
-                      {aiReport.suggestedAction ? <Text size="xs"><strong>Suggested action:</strong> {aiReport.suggestedAction}</Text> : null}
-                    </Stack>
-                  </ScrollArea.Autosize>
+                  <Text size="sm" c="dimmed" lineClamp={3}>{aiReport.summary}</Text>
                 ) : <Text size="xs" c="dimmed">{aiState?.message || 'No current AI Review is available for this PDF.'}</Text>}
               </Stack>
             ) : null}
@@ -203,6 +210,14 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onAiReview }
       </Stack>
     </Paper>
   );
+}
+
+function artifactOpenLabel(field) {
+  if (field?.type === 'drive' || field?.pdfRequired) return 'Open PDF';
+  if (field?.type === 'googleForm') return 'Open form';
+  if (field?.type === 'googleSheet') return 'Open sheet';
+  if (field?.type === 'driveFolder') return 'Open folder';
+  return 'Open link';
 }
 
 function artifactKey(responseId, field) {
