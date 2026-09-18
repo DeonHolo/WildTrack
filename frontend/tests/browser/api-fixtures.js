@@ -1,7 +1,14 @@
 import { expect } from '@playwright/test';
 
 // Wire-format fixtures: browser journeys exercise the real clients and mappings.
-export async function installApiFixtures(page, { role = 'student', connected = false, submitted = false, program = 'IT', formStatus = 'PUBLISHED' } = {}) {
+export async function installApiFixtures(page, {
+  role = 'student',
+  connected = false,
+  submitted = false,
+  program = 'IT',
+  formStatus = 'PUBLISHED',
+  templates = []
+} = {}) {
   const workspace = {
     id: program === 'IT' ? '11111111-1111-1111-1111-111111111111' : '22222222-2222-2222-2222-222222222222',
     publicKey: program === 'IT' ? 'it-it332-2025-26-semester-2' : 'cs-cs-capstone-2025-26-semester-2',
@@ -152,7 +159,7 @@ export async function installApiFixtures(page, { role = 'student', connected = f
       deliverables, responses, reviewStates: {}, fileChecks: {}
     });
     if (path === '/monitoring' && method === 'GET') return reply({ students: [student], projects, trackerColumns: columns, trackerRows: rows, deliverables, responses, reviewStates: Object.fromEntries(responses.map(item => [item.id, { feedback: [], acceptance: null }])), fileChecks: {}, teamCodes: [student.teamCode], allTeams: role === 'admin' });
-    const collections = { '/students': [student], '/projects': projects, '/tracker/columns': columns, '/tracker/rows': rows, '/deliverables': deliverables, '/templates': [], '/workspace/responses/my-team': responses,
+    const collections = { '/students': [student], '/projects': projects, '/tracker/columns': columns, '/tracker/rows': rows, '/deliverables': deliverables, '/templates': templates, '/workspace/responses/my-team': responses,
       '/workspace/students/identity-conflicts': [], '/workspace/staff': [],
       '/workspace/sources': ['TEAM_FORMATION', 'TRACKER', 'PROJECT_MONITOR'].map((sourceType) => ({ sourceType, status: 'IMPORTED', displayName: sourceType, sheetUrl: 'https://docs.google.com/spreadsheets/d/browser-sheet/edit' })) };
     if (method === 'GET' && Object.hasOwn(collections, path)) return reply(collections[path]);

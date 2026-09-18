@@ -4,13 +4,19 @@ Last reconciled: 2026-09-19. Origin: owner conversation and docs/WildTrack_Capst
 
 ## Research
 
-- Three working objectives: Document Check accuracy; AI Review accuracy/grounded content screening; **student interpretation of submission status and next action**.
-- Owner selected the third proposal: by the end of the MVP evaluation round, at least 90% of participating students correctly answer at least 4 of 5 standardized status/next-action scenarios.
-- This is the owner's selected objective, not proof of instructor approval. Sir previously discouraged usability as a primary goal; preserve that limitation rather than substituting form-generation correctness again.
-- The friend's perceived learning-speed question may be supporting feedback, not the third objective. No claim of measured speed from agreement ratings.
+- Three working objectives: Document Check accuracy; AI Review accuracy/grounded content screening; **student submission transaction correctness**.
+- On 2026-09-19 the owner explicitly replaced the earlier status/next-action scenario objective with the student transaction objective. The current proposed working threshold is at least 95% correct across the frozen controlled student submission/revision transaction tasks; freeze the numerical threshold before real collection.
+- Objective 3 is scored from real controlled WildTrack task/system evidence, not questionnaire agreement or fictional scenarios. Each eligible student is scheduled for an initial-submission task and one material-revision task under the frozen protocol.
+- Objective 3 uses the **existing imported MVP Validation workspace**, not a second synthetic workspace. The owner selected **Refactored SRS** as the common student task. Students paste a Google Drive link to their own existing Refactored SRS PDF. No WildTrack student submission flow uploads a file; PDF/document inputs are links.
+- Add one required research-only field to the Refactored SRS form: **Validation step** with **Initial submission** and **Revised submission**. T1 uses Initial submission; T2 edits only that field to Revised submission while keeping the PDF link unchanged.
+- Sir Ralph is the sole Admin/beneficiary in this validation context. His September 14 consultation transcript is the primary Admin-side qualitative evidence and must not be double-counted as another Admin participant if he also completes a follow-up form.
+- Keep the separate synthetic/controlled PDF fixture set for Objective 1 Document Check accuracy. Do not confuse those team-run benchmark fixtures with the PDFs students use for Objective 3.
+- This is the owner's selected objective direction, not proof of instructor approval. The 95% number remains a project-defined working threshold until the protocol is frozen. The goal deliberately avoids claiming measured usability, satisfaction, learnability, or speed.
+- The friend's perceived learning-speed question may remain supporting feedback only. No claim of measured speed from agreement ratings.
 - Ticket 01 finalizes implementable SMART wording/metrics for all three, proposes transparent achievable targets for 1/2, selects/cites an appropriate goal-led evaluation approach, and outputs complete copy-ready Google Form content. Proposed framework/targets must not be labeled adviser-approved.
 - Minimum 30 unique stakeholder participants planned: one Admin/beneficiary, 1–2 advisers, approximately 27–28 students. Sir's September 14 transcript is one qualitative consultation, not a fabricated Google Form row.
-- Participants answer a Google Form. Do not require timed observed sessions. Use self-contained scored scenarios plus role-appropriate feedback; distinguish current-use from scenario-only respondents.
+- Participants answer a short role-appropriate Google Form, but the form does not score Objective 3. Student Objective 3 evidence comes from the controlled task log plus WildTrack system/readback evidence. Do not require timed observation.
+- Do not show internal research codes in respondent-facing question titles. Do not use the self-created participant code. Prefer Google Forms Limit to 1 response with email collection off when participant sign-in is acceptable; keep questionnaire duplicates separate from Objective 3 task identity.
 - The user manages submission deadlines. Do not restart scheduling questions or impose invented calendar deadlines.
 - Official STD template + supplied STD instructions define benchmark authority. No completed team STD yet. Technical PDF fixtures are team-run tests, not questions students must grade or documents students must author.
 - Gemini free tier: small staged pilot, no paid fallback or automatic repeat loops. Cache hits are not fresh runs; quota/error cases remain explicit.
@@ -66,4 +72,3 @@ Last reconciled: 2026-09-19. Origin: owner conversation and docs/WildTrack_Capst
 - Work only on relevant active frontend/backend paths; legacy is historical.
 - Preserve unrelated edits and existing published forms/data.
 - Local implementation/testing is authorized only when a future execution prompt is invoked. External writes/releases need their applicable authorization.
-

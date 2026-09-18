@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 import { StudentIdentityPanel } from '../components/public/StudentIdentityPanel.jsx';
 import { StudentDeliverableList } from '../components/student/StudentDeliverableList.jsx';
+import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { StudentProfileSummary } from '../components/student/StudentProfileSummary.jsx';
 import { StudentProgressPanel } from '../components/student/StudentProgressPanel.jsx';
 import { StudentWelcomeBanner } from '../components/student/StudentWelcomeBanner.jsx';
@@ -438,12 +439,14 @@ function getStudentFileCheck(response, reviewableArtifacts = []) {
 }
 
 function StudentSubmissionArtifacts({ rows }) {
+  const [activeArtifact, setActiveArtifact] = useState(null);
   const multiArtifactRows = rows.filter((row) => row.response && row.artifacts?.length > 1);
   if (!multiArtifactRows.length) return null;
 
   return (
-    <Paper withBorder radius="sm" p="lg" aria-label="Submitted artifacts">
-      <Stack gap="lg">
+    <>
+      <Paper withBorder radius="sm" p="lg" aria-label="Submitted artifacts">
+        <Stack gap="lg">
         <div>
           <Title order={2}>Submitted artifacts</Title>
           <Text size="sm" c="dimmed">Multi-part deliverables keep each submitted link and each PDF check separate.</Text>
@@ -479,7 +482,19 @@ function StudentSubmissionArtifacts({ rows }) {
                       </Button>
                     ) : <Text size="sm">{artifact.value}</Text>}
                     {artifact.reviewablePdf ? (
-                      <Text size="xs" c="dimmed">{artifact.documentCheck?.summary || 'No current Document Check is available for this PDF.'}</Text>
+                      <Stack gap={4}>
+                        <Text size="xs" c="dimmed">{artifact.documentCheck?.summary || 'No current Document Check is available for this PDF.'}</Text>
+                        {artifact.documentCheck ? (
+                          <Button
+                            variant="subtle"
+                            size="compact-sm"
+                            color="wildtrackMaroon"
+                            onClick={() => setActiveArtifact({ row, artifact })}
+                          >
+                            View Document Check
+                          </Button>
+                        ) : null}
+                      </Stack>
                     ) : null}
                   </Stack>
                 </Paper>
@@ -487,8 +502,18 @@ function StudentSubmissionArtifacts({ rows }) {
             </Stack>
           </section>
         ))}
-      </Stack>
-    </Paper>
+        </Stack>
+      </Paper>
+      <DocumentCheckDialog
+        open={Boolean(activeArtifact)}
+        onClose={() => setActiveArtifact(null)}
+        response={activeArtifact?.row?.response || null}
+        documentCheck={activeArtifact?.artifact?.documentCheck || null}
+        fileLink={activeArtifact?.artifact?.value || ''}
+        audience="student"
+        allowRecheck={false}
+      />
+    </>
   );
 }
 

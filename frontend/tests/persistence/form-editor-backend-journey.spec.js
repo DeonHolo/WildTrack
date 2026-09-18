@@ -42,7 +42,7 @@ test('full-page form editor persists through the real backend and public respons
     await expect(admin.getByRole('textbox', { name: 'Form title' })).toHaveValue('Editor Journey Form');
     await expect(admin.getByText('Unpublished', { exact: true })).toBeVisible();
 
-    await admin.getByRole('button', { name: 'Add' }).click();
+    await admin.getByRole('button', { name: 'Add question' }).click();
     await admin.getByRole('textbox', { name: 'Field label' }).last().fill('Round-trip note');
     await admin.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(admin.getByRole('status')).toContainText('Saved');

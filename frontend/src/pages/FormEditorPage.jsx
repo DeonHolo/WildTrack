@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Anchor,
   ActionIcon,
   Alert,
   Badge,
@@ -21,9 +22,12 @@ import {
 import {
   ArrowDown,
   ArrowLeft,
+  ArrowClockwise,
+  ArrowCounterClockwise,
   ArrowUp,
   Check,
   Copy,
+  DotsSixVertical,
   Eye,
   FloppyDisk,
   Plus,
@@ -59,7 +63,7 @@ const FIELD_TYPES = [
   { value: 'multipleChoice', label: 'Multiple choice' },
   { value: 'checkboxes', label: 'Checkboxes' },
   { value: 'url', label: 'General URL' },
-  { value: 'drive', label: 'Google Drive PDF' },
+  { value: 'drive', label: 'Google Drive PDF link' },
   { value: 'googleForm', label: 'Google Form' },
   { value: 'googleSheet', label: 'Google Sheet' },
   { value: 'driveFolder', label: 'Google Drive folder' },
@@ -84,9 +88,12 @@ export function FormEditorPage() {
   const [saveState, setSaveState] = useState('idle');
   const [saveError, setSaveError] = useState('');
   const [selectedId, setSelectedId] = useState('');
-  const [newType, setNewType] = useState('shortText');
   const [previewOpened, setPreviewOpened] = useState(false);
   const initializedScope = useRef('');
+  const draftRef = useRef(null);
+  const historyRef = useRef({ past: [], future: [] });
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const [draggingId, setDraggingId] = useState('');
   const editing = Boolean(formId);
   const workspaceKey = getWorkspacePublicKey(activeWorkspace);
   const activeColumns = useMemo(() => getActiveTrackerColumns(state), [state]);
@@ -104,6 +111,9 @@ export function FormEditorPage() {
       ? makeEditableDeliverableForm(next)
       : makeNewDraft(state, activeColumns);
     setDraft(initial || null);
+    draftRef.current = initial || null;
+    historyRef.current = { past: [], future: [] };
+    setHistoryRevision((value) => value + 1);
     setBaseline(initial ? snapshot(initial) : '');
     setSelectedId(initial?.fields?.find((field) => field.active !== false)?.id || '');
     setSaveState('idle');
@@ -119,6 +129,22 @@ export function FormEditorPage() {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
+
+  useEffect(() => {
+    const handleHistoryShortcut = (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        undoDraft();
+      } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        event.preventDefault();
+        redoDraft();
+      }
+    };
+    window.addEventListener('keydown', handleHistoryShortcut);
+    return () => window.removeEventListener('keydown', handleHistoryShortcut);
+  }, []);
 
   useEffect(() => {
     if (!dirty) return undefined;
@@ -150,35 +176,77 @@ export function FormEditorPage() {
   }
 
   const activeFields = draft.fields.filter((field) => field.active !== false);
-  const retiredFields = draft.fields.filter((field) => field.active === false);
   const published = String(draft.status || '').toLowerCase() === 'published';
+  const canUndo = historyRef.current.past.length > 0 && historyRevision >= 0;
+  const canRedo = historyRef.current.future.length > 0 && historyRevision >= 0;
+  const publicPath = draft.slug ? `/w/${workspaceKey}/submit/${draft.slug}` : '';
 
-  function updateDraft(changes) {
-    setDraft((current) => ({ ...current, ...changes }));
+  function commitDraft(nextOrUpdater) {
+    const current = draftRef.current || draft;
+    const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(current) : nextOrUpdater;
+    if (!next || snapshot(next) === snapshot(current)) return;
+    historyRef.current = {
+      past: [...historyRef.current.past, current].slice(-80),
+      future: []
+    };
+    draftRef.current = next;
+    setDraft(next);
+    setHistoryRevision((value) => value + 1);
     setSaveState('idle');
     setSaveError('');
+  }
+
+  function undoDraft() {
+    const history = historyRef.current;
+    if (!history.past.length || !draftRef.current) return;
+    const previous = history.past[history.past.length - 1];
+    historyRef.current = {
+      past: history.past.slice(0, -1),
+      future: [draftRef.current, ...history.future].slice(0, 80)
+    };
+    draftRef.current = previous;
+    setDraft(previous);
+    setHistoryRevision((value) => value + 1);
+    setSaveState('idle');
+    setSaveError('');
+  }
+
+  function redoDraft() {
+    const history = historyRef.current;
+    if (!history.future.length || !draftRef.current) return;
+    const next = history.future[0];
+    historyRef.current = {
+      past: [...history.past, draftRef.current].slice(-80),
+      future: history.future.slice(1)
+    };
+    draftRef.current = next;
+    setDraft(next);
+    setHistoryRevision((value) => value + 1);
+    setSaveState('idle');
+    setSaveError('');
+  }
+
+  function updateDraft(changes) {
+    commitDraft((current) => ({ ...current, ...changes }));
   }
 
   function updateField(fieldId, changes) {
-    setDraft((current) => ({
+    commitDraft((current) => ({
       ...current,
       fields: current.fields.map((field) => field.id === fieldId ? normalizeEditorField({ ...field, ...changes }) : field)
     }));
-    setSaveState('idle');
-    setSaveError('');
   }
 
   function addQuestion() {
-    let field = newQuestion(newType);
-    if (newType === 'academicStudentNumber' && draft.fields.some((item) => item.type === 'academicStudentNumber' && item.active !== false)) return;
-    setDraft((current) => ({ ...current, fields: [...current.fields, field] }));
+    const field = newQuestion('shortText');
+    commitDraft((current) => ({ ...current, fields: [...current.fields, field] }));
     setSelectedId(field.id);
   }
 
   function duplicateQuestion(field) {
     if (field.type === 'academicStudentNumber') return;
     const copy = duplicateField(field);
-    setDraft((current) => {
+    commitDraft((current) => {
       const index = current.fields.findIndex((item) => item.id === field.id);
       const fields = [...current.fields];
       fields.splice(index + 1, 0, copy);
@@ -188,7 +256,7 @@ export function FormEditorPage() {
   }
 
   function moveQuestion(fieldId, direction) {
-    setDraft((current) => {
+    commitDraft((current) => {
       const active = current.fields.filter((field) => field.active !== false);
       const currentActiveIndex = active.findIndex((field) => field.id === fieldId);
       const targetActive = active[currentActiveIndex + direction];
@@ -201,20 +269,34 @@ export function FormEditorPage() {
     });
   }
 
-  function retireQuestion(field) {
+  function reorderQuestion(sourceId, targetId) {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    commitDraft((current) => {
+      const fields = [...current.fields];
+      const sourceIndex = fields.findIndex((field) => field.id === sourceId);
+      const targetIndex = fields.findIndex((field) => field.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      const [moved] = fields.splice(sourceIndex, 1);
+      const nextTargetIndex = fields.findIndex((field) => field.id === targetId);
+      fields.splice(nextTargetIndex, 0, moved);
+      return { ...current, fields };
+    });
+  }
+
+  function removeQuestion(field) {
     if (field.type === 'academicStudentNumber') return;
-    updateField(field.id, { active: false });
+    commitDraft((current) => ({
+      ...current,
+      fields: field.definitionId
+        ? current.fields.map((item) => item.id === field.id ? { ...item, active: false } : item)
+        : current.fields.filter((item) => item.id !== field.id)
+    }));
     const next = activeFields.find((item) => item.id !== field.id);
     setSelectedId(next?.id || '');
   }
 
-  function restoreQuestion(field) {
-    updateField(field.id, { active: true });
-    setSelectedId(field.id);
-  }
-
   function refreshAcademicSuggestions() {
-    setDraft((current) => ({ ...current, fields: mergeAcademicSuggestions(current.fields, state.students || []) }));
+    commitDraft((current) => ({ ...current, fields: mergeAcademicSuggestions(current.fields, state.students || []) }));
   }
 
   async function save(nextStatus = draft.status || 'Unpublished') {
@@ -235,6 +317,9 @@ export function FormEditorPage() {
         deliverables: [...current.deliverables.filter((item) => item.id !== saved.id), saved]
       }));
       setDraft(editorForm);
+      draftRef.current = editorForm;
+      historyRef.current = { past: [], future: [] };
+      setHistoryRevision((value) => value + 1);
       setBaseline(snapshot(editorForm));
       setSaveState('saved');
       if (!formId && saved.id) {
@@ -265,6 +350,8 @@ export function FormEditorPage() {
           </div>
         </Group>
         <Group gap="sm">
+          <ActionIcon variant="default" size="lg" aria-label="Undo" disabled={!canUndo} onClick={undoDraft}><ArrowCounterClockwise size={18} /></ActionIcon>
+          <ActionIcon variant="default" size="lg" aria-label="Redo" disabled={!canRedo} onClick={redoDraft}><ArrowClockwise size={18} /></ActionIcon>
           <Badge variant="light" color={published ? 'green' : 'gray'}>{published ? 'Published' : 'Unpublished'}</Badge>
           <Button variant="default" leftSection={<Eye size={17} />} onClick={() => setPreviewOpened(true)}>Preview</Button>
           <Button variant="default" leftSection={<FloppyDisk size={17} />} loading={saveState === 'saving'} onClick={() => save(draft.status || 'Unpublished')}>Save</Button>
@@ -286,6 +373,10 @@ export function FormEditorPage() {
         <Stack gap="md" className="wt-form-editor-main">
           <Paper withBorder p={{ base: 'md', sm: 'xl' }} radius="md" className="wt-form-editor-title-card">
             <Stack gap="md">
+              <Group justify="space-between" gap="sm" wrap="wrap">
+                <Text size="xs" fw={800} tt="uppercase" c="dimmed">Section 1 of 1</Text>
+                <Text size="xs" c="dimmed">{activeFields.length} question{activeFields.length === 1 ? '' : 's'}</Text>
+              </Group>
               <TextInput label="Form title" value={draft.title} required onChange={(event) => updateDraft({ title: event.currentTarget.value })} />
               <Textarea label="Instructions" value={draft.instructions || ''} autosize minRows={3}
                 onChange={(event) => updateDraft({ instructions: event.currentTarget.value })} />
@@ -296,7 +387,14 @@ export function FormEditorPage() {
                   onChange={(event) => updateDraft({ dueAt: event.currentTarget.value })} />
               </SimpleGrid>
               <Group justify="space-between" gap="sm" wrap="wrap">
-                <Text size="xs" c="dimmed">Public URL: /w/{workspaceKey}/submit/{draft.slug || 'generated-after-save'}</Text>
+                <Group gap={6} wrap="wrap">
+                  <Text size="xs" c="dimmed">Public URL:</Text>
+                  {publicPath ? (
+                    <Anchor size="xs" href={publicPath} target="_blank" rel="noreferrer">{publicPath}</Anchor>
+                  ) : (
+                    <Text size="xs" c="dimmed">Available after first save</Text>
+                  )}
+                </Group>
                 <Button size="xs" variant="subtle" onClick={refreshAcademicSuggestions}>Refresh academic suggestions</Button>
               </Group>
             </Stack>
@@ -308,50 +406,43 @@ export function FormEditorPage() {
                 key={field.id}
                 field={field}
                 selected={selectedId === field.id}
+                position={index + 1}
+                total={activeFields.length}
                 first={index === 0}
                 last={index === activeFields.length - 1}
                 onSelect={() => setSelectedId(field.id)}
                 onUpdate={(changes) => updateField(field.id, changes)}
                 onMove={(direction) => moveQuestion(field.id, direction)}
+                onDragStart={() => setDraggingId(field.id)}
+                onDrop={() => { reorderQuestion(draggingId, field.id); setDraggingId(''); }}
+                onDragEnd={() => setDraggingId('')}
+                dragging={draggingId === field.id}
                 onDuplicate={() => duplicateQuestion(field)}
-                onRetire={() => retireQuestion(field)}
+                onRemove={() => removeQuestion(field)}
                 hasAnotherAnchor={activeFields.some((item) => item.id !== field.id && item.type === 'academicStudentNumber')}
               />
             ))}
           </Stack>
 
-          <Paper withBorder p="md" radius="md" className="wt-form-editor-add-card">
-            <Group align="flex-end" gap="sm" wrap="wrap">
-              <Select label="Add question" value={newType} data={FIELD_TYPES} allowDeselect={false} onChange={(value) => value && setNewType(value)} flex={1} miw={220} />
-              <Button leftSection={<Plus size={17} />} onClick={addQuestion}>Add</Button>
-            </Group>
-          </Paper>
-
-          {retiredFields.length ? (
-            <Paper withBorder p="md" radius="md">
-              <Stack gap="sm">
-                <div><Text fw={750}>Retired questions</Text><Text size="xs" c="dimmed">Historical answers remain attached to these persisted field identities.</Text></div>
-                {retiredFields.map((field) => (
-                  <Group key={field.id} justify="space-between" gap="sm">
-                    <div><Text size="sm" fw={650}>{field.label}</Text><Text size="xs" c="dimmed">{typeLabel(field.type)}</Text></div>
-                    <Button size="xs" variant="default" onClick={() => restoreQuestion(field)}>Restore</Button>
-                  </Group>
-                ))}
-              </Stack>
-            </Paper>
-          ) : null}
         </Stack>
 
-        <Paper withBorder p="md" radius="md" className="wt-form-editor-side">
-          <Stack gap="xs">
-            <Text fw={750}>Form status</Text>
-            <Text size="sm" c="dimmed">Save keeps the current publication state. Publish makes the stable public URL accept responses.</Text>
-            <Divider my="xs" />
-            <Text size="sm"><Text component="span" fw={700}>Questions </Text>{activeFields.length}</Text>
-            <Text size="sm"><Text component="span" fw={700}>Retired </Text>{retiredFields.length}</Text>
-            <Text size="sm"><Text component="span" fw={700}>Academic fields </Text>{activeFields.filter((field) => ACADEMIC_FIELD_TYPES.has(field.type)).length}</Text>
-          </Stack>
-        </Paper>
+        <Stack gap="sm" className="wt-form-editor-side">
+          <Paper withBorder radius="md" p={6} className="wt-form-editor-action-rail">
+            <ActionIcon size="xl" variant="subtle" color="wildtrackMaroon" aria-label="Add question" onClick={addQuestion}>
+              <Plus size={24} />
+            </ActionIcon>
+          </Paper>
+          <Paper withBorder p="md" radius="md" className="wt-form-editor-status-card">
+            <Stack gap="xs">
+              <Text fw={750}>Form status</Text>
+              <Text size="sm" c="dimmed">Save keeps the current publication state. Publish makes the stable public URL accept responses.</Text>
+              <Divider my="xs" />
+              <Text size="sm"><Text component="span" fw={700}>Section </Text>1 of 1</Text>
+              <Text size="sm"><Text component="span" fw={700}>Questions </Text>{activeFields.length}</Text>
+              <Text size="sm"><Text component="span" fw={700}>Academic fields </Text>{activeFields.filter((field) => ACADEMIC_FIELD_TYPES.has(field.type)).length}</Text>
+            </Stack>
+          </Paper>
+        </Stack>
       </div>
 
       <PreviewModal opened={previewOpened} onClose={() => setPreviewOpened(false)} draft={draft} students={state.students || []} />
@@ -369,7 +460,7 @@ export function FormEditorPage() {
   }
 }
 
-function QuestionCard({ field, selected, first, last, onSelect, onUpdate, onMove, onDuplicate, onRetire, hasAnotherAnchor }) {
+function QuestionCard({ field, selected, position, total, first, last, onSelect, onUpdate, onMove, onDragStart, onDrop, onDragEnd, dragging, onDuplicate, onRemove, hasAnotherAnchor }) {
   const isChoice = CHOICE_FIELD_TYPES.has(field.type);
   const isPdf = field.type === 'drive';
   const isAnchor = field.type === 'academicStudentNumber';
@@ -386,15 +477,38 @@ function QuestionCard({ field, selected, first, last, onSelect, onUpdate, onMove
   }
 
   return (
-    <Paper withBorder p={{ base: 'md', sm: 'lg' }} radius="md" className={`wt-question-card${selected ? ' is-selected' : ''}`} onClick={onSelect}>
+    <Paper
+      withBorder
+      p={{ base: 'md', sm: 'lg' }}
+      radius="md"
+      className={`wt-question-card${selected ? ' is-selected' : ''}${dragging ? ' is-dragging' : ''}`}
+      onClick={onSelect}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => { event.preventDefault(); onDrop(); }}
+    >
       <Stack gap="md">
         <Group justify="space-between" gap="sm" align="center">
-          <Group gap="xs"><Text fw={800}>Question</Text><Badge variant="light">{typeLabel(field.type)}</Badge>{isAnchor ? <Badge color="wildtrackMaroon" variant="light">Identity anchor</Badge> : null}</Group>
+          <Group gap="xs">
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              aria-label={`Drag ${field.label}`}
+              draggable
+              onDragStart={(event) => { event.stopPropagation(); event.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
+              onDragEnd={onDragEnd}
+            >
+              <DotsSixVertical size={18} />
+            </ActionIcon>
+            <div>
+              <Text size="xs" c="dimmed">Question {position} of {total}</Text>
+              <Group gap="xs"><Text fw={800}>Question</Text><Badge variant="light">{typeLabel(field.type)}</Badge>{isAnchor ? <Badge color="wildtrackMaroon" variant="light">Identity anchor</Badge> : null}</Group>
+            </div>
+          </Group>
           <Group gap={4}>
             <ActionIcon variant="subtle" aria-label={`Move ${field.label} up`} disabled={first} onClick={(event) => { event.stopPropagation(); onMove(-1); }}><ArrowUp size={17} /></ActionIcon>
             <ActionIcon variant="subtle" aria-label={`Move ${field.label} down`} disabled={last} onClick={(event) => { event.stopPropagation(); onMove(1); }}><ArrowDown size={17} /></ActionIcon>
             <ActionIcon variant="subtle" aria-label={`Duplicate ${field.label}`} disabled={isAnchor} onClick={(event) => { event.stopPropagation(); onDuplicate(); }}><Copy size={17} /></ActionIcon>
-            <ActionIcon variant="subtle" color="red" aria-label={`Retire ${field.label}`} disabled={isAnchor} onClick={(event) => { event.stopPropagation(); onRetire(); }}><Trash size={17} /></ActionIcon>
+            <ActionIcon variant="subtle" color="red" aria-label={`Remove ${field.label}`} disabled={isAnchor} onClick={(event) => { event.stopPropagation(); onRemove(); }}><Trash size={17} /></ActionIcon>
           </Group>
         </Group>
         <SimpleGrid cols={{ base: 1, sm: 2 }}>

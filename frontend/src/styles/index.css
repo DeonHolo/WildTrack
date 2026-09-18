@@ -4335,8 +4335,15 @@ textarea:not(.mantine-Input-input):focus {
 .wt-source-table,
 .wt-template-table {
   width: 100%;
-  min-width: 900px;
   table-layout: fixed;
+}
+
+.wt-source-table {
+  min-width: 900px;
+}
+
+.wt-template-table {
+  min-width: 1180px;
 }
 
 .wt-source-table th:nth-child(1) { width: 29%; }
@@ -4380,11 +4387,25 @@ textarea:not(.mantine-Input-input):focus {
   padding: 13px 14px;
 }
 
-.wt-template-table th:nth-child(1) { width: 16%; }
-.wt-template-table th:nth-child(2) { width: 27%; }
-.wt-template-table th:nth-child(3) { width: 25%; }
-.wt-template-table th:nth-child(4) { width: 14%; }
-.wt-template-table th:nth-child(5) { width: 18%; }
+.wt-template-table th:nth-child(1) { width: 160px; }
+.wt-template-table th:nth-child(2) { width: 200px; }
+.wt-template-table th:nth-child(3) { width: 210px; }
+.wt-template-table th:nth-child(4) { width: 230px; }
+.wt-template-table th:nth-child(5) { width: 145px; }
+.wt-template-table th:nth-child(6) { width: 235px; }
+
+.wt-template-table td:nth-child(6) {
+  min-width: 235px;
+}
+
+.wt-template-table .wt-row-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+}
+
+.wt-template-table .wt-row-actions .mantine-Button-root {
+  flex: 0 0 auto;
+}
 
 .wt-row-actions {
   display: flex;

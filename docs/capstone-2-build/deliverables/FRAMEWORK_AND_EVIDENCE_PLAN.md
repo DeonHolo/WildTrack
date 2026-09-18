@@ -8,154 +8,214 @@ Use Goal/Question/Metric (GQM) as the measurement-design framework for this MVP 
 
 Primary source: Victor R. Basili, *Software Modeling and Measurement: The Goal/Question/Metric Paradigm*, University of Maryland Technical Report CS-TR-2956 / UMIACS-TR-92-96, 1992: https://www.cs.umd.edu/~basili/publications/technical/T78.pdf
 
-Basili's report defines measurement from explicit goals, operational questions, and associated metrics, with the object, purpose, quality focus, viewpoint, and environment made explicit. That fits this evaluation because WildTrack has three different evidence types that should not be collapsed into one opinion score: deterministic Document Check outcomes, grounded AI Review outcomes, and student status/next-action interpretation.
+Basili's approach starts from explicit goals, derives operational questions, then defines metrics that answer those questions. That fits this evaluation because WildTrack has three different primary evidence types that must not be collapsed into one opinion score:
 
-GQM is used here to organize what evidence answers each goal. It is not treated as a standardized psychometric questionnaire, and the custom role-feedback items are not claimed to have established reliability or population validity.
+- deterministic Document Check outcomes;
+- grounded AI Review outcomes; and
+- real student submission/revision transaction correctness.
 
-## Why GQM fits the current consultation and course constraints
+GQM is used here to organize the goal-to-evidence trace. The custom role-feedback questionnaire is descriptive validation feedback, not a standardized psychometric scale.
 
-The September 14 consultation said the SMART goals should come first and the framework should follow them. It also separated technical checker/content concerns from ordinary usability and said SUS should not count as one of the three minimum SMART goals. The course instructions require the validation instrument to map to project SMART objectives and a selected research/evaluation framework. GQM directly provides that goal-to-question-to-metric trace.
+## Why GQM fits the consultation
 
-The course notes also state that the selected framework requires technical-adviser endorsement before formal deployment. This packet therefore proposes GQM and supplies the complete instrument, but it does not claim that the adviser has approved the framework. Adviser endorsement remains an external pre-collection requirement if the course rule is enforced as written.
+The September 14 consultation says the SMART goals should come first and the framework/instrument should follow them. Sir also separated ordinary usability from the more substantive technical evaluation and said SUS should not count as one of the three minimum SMART goals.
+
+This design therefore avoids using satisfaction or clarity ratings as proof that a SMART objective was achieved:
+
+- Objective 1 is measured from controlled Document Check fixtures.
+- Objective 2 is measured from controlled AI Review fixtures.
+- Objective 3 is measured from real student submission/revision tasks and system evidence.
+- The questionnaire supplies supporting student/adviser/Admin feedback about the deployed MVP.
+
+The course notes require framework endorsement before formal deployment. This packet proposes GQM but does not claim adviser approval.
 
 ## Goal-to-evidence mapping
 
-| SMART goal | Evaluation focus | Operational question | Primary evidence and metric | Questionnaire items |
+| SMART goal | Operational question | Primary evidence | Primary metric | Questionnaire role |
 |---|---|---|---|---|
-| Objective 1: Document Check accuracy | deterministic technical classification accuracy and coverage | Does each applicable Document Check assertion match the frozen expected result across the controlled STD benchmark? | 25 benchmark case families; assertion accuracy, coverage, TP/TN/FP/FN and precision/recall where defined, execution errors | None. Participant opinion does not score technical accuracy. |
-| Objective 2: AI Review grounded-content screening | checklist agreement, provenance, claim traceability, fresh-run coverage | Does AI Review identify the frozen content issues without inventing requirements, and are substantive claims grounded in the PDF or supplied authority? | 10-fixture fresh-run pilot; decision agreement, claim traceability, fresh-run coverage, cache/quota/provider outcomes | None. Participant opinion does not score technical accuracy. |
-| Objective 3: student status/next-action interpretation | correctness of status plus immediate next action | Can students distinguish submitted, advisory checked, revision-requested, accepted, and archived-history situations? | S5-S9 score, STU_TOTAL, percentage with at least 4/5, ceil(0.90*N) threshold | S5-S9 primary; S10-S11 supporting confidence/wording feedback |
+| Objective 1: Document Check accuracy | Do applicable deterministic assertions match the frozen expected results across the STD benchmark? | controlled Document Check fixture manifest + run logs | assertion accuracy, execution coverage, FP/FN and precision/recall where defined | none; participant opinions do not score technical accuracy |
+| Objective 2: AI Review grounded-content screening | Does AI Review identify frozen content issues without inventing requirements, and are substantive claims traceable to the PDF or supplied authority? | frozen ten-fixture fresh-run pilot + adjudication log | decision agreement, claim traceability, fresh-run coverage, provider/cache/quota outcomes | none; participant opinions do not score AI accuracy |
+| Objective 3: Student submission transaction correctness | Does WildTrack correctly reject the prescribed invalid attempt, save the valid student response under the correct record, and preserve the intended material revision? | controlled student task log + WildTrack system/readback evidence | STU_TXN_accuracy = C_STU_TXN / N_STU_TXN, target >= 95% | student survey is supporting feedback only |
 
-Role feedback supports MVP findings and future requirement refactoring but is not substituted for the technical or correctness metrics above:
+## Role feedback mapping
 
-| Role | Items | Purpose |
-|---|---|---|
-| Student actual-use | S1-S4 plus S5-S11 | status/next-action clarity, workflow pain points, required qualitative feedback, and Objective 3 scenarios |
-| Student scenario-only | S5-S11 | Objective 3 scenarios and scenario wording feedback without pretending current-product use |
-| Adviser actual-use/review | A1-A4 | review-state clarity, adviser workflow friction, changes and elements to retain |
-| Admin/beneficiary actual-use/review | D1-D4 | advisory-vs-acceptance clarity, operational workflow friction, changes and elements to retain |
-| No-use | no role-specific research items | prevents irrelevant or guessed ratings |
-| Decliner | consent only | records decline without treating it as participation |
+| Role | Questionnaire purpose |
+|---|---|
+| Student | current status/save clarity, actual student-workflow pain points, optional comment |
+| Adviser | current review information/actions, actual adviser-workflow pain points, optional comment |
+| Admin/beneficiary | current management/review controls, actual Admin-workflow pain points, optional comment |
+| No-use | prevents guessed ratings from people without enough current-product exposure |
+| Decliner | records decline without treating it as participation |
+
+Questionnaire responses may inform requirement refactoring and MVP findings. They do not replace the three objective-specific evidence streams.
 
 ## Sample and evidence boundaries
 
-Plan for at least 30 unique consenting stakeholder participants across varied roles, approximately 27-28 students, 1-2 advisers, and one Admin/beneficiary. This is a planned MVP sample for descriptive evaluation, not a claim of population representativeness.
+Plan for at least 30 unique consenting stakeholder participants across varied roles, approximately 27-28 students, 1-2 advisers, and one Admin/beneficiary. This is an owner/course validation plan, not a direct quotation from Sir Ralph and not a claim of population representativeness.
 
-Keep the participant sample and the technical fixture dataset separate:
+The evidence boundaries are:
 
-- Participant evidence answers Objective 3 and supplies role-specific qualitative findings.
-- Document Check and AI Review accuracy come from controlled synthetic PDF fixtures and benchmark logs.
-- Students, advisers, and Admin respondents are not asked to grade STD PDFs.
-- Sir Ralph Laviste's September 14 transcript is one real qualitative consultation source. It is not a fabricated questionnaire row and does not enter the planned 30-person survey denominator unless he separately submits the finalized consenting form as a real respondent.
-- No timed observation is required by this research packet. If optional timing is collected elsewhere later, it must be reported as separate supporting evidence rather than retrofitted into these three objectives.
+- participating students are the primary human participant group for Objective 3;
+- Objective 3 is scored from their controlled WildTrack task results, not from survey agreement;
+- Document Check and AI Review accuracy come from controlled synthetic PDF fixtures, not from the 30-person questionnaire;
+- student/adviser/Admin questionnaire responses provide descriptive MVP validation findings;
+- Sir Ralph Laviste's September 14 consultation is one real qualitative consultation source, not a fabricated Google Form row;
+- because Sir Ralph is the sole Admin/beneficiary for this validation context and explicitly framed the consultation transcript as his Admin-side input, use that transcript as the primary Admin/beneficiary qualitative evidence. Do not count him again as a second Admin participant merely because the Google Form also contains an Admin route. The Admin form route remains optional/supplemental if the study team later needs a structured follow-up from him;
+- no timed observation or learnability-speed claim is required.
 
 ## Consent and privacy design
 
-The hosted form does not request a name, email address, student number, account username, password, file upload, or private document content. It uses a self-created six-character participant code only for duplicate review. Because any pseudonymous code can still be linkable in context, describe the dataset as pseudonymous/confidential rather than anonymous.
+### Questionnaire
 
-Google documents email collection as an explicit response setting. Keep it disabled under this design: https://support.google.com/docs/answer/139706
+The questionnaire does not ask for a name, email address, Student Number, account username, password, file upload, API key, or private document content.
 
-Google Forms answer-based section routing is limited to Multiple choice and Dropdown questions and may route to a section or Submit form: https://support.google.com/docs/answer/141062
+Preferred duplicate-control setting:
 
-## Branch-safe pilot procedure
+- **Collect email addresses:** off
+- **Limit to 1 response:** on when participant Google sign-in is acceptable
 
-### Documentation audit before building the live form
+Google currently documents that Limit to 1 response requires sign-in but usernames are not recorded unless email collection is enabled: https://support.google.com/docs/answer/2839588
 
-1. Freeze SMART_OBJECTIVES.md, QUESTIONNAIRE.md, SCORING_AND_CODEBOOK.md, the five-scenario answer key, and both technical benchmark manifests.
-2. Have a second team member verify that every S5-S9 scenario has exactly one defensible answer using the current WildTrack behavior and the wording shown to the respondent.
-3. Confirm that no scenario calls Document Check or AI Review an acceptance decision.
-4. Confirm that the accepted scenario refers to the current saved response version and that the archived scenario describes history separately from the active record.
+Do not recreate the old self-generated six-character participant code.
 
-### Google Forms dry-run after manual construction
+### Objective 3 task evidence
 
-Submit six dummy route tests before recruitment. These are form-QA records, not study participants:
+The Objective 3 task must verify that a response is attached to the correct canonical student record. The restricted raw task log may therefore contain the minimum Student Number/internal record key needed for that verification.
 
-1. Student actual-use: C1 Yes -> C2/C3 Student -> C4_STU actual-use -> S1-S4 -> S5-S9 -> S10-S11 -> Submit.
-2. Student scenario-only: C1 Yes -> C2/C3 Student -> C4_STU scenario-only -> S5-S9 -> S10-S11 -> Submit. S1-S4 must never appear or become required.
-3. Adviser: C1 Yes -> C2/C3 Adviser -> C4_ADV current-use/review -> A1-A4 -> Submit. No student/Admin required item may appear.
-4. Admin/beneficiary: C1 Yes -> C2/C3 Admin -> C4_ADM current-use/review -> D1-D4 -> Submit. No student/adviser required item may appear.
-5. No-use: C1 Yes -> C2/C3 no-use, or a role-basis insufficient-context choice -> No-use close -> Submit. No role-specific required item may block submission.
-6. Decliner: C1 No -> Declined -> Submit. C2, C3, and every research question must be skipped.
+Use a researcher-created task_observation_id in cleaned analysis. Do not publish raw Student Numbers or account identifiers.
 
-For each dry run, record route name, visible sections, whether submission succeeded, and any unexpected required question. Delete or clearly tag dummy QA rows before real recruitment so they cannot enter participant counts.
+The questionnaire and task log do not need a respondent-entered shared code. They are separate evidence tables with different purposes.
+
+## Objective 3 controlled student task
+
+### Pre-collection setup
+
+1. Use the existing imported MVP Validation workspace; do not create a second fake workspace solely for Objective 3.
+2. Use **Refactored SRS** as the common target existing published form for the student sample.
+3. Confirm the old official SRS template is configured for Refactored SRS so the normal Document Check comparison is available.
+4. Add one required research-only multiple-choice field to the Refactored SRS form: **Validation step**, choices **Initial submission** and **Revised submission**.
+5. Participants paste the Google Drive link to their own existing old Refactored SRS PDF. WildTrack does not receive a file upload.
+6. Freeze the task instructions, one required-link invalid/incomplete attempt, the valid link submission with Validation step = Initial submission, and the T2 edit that changes only Validation step to Revised submission.
+7. Freeze the exact assertion list in SCORING_AND_CODEBOOK.md.
+8. Verify the task against the current deployed student UI before recruitment.
+9. Have a second team member review the expected assertions before seeing participant results.
+10. Ensure the validation task cannot affect real grading, real course acceptance, or unrelated student records.
+
+### Per-student task
+
+Each eligible participating student is scheduled for:
+
+1. **Initial-submission task**
+   - open the Refactored SRS form;
+   - attempt submission without the required PDF link;
+   - confirm WildTrack blocks it as specified;
+   - paste the participant's own existing Refactored SRS Google Drive PDF link;
+   - choose **Initial submission** for Validation step;
+   - submit the response;
+   - researcher verifies correct record/value/state evidence.
+
+2. **Material-revision task**
+   - reopen the saved response;
+   - change only Validation step from **Initial submission** to **Revised submission**;
+   - leave the SRS PDF link unchanged;
+   - save;
+   - researcher verifies the intended change, preservation of other values, response identity, revision behavior, and student-visible readback.
+
+The task is untimed. The researcher may clarify the written task instruction but must not operate the student's UI on the student's behalf.
+
+### Scoring
+
+Each T1/T2 task passes only when all applicable frozen assertions pass.
+
+Primary metric:
+
+STU_TXN_accuracy = C_STU_TXN / N_STU_TXN
+
+Working target:
+
+STU_TXN_accuracy >= 0.95
+
+Keep system/runtime failures visible. Report unique students, total scheduled/scored transactions, assertion failures, students whose two tasks both passed, withdrawals, and unassessable conditions.
+
+## Google Forms dry-run
+
+Before recruitment, submit dummy responses for these routes:
+
+1. Student controlled-task participant.
+2. Student other-current-use feedback.
+3. Adviser.
+4. Admin/beneficiary.
+5. No-use.
+6. Decliner.
+
+For each route, verify:
+
+- the correct role-specific questions appear;
+- no other role's required question blocks submission;
+- no respondent-facing internal item codes appear;
+- optional comments may be left blank;
+- student options do not mention student-invisible AI Review explanation or submission/history UI;
+- dummy rows are tagged/deleted before real analysis.
 
 ## Reviewer checklist
 
 - [ ] GQM is labeled proposed and its primary Basili source is cited.
-- [ ] The technical-adviser approval requirement remains pending rather than being claimed.
-- [ ] All three SMART objectives have object/focus, viewpoint, endpoint, denominator, metric, and proposed threshold.
-- [ ] Objective 1 uses all 25 benchmark case families and keeps scheduled execution failures visible.
-- [ ] Objective 2 uses the frozen ten-fixture fresh-run pilot and preserves cache/quota/provider outcomes.
-- [ ] Objective 3 uses unique eligible students, five scored answers, 4/5 passing, and required_passes = ceil(0.90*N).
-- [ ] S5-S9 each ask for both state and immediate next action and have one researcher-only key.
-- [ ] Submitted, Document Check/advisory, staff acceptance, and archive history are not conflated.
-- [ ] Consent is isolated in its own section so a decliner sees no later required question.
-- [ ] Student actual-use and student scenario-only routes are distinguishable in the response data.
-- [ ] Adviser/Admin insufficient-context routes can exit without answering role-specific required items.
-- [ ] At least one required open-ended qualitative item exists on each substantive consenting role route, with "None" allowed.
-- [ ] No respondent is required to grade a PDF or complete a timed observation.
-- [ ] Technical benchmark evidence and participant evidence use different folders/tables and different denominators.
-- [ ] Sir's consultation remains a labeled qualitative source, never a synthetic survey row.
-- [ ] No participant results, benchmark pass rates, adviser approval, or hosted-publication claims are fabricated.
+- [ ] Adviser/framework endorsement is not falsely claimed.
+- [ ] Objective 1 uses the frozen Document Check benchmark and preserves execution failures.
+- [ ] Objective 2 uses the frozen fresh AI pilot and preserves cache/quota/provider outcomes.
+- [ ] Objective 3 is student-facing and scored from real WildTrack transaction evidence rather than survey opinion.
+- [ ] Objective 3 uses the frozen T1/T2 protocol and 95% transaction-correctness target.
+- [ ] The invalid T1 attempt cannot create/overwrite an incorrect response.
+- [ ] T1 verifies canonical student/workspace/deliverable association, persisted values, and visible state.
+- [ ] T2 verifies intended changed value, preservation of unchanged values, response identity, revision behavior, and visible state.
+- [ ] Student Number/account details remain in restricted raw evidence only.
+- [ ] Questionnaire contains no typed participant code and no scenario quiz.
+- [ ] Questionnaire contains no student AI Review explanation or submission/history option unless the deployed UI changes before freeze.
+- [ ] Optional qualitative comments are genuinely optional.
+- [ ] Decliners/no-use respondents are not forced through role-specific questions.
+- [ ] Participant feedback and technical benchmark evidence use different tables/denominators.
+- [ ] Sir's consultation remains a labeled qualitative source, never a synthetic survey/task row.
+- [ ] No participant result, benchmark pass rate, adviser approval, or hosted-publication claim is fabricated.
 
 ## Google Sheet response and analysis columns
 
-Keep the Google Forms linked response tab raw. Do not overwrite, reorder, or normalize the original response columns in place. Create a separate cleaned-analysis tab with these columns:
+Keep the Google Forms linked response tab raw. Create a separate cleaned questionnaire-analysis tab.
+
+Suggested questionnaire analysis columns:
 
 response_timestamp
-participant_code_raw
-participant_code_normalized
-duplicate_status
-duplicate_resolution_note
+survey_row_id
 consent_code
 role_code
-basis_code
+student_basis
+student_status_clarity
+student_save_clarity
+student_improvement_raw
+student_improvement_themes
+student_comment_redacted
+adviser_basis
+adviser_exposure_raw
+adviser_clarity
+adviser_improvement_raw
+adviser_improvement_themes
+adviser_comment_redacted
+admin_basis
+admin_exposure_raw
+admin_clarity
+admin_improvement_raw
+admin_improvement_themes
+admin_comment_redacted
 route_complete
-C4_STU
-S1
-S2
-S3_raw
-S3_themes
-S4_text_redacted
-S5_raw
-SCORE_S5
-S6_raw
-SCORE_S6
-S7_raw
-SCORE_S7
-S8_raw
-SCORE_S8
-S9_raw
-SCORE_S9
-S10
-S11_text_redacted
-C4_ADV
-A1
-A2
-A3_raw
-A3_themes
-A4_text_redacted
-C4_ADM
-D1
-D2
-D3_raw
-D3_themes
-D4_text_redacted
-eligibility_status
+survey_duplicate_status
 exclusion_reason
-analysis_group
-student_total
-student_pass
 qualitative_codes
 coder_note
 
-Use blanks for questions skipped by routing. A legitimate routed blank is not the same as a missing required answer. Keep an exclusion log with participant_code_normalized when available, duplicate_status, exclusion_reason, and the row/timestamp needed to audit the decision.
+Do not add a participant-code column. Do not add email under the preferred form settings.
 
-Do not add an email column under this design. If email collection is later required, revise the consent/privacy wording before collection and document the change.
+Maintain Objective 3 in a separate restricted task-log/analysis table using the fields defined in SCORING_AND_CODEBOOK.md.
 
 ## Evidence folder plan
-
-The course requires a Google Form, framework/model PDF, linked response Sheet, highlights PDF, and evidence Drive folder. Use a Drive structure that keeps those participant artifacts together while separating technical benchmarks:
 
 WildTrack MVP Validation/
   01 Framework and Instrument/
@@ -164,32 +224,37 @@ WildTrack MVP Validation/
     Questionnaire - copy-ready source
     Google Form - live validation instrument link
     Scoring and Codebook - frozen copy
-    Route Review Checklist
+    Questionnaire Route Review Checklist
+    Objective 3 Student Task Protocol - frozen copy
   02 Deployed MVP Evidence/
     deployment screenshots
     role-view screenshots
     version or release note used for validation
   03 Participant Evidence/
-    invitation or recruitment evidence
-    session screenshots where consent permits
-    de-identified notes
-  04 Interviews and Consultation Notes/
+    recruitment evidence
+    de-identified session notes
+    questionnaire route evidence
+  04 Objective 3 Student Transaction Evidence/
+    restricted raw task log
+    cleaned task scoring table
+    task screenshots/log references
+    transaction failure examples
+  05 Interviews and Consultation Notes/
     Sir Ralph Laviste - 2026-09-14 transcript
     other real interview notes
-  05 Raw and Exported Results/
+  06 Raw and Exported Questionnaire Results/
     Google Form response Sheet link
     raw export - access controlled
-    cleaned analysis export
-    exclusion log
-  06 Analysis and Findings/
-    Objective 3 scoring table
-    role summaries
+    cleaned questionnaire analysis
+  07 Analysis and Findings/
+    Objective 3 transaction summary
+    role feedback summaries
     qualitative coding memo
     MVP Validation Highlights draft/final
-  07 Final Submission PDFs/
+  08 Final Submission PDFs/
     Framework PDF
     MVP Validation Highlights PDF
-  08 Technical Benchmarks/
+  09 Technical Benchmarks/
     document-check/
       frozen fixture manifest
       fixtures
@@ -201,14 +266,24 @@ WildTrack MVP Validation/
       claim provenance adjudication
     limitations/
 
-The response Sheet and participant evidence remain access controlled and should not be committed to the repository merely because this folder plan exists. Synthetic fixtures and benchmark logs are technical evidence, not participant records.
+Raw participant/task evidence remains access controlled and should not be committed to the repository merely because this folder plan exists.
 
 ## Reporting rules after collection
 
-For Objective 3, report total consenting rows, exclusions by reason, N_student_eligible, N_student_pass, the observed percentage, required_passes = ceil(0.90*N), and actual-use/scenario-only subgroup results.
+For Objective 3 report:
 
-For Objectives 1 and 2, report the exact benchmark denominators and coverage as defined in SCORING_AND_CODEBOOK.md. Preserve failure examples, unassessable cases, cache hits, quota failures, and provider failures. Do not replace them with participant ratings.
+- unique eligible participating students;
+- N_STU_TXN and C_STU_TXN;
+- STU_TXN_accuracy;
+- whether the 95% target was met;
+- number/percentage of students whose two transaction tasks both passed;
+- assertion-level failure counts;
+- runtime/system errors;
+- withdrawals/non-research stops; and
+- representative de-identified failure evidence.
 
-For qualitative findings, report de-identified themes with counts and representative paraphrases. Do not publish a direct respondent quotation unless separate permission for quotation is documented. Distinguish defects, pain points, missing requirements, recommendations, and positive elements to retain so the later SRS/SDD/SPMP refactoring can trace back to recorded evidence.
+For Objectives 1 and 2, report the exact benchmark denominators/coverage defined in SCORING_AND_CODEBOOK.md. Preserve failure examples, unassessable cases, cache hits, quota failures, and provider failures.
 
-Until real collection and benchmark execution occur, report only this proposed design, the completed documentation/branch audit, and any external prerequisites. A passing local documentation check does not prove adviser approval, Google Form publication, recruitment, response collection, technical benchmark success, or final validation completion.
+For questionnaire findings, report descriptive counts/distributions and de-identified themes. Do not call a clarity rating technical accuracy, transaction correctness, or measured usability speed.
+
+Until real collection and benchmark execution occur, report only the proposed design, completed documentation audits, and external prerequisites. A passing local documentation check does not prove adviser approval, participant collection, benchmark success, or final validation completion.
