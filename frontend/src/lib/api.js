@@ -260,16 +260,22 @@ export async function saveBackendDeliverable(workspaceId, payload) {
       dueAt: dueAtIso.length === 16 ? `${dueAtIso}:00` : dueAtIso || '2026-04-18T23:59:00',
       pdfRequired: Boolean(payload.pdfRequired || payload.fields?.some((f) => f.pdfRequired || f.type === 'drive')),
       status: String(payload.status || 'PUBLISHED').toUpperCase(),
+      expectedUpdatedAt: payload.expectedUpdatedAt || payload.updatedAt || null,
       fields: (payload.fields || []).map((field, index) => ({
         id: field.definitionId || null,
         fieldKey: field.id,
         label: field.label,
+        helpText: field.helpText || '',
         fieldType: toApiFieldType(field.type),
         required: Boolean(field.required),
         displayOrder: index,
         documentCheckPolicy: field.type === 'drive' ? String(field.documentCheckPolicy || 'AUTO').toUpperCase() : 'OFF',
         aiReviewEnabled: field.type === 'drive' && Boolean(field.aiReviewEnabled),
-        active: field.active !== false
+        active: field.active !== false,
+        options: (field.options || []).map((option) => ({
+          id: option.id || null,
+          label: option.label
+        }))
       }))
     }
   });
@@ -282,6 +288,14 @@ function toApiFieldType(type) {
     googleSheet: 'GOOGLE_SHEET',
     driveFolder: 'DRIVE_FOLDER',
     textarea: 'TEXTAREA',
+    shortText: 'SHORT_TEXT',
+    dropdown: 'DROPDOWN',
+    multipleChoice: 'MULTIPLE_CHOICE',
+    checkboxes: 'CHECKBOXES',
+    academicStudentNumber: 'ACADEMIC_STUDENT_NUMBER',
+    academicStudentName: 'ACADEMIC_STUDENT_NAME',
+    academicTeamCode: 'ACADEMIC_TEAM_CODE',
+    academicSection: 'ACADEMIC_SECTION',
     url: 'GENERAL_URL'
   })[type] || 'GENERAL_URL';
 }

@@ -2,13 +2,24 @@ import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import { FormEditorPage } from './FormEditorPage.jsx';
 import { FormsPage } from './FormsPage.jsx';
 import { WorkspaceSessionProvider, useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 
 const payload = {
-  deliverables: [{ id: 'form', slug: 'srs', title: 'Ready to publish', trackerColumnKey: 'SRS', status: 'PUBLISHED' }],
+  deliverables: [{
+    id: 'form',
+    slug: 'srs',
+    title: 'Ready to publish',
+    trackerColumnKey: 'SRS',
+    instructions: 'Submit the SRS.',
+    dueAt: '2026-09-30T23:59:00',
+    pdfRequired: false,
+    status: 'PUBLISHED',
+    updatedAt: '2026-09-18T10:00:00'
+  }],
   trackerColumns: [{ columnKey: 'SRS', label: 'SRS', active: true }],
   responses: [{ id: 'slow-response', deliverableId: 'form', valuesJson: '{}' }]
 };
@@ -31,10 +42,14 @@ function SessionActions() {
 
 function Journey() {
   const [show, setShow] = useState(true);
-  return <MantineProvider><ModalsProvider><MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><WorkspaceSessionProvider>
+  return <MantineProvider><ModalsProvider><MemoryRouter initialEntries={['/forms']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><WorkspaceSessionProvider>
     <SessionActions />
     <button onClick={() => setShow(value => !value)}>Toggle Forms</button>
-    {show ? <FormsPage /> : <p>Other page</p>}
+    {show ? <Routes>
+      <Route path="/forms" element={<FormsPage />} />
+      <Route path="/forms/new" element={<FormEditorPage />} />
+      <Route path="/forms/:formId/edit" element={<FormEditorPage />} />
+    </Routes> : <p>Other page</p>}
   </WorkspaceSessionProvider></MemoryRouter></ModalsProvider></MantineProvider>;
 }
 
@@ -74,14 +89,15 @@ it('preserves a server-confirmed edit across a late read and return navigation',
   act(() => window.dispatchEvent(new Event('focus')));
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
   fireEvent.click(screen.getByRole('button', { name: 'Edit SRS form' }));
-  fireEvent.change(screen.getByRole('textbox', { name: 'Form title' }), { target: { value: 'Saved on server' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-  await screen.findByText('Saved on server');
+  const title = await screen.findByRole('textbox', { name: 'Form title' });
+  fireEvent.change(title, { target: { value: 'Saved on server' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('Saved');
   await act(async () => { finishRead(Response.json(payload)); });
-  expect(screen.queryByText('Ready to publish')).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Toggle Forms' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Toggle Forms' }));
+  expect(screen.getByRole('textbox', { name: 'Form title' })).toHaveValue('Saved on server');
+  fireEvent.click(screen.getByRole('button', { name: 'Back to forms' }));
   expect(screen.getByText('Saved on server')).toBeInTheDocument();
+  expect(screen.queryByText('Ready to publish')).not.toBeInTheDocument();
 });
 
 it('retains forms on a failed refresh, labels them as old, and retries successfully', async () => {
@@ -107,11 +123,8 @@ it('clears cached forms on forbidden refresh and does not resurrect them during 
   installApi(load);
   render(<Journey />);
   await screen.findByText('Ready to publish');
-  fireEvent.click(screen.getByRole('button', { name: 'Edit SRS form' }));
-  await screen.findByRole('dialog', { name: 'Edit SRS form' });
   act(() => window.dispatchEvent(new Event('focus')));
   await screen.findByText('Access revoked');
-  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit SRS form' })).not.toBeInTheDocument());
   expect(screen.queryByText('Ready to publish')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Retry loading forms' }));
   expect(screen.queryByText('Ready to publish')).not.toBeInTheDocument();
@@ -131,11 +144,11 @@ it('renders an initial error with Retry instead of an empty result', async () =>
   expect(await screen.findByText('0 forms')).toBeInTheDocument();
 });
 
-it('expires retained forms after a minute without treating them as current on return', async () => {
+it('expires retained forms after the resource-cache lifetime without treating them as current on return', async () => {
   installApi(vi.fn().mockResolvedValueOnce(Response.json(payload)).mockImplementation(() => new Promise(() => {})));
   render(<Journey />);
   await screen.findByText('Ready to publish');
-  const later = Date.now() + 60_001;
+  const later = Date.now() + (30 * 24 * 60 * 60 * 1000) + 1;
   vi.spyOn(Date, 'now').mockReturnValue(later);
   fireEvent.click(screen.getByRole('button', { name: 'Toggle Forms' }));
   fireEvent.click(screen.getByRole('button', { name: 'Toggle Forms' }));

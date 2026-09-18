@@ -18,7 +18,10 @@ public record DeliverableResponse(
     List<DeliverableFieldResponse> fields
 ) {
 
-    public static DeliverableResponse from(Deliverable deliverable, List<DeliverableField> fields) {
+    public static DeliverableResponse from(
+        Deliverable deliverable,
+        List<DeliverableFieldResponse> fields
+    ) {
         return new DeliverableResponse(
             deliverable.getId(),
             deliverable.getTrackerColumnKey(),
@@ -30,7 +33,7 @@ public record DeliverableResponse(
             deliverable.getStatus(),
             deliverable.getCreatedAt(),
             deliverable.getUpdatedAt(),
-            fields.stream().map(DeliverableFieldResponse::from).toList()
+            fields
         );
     }
 }

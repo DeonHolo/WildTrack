@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, decideIdentityConflict, describeSnapshotFailures, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getMyResponse, logout, submitResponse } from './api.js';
+import { ApiError, decideIdentityConflict, describeSnapshotFailures, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getMyResponse, logout, saveBackendDeliverable, submitResponse } from './api.js';
 import { fetchCurrentSession, logoutSession } from './session.js';
 
 describe('production API delivery', () => {
@@ -12,6 +12,48 @@ describe('production API delivery', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 409 }));
     await expect(submitResponse('workspace', 'form', { value: 'edit' }, 7)).resolves.toEqual({ conflict: true });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ deliverableId: 'form', valuesJson: '{"value":"edit"}', revision: 7 });
+  });
+
+  it('sends configurable question metadata and stale-write timestamp through the deliverable contract', async () => {
+    document.cookie = 'XSRF-TOKEN=test-csrf; path=/';
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ id: 'form-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    }));
+
+    await saveBackendDeliverable('workspace', {
+      id: 'form-1',
+      trackerColumn: 'SRS',
+      title: 'Questionnaire',
+      slug: 'stable-form',
+      dueAt: '2026-09-30T23:59:00+08:00',
+      status: 'Published',
+      expectedUpdatedAt: '2026-09-19T01:02:03',
+      fields: [{
+        id: 'scope',
+        definitionId: 'field-scope',
+        label: 'Scope',
+        helpText: 'Choose one.',
+        type: 'dropdown',
+        required: true,
+        active: true,
+        options: [{ id: 'option-campus', label: 'Campus' }, { id: null, _localKey: 'local-new', label: 'Community' }]
+      }]
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      slug: 'stable-form',
+      status: 'PUBLISHED',
+      expectedUpdatedAt: '2026-09-19T01:02:03'
+    });
+    expect(body.fields[0]).toMatchObject({
+      id: 'field-scope',
+      fieldKey: 'scope',
+      helpText: 'Choose one.',
+      fieldType: 'DROPDOWN',
+      options: [{ id: 'option-campus', label: 'Campus' }, { id: null, label: 'Community' }]
+    });
   });
   beforeEach(() => {
     vi.restoreAllMocks();

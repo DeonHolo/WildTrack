@@ -1,11 +1,14 @@
 package com.capvault.backend.response;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import com.capvault.backend.deliverable.Deliverable;
 import com.capvault.backend.deliverable.DeliverableField;
+import com.capvault.backend.deliverable.DeliverableFieldOption;
+import com.capvault.backend.deliverable.DeliverableFieldOptionRepository;
 import com.capvault.backend.deliverable.DeliverableFieldRepository;
 import com.capvault.backend.deliverable.DeliverableFieldType;
 import com.capvault.backend.deliverable.DeliverableRepository;
@@ -46,6 +49,9 @@ class FormResponseServiceTest {
 
     @Autowired
     private DeliverableFieldRepository deliverableFieldRepository;
+
+    @Autowired
+    private DeliverableFieldOptionRepository deliverableFieldOptionRepository;
 
     @Autowired
     private AcademicWorkspaceRepository workspaceRepository;
@@ -298,6 +304,97 @@ class FormResponseServiceTest {
             .hasMessageContaining("Google Drive file link");
     }
 
+    @Test
+    void validatesTextChoiceCheckboxAndAcademicPresentationValues() {
+        configureQuestionFields();
+        associate("question-owner");
+
+        Map<String, Object> valid = new java.util.LinkedHashMap<>();
+        valid.put("shortAnswer", "A concise answer");
+        valid.put("workflowState", "state-ready");
+        valid.put("concerns", List.of("concern-status", "concern-history"));
+
+        var saved = submitFor("question-owner", valid);
+        assertThat(saved.changed()).isTrue();
+        assertThat(saved.response().getValuesJson())
+            .contains("shortAnswer", "state-ready", "concern-status")
+            .doesNotContain("studentNumberDisplay");
+
+        var unknown = new java.util.LinkedHashMap<>(valid);
+        unknown.put("notAField", "surprise");
+        assertThatThrownBy(() -> submitFor("question-owner", unknown))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unknown submission field");
+
+        var academicPosted = new java.util.LinkedHashMap<>(valid);
+        academicPosted.put("studentNumberDisplay", rosterNumber);
+        assertThatThrownBy(() -> submitFor("question-owner", academicPosted))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("connected Student Record");
+
+        var choiceLabelInsteadOfId = new java.util.LinkedHashMap<>(valid);
+        choiceLabelInsteadOfId.put("workflowState", "Ready");
+        assertThatThrownBy(() -> submitFor("question-owner", choiceLabelInsteadOfId))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("unknown choice option");
+
+        var duplicateCheckbox = new java.util.LinkedHashMap<>(valid);
+        duplicateCheckbox.put("concerns", List.of("concern-status", "concern-status"));
+        assertThatThrownBy(() -> submitFor("question-owner", duplicateCheckbox))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("same choice more than once");
+
+        var checkboxAsString = new java.util.LinkedHashMap<>(valid);
+        checkboxAsString.put("concerns", "concern-status");
+        assertThatThrownBy(() -> submitFor("question-owner", checkboxAsString))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("list of choice option IDs");
+    }
+
+    @Test
+    void requiredAcademicSectionUsesCanonicalStudentRecordAndRejectsMissingSourceValue() {
+        String noSectionNumber = "20-0649-751";
+        studentRecordRepository.save(new StudentRecord(
+            workspaceId, noSectionNumber, "No Section Student", "2526-it332-42", "1", null, "Sir Adviser", null, 2));
+        associationService.confirmAssociation(workspaceId, "section-owner", "section-owner@gmail.com", noSectionNumber);
+        deliverableFieldRepository.save(new DeliverableField(
+            "academic-section", deliverableId, "sectionPresentation", "Section",
+            DeliverableFieldType.ACADEMIC_SECTION, true, 0, DocumentCheckPolicy.OFF, false, true));
+
+        assertThatThrownBy(() -> submitFor("section-owner", Map.of()))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Section is required")
+            .hasMessageContaining("connected Student Record");
+    }
+
+    @Test
+    void editingAfterFieldRetirementPreservesHistoricalAnswerWithoutAllowingClientToPostIt() {
+        deliverableFieldRepository.saveAll(List.of(
+            new DeliverableField("active-short", deliverableId, "shortAnswer", "Short answer",
+                DeliverableFieldType.SHORT_TEXT, true, 0, DocumentCheckPolicy.OFF, false, true),
+            new DeliverableField("retired-short", deliverableId, "oldAnswer", "Old answer",
+                DeliverableFieldType.SHORT_TEXT, false, 1, DocumentCheckPolicy.OFF, false, true)
+        ));
+        associate("retire-owner");
+        var first = submitFor("retire-owner", Map.of("shortAnswer", "v1", "oldAnswer", "historical"));
+        DeliverableField retired = deliverableFieldRepository.findById("retired-short").orElseThrow();
+        retired.update(retired.getLabel(), retired.getHelpText(), retired.getFieldType(), false, 1,
+            DocumentCheckPolicy.OFF, false, false);
+        deliverableFieldRepository.saveAndFlush(retired);
+
+        var second = submitFor("retire-owner", Map.of("shortAnswer", "v2"));
+        assertThat(second.changed()).isTrue();
+        assertThat(second.response().getValuesJson()).contains("shortAnswer", "v2", "oldAnswer", "historical");
+
+        assertThatThrownBy(() -> service.submit(new FormResponseService.SubmitCommand(
+            workspaceId, deliverableId, "retire-owner", "retire-owner@gmail.com",
+            Map.of("shortAnswer", "v3", "oldAnswer", "client tries retired field"), second.response().getRevision())))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unknown submission field");
+
+        assertThat(first.response().getId()).isEqualTo(second.response().getId());
+    }
+
     private void configureMvpFields() {
         deliverableFieldRepository.saveAll(java.util.List.of(
             new DeliverableField("mvp-form", deliverableId, "validationInstrument", "Validation Instrument",
@@ -310,6 +407,25 @@ class FormResponseServiceTest {
                 DeliverableFieldType.DRIVE_PDF, true, 3, DocumentCheckPolicy.MANUAL, true, true),
             new DeliverableField("mvp-evidence", deliverableId, "validationEvidence", "Validation Evidence",
                 DeliverableFieldType.DRIVE_FOLDER, true, 4, DocumentCheckPolicy.OFF, false, true)
+        ));
+    }
+
+    private void configureQuestionFields() {
+        deliverableFieldRepository.saveAll(List.of(
+            new DeliverableField("academic-number", deliverableId, "studentNumberDisplay", "Student Number",
+                DeliverableFieldType.ACADEMIC_STUDENT_NUMBER, true, 0, DocumentCheckPolicy.OFF, false, true),
+            new DeliverableField("question-short", deliverableId, "shortAnswer", "Short answer",
+                DeliverableFieldType.SHORT_TEXT, true, 1, DocumentCheckPolicy.OFF, false, true),
+            new DeliverableField("question-state", deliverableId, "workflowState", "Workflow state",
+                DeliverableFieldType.DROPDOWN, true, 2, DocumentCheckPolicy.OFF, false, true),
+            new DeliverableField("question-concerns", deliverableId, "concerns", "Concerns",
+                DeliverableFieldType.CHECKBOXES, true, 3, DocumentCheckPolicy.OFF, false, true)
+        ));
+        deliverableFieldOptionRepository.saveAll(List.of(
+            new DeliverableFieldOption("state-ready", "question-state", "Ready", 0),
+            new DeliverableFieldOption("state-revise", "question-state", "Revise", 1),
+            new DeliverableFieldOption("concern-status", "question-concerns", "Status wording", 0),
+            new DeliverableFieldOption("concern-history", "question-concerns", "History", 1)
         ));
     }
 

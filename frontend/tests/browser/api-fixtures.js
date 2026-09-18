@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
 
 // Wire-format fixtures: browser journeys exercise the real clients and mappings.
-export async function installApiFixtures(page, { role = 'student', connected = false, submitted = false, program = 'IT' } = {}) {
+export async function installApiFixtures(page, { role = 'student', connected = false, submitted = false, program = 'IT', formStatus = 'PUBLISHED' } = {}) {
   const workspace = {
     id: program === 'IT' ? '11111111-1111-1111-1111-111111111111' : '22222222-2222-2222-2222-222222222222',
     publicKey: program === 'IT' ? 'it-it332-2025-26-semester-2' : 'cs-cs-capstone-2025-26-semester-2',
@@ -10,7 +10,22 @@ export async function installApiFixtures(page, { role = 'student', connected = f
   };
   const student = { id: 'student-1', studentNumber: '22-1001-001', studentName: 'DELA CRUZ, JUAN CARLOS M.', teamCode: '2526-sem2-it332-11', memberNumber: '1', sectionName: 'A', adviserName: 'Dr. Elena Mercado', institutionalEmail: '' };
   const identity = { authenticated: role !== 'anonymous', email: 'student.browser-test@gmail.com', name: 'Browser Test Student', googleSubject: 'browser-test-google-subject', roles: role === 'admin' ? ['ADMIN'] : role === 'adviser' ? ['ADVISER'] : [] };
-  const deliverable = { id: 'deliverable-srs', slug: 'week-9-srs', title: 'Software Requirements Specification', trackerColumnKey: 'SRS', dueAt: '2026-04-18T23:59:00', pdfRequired: true, status: 'PUBLISHED', instructions: 'Submit your SRS PDF Drive link.' };
+  const deliverable = {
+    id: 'deliverable-srs',
+    slug: 'week-9-srs',
+    title: 'Software Requirements Specification',
+    trackerColumnKey: 'SRS',
+    dueAt: '2026-04-18T23:59:00',
+    pdfRequired: true,
+    status: formStatus,
+    instructions: 'Submit your SRS PDF Drive link.',
+    createdAt: '2026-04-01T08:00:00',
+    updatedAt: '2026-04-01T08:00:00',
+    fields: [{
+      id: 'field-document-pdf', fieldKey: 'documentPdf', label: 'PDF Drive Link', helpText: '', fieldType: 'DRIVE_PDF',
+      required: true, displayOrder: 0, documentCheckPolicy: 'AUTO', aiReviewEnabled: true, active: true, options: []
+    }]
+  };
   const deliverables = [deliverable, { ...deliverable, id: 'deliverable-sdd', slug: 'week-10-sdd', title: 'Software Design Document', trackerColumnKey: 'SDD' }];
   const columns = [{ id: 'column-srs', columnKey: 'SRS', label: 'SRS', sourceColumn: 'SRS', sourceColumnIndex: 0, displayOrder: 0, active: true, pdfRequired: true }];
   const projects = [{ id: 'project-1', groupCode: student.teamCode, projectTitle: 'Accessible Learning Hub', softwareName: 'AccessHub', adviserName: student.adviserName }];
@@ -19,6 +34,7 @@ export async function installApiFixtures(page, { role = 'student', connected = f
   let association = connected ? { ...student, assuranceLevel: 'SELF_DECLARED' } : null;
   let response = submitted ? makeResponse({ documentPdf: 'https://drive.google.com/file/d/browser-pdf/view' }) : null;
   let draft = null;
+  let deliverableRevision = 0;
   const unexpected = [];
   const calls = [];
 
@@ -97,6 +113,37 @@ export async function installApiFixtures(page, { role = 'student', connected = f
     if (path === '/deliverables/unpublish-all' && method === 'POST') {
       deliverables.forEach((item) => { item.status = 'UNPUBLISHED'; });
       return reply(deliverables);
+    }
+    if (path === `/deliverables/${deliverable.id}` && method === 'PUT') {
+      const body = request.postDataJSON();
+      deliverableRevision += 1;
+      Object.assign(deliverable, {
+        trackerColumnKey: body.trackerColumnKey,
+        title: body.title,
+        slug: deliverable.slug,
+        instructions: body.instructions || '',
+        dueAt: body.dueAt,
+        pdfRequired: Boolean(body.pdfRequired),
+        status: body.status,
+        updatedAt: `2026-04-01T08:${String(deliverableRevision).padStart(2, '0')}:00`,
+        fields: (body.fields || []).map((field, index) => ({
+          id: field.id || `browser-${field.fieldKey}`,
+          fieldKey: field.fieldKey,
+          label: field.label,
+          helpText: field.helpText || '',
+          fieldType: field.fieldType,
+          required: field.required,
+          displayOrder: index,
+          documentCheckPolicy: field.documentCheckPolicy,
+          aiReviewEnabled: field.aiReviewEnabled,
+          active: field.active !== false,
+          options: (field.options || []).map((option, optionIndex) => ({
+            id: option.id || `browser-${field.fieldKey}-option-${optionIndex + 1}`,
+            label: option.label
+          }))
+        }))
+      });
+      return reply(deliverable);
     }
     const responses = response ? [response] : [];
     if (path === '/workspace/students/dashboard' && method === 'GET') return reply({

@@ -1,8 +1,8 @@
 import { getStaffMonitoring } from './api.js';
-import { mapDeliverables, mapTrackerColumns } from './backendDomain.js';
+import { mapDeliverables, mapStudents, mapTrackerColumns } from './backendDomain.js';
 
 export function emptyFormsState() {
-  return { deliverables: [], trackerColumns: [], attempts: [] };
+  return { deliverables: [], trackerColumns: [], students: [], attempts: [] };
 }
 
 export async function loadFormsState(workspaceId) {
@@ -11,6 +11,7 @@ export async function loadFormsState(workspaceId) {
   return {
     deliverables: mapDeliverables(payload.deliverables || []),
     trackerColumns: mapTrackerColumns(payload.trackerColumns || []),
+    students: mapStudents(payload.students || [], payload.trackerRows || []),
     attempts: (payload.responses || []).map(({ id, deliverableId }) => ({ id, deliverableId }))
   };
 }

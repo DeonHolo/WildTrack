@@ -2,7 +2,7 @@ import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { Notifications, notifications } from '@mantine/notifications';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
 import { FormsPage } from './FormsPage.jsx';
@@ -36,7 +36,7 @@ vi.mock('../app/WorkspaceSession.jsx', () => ({
 }));
 
 vi.mock('../lib/formsClient.js', () => ({
-  emptyFormsState: () => ({ trackerColumns: [], deliverables: [], attempts: [] }),
+  emptyFormsState: () => ({ trackerColumns: [], deliverables: [], students: [], attempts: [] }),
   loadFormsState: (...args) => formsClient.loadFormsState(...args)
 }));
 
@@ -93,8 +93,12 @@ function PageHarness() {
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ModalsProvider>
         <Notifications />
-        <MemoryRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
-          <FormsPage />
+        <MemoryRouter initialEntries={['/forms']} future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+          <Routes>
+            <Route path="/forms" element={<FormsPage />} />
+            <Route path="/forms/new" element={<h1>New form editor</h1>} />
+            <Route path="/forms/:formId/edit" element={<h1>Edit form editor</h1>} />
+          </Routes>
         </MemoryRouter>
       </ModalsProvider>
     </MantineProvider>
@@ -171,141 +175,18 @@ describe('forms management', () => {
     expect(screen.queryByText('Software Requirements Specification')).not.toBeInTheDocument();
   });
 
-  it('edits an existing form in a prefilled dialog and preserves its identity in the payload', async () => {
+  it('opens an existing form in the full-page editor route', async () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Edit SRS form' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Edit SRS form' });
-    const title = within(dialog).getByRole('textbox', { name: 'Form title' });
-    expect(title).toHaveValue('Software Requirements Specification');
-    fireEvent.change(title, { target: { value: 'Revised SRS Submission' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
-
-    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalledWith('workspace-it', expect.objectContaining({
-      id: 'deliverable-srs',
-      slug: 'week-9-srs',
-      title: 'Revised SRS Submission'
-    })));
+    expect(await screen.findByRole('heading', { name: 'Edit form editor' })).toBeInTheDocument();
   });
 
-  it('preserves one MVP Validation form with exactly five typed artifact fields', async () => {
-    workflow.state.deliverables[0] = {
-      ...workflow.state.deliverables[0],
-      title: 'MVP Validation',
-      shortTitle: 'MVP Validation',
-      fields: mvpValidationFields()
-    };
+  it('opens create in the full-page new form route', async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit MVP Validation form' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Edit MVP Validation form' });
-    expect(within(dialog).getAllByRole('textbox', { name: 'Field label' })).toHaveLength(5);
-    expect(within(dialog).getAllByRole('textbox', { name: 'Field type' })).toHaveLength(5);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
-
-    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalledWith('workspace-it', expect.objectContaining({
-      id: 'deliverable-srs',
-      title: 'MVP Validation',
-      fields: mvpValidationFields()
-    })));
-    const savedFields = submissionClient.saveDeliverable.mock.calls[0][1].fields;
-    expect(savedFields.map(field => field.type)).toEqual(['googleForm', 'drive', 'googleSheet', 'drive', 'driveFolder']);
-    expect(savedFields.filter(field => field.pdfRequired).map(field => field.definitionId)).toEqual(['field-framework', 'field-highlights']);
-  });
-
-  it('defaults newly added PDF fields to AI Review while preserving a saved disabled value', async () => {
-    workflow.state.deliverables[0] = {
-      ...workflow.state.deliverables[0],
-      fields: [
-        {
-          id: 'savedPdf', definitionId: 'field-saved-pdf', label: 'Saved PDF', type: 'drive', required: true,
-          pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: false, active: true
-        },
-        {
-          id: 'savedLink', definitionId: 'field-saved-link', label: 'Saved link', type: 'url', required: true,
-          pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true
-        }
-      ]
-    };
-    renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit SRS form' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Edit SRS form' });
-    const savedAiReview = within(dialog).getByRole('checkbox', { name: 'Allow AI Review' });
-    expect(savedAiReview).not.toBeChecked();
-    expect(within(dialog).queryByRole('checkbox', { name: 'Allow Admin AI Review' })).not.toBeInTheDocument();
-
-    const existingLinkCard = within(dialog).getAllByRole('textbox', { name: 'Field label' })[1].closest('.mantine-Paper-root');
-    fireEvent.click(within(existingLinkCard).getByRole('textbox', { name: 'Field type' }));
-    fireEvent.click(await screen.findByRole('option', { name: 'Google Drive PDF' }));
-    expect(within(existingLinkCard).getByRole('checkbox', { name: 'Allow AI Review' })).toBeChecked();
-
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add field' }));
-    const labels = within(dialog).getAllByRole('textbox', { name: 'Field label' });
-    const newFieldCard = labels[2].closest('.mantine-Paper-root');
-    const typeSelect = within(newFieldCard).getByRole('textbox', { name: 'Field type' });
-    fireEvent.click(typeSelect);
-    fireEvent.click(await screen.findByRole('option', { name: 'Google Drive PDF' }));
-
-    expect(within(newFieldCard).getByRole('checkbox', { name: 'Allow AI Review' })).toBeChecked();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
-
-    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalled());
-    const savedFields = submissionClient.saveDeliverable.mock.calls[0][1].fields;
-    expect(savedFields[0].aiReviewEnabled).toBe(false);
-    expect(savedFields[1]).toEqual(expect.objectContaining({
-      type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true
-    }));
-    expect(savedFields[2]).toEqual(expect.objectContaining({
-      type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true
-    }));
-  });
-
-  it('shows a rejected server mutation without replacing the authoritative form row', async () => {
-    submissionClient.saveDeliverable.mockRejectedValue(new Error('Server rejected the form update.'));
-    renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit SRS form' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Edit SRS form' });
-    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Form title' }), {
-      target: { value: 'Rejected SRS Title' }
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
-
-    expect(await screen.findByRole('alert', { name: 'Form error' })).toHaveTextContent('Server rejected the form update.');
-    expect(screen.getByText('Software Requirements Specification')).toBeInTheDocument();
-    expect(screen.queryByText('Rejected SRS Title')).not.toBeInTheDocument();
-  });
-
-  it('discards a private form failure after the signed-in account changes', async () => {
-    let fail;
-    submissionClient.saveDeliverable.mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject; }));
-    const view = renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit SRS form' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-    workspaceSession.session = { authenticated: true, email: 'other@example.com' };
-    view.rerender(<PageHarness />);
-    await act(async () => { fail(new Error('Private previous account form failure')); });
-    expect(screen.queryAllByText('Private previous account form failure')).toHaveLength(0);
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit SRS form' })).not.toBeInTheDocument());
-  });
-
-  it('creates the first unconfigured deliverable with an 11:59 PM deadline by default', async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish form' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Publish form' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Publish a form' });
-    expect(within(dialog).getByRole('textbox', { name: /Deliverable/ })).toHaveValue('Source Code');
-    expect(within(dialog).getByLabelText('Due date')).not.toHaveValue('');
-    expect(within(dialog).getByLabelText('Due time')).toHaveValue('23:59');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Publish form' }));
-
-    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalledWith('workspace-it', expect.objectContaining({
-      id: '',
-      trackerColumn: 'SourceCode',
-      dueAt: expect.stringMatching(/T23:59:00\+08:00$/)
-    })));
+    const create = await screen.findByRole('button', { name: 'New form' });
+    expect(create).toBeEnabled();
+    fireEvent.click(create);
+    expect(await screen.findByRole('heading', { name: 'New form editor' })).toBeInTheDocument();
   });
 
   it('unpublishes only the selected form after explaining that responses remain', async () => {

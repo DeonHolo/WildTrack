@@ -119,6 +119,7 @@ export function mapDeliverable(deliverable) {
     audience: 'Students',
     status: titleCase(deliverable.status || 'PUBLISHED'),
     instructions: deliverable.instructions || '',
+    updatedAt: deliverable.updatedAt || null,
     pdfRequired: fieldItems.some((field) => field.active !== false && field.pdfRequired),
     fields: fieldItems.filter((field) => field.active !== false),
     retiredFields: fieldItems.filter((field) => field.active === false)
@@ -132,25 +133,35 @@ function mapSubmissionField(field) {
     GOOGLE_SHEET: 'googleSheet',
     DRIVE_FOLDER: 'driveFolder',
     TEXTAREA: 'textarea',
+    SHORT_TEXT: 'shortText',
+    DROPDOWN: 'dropdown',
+    MULTIPLE_CHOICE: 'multipleChoice',
+    CHECKBOXES: 'checkboxes',
+    ACADEMIC_STUDENT_NUMBER: 'academicStudentNumber',
+    ACADEMIC_STUDENT_NAME: 'academicStudentName',
+    ACADEMIC_TEAM_CODE: 'academicTeamCode',
+    ACADEMIC_SECTION: 'academicSection',
     GENERAL_URL: 'url'
   })[field.fieldType] || 'url';
   return {
     definitionId: field.id || null,
     id: field.fieldKey || field.id,
     label: field.label || 'Submission field',
+    helpText: field.helpText || '',
     type,
     required: field.required !== false,
     pdfRequired: type === 'drive',
     documentCheckPolicy: type === 'drive' ? field.documentCheckPolicy || 'AUTO' : 'OFF',
     aiReviewEnabled: type === 'drive' && Boolean(field.aiReviewEnabled),
-    active: field.active !== false
+    active: field.active !== false,
+    options: (field.options || []).map((option) => ({ id: option.id, label: option.label }))
   };
 }
 
 function legacyField(pdfRequired) {
   return pdfRequired
-    ? { definitionId: null, id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', required: true, pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true, active: true }
-    : { definitionId: null, id: 'primaryLink', label: 'Submission Link', type: 'url', required: true, pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true };
+    ? { definitionId: null, id: 'documentPdf', label: 'PDF Drive Link', helpText: '', type: 'drive', required: true, pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true, active: true, options: [] }
+    : { definitionId: null, id: 'primaryLink', label: 'Submission Link', helpText: '', type: 'url', required: true, pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false, active: true, options: [] };
 }
 
 function titleCase(value) {

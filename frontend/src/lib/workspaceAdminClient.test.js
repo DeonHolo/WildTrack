@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const api = vi.hoisted(() => ({
   getStaffMonitoring: vi.fn()
 }));
+const submission = vi.hoisted(() => ({ saveDeliverable: vi.fn() }));
 
 vi.mock('./api.js', () => ({
   createTrackerColumn: vi.fn(),
@@ -14,10 +15,10 @@ vi.mock('./api.js', () => ({
 }));
 
 vi.mock('./submissionClient.js', () => ({
-  saveDeliverable: vi.fn()
+  saveDeliverable: submission.saveDeliverable
 }));
 
-import { loadWorkspaceArchiveReadiness } from './workspaceAdminClient.js';
+import { loadWorkspaceArchiveReadiness, publishSuggestedForms } from './workspaceAdminClient.js';
 
 describe('workspace archive readiness', () => {
   beforeEach(() => api.getStaffMonitoring.mockReset());
@@ -72,5 +73,72 @@ describe('workspace archive readiness', () => {
       publishedFormCount: 0,
       ready: true
     });
+  });
+});
+
+describe('workspace form suggestions', () => {
+  beforeEach(() => submission.saveDeliverable.mockReset().mockImplementation(async (_workspaceId, payload) => payload));
+
+  it('updates source deadline suggestions without replacing customized fields or publication state', async () => {
+    const existing = {
+      id: 'form-srs',
+      slug: 'stable-srs',
+      title: 'Customized SRS title',
+      trackerColumn: 'SRS',
+      dueAt: '2026-09-20T23:59:00+08:00',
+      status: 'Published',
+      updatedAt: '2026-09-19T01:00:00',
+      instructions: 'Custom instructions',
+      fields: [
+        { id: 'summary', definitionId: 'field-summary', label: 'My custom question', type: 'shortText', active: true },
+        {
+          id: 'savedPdf', definitionId: 'field-pdf', label: 'Saved PDF', type: 'drive', active: true,
+          required: true, pdfRequired: true, documentCheckPolicy: 'OFF', aiReviewEnabled: false
+        }
+      ],
+      retiredFields: [{ id: 'old', definitionId: 'field-old', label: 'Old question', type: 'shortText', active: false }]
+    };
+    const state = {
+      trackerColumns: [{ key: 'SRS', label: 'SRS' }],
+      deliverables: [existing]
+    };
+
+    await publishSuggestedForms('workspace-it', state, [{
+      trackerColumn: 'SRS', title: 'Generated SRS', dueAt: '2026-09-30T23:59', pdfRequired: true
+    }]);
+
+    expect(submission.saveDeliverable).toHaveBeenCalledWith('workspace-it', expect.objectContaining({
+      id: 'form-srs',
+      slug: 'stable-srs',
+      title: 'Customized SRS title',
+      dueAt: '2026-09-20T23:59:00+08:00',
+      status: 'Published',
+      instructions: 'Custom instructions',
+      expectedUpdatedAt: '2026-09-19T01:00:00',
+      fields: [existing.fields[0], existing.fields[1], existing.retiredFields[0]]
+    }));
+  });
+
+  it('uses standard PDF checking and AI Review defaults only for a new suggested PDF form', async () => {
+    const state = {
+      trackerColumns: [{ key: 'SRS', label: 'SRS' }],
+      deliverables: []
+    };
+
+    await publishSuggestedForms('workspace-it', state, [{
+      trackerColumn: 'SRS', title: 'Generated SRS', dueAt: '2026-09-30T23:59', pdfRequired: true
+    }]);
+
+    expect(submission.saveDeliverable).toHaveBeenCalledWith('workspace-it', expect.objectContaining({
+      status: 'Unpublished',
+      fields: [expect.objectContaining({
+        id: 'documentPdf',
+        type: 'drive',
+        required: true,
+        pdfRequired: true,
+        documentCheckPolicy: 'AUTO',
+        aiReviewEnabled: true
+      })]
+    }));
   });
 });

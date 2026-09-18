@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  activeSubmissionValues,
   dedupeDeliverables,
   findOwnedResponse,
   getResponseOwnerKey,
   hasResponseConflict,
   mergeDeliverables,
   sortDeliverables,
-  upsertDeliverable
+  upsertDeliverable,
+  validateSubmission,
+  validateSubmissionIdentity
 } from './workflow.js';
 import { importPublicSheetSource } from './devPublicSheetImport.js';
 
@@ -102,6 +105,78 @@ describe('published form identity', () => {
       id: 'deliverable-srs',
       slug: 'week-9-srs',
       title: 'Updated SRS'
+    });
+  });
+});
+
+describe('configurable form response validation', () => {
+  const deliverable = {
+    fields: [
+      { id: 'identity', label: 'Student Number', type: 'academicStudentNumber', required: true, active: true },
+      { id: 'summary', label: 'Summary', type: 'shortText', required: true, active: true },
+      { id: 'scope', label: 'Scope', type: 'dropdown', required: true, active: true, options: [{ id: 'campus' }, { id: 'community' }] },
+      { id: 'evidence', label: 'Evidence', type: 'checkboxes', required: true, active: true, options: [{ id: 'shot' }, { id: 'sheet' }] },
+      { id: 'retired', label: 'Old question', type: 'shortText', required: false, active: false }
+    ]
+  };
+
+  it('accepts valid text and choice values while academic presentation stays outside response values', () => {
+    expect(validateSubmission({ deliverable, values: {
+      summary: 'Ready', scope: 'campus', evidence: ['shot', 'sheet']
+    } })).toMatchObject({ ok: true, errors: {} });
+  });
+
+  it('rejects unknown single-choice IDs and malformed checkbox arrays', () => {
+    expect(validateSubmission({ deliverable, values: {
+      summary: 'Ready', scope: 'not-an-option', evidence: ['shot', 'shot']
+    } })).toMatchObject({
+      ok: false,
+      errors: { scope: expect.any(String), evidence: expect.any(String) }
+    });
+  });
+
+  it('filters retired, academic, and unknown keys from outgoing response values', () => {
+    expect(activeSubmissionValues(deliverable, {
+      identity: '22-1001', summary: 'Ready', scope: 'campus', evidence: ['shot'], retired: 'old', injected: 'bad'
+    })).toEqual({ summary: 'Ready', scope: 'campus', evidence: ['shot'] });
+  });
+
+  it('requires Student Number but does not invent requirements for absent or optional academic presentation fields', () => {
+    const identityDeliverable = {
+      fields: [
+        { id: 'number', type: 'academicStudentNumber', required: false, active: true },
+        { id: 'section', type: 'academicSection', required: false, active: true }
+      ]
+    };
+    expect(validateSubmissionIdentity({
+      deliverable: identityDeliverable,
+      identity: { studentNumber: '', studentName: '', teamCode: '' },
+      student: null
+    })).toEqual({ studentNumber: 'Choose a Student Number.' });
+    expect(validateSubmissionIdentity({
+      deliverable: identityDeliverable,
+      identity: { studentNumber: '22-1001', studentName: '', teamCode: '' },
+      student: { studentNumber: '22-1001', name: '', teamCode: '', section: '' }
+    })).toEqual({});
+  });
+
+  it('checks required academic presentation fields against the matched roster record', () => {
+    const identityDeliverable = {
+      fields: [
+        { id: 'number', type: 'academicStudentNumber', required: true, active: true },
+        { id: 'name', type: 'academicStudentName', required: true, active: true },
+        { id: 'team', type: 'academicTeamCode', required: true, active: true },
+        { id: 'section', type: 'academicSection', required: true, active: true },
+        { id: 'retired-section', type: 'academicSection', required: true, active: false }
+      ]
+    };
+    expect(validateSubmissionIdentity({
+      deliverable: identityDeliverable,
+      identity: { studentNumber: '22-1001', studentName: 'stale name', teamCode: 'stale team' },
+      student: { studentNumber: '22-1001', name: 'Official Name', teamCode: '', section: '' }
+    })).toEqual({
+      teamCode: 'Team Code is required for this form.',
+      section: 'Section is required for this form.'
     });
   });
 });

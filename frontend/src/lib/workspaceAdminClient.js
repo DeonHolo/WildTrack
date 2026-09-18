@@ -17,6 +17,7 @@ import {
   mapResponse,
   mapTrackerColumns
 } from './backendDomain.js';
+import { defaultSubmissionField } from './forms.js';
 import { saveDeliverable } from './submissionClient.js';
 
 export function emptyWorkspaceAdmin() {
@@ -130,15 +131,17 @@ export async function publishSuggestedForms(workspaceId, state, suggestions) {
     saved.push(await saveDeliverable(workspaceId, {
       id: existing?.id || '',
       slug: existing?.slug || slugify(suggestion.title || `${shortTitle} Submission`),
-      title: suggestion.title || `${shortTitle} Submission`,
+      title: existing?.title || suggestion.title || `${shortTitle} Submission`,
       shortTitle,
-      dueAt: normalizeDueAt(suggestion.dueAt),
+      dueAt: existing?.dueAt || normalizeDueAt(suggestion.dueAt),
       trackerColumn: suggestion.trackerColumn,
-      status: 'Published',
-      instructions: suggestion.pdfRequired ? `Submit your ${shortTitle} as a PDF Drive file.` : `Submit the required link for ${shortTitle}.`,
-      fields: suggestion.pdfRequired
-        ? [{ id: 'documentPdf', label: 'PDF Drive Link', type: 'drive', required: true, pdfRequired: true }]
-        : [{ id: 'primaryLink', label: 'Submission Link', type: 'url', required: true, pdfRequired: false }]
+      status: existing?.status || 'Unpublished',
+      updatedAt: existing?.updatedAt || null,
+      expectedUpdatedAt: existing?.updatedAt || null,
+      instructions: existing?.instructions || (suggestion.pdfRequired ? `Submit your ${shortTitle} as a PDF Drive file.` : `Submit the required link for ${shortTitle}.`),
+      fields: existing?.fields?.length
+        ? [...existing.fields, ...(existing.retiredFields || [])]
+        : [defaultSubmissionField(Boolean(suggestion.pdfRequired))]
     }));
   }
   return saved;

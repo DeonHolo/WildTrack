@@ -17,6 +17,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.capvault.backend.deliverable.Deliverable;
 import com.capvault.backend.deliverable.DeliverableField;
+import com.capvault.backend.deliverable.DeliverableFieldOption;
+import com.capvault.backend.deliverable.DeliverableFieldOptionRepository;
 import com.capvault.backend.deliverable.DeliverableFieldRepository;
 import com.capvault.backend.deliverable.DeliverableFieldType;
 import com.capvault.backend.deliverable.DocumentCheckPolicy;
@@ -26,6 +28,8 @@ import com.capvault.backend.drive.DriveLinkParser;
 import com.capvault.backend.filecheck.FileCheckRequest;
 import com.capvault.backend.filecheck.FileCheckService;
 import com.capvault.backend.student.StudentAssociationService;
+import com.capvault.backend.student.StudentRecord;
+import com.capvault.backend.student.StudentRecordRepository;
 
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -39,8 +43,10 @@ public class FormResponseService {
     private final FormResponseRepository responseRepository;
     private final FormResponseVersionRepository versionRepository;
     private final StudentAssociationService associationService;
+    private final StudentRecordRepository studentRecordRepository;
     private final DeliverableRepository deliverableRepository;
     private final DeliverableFieldRepository fieldRepository;
+    private final DeliverableFieldOptionRepository optionRepository;
     private final FileCheckService fileCheckService;
     private final Clock clock;
     private final DomainEventRecorder events;
@@ -50,8 +56,10 @@ public class FormResponseService {
         FormResponseRepository responseRepository,
         FormResponseVersionRepository versionRepository,
         StudentAssociationService associationService,
+        StudentRecordRepository studentRecordRepository,
         DeliverableRepository deliverableRepository,
         DeliverableFieldRepository fieldRepository,
+        DeliverableFieldOptionRepository optionRepository,
         FileCheckService fileCheckService,
         Clock clock,
         DomainEventRecorder events
@@ -59,8 +67,10 @@ public class FormResponseService {
         this.responseRepository = responseRepository;
         this.versionRepository = versionRepository;
         this.associationService = associationService;
+        this.studentRecordRepository = studentRecordRepository;
         this.deliverableRepository = deliverableRepository;
         this.fieldRepository = fieldRepository;
+        this.optionRepository = optionRepository;
         this.fileCheckService = fileCheckService;
         this.clock = clock;
         this.events = events;
@@ -94,12 +104,28 @@ public class FormResponseService {
         if (deliverable.getStatus() != DeliverableStatus.PUBLISHED) {
             throw new IllegalStateException("This form is no longer accepting responses.");
         }
-        List<DeliverableField> persistedFields = fieldRepository
-            .findAllByDeliverableIdAndActiveTrueOrderByDisplayOrderAscLabelAsc(deliverable.getId());
-        List<DeliverableField> submissionFields = persistedFields.isEmpty()
+        List<DeliverableField> allPersistedFields = fieldRepository
+            .findAllByDeliverableIdOrderByDisplayOrderAscLabelAsc(deliverable.getId());
+        List<DeliverableField> persistedFields = allPersistedFields.stream()
+            .filter(DeliverableField::isActive)
+            .toList();
+        List<DeliverableField> submissionFields = allPersistedFields.isEmpty()
             ? List.of(legacyField(deliverable))
             : persistedFields;
-        if (!persistedFields.isEmpty()) validateSubmissionFields(persistedFields, command.values());
+        Map<String, Object> submittedValues = command.values() == null ? Map.of() : command.values();
+        StudentAssociationService.AssociationView activeAssociation = null;
+        if (!allPersistedFields.isEmpty()) {
+            validateSubmissionFields(persistedFields, submittedValues);
+            if (persistedFields.stream().anyMatch(field -> field.getFieldType().isAcademicIdentity())) {
+                activeAssociation = associationService
+                    .activeAssociation(command.workspaceId(), command.googleSubject())
+                    .orElseThrow(() -> new IllegalStateException("Connect your Student Record before submitting."));
+                StudentRecord record = studentRecordRepository.findById(activeAssociation.studentRecordId())
+                    .filter(item -> command.workspaceId().equals(item.getWorkspaceId()) && item.isCurrentActive())
+                    .orElseThrow(() -> new IllegalStateException("The connected Student Record is no longer available in this workspace."));
+                validateAcademicFieldRequirements(persistedFields, record);
+            }
+        }
         Instant now = clock.instant();
         Optional<FormResponse> existing = responseRepository
             .findByWorkspaceIdAndDeliverableIdAndGoogleSubject(command.workspaceId(), command.deliverableId(), command.googleSubject());
@@ -111,8 +137,9 @@ public class FormResponseService {
             }
             String currentJson = response.getValuesJson();
             Map<String, Object> currentValues = fromJson(currentJson);
-            String nextJson = toJson(command.values());
-            if (currentValues.equals(command.values())) {
+            Map<String, Object> nextValues = preserveRetiredValues(currentValues, submittedValues, persistedFields);
+            String nextJson = toJson(nextValues);
+            if (currentValues.equals(nextValues)) {
                 return new SaveResult(false, response, response.getRevision()); // identical resave: untouched
             }
             archiveVersion(response);
@@ -125,15 +152,16 @@ public class FormResponseService {
                 throw new ConcurrentModificationException();
             }
             events.responseSaved(response);
-            triggerAsyncDocumentChecks(command.workspaceId(), deliverable, submissionFields, response, command.values(), currentValues);
+            triggerAsyncDocumentChecks(command.workspaceId(), deliverable, submissionFields, response, nextValues, currentValues);
             return new SaveResult(true, response, response.getRevision());
         }
 
         // First submission: require an active association (ticket 03) and snapshot the roster record.
         if (command.revision() != null) throw new ConcurrentModificationException();
-        StudentAssociationService.AssociationView association = associationService
-            .activeAssociation(command.workspaceId(), command.googleSubject())
-            .orElseThrow(() -> new IllegalStateException("Connect your Student Record before submitting."));
+        StudentAssociationService.AssociationView association = activeAssociation != null
+            ? activeAssociation
+            : associationService.activeAssociation(command.workspaceId(), command.googleSubject())
+                .orElseThrow(() -> new IllegalStateException("Connect your Student Record before submitting."));
         FormResponse created = new FormResponse(
             UUID.randomUUID(),
             command.workspaceId(),
@@ -144,13 +172,13 @@ public class FormResponseService {
             association.studentNumber(),
             association.studentName(),
             association.teamCode(),
-            toJson(command.values()),
+            toJson(submittedValues),
             now,
             now
         );
         created = responseRepository.saveAndFlush(created);
         events.responseSaved(created);
-        triggerAsyncDocumentChecks(command.workspaceId(), deliverable, submissionFields, created, command.values(), Map.of());
+        triggerAsyncDocumentChecks(command.workspaceId(), deliverable, submissionFields, created, submittedValues, Map.of());
         return new SaveResult(true, created, created.getRevision());
     }
 
@@ -198,12 +226,57 @@ public class FormResponseService {
 
     private void validateSubmissionFields(List<DeliverableField> fields, Map<String, Object> values) {
         Map<String, Object> safeValues = values == null ? Map.of() : values;
+        Map<String, DeliverableField> fieldsByKey = fields.stream()
+            .collect(Collectors.toMap(DeliverableField::getFieldKey, field -> field));
+        for (String submittedKey : safeValues.keySet()) {
+            DeliverableField submittedField = fieldsByKey.get(submittedKey);
+            if (submittedField == null) {
+                throw new IllegalArgumentException("Unknown submission field: " + submittedKey);
+            }
+            if (submittedField.getFieldType().isAcademicIdentity()) {
+                throw new IllegalArgumentException(
+                    submittedField.getLabel() + " comes from the connected Student Record and cannot be submitted as a response value.");
+            }
+        }
+
+        Set<String> optionFieldIds = fields.stream()
+            .filter(field -> field.getFieldType().isChoice())
+            .map(DeliverableField::getId)
+            .collect(Collectors.toSet());
+        Map<String, Set<String>> allowedOptions = optionFieldIds.isEmpty() ? Map.of()
+            : optionRepository.findAllByFieldIdInOrderByFieldIdAscDisplayOrderAscLabelAsc(optionFieldIds).stream()
+                .collect(Collectors.groupingBy(
+                    DeliverableFieldOption::getFieldId,
+                    Collectors.mapping(DeliverableFieldOption::getId, Collectors.toSet())));
+
         for (DeliverableField field : fields) {
-            String value = stringValue(safeValues.get(field.getFieldKey()));
-            if (field.isRequired() && value.isBlank()) {
+            if (field.getFieldType().isAcademicIdentity()) continue;
+            Object rawValue = safeValues.get(field.getFieldKey());
+            boolean missing = isMissingValue(field, rawValue);
+            if (field.isRequired() && missing) {
                 throw new IllegalArgumentException(field.getLabel() + " is required.");
             }
-            if (value.isBlank() || field.getFieldType() == DeliverableFieldType.TEXTAREA) continue;
+            if (missing) continue;
+
+            if (field.getFieldType() == DeliverableFieldType.TEXTAREA
+                    || field.getFieldType() == DeliverableFieldType.SHORT_TEXT) {
+                requireString(field, rawValue);
+                continue;
+            }
+            if (field.getFieldType() == DeliverableFieldType.DROPDOWN
+                    || field.getFieldType() == DeliverableFieldType.MULTIPLE_CHOICE) {
+                String optionId = requireString(field, rawValue).trim();
+                if (!allowedOptions.getOrDefault(field.getId(), Set.of()).contains(optionId)) {
+                    throw new IllegalArgumentException(field.getLabel() + " contains an unknown choice option.");
+                }
+                continue;
+            }
+            if (field.getFieldType() == DeliverableFieldType.CHECKBOXES) {
+                validateCheckboxes(field, rawValue, allowedOptions.getOrDefault(field.getId(), Set.of()));
+                continue;
+            }
+
+            String value = requireString(field, rawValue).trim();
             java.net.URI uri;
             try {
                 uri = java.net.URI.create(value);
@@ -237,6 +310,72 @@ public class FormResponseService {
                 default -> { }
             }
         }
+    }
+
+    private static void validateAcademicFieldRequirements(List<DeliverableField> fields, StudentRecord record) {
+        for (DeliverableField field : fields) {
+            if (!field.isRequired() || !field.getFieldType().isAcademicIdentity()) continue;
+            String value = switch (field.getFieldType()) {
+                case ACADEMIC_STUDENT_NUMBER -> record.getStudentNumber();
+                case ACADEMIC_STUDENT_NAME -> record.getStudentName();
+                case ACADEMIC_TEAM_CODE -> record.getTeamCode();
+                case ACADEMIC_SECTION -> record.getSectionName();
+                default -> null;
+            };
+            if (value == null || value.isBlank()) {
+                throw new IllegalArgumentException(
+                    field.getLabel() + " is required, but the connected Student Record has no value for it.");
+            }
+        }
+    }
+
+    private static boolean isMissingValue(DeliverableField field, Object value) {
+        if (value == null) return true;
+        if (field.getFieldType() == DeliverableFieldType.CHECKBOXES) {
+            return value instanceof List<?> list && list.isEmpty();
+        }
+        return value instanceof String text && text.trim().isEmpty();
+    }
+
+    private static String requireString(DeliverableField field, Object value) {
+        if (!(value instanceof String text)) {
+            throw new IllegalArgumentException(field.getLabel() + " must be a text value.");
+        }
+        return text;
+    }
+
+    private static void validateCheckboxes(DeliverableField field, Object value, Set<String> allowedOptions) {
+        if (!(value instanceof List<?> values)) {
+            throw new IllegalArgumentException(field.getLabel() + " must be a list of choice option IDs.");
+        }
+        Set<String> selected = new java.util.LinkedHashSet<>();
+        for (Object item : values) {
+            if (!(item instanceof String optionId) || optionId.isBlank()) {
+                throw new IllegalArgumentException(field.getLabel() + " must contain only choice option IDs.");
+            }
+            String normalized = optionId.trim();
+            if (!selected.add(normalized)) {
+                throw new IllegalArgumentException(field.getLabel() + " cannot contain the same choice more than once.");
+            }
+            if (!allowedOptions.contains(normalized)) {
+                throw new IllegalArgumentException(field.getLabel() + " contains an unknown choice option.");
+            }
+        }
+    }
+
+    private static Map<String, Object> preserveRetiredValues(
+        Map<String, Object> currentValues,
+        Map<String, Object> submittedValues,
+        List<DeliverableField> activeFields
+    ) {
+        Set<String> activeKeys = activeFields.stream()
+            .map(DeliverableField::getFieldKey)
+            .collect(Collectors.toSet());
+        Map<String, Object> merged = new java.util.LinkedHashMap<>(submittedValues);
+        currentValues.forEach((key, value) -> {
+            if (!activeKeys.contains(key)) merged.putIfAbsent(key, value);
+        });
+        return merged;
     }
 
     private DeliverableField legacyField(Deliverable deliverable) {

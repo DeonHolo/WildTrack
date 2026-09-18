@@ -31,6 +31,9 @@ public class DeliverableField {
     @Column(nullable = false, length = 240)
     private String label;
 
+    @Column(name = "help_text", length = 1000)
+    private String helpText;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "field_type", nullable = false, length = 40)
     private DeliverableFieldType fieldType;
@@ -63,10 +66,18 @@ public class DeliverableField {
     public DeliverableField(String id, UUID deliverableId, String fieldKey, String label,
             DeliverableFieldType fieldType, boolean required, int displayOrder,
             DocumentCheckPolicy documentCheckPolicy, boolean aiReviewEnabled, boolean active) {
+        this(id, deliverableId, fieldKey, label, null, fieldType, required, displayOrder,
+            documentCheckPolicy, aiReviewEnabled, active);
+    }
+
+    public DeliverableField(String id, UUID deliverableId, String fieldKey, String label, String helpText,
+            DeliverableFieldType fieldType, boolean required, int displayOrder,
+            DocumentCheckPolicy documentCheckPolicy, boolean aiReviewEnabled, boolean active) {
         this.id = id;
         this.deliverableId = deliverableId;
         this.fieldKey = fieldKey;
         this.label = label;
+        this.helpText = helpText;
         this.fieldType = fieldType;
         this.required = required;
         this.displayOrder = displayOrder;
@@ -90,7 +101,13 @@ public class DeliverableField {
 
     public void update(String label, DeliverableFieldType fieldType, boolean required, int displayOrder,
             DocumentCheckPolicy documentCheckPolicy, boolean aiReviewEnabled, boolean active) {
+        update(label, helpText, fieldType, required, displayOrder, documentCheckPolicy, aiReviewEnabled, active);
+    }
+
+    public void update(String label, String helpText, DeliverableFieldType fieldType, boolean required, int displayOrder,
+            DocumentCheckPolicy documentCheckPolicy, boolean aiReviewEnabled, boolean active) {
         this.label = label;
+        this.helpText = helpText;
         this.fieldType = fieldType;
         this.required = required;
         this.displayOrder = displayOrder;
@@ -103,6 +120,7 @@ public class DeliverableField {
     public UUID getDeliverableId() { return deliverableId; }
     public String getFieldKey() { return fieldKey; }
     public String getLabel() { return label; }
+    public String getHelpText() { return helpText; }
     public DeliverableFieldType getFieldType() { return fieldType; }
     public boolean isRequired() { return required; }
     public int getDisplayOrder() { return displayOrder; }

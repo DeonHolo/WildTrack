@@ -3,6 +3,8 @@ package com.capvault.backend.deliverable;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.capvault.backend.workspace.AcademicWorkspace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
@@ -60,7 +62,9 @@ class DeliverableControllerTest {
             .getResponse()
             .getContentAsString();
 
-        String id = new com.fasterxml.jackson.databind.ObjectMapper().readTree(createdJson).path("id").asText();
+        JsonNode created = new ObjectMapper().readTree(createdJson);
+        String id = created.path("id").asText();
+        String updatedAt = created.path("updatedAt").asText();
 
         mockMvc.perform(put("/api/deliverables/" + id).with(adminSession())
                 .contentType(MediaType.APPLICATION_JSON)
@@ -68,21 +72,95 @@ class DeliverableControllerTest {
                     {
                       "trackerColumnKey": "SRS",
                       "title": "Updated SRS Submission",
-                      "slug": "updated-srs-submission",
+                      "slug": "week-9-srs",
                       "instructions": "Submit the final PDF Drive link.",
                       "dueAt": "2026-04-19T23:59:00",
                       "pdfRequired": true,
-                      "status": "UNPUBLISHED"
+                      "status": "UNPUBLISHED",
+                      "expectedUpdatedAt": "%s"
                     }
-                    """))
+                    """.formatted(updatedAt)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.title").value("Updated SRS Submission"))
-            .andExpect(jsonPath("$.status").value("UNPUBLISHED"));
+            .andExpect(jsonPath("$.status").value("UNPUBLISHED"))
+            .andExpect(jsonPath("$.slug").value("week-9-srs"))
+            .andExpect(jsonPath("$.updatedAt").isNotEmpty());
 
         mockMvc.perform(get("/api/deliverables").with(session()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
-            .andExpect(jsonPath("$[0].slug").value("updated-srs-submission"));
+            .andExpect(jsonPath("$[0].slug").value("week-9-srs"));
+    }
+
+    @Test
+    void updateRejectsSlugChangesAndStaleExpectedTimestamp() throws Exception {
+        repository.deleteAll();
+        String createdJson = mockMvc.perform(post("/api/deliverables").with(adminSession())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "trackerColumnKey": "SRS",
+                      "title": "SRS Submission",
+                      "slug": "stable-srs",
+                      "instructions": "Submit SRS.",
+                      "dueAt": "2026-04-18T23:59:00",
+                      "pdfRequired": false,
+                      "status": "PUBLISHED"
+                    }
+                    """))
+            .andExpect(status().isCreated())
+            .andReturn().getResponse().getContentAsString();
+        JsonNode created = new ObjectMapper().readTree(createdJson);
+        String id = created.path("id").asText();
+        String initialUpdatedAt = created.path("updatedAt").asText();
+
+        mockMvc.perform(put("/api/deliverables/" + id).with(adminSession())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "trackerColumnKey": "SRS",
+                      "title": "SRS Submission",
+                      "slug": "changed-srs",
+                      "instructions": "Submit SRS.",
+                      "dueAt": "2026-04-18T23:59:00",
+                      "pdfRequired": false,
+                      "status": "PUBLISHED",
+                      "expectedUpdatedAt": "%s"
+                    }
+                    """.formatted(initialUpdatedAt)))
+            .andExpect(status().isBadRequest());
+
+        mockMvc.perform(put("/api/deliverables/" + id).with(adminSession())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "trackerColumnKey": "SRS",
+                      "title": "SRS v2",
+                      "slug": "stable-srs",
+                      "instructions": "Submit SRS.",
+                      "dueAt": "2026-04-18T23:59:00",
+                      "pdfRequired": false,
+                      "status": "PUBLISHED",
+                      "expectedUpdatedAt": "%s"
+                    }
+                    """.formatted(initialUpdatedAt)))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/deliverables/" + id).with(adminSession())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "trackerColumnKey": "SRS",
+                      "title": "stale edit",
+                      "slug": "stable-srs",
+                      "instructions": "Submit SRS.",
+                      "dueAt": "2026-04-18T23:59:00",
+                      "pdfRequired": false,
+                      "status": "PUBLISHED",
+                      "expectedUpdatedAt": "%s"
+                    }
+                    """.formatted(initialUpdatedAt)))
+            .andExpect(status().isConflict());
     }
 
     @Test
@@ -99,6 +177,63 @@ class DeliverableControllerTest {
             .andExpect(jsonPath("$.fieldErrors.trackerColumnKey").value("Tracker column is required"))
             .andExpect(jsonPath("$.fieldErrors.title").value("Title is required"))
             .andExpect(jsonPath("$.fieldErrors.dueAt").value("Due date is required"));
+    }
+
+    @Test
+    void createExposesConfigurableQuestionMetadataAndStableOptionIds() throws Exception {
+        repository.deleteAll();
+
+        mockMvc.perform(post("/api/deliverables").with(adminSession())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "trackerColumnKey": "MVP",
+                      "title": "MVP Feedback",
+                      "slug": "mvp-feedback",
+                      "instructions": "Answer the form.",
+                      "dueAt": "2026-04-18T23:59:00",
+                      "pdfRequired": false,
+                      "status": "PUBLISHED",
+                      "fields": [
+                        {
+                          "fieldKey": "studentNumber",
+                          "label": "Student Number",
+                          "helpText": "From your connected Student Record.",
+                          "fieldType": "ACADEMIC_STUDENT_NUMBER",
+                          "required": true,
+                          "displayOrder": 0,
+                          "documentCheckPolicy": "OFF",
+                          "aiReviewEnabled": false,
+                          "active": true,
+                          "options": []
+                        },
+                        {
+                          "fieldKey": "workflowState",
+                          "label": "Workflow state",
+                          "helpText": "Choose one.",
+                          "fieldType": "DROPDOWN",
+                          "required": true,
+                          "displayOrder": 1,
+                          "documentCheckPolicy": "OFF",
+                          "aiReviewEnabled": false,
+                          "active": true,
+                          "options": [
+                            {"id": "draft-ready", "label": "Ready"},
+                            {"label": "Needs revision"}
+                          ]
+                        }
+                      ]
+                    }
+                    """))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.updatedAt").isNotEmpty())
+            .andExpect(jsonPath("$.fields[0].fieldType").value("ACADEMIC_STUDENT_NUMBER"))
+            .andExpect(jsonPath("$.fields[0].helpText").value("From your connected Student Record."))
+            .andExpect(jsonPath("$.fields[1].fieldType").value("DROPDOWN"))
+            .andExpect(jsonPath("$.fields[1].options", hasSize(2)))
+            .andExpect(jsonPath("$.fields[1].options[0].label").value("Ready"))
+            .andExpect(jsonPath("$.fields[1].options[0].id").isNotEmpty())
+            .andExpect(jsonPath("$.fields[1].options[0].id").value(org.hamcrest.Matchers.not("draft-ready")));
     }
 
     @Test
