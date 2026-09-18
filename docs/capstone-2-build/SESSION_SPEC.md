@@ -14,7 +14,7 @@ Deliver the research instrument before app work, then implement bounded end-to-e
 
 1. As the researcher, I get three measurable SMART objectives and a justified evaluation mapping first.
 2. As the researcher, I can copy complete questionnaire wording into Google Forms without inventing missing options or routing.
-3. As a student respondent, I receive relevant questions and five clear status/next-action scenarios.
+3. As a participating student, I complete a short controlled WildTrack submission/revision task whose correctness is verified from system evidence, then answer only relevant current-workflow feedback questions.
 4. As an adviser/Admin respondent, I evaluate my own workflow rather than answer student-only questions.
 5. As a respondent, I can decline participation and avoid questions about features I have not used.
 6. As the researcher, I have scoring rules, denominators, a codebook and a small pilot checklist before collection.
@@ -39,8 +39,9 @@ Deliver the research instrument before app work, then implement bounded end-to-e
 
 ## Implementation Decisions
 
-- Research package is Ticket 01, runnable against the current MVP and self-contained fictional scenarios. It is not blocked on future editor/code changes.
-- Selected third goal is status interpretation, with 90% of student participants scoring at least 4/5. Sir's earlier usability concern stays explicit; do not claim endorsement.
+- Research package is Ticket 01 and is runnable against the current MVP. Objective 3 uses a dedicated validation workspace plus a frozen controlled student task; it is not a fictional scenario quiz.
+- Selected third goal is student submission transaction correctness. The current proposed working target is at least 95% correct scored transaction tasks across the frozen initial-submission and material-revision protocol; freeze the number before collection and do not claim adviser endorsement.
+- Student questionnaire ratings are supporting MVP feedback only. Do not use them to score Objective 3, and do not require respondent-facing research codes or a self-created participant code.
 - Ticket 01 proposes and documents concrete targets/case counts for Document Check and AI Review before final evaluation; do not present arbitrary targets as published standards. Freeze scoring before collection.
 - Use a goal-led evaluation mapping; research appropriate primary sources rather than treating SUS as one of the three goals. Opinion questions support findings; they do not prove accuracy.
 - Academic data views use normalized backend entities, stable identities, scoped authorization, cell validation, transactional bulk save and stale-version handling. Import preview is read-only until confirmed.
@@ -70,4 +71,3 @@ Automatic live Sheets writeback/polling; paid Gemini upgrades; fabricated study 
 ## Further Notes
 
 Ticket 11 can prepare framework/evidence/traceability artifacts immediately after 01, but real Highlights analysis remains pending actual data. Ticket 09 can finish feasibility/preparation while live OAuth verification remains blocked. Ticket 12 reports local completion and unresolved external acceptance separately. Do not mark the whole project complete merely because local code builds.
-

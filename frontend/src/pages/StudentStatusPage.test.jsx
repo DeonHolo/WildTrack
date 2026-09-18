@@ -97,8 +97,22 @@ function createState() {
           status: 'Current',
           sourceResponseUpdatedAt: '2026-04-18T20:30:00+08:00',
           summary: 'The PDF is readable and accessible.',
-          metadata: { mimeType: 'application/pdf', canDownload: true },
-          document: { readable: true, pageCount: 24 }
+          checkedAt: '2026-04-18T20:35:00+08:00',
+          metadata: {
+            name: 'SRS.pdf',
+            mimeType: 'application/pdf',
+            canDownload: true,
+            size: 327680,
+            modifiedTime: '2026-04-18T20:20:00+08:00'
+          },
+          document: { readable: true, pageCount: 24, extractedCharacterCount: 6787 },
+          templateComparison: {
+            available: true,
+            templateCoverage: 0.92,
+            addedContentRatio: 0.64,
+            unchangedInstructionCount: 2
+          },
+          missingSections: ['Risk management']
         },
         feedback: [{ author: 'Sir Roberto Villanueva', note: LONG_FEEDBACK }],
         aiReport: { summary: 'STAFF ONLY AI ANALYSIS' }
@@ -455,7 +469,7 @@ describe('student dashboard', () => {
     });
   });
 
-  it('shows every submitted artifact for a multi-artifact deliverable with independent PDF check state', () => {
+  it('shows every submitted artifact for a multi-artifact deliverable with independent PDF check state', async () => {
     workflow.state = createMultiArtifactState();
     associateAccount();
     renderDashboard();
@@ -471,6 +485,11 @@ describe('student dashboard', () => {
     expect(framework).toHaveTextContent('Google Drive PDF');
     expect(framework).toHaveTextContent('Ready for review');
     expect(framework).toHaveTextContent('Framework PDF is readable and accessible.');
+    expect(within(framework).getByRole('button', { name: 'View Document Check' })).toBeInTheDocument();
+    fireEvent.click(within(framework).getByRole('button', { name: 'View Document Check' }));
+    const checkDialog = await screen.findByRole('dialog', { name: /Document Check/i });
+    expect(checkDialog).toHaveTextContent('Framework PDF is readable and accessible.');
+    expect(within(checkDialog).queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
     expect(highlights).toHaveTextContent('Google Drive PDF');
     expect(highlights).toHaveTextContent('Not checked');
     expect(within(artifacts).getByRole('link', { name: 'Open Validation Response Sheet' })).toHaveAttribute(
@@ -533,12 +552,20 @@ describe('student dashboard', () => {
     renderDashboard();
 
     fireEvent.click(screen.getByRole('button', { name: 'View Document Check' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Document Check' });
+    const dialog = await screen.findByRole('dialog', { name: /Document Check/i });
 
-    expect(dialog).toHaveTextContent('File accessAccessible');
+    expect(dialog).toHaveTextContent('SRS.pdf');
+    expect(dialog).toHaveTextContent('Drive accessAccessible');
     expect(dialog).toHaveTextContent('File typePDF');
-    expect(dialog).toHaveTextContent('Readable textDetected');
+    expect(dialog).toHaveTextContent('DownloadAllowed');
+    expect(dialog).toHaveTextContent('PDF integrityReadable');
+    expect(dialog).toHaveTextContent('Readable text6,787 characters');
     expect(dialog).toHaveTextContent('Pages24');
+    expect(dialog).toHaveTextContent('Official template comparison');
+    expect(dialog).toHaveTextContent('Template coverage92%');
+    expect(dialog).toHaveTextContent('Risk management');
+    expect(dialog).toHaveTextContent('It does not grade your work or decide whether it is accepted.');
+    expect(within(dialog).queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
     expect(dialog).not.toHaveTextContent('STAFF ONLY AI ANALYSIS');
   });
 

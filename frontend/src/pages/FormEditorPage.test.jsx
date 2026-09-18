@@ -132,11 +132,12 @@ describe('full-page form editor', () => {
     expect(screen.getByRole('textbox', { name: 'Form title' })).toHaveValue('My unsaved title');
   });
 
-  it('duplicates choice fields with fresh persisted identities and retires persisted fields without deleting them', async () => {
+  it('duplicates choice fields with fresh persisted identities and removes persisted fields without deleting historical identities', async () => {
     renderEditor('/forms/form-srs/edit');
     await screen.findByDisplayValue('SRS Submission');
     fireEvent.click(screen.getByRole('button', { name: 'Duplicate Scope' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Retire Framework PDF' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Framework PDF' }));
+    expect(screen.queryByDisplayValue('Framework PDF')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalled());
@@ -148,6 +149,55 @@ describe('full-page form editor', () => {
     expect(copies[1].id).not.toBe(copies[0].id);
     expect(copies[1].options.every((option) => option.id === null)).toBe(true);
     expect(saved.fields.find((field) => field.id === 'framework')).toMatchObject({ active: false, definitionId: 'field-framework' });
+  });
+
+  it('keeps Add question visible in the side rail and supports undo/redo', async () => {
+    renderEditor('/forms/form-srs/edit');
+    const title = await screen.findByRole('textbox', { name: 'Form title' });
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    const redo = screen.getByRole('button', { name: 'Redo' });
+    expect(undo).toBeDisabled();
+    expect(redo).toBeDisabled();
+
+    fireEvent.change(title, { target: { value: 'Revised SRS title' } });
+    expect(undo).toBeEnabled();
+    fireEvent.click(undo);
+    expect(screen.getByRole('textbox', { name: 'Form title' })).toHaveValue('SRS Submission');
+    expect(redo).toBeEnabled();
+    fireEvent.click(redo);
+    expect(screen.getByRole('textbox', { name: 'Form title' })).toHaveValue('Revised SRS title');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add question' }));
+    expect(screen.getByDisplayValue('New question')).toBeInTheDocument();
+    expect(screen.getAllByText(/Question [0-9]+ of [0-9]+/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Section 1 of 1').length).toBeGreaterThan(0);
+  });
+
+  it('renders the saved public URL as a real link', async () => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    const link = screen.getByRole('link', { name: '/w/it-it411-2026-27-semester-1/submit/srs-submission' });
+    expect(link).toHaveAttribute('href', '/w/it-it411-2026-27-semester-1/submit/srs-submission');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('reorders questions from the drag handle while keeping arrow controls as a fallback', async () => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    const sourceHandle = screen.getByRole('button', { name: 'Drag Scope' });
+    const targetHandle = screen.getByRole('button', { name: 'Drag Framework PDF' });
+    const targetCard = targetHandle.closest('.wt-question-card');
+    fireEvent.dragStart(sourceHandle, { dataTransfer: { effectAllowed: 'move' } });
+    fireEvent.dragOver(targetCard);
+    fireEvent.drop(targetCard);
+    fireEvent.dragEnd(sourceHandle);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalled());
+    const activeOrder = submissionClient.saveDeliverable.mock.calls[0][1].fields
+      .filter((field) => field.active !== false)
+      .map((field) => field.id);
+    expect(activeOrder).toEqual(['studentNumber', 'scope', 'framework']);
   });
 
   it('keeps Student Number as a single non-duplicable identity anchor', async () => {

@@ -623,12 +623,12 @@ export function WorkspacePage() {
                     <td>
                       <div className="wt-row-actions">
                         {item.originalFilename || item.fileUrl ? (
-                          <Button component="a" type="button" size="sm" variant="secondary" icon={ArrowSquareOut} href={item.fileUrl || getDocumentTemplateFileUrl(activeWorkspaceId, item.id)} target="_blank" rel="noreferrer">
+                          <Button component="a" type="button" size="xs" variant="secondary" icon={ArrowSquareOut} href={item.fileUrl || getDocumentTemplateFileUrl(activeWorkspaceId, item.id)} target="_blank" rel="noreferrer">
                             Open
                           </Button>
                         ) : null}
-                        <Button type="button" size="sm" variant="secondary" icon={PencilSimple} onClick={() => openTemplateModal(item)}>Replace</Button>
-                        <Button type="button" size="sm" variant="secondary" icon={Trash} onClick={() => setTemplateToRemove(item)}>Remove</Button>
+                        <Button type="button" size="xs" variant="secondary" icon={PencilSimple} onClick={() => openTemplateModal(item)}>Replace</Button>
+                        <Button type="button" size="xs" variant="secondary" icon={Trash} onClick={() => setTemplateToRemove(item)}>Remove</Button>
                       </div>
                     </td>
                   </tr>

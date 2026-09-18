@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { academicFieldSuggestions, duplicateField } from './forms.js';
+import { academicFieldSuggestions, duplicateField, mergeAcademicSuggestions } from './forms.js';
 
 describe('form editor suggestions and identity', () => {
   it('suggests Section only when current roster data contains a section', () => {
@@ -24,5 +24,23 @@ describe('form editor suggestions and identity', () => {
     expect(copy.options).toHaveLength(2);
     expect(copy.options.every((option) => option.id === null)).toBe(true);
     expect(new Set(copy.options.map((option) => option._localKey)).size).toBe(2);
+  });
+
+  it('places academic identity suggestions first in canonical order instead of appending them', () => {
+    const fields = [
+      { id: 'pdf', label: 'SRS PDF', type: 'drive', active: true },
+      { id: 'team', label: 'Team Code', type: 'academicTeamCode', active: true },
+      { id: 'old', label: 'Old field', type: 'shortText', active: false }
+    ];
+    const merged = mergeAcademicSuggestions(fields, [{ studentNumber: '1', section: 'G7' }]);
+    expect(merged.map((field) => field.type)).toEqual([
+      'academicStudentNumber',
+      'academicStudentName',
+      'academicTeamCode',
+      'academicSection',
+      'drive',
+      'shortText'
+    ]);
+    expect(merged[merged.length - 1].active).toBe(false);
   });
 });

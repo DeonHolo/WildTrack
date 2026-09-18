@@ -38,9 +38,17 @@ export function academicFieldSuggestions(students = []) {
 }
 
 export function mergeAcademicSuggestions(fields = [], students = []) {
-  const existingTypes = new Set(fields.filter((field) => field.active !== false).map((field) => field.type));
+  const active = fields.filter((field) => field.active !== false);
+  const retired = fields.filter((field) => field.active === false);
+  const existingTypes = new Set(active.map((field) => field.type));
   const additions = academicFieldSuggestions(students).filter((field) => !existingTypes.has(field.type));
-  return [...fields, ...additions];
+  const combined = [...active, ...additions];
+  const academicOrder = ['academicStudentNumber', 'academicStudentName', 'academicTeamCode', 'academicSection'];
+  const academic = academicOrder
+    .map((type) => combined.find((field) => field.type === type))
+    .filter(Boolean);
+  const other = combined.filter((field) => !ACADEMIC_FIELD_TYPES.has(field.type));
+  return [...academic, ...other, ...retired];
 }
 
 export function makeDeliverableFormDraft(state, columnKey, now = new Date()) {
@@ -56,7 +64,7 @@ export function makeDeliverableFormDraft(state, columnKey, now = new Date()) {
     dueAt: dateAt2359(now),
     trackerColumn: key,
     instructions: pdfRequired
-      ? `Submit your ${label} as a PDF Drive file.`
+      ? `Paste the Google Drive link to your final ${label} PDF.`
       : `Submit the required link for ${label}.`,
     pdfRequired,
     fields: [...academicFieldSuggestions(state?.students || []), defaultSubmissionField(pdfRequired)],

@@ -2,6 +2,7 @@ import { Button, Group, Modal, Paper, SegmentedControl, Stack, Text, Title } fro
 import { ArrowSquareOut, NotePencil } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { formatDate, formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
+import { DocumentCheckDialog } from '../review/DocumentCheckDialog.jsx';
 import { StatusIndicator } from '../ui.jsx';
 
 const FILTERS = [
@@ -140,50 +141,16 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
         ) : null}
       </Modal>
 
-      <Modal
-        opened={Boolean(activeCheck)}
+      <DocumentCheckDialog
+        open={Boolean(activeCheck)}
         onClose={() => setActiveCheck(null)}
-        title="Document Check"
-        centered
-        size="lg"
-      >
-        {activeCheck ? <DocumentCheckDetails row={activeCheck} /> : null}
-      </Modal>
+        response={activeCheck?.response || null}
+        documentCheck={activeCheck?.documentCheck || null}
+        fileLink={activeCheck?.link || ''}
+        audience="student"
+        allowRecheck={false}
+      />
     </Paper>
-  );
-}
-
-function DocumentCheckDetails({ row }) {
-  const check = row.documentCheck;
-  const mimeType = check?.metadata?.mimeType || 'Not reported';
-  const canDownload = check?.metadata?.canDownload;
-  const readable = check?.document?.readable;
-  const pageCount = check?.document?.pageCount;
-
-  return (
-    <Stack gap="lg">
-      <Text fw={750}>{row.deliverable.title}</Text>
-      <div className="wt-document-check-grid">
-        <CheckFact label="File access" value={canDownload === false ? 'Unavailable' : 'Accessible'} />
-        <CheckFact label="File type" value={mimeType === 'application/pdf' ? 'PDF' : mimeType} />
-        <CheckFact label="Readable text" value={readable === false ? 'Not detected' : readable === true ? 'Detected' : 'Not reported'} />
-        <CheckFact label="Pages" value={pageCount || 'Not reported'} />
-      </div>
-      <div>
-        <Text fw={700}>Summary</Text>
-        <Text size="sm">{row.fileCheck.summary}</Text>
-      </div>
-      <Text size="xs" c="dimmed">Document Check reports file access and document structure. It does not grade the submission.</Text>
-    </Stack>
-  );
-}
-
-function CheckFact({ label, value }) {
-  return (
-    <div>
-      <Text size="xs" c="dimmed">{label}</Text>
-      <Text size="sm" fw={700}>{value}</Text>
-    </div>
   );
 }
 

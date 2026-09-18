@@ -42,29 +42,31 @@ The measurement structure follows Victor R. Basili's 1992 Goal/Question/Metric (
 
 **Threshold rationale.** The 85% decision-agreement and 90% claim-traceability targets are proposed pilot gates chosen to expose grounding defects while keeping the initial run feasible under the free-tier budget. They are not published standards, adviser-approved thresholds, or achieved results.
 
-## Objective 3 - Student interpretation of submission status and next action
+## Objective 3 - Student submission transaction correctness
 
-**SMART objective.** By the close of the MVP evaluation round, at least 90% of eligible participating students will correctly answer at least 4 of 5 standardized, self-contained WildTrack submission-status/next-action scenarios using the frozen researcher answer key.
+**SMART objective.** By the close of the MVP evaluation round, WildTrack will correctly process at least 95% of the frozen controlled student submission transactions performed by eligible participating students in the current imported MVP Validation workspace. Each participating student contributes two scored transaction tasks: one initial-submission task and one material-revision task. A transaction passes only when every applicable frozen correctness assertion for that task matches the expected result.
 
-**GQM framing.** Analyze student scenario responses for the purpose of evaluation, with respect to correct interpretation of status and immediate next action, from the viewpoint of participating students and the researchers, in the MVP validation questionnaire.
+**GQM framing.** Analyze the student submission workflow for the purpose of evaluation, with respect to end-to-end transaction correctness, from the viewpoint of participating students and the researchers, in the deployed WildTrack MVP validation workspace.
 
 **Measurement unit and denominator.**
 
-- Each of S5-S9 is scored 1 only when the selected option matches the frozen key for the status and immediate next action described by that scenario, otherwise 0. There is no partial credit.
-- STU_TOTAL = S5 + S6 + S7 + S8 + S9, range 0-5.
-- N_student_eligible includes unique consenting respondents routed as Student who provide the required duplicate-control code and all five scorable answers. Decliners, unusable duplicates, no-use exits, and incomplete scored sections are excluded rather than imputed.
-- N_student_pass is the eligible students with STU_TOTAL >= 4.
-- The observed pass percentage is 100 * N_student_pass / N_student_eligible.
-- The minimum pass count required by the 90% rule is ceil(0.90 * N_student_eligible). For example, 27 eligible students require 25 passes and 28 eligible students require 26 passes.
+- Each eligible student is scheduled for two scored transaction tasks.
+- **Initial-submission task:** verify that a deliberately incomplete attempt is blocked by the configured required-input/artifact rules without creating an incorrect saved response; then verify that the completed valid submission is associated with the correct student/workspace/deliverable, preserves the prescribed values, and produces the expected student-visible submitted state.
+- **Material-revision task:** edit one designated response value and save; verify that the intended value changes, unchanged values are preserved, the response remains associated with the same student/workspace/deliverable, the revision advances exactly as expected, and the student-visible state remains consistent with the current stored response.
+- Let N_STU_TXN be the number of frozen scored transaction tasks scheduled for eligible students who enter the controlled task protocol. A started task that fails because WildTrack cannot complete or persist the required operation remains in N_STU_TXN and is not counted as correct.
+- Let C_STU_TXN be the number of scored transaction tasks for which every applicable frozen assertion matches the expected result.
+- Primary transaction correctness is STU_TXN_accuracy = C_STU_TXN / N_STU_TXN.
+- Report assertion-level results separately so one failed task does not hide which invariant failed. Also report the number of students whose two transaction tasks both passed.
+- A participant withdrawal or non-research interruption before a scored task begins is reported separately and is not silently converted into a system failure.
 
-**Scope and evidence.** The five scenarios are fictional but are grounded in current verified behavior: a saved response is shown to the student as Submitted until a separate acceptance exists; Document Check is a separate advisory result; adviser feedback can request revision without acceptance; acceptance is a separate staff action tied to the current saved version; and archive history is retained separately from the active record. Actual-use students and scenario-only students are reported as separate subgroups.
+**Scope and evidence.** Objective 3 is scored from the controlled WildTrack task log plus server/system evidence, not from questionnaire ratings or fictional status scenarios. Students perform the real current submission workflow using the existing published **Refactored SRS** form and paste a Google Drive link to their own existing Refactored SRS PDF. WildTrack does not accept file uploads for this task. Use the existing official SRS template mapping so the normal Document Check comparison is part of the student experience. The form includes one required research-only multiple-choice field named **Validation step** with two choices: **Initial submission** and **Revised submission**. During T2 the student changes only this field; the SRS PDF link stays unchanged. The task is not timed and does not claim usability, satisfaction, learnability, or speed.
 
-**Threshold rationale.** The 90% and 4-of-5 values were explicitly selected by the owner for Objective 3. This target is not adviser-approved and does not claim measured usability, satisfaction, or speed.
+**Threshold rationale.** The owner accepted the student submission transaction correctness objective. The 95% transaction-correctness value remains the current proposed working threshold to freeze before collection; it is not a published standard or adviser-approved value. Freeze the Refactored SRS task script, Validation step field/options, expected assertions, scoring rules, and threshold before real collection.
 
 ## Planned sample, endpoint, and exclusions
 
 The course validation plan requires at least 30 unique consenting stakeholder participants across varied roles. The working composition is approximately 27-28 students, 1-2 advisers, and one Admin/beneficiary. This is a planned minimum, not a completed sample or a claim of population representativeness.
 
-The evaluation endpoint is the close of the MVP evaluation round after the questionnaire, routing, answer key, codebook, and technical manifests have been frozen; duplicate and consent rules have been applied; eligible student scenarios have been scored; and technical benchmark logs have been preserved. Sir Ralph Laviste's September 14 consultation transcript remains one real qualitative consultation source and is never inserted as a fabricated questionnaire row.
+The evaluation endpoint is the close of the MVP evaluation round after the questionnaire, role routing, Objective 3 student-task protocol, codebook, and technical manifests have been frozen; consent and duplicate rules have been applied; eligible student transaction tasks have been scored; and technical benchmark logs have been preserved. Sir Ralph Laviste's September 14 consultation transcript remains one real qualitative consultation source and is never inserted as a fabricated questionnaire row.
 
-Decliners do not count as participants. Advisers and Admin/beneficiaries do not enter the student Objective 3 denominator. Required route-specific qualitative prompts may accept "None" when a participant has nothing to add. No observed completion-time measure is required for any objective.
+Decliners do not count as participants. Advisers and Admin/beneficiaries do not enter the student Objective 3 transaction denominator. Questionnaire free-text feedback is optional. No observed completion-time measure is required for any objective.

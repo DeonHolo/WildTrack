@@ -324,6 +324,40 @@ test('forms shows server-side cleanup progress while unpublishing all forms', as
   await expect(page.getByText('Unpublished', { exact: true })).toHaveCount(2);
 });
 
+test('official template actions stay in one readable row instead of collapsing into icon-only stacks', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 820 });
+  page.apiFixture = await installApiFixtures(page, {
+    role: 'admin',
+    connected: true,
+    templates: [{
+      id: 'template-srs-browser',
+      deliverableKey: 'SRS',
+      fieldId: 'field-document-pdf',
+      displayName: 'SRS official template',
+      originalFilename: 'SRS TEMPLATE (1).pdf',
+      contentType: 'application/pdf',
+      extractedCharacterCount: 6400,
+      updatedAt: '2026-09-18T23:33:00+08:00'
+    }]
+  });
+  await page.goto('/workspace');
+
+  const table = page.getByRole('table', { name: 'Official document templates' });
+  await expect(table).toBeVisible();
+  const actions = table.locator('.wt-row-actions');
+  await actions.scrollIntoViewIfNeeded();
+  await expect(actions.getByRole('link', { name: 'Open' })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'Replace' })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'Remove' })).toBeVisible();
+
+  const boxes = await actions.locator('a, button').evaluateAll((controls) => controls.map((control) => {
+    const box = control.getBoundingClientRect();
+    return { top: Math.round(box.top), width: Math.round(box.width) };
+  }));
+  expect(new Set(boxes.map((box) => box.top)).size).toBe(1);
+  expect(boxes.every((box) => box.width >= 56)).toBe(true);
+});
+
 for (const viewport of editorViewports) {
   test(`full-page form editor completes the local authoring and public round trip on ${viewport.label}`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -340,7 +374,7 @@ for (const viewport of editorViewports) {
     await expect(page.getByText('Unpublished', { exact: true })).toBeVisible();
     await expectNoPageOverflow(page);
 
-    await page.getByRole('button', { name: 'Add' }).click();
+    await page.getByRole('button', { name: 'Add question' }).click();
     const newLabel = page.getByRole('textbox', { name: 'Field label' }).last();
     await newLabel.fill('Project Summary');
     const moveUp = page.getByRole('button', { name: 'Move Project Summary up' });

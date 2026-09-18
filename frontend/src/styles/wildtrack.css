@@ -475,8 +475,8 @@
 
 .wt-form-editor-title-card,
 .wt-question-card,
-.wt-form-editor-add-card,
-.wt-form-editor-side {
+ .wt-form-editor-action-rail,
+ .wt-form-editor-status-card {
   border-color: var(--wt-border);
   background: #fff;
   box-shadow: 0 8px 22px rgba(72, 16, 32, 0.04);
@@ -500,9 +500,25 @@
   border-color: var(--mantine-color-wildtrackMaroon-4);
 }
 
+.wt-question-card.is-dragging {
+  opacity: 0.58;
+  transform: scale(0.995);
+}
+
 .wt-form-editor-side {
   position: sticky;
   top: 160px;
+  align-items: flex-start;
+}
+
+.wt-form-editor-action-rail {
+  display: grid;
+  width: 52px;
+  place-items: center;
+}
+
+.wt-form-editor-status-card {
+  width: 100%;
 }
 
 @media (max-width: 900px) {
@@ -523,8 +539,15 @@
   }
 
   .wt-form-editor-side {
-    position: static;
-    order: -1;
+    position: fixed;
+    z-index: 10;
+    right: 16px;
+    bottom: 18px;
+    top: auto;
+  }
+
+  .wt-form-editor-status-card {
+    display: none;
   }
 }
 

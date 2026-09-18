@@ -1,14 +1,14 @@
 # Live progress and resume checkpoint
 
 Updated: 2026-09-19
-Mode: EDITOR RUN — Prompt 1 complete locally
+Mode: MVP VALIDATION UI REFINEMENT — student Document Check + Forms editor polish
 Current branch at preparation: wildtrack-rebrand
 HEAD at preparation: 1a2f0e066a9c4278ea8d0232b4ed52398797d724
 Treat branch/HEAD as an old checkpoint; inspect actual state at resume.
 
 ## Next action
 
-Prompt 1 editor mode is complete locally: Tickets 01, 02, 03 and editor-mode 12 are verified. Do not deploy, publish externally, collect participant data or advance to another package prompt without a new owner instruction.
+Prompt 1 editor implementation remains complete. The owner then requested validation-focused UI refinements: student Document Check parity with the staff view, Google-Forms-like editor muscle-memory cues, no student file-upload path, and reuse of the existing imported workspace/old Refactored SRS or SDD PDFs for Objective 3. Do not start Ticket 04 or collect participant data until the revised protocol is frozen.
 
 ## Initial unrelated/pre-existing state
 
@@ -19,7 +19,7 @@ Preserve them. A current git status is required; these notes are not a complete 
 
 | Ticket | Status | Blocked by |
 | --- | --- | --- |
-| 01 Research objectives and respondent questionnaire | completed | none |
+| 01 Research objectives and respondent questionnaire | completed — revised 2026-09-19 | none |
 | 02 Full-page editor with existing persisted field types | completed | none |
 | 03 Editable suggestions, academic Section and choice questions | completed | 02 |
 | 04 Academic spreadsheet editing and paste | ready-for-agent | none; schedule after 01 |
@@ -34,16 +34,17 @@ Preserve them. A current git status is required; these notes are not a complete 
 
 ## Checkpoint — overwrite after each meaningful slice
 
-- Active ticket: none for Prompt 1
-- Current objective: preserve the completed local editor-mode result and hand off exact evidence for the next owner-selected work
-- Last completed slice: final independent re-review after academic-requiredness, single Student Number anchor, and suggested-PDF default fixes; no material findings remain
-- Files changed by current execution: Ticket 01 research deliverables; backend configurable-question persistence/validation and tests; frontend full-page editor/shared respondent rendering/suggestions and tests; seeded and real-backend browser verification; checkpoint/evidence records
+- Active ticket: validation UI refinement / research-protocol alignment
+- Current objective: make the existing WildTrack validation flow feel familiar and expose the real Document Check evidence students need before participant collection
+- Last completed slice: shared student/staff Document Check UI, Forms editor action rail + undo/redo + drag reorder + academic ordering + clickable public URL, Retired UX removed, research protocol aligned to existing Refactored SRS/SDD Drive links
+- Files changed by current slice: DocumentCheckDialog.jsx; StudentDeliverableList.jsx; StudentStatusPage.jsx; FormEditorPage.jsx; forms.js; focused tests; wildtrack.css; browser/persistence selectors; DeliverableService error copy; research objective/framework/scoring/decision docs; Apps Script protocol source
 - Exact test command/result: affected frontend 105/105 pass; post-review focused frontend 77/77 pass; backend affected + security suites exit 0; `npm run build` pass; `npm run test:browser -- tests/browser/role-flows.spec.js` 21/21 pass; real-backend `FormEditorPersistenceJourneyIT` exit 0. Full frontend suite still has the reproduced pre-existing `Ralph Laviste` App assertion plus intermittent unrelated timing flakes that pass in isolation; see EVIDENCE.md.
-- Last successful check: browser role flow 21/21 after all fixes, including editor desktop/mobile screenshots and adviser/student/Admin flows
+- Last successful implementation checks: focused frontend 60/60 pass; seeded Playwright role-flows 21/21 pass; real-backend DeliverableControllerTest + DeliverableServiceMultiArtifactTest + FormEditorPersistenceJourneyIT exit 0; frontend production build pass
 - Running process/session IDs: none owned by this package
-- Remaining acceptance criteria: none for Prompt 1 editor mode
-- Next exact action: on the next owner instruction, read this checkpoint and choose the requested later ticket/prompt; do not repeat Prompt 1
-- Decisions made since spec: academic requiredness is enforced from the canonical Student Record; only one active Student Number identity anchor is allowed; new suggested PDF forms use the established AUTO Document Check + AI Review enabled defaults while existing explicit settings are preserved
-- Blockers: none for Prompt 1. Older Drive history, spreadsheet editing/reconciliation, cross-semester identity lifecycle, benchmark execution, production deployment/OAuth and real participant analysis remain later/external work
+- Remaining acceptance criteria: none for the local research-document revision. Adviser/framework endorsement and real data collection remain external.
+- Next exact action: choose/freeze the Objective 3 target form (prefer one of Refactored SRS or Refactored SDD across the sample), define the harmless T2 revision step, preview student Document Check against the configured old official template, then freeze the task protocol before collection. Do not start Ticket 04 until the owner chooses to resume engineering.
+- Decisions made since spec: Objective 3 is student submission transaction correctness with a working >=95% transaction target; use the existing imported MVP Validation workspace; students paste existing same-deliverable Google Drive PDF links; no WildTrack student file uploads; Google Form remains supporting feedback only
+- Blockers: adviser/framework endorsement if required by the course, final target SRS-vs-SDD choice and T2 revision step, later real participant collection. Older Drive history, spreadsheet editing/reconciliation, cross-semester identity lifecycle, benchmark execution and deployment remain later/external work.
+- Research revision validation: package validator PASS; git diff --check PASS; stale-reference audit found no live package instruction that restores the superseded status-scenario goal. Historical references remain only where explicitly labeled superseded.
 - Unsafe to repeat: any live provider call/write already recorded in EVIDENCE.md (none yet)
 - Commit/PR/deployment: none created for this package

@@ -204,7 +204,7 @@ public class DeliverableService {
                 }
                 if (hasResponses && field.getFieldType() != item.fieldType()) {
                     throw new IllegalArgumentException(
-                        "A submission field type cannot be changed after responses exist. Retire it and add a new field instead.");
+                        "A submission field type cannot be changed after responses exist. Remove it from the form and add a new field instead.");
                 }
                 field.update(item.label().trim(), normalizeNullable(item.helpText()), item.fieldType(), item.required(), index,
                     item.documentCheckPolicy(), item.aiReviewEnabled(), item.active());
