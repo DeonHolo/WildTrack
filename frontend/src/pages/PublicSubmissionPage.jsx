@@ -10,8 +10,6 @@ import {
   Paper,
   Stack,
   Text,
-  TextInput,
-  Textarea,
   ThemeIcon,
   Title
 } from '@mantine/core';
@@ -20,7 +18,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 import { FormArtwork } from '../components/public/FormArtwork.jsx';
-import { StudentIdentityPanel } from '../components/public/StudentIdentityPanel.jsx';
+import { SubmissionFields } from '../components/public/SubmissionFields.jsx';
 import { SubmissionResult } from '../components/public/SubmissionResult.jsx';
 import { WildTrackPublicHeader } from '../components/public/WildTrackPublicHeader.jsx';
 import {
@@ -29,7 +27,9 @@ import {
   formatTime,
   getIdentityStudents,
   getWorkspacePublicKey,
-  validateSubmission
+  activeSubmissionValues,
+  validateSubmission,
+  validateSubmissionIdentity
 } from '../lib/workflow.js';
 import {
   clearSubmissionDraft,
@@ -322,7 +322,7 @@ export function PublicSubmissionPage() {
     let cancelled = false;
     setDraftStatus('saving');
     const timer = setTimeout(() => {
-      saveSubmissionDraft(activeWorkspaceId, deliverable.id, values, draftRevisionRef.current)
+      saveSubmissionDraft(activeWorkspaceId, deliverable.id, activeSubmissionValues(deliverable, values), draftRevisionRef.current)
         .then((saved) => {
           if (cancelled) return;
           if (saved.conflict) {
@@ -387,11 +387,7 @@ export function PublicSubmissionPage() {
       setFormError('Continue with Google before submitting this form.');
       return;
     }
-    const nextIdentityErrors = {
-      studentNumber: identity.studentNumber.trim() ? '' : 'Choose a Student Number.',
-      studentName: identity.studentName.trim() ? '' : 'Choose a Student Name.',
-      teamCode: identity.teamCode.trim() ? '' : 'Choose a Team Code.'
-    };
+    const nextIdentityErrors = validateSubmissionIdentity({ deliverable, identity, student });
     if (Object.values(nextIdentityErrors).some(Boolean)) {
       setIdentityErrors(nextIdentityErrors);
       setFormError(identity.studentNumber.trim()
@@ -417,14 +413,15 @@ export function PublicSubmissionPage() {
         if (submittingScope !== privateScope.current) return;
         setServerAssociation(association || null);
       }
-      const saved = await commitSubmission(activeWorkspaceId, deliverable.id, values, myServerResponse?.revision ?? null);
+      const submittedValues = activeSubmissionValues(deliverable, values);
+      const saved = await commitSubmission(activeWorkspaceId, deliverable.id, submittedValues, myServerResponse?.revision ?? null);
       if (submittingScope !== privateScope.current) return;
       if (saved.conflict) {
         setFormError('A newer version was saved from another session. Reload the form to continue editing.');
         return;
       }
       clearSubmissionDraft(activeWorkspaceId, deliverable.id).catch(() => {});
-      setMyServerResponse((current) => ({ ...current, id: saved.responseId, revision: saved.revision, values }));
+      setMyServerResponse((current) => ({ ...current, id: saved.responseId, revision: saved.revision, values: submittedValues }));
       setValuesEdited(false);
       window.dispatchEvent(new Event('wildtrack:server-mutation'));
       window.dispatchEvent(new Event('wildtrack:refresh-resources'));
@@ -432,7 +429,7 @@ export function PublicSubmissionPage() {
         ok: true,
         updated: saved.changed && Boolean(myServerResponse),
         unchanged: !saved.changed,
-        attempt: { values, primaryStatus: 'Submitted', reviewStatus: 'PENDING_REVIEW' },
+        attempt: { values: submittedValues, primaryStatus: 'Submitted', reviewStatus: 'PENDING_REVIEW' },
         student: { name: identity.studentName, studentNumber: identity.studentNumber, teamCode: identity.teamCode },
         deliverable: { title: deliverable.title || '', shortTitle: deliverable.shortTitle || deliverable.title || '' },
         trackerSync: null
@@ -510,47 +507,21 @@ export function PublicSubmissionPage() {
                       </Stack> : null}
                       <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                       <Stack gap="xl">
-                      <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-                      <StudentIdentityPanel
+                      <SubmissionFields
+                        fields={deliverable.fields}
+                        values={values}
+                        errors={fieldErrors}
+                        onValueChange={updateField}
                         students={identityStudents}
                         identity={identity}
+                        identityErrors={identityErrors}
+                        onIdentityChange={updateIdentity}
                         activeAccount={activeAccount}
-                        errors={identityErrors}
-                        mode="submission"
-                        onChange={updateIdentity}
+                        disabled={submitting}
                       />
-                      </fieldset>
-
-                      <Divider />
-                      <Stack gap="md" aria-label="Submission links">
-                        {deliverable.fields.map((field) => field.type === 'textarea' ? (
-                          <Textarea
-                            key={field.id}
-                            label={field.label}
-                            required={field.required}
-                            value={values[field.id] || ''}
-                            error={fieldErrors[field.id]}
-                            minRows={4}
-                            autosize
-                            onChange={(event) => updateField(field.id, event.currentTarget.value)}
-                          />
-                        ) : (
-                          <TextInput
-                            key={field.id}
-                            label={field.label}
-                            required={field.required}
-                            value={values[field.id] || ''}
-                            error={fieldErrors[field.id]}
-                            description={submissionFieldDescription(field)}
-                            placeholder={submissionFieldPlaceholder(field)}
-                            leftSection={field.pdfRequired ? <FilePdf size={18} aria-hidden="true" /> : null}
-                            onChange={(event) => updateField(field.id, event.currentTarget.value)}
-                          />
-                        ))}
-                        {formError && hydration.status !== 'error' ? (
-                          <Alert color="red" variant="light" icon={<WarningCircle size={20} />} role="alert">{formError}</Alert>
-                        ) : null}
-                      </Stack>
+                      {formError && hydration.status !== 'error' ? (
+                        <Alert color="red" variant="light" icon={<WarningCircle size={20} />} role="alert">{formError}</Alert>
+                      ) : null}
 
                       <Divider />
                       <Group justify="space-between" gap="md" wrap="wrap">
@@ -576,20 +547,4 @@ export function PublicSubmissionPage() {
       </Container>
     </main>
   );
-}
-
-function submissionFieldDescription(field) {
-  if (field.pdfRequired || field.type === 'drive') return 'Share a Google Drive file link that opens to the final PDF.';
-  if (field.type === 'googleForm') return 'Paste the shareable Google Form link.';
-  if (field.type === 'googleSheet') return 'Paste the shareable Google Sheet link.';
-  if (field.type === 'driveFolder') return 'Paste the shareable Google Drive folder link.';
-  return undefined;
-}
-
-function submissionFieldPlaceholder(field) {
-  if (field.pdfRequired || field.type === 'drive') return 'https://drive.google.com/file/d/...';
-  if (field.type === 'googleForm') return 'https://docs.google.com/forms/d/...';
-  if (field.type === 'googleSheet') return 'https://docs.google.com/spreadsheets/d/...';
-  if (field.type === 'driveFolder') return 'https://drive.google.com/drive/folders/...';
-  return 'https://';
 }

@@ -504,6 +504,182 @@ describe('public submission form', () => {
     await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', validValues, null));
   });
 
+  it('does not resend restored retired response keys when an active answer is edited', async () => {
+    api.getMyAssociation.mockResolvedValue({
+      studentNumber: '22-1001-001',
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
+      teamCode: '2526-sem2-it332-11'
+    });
+    api.getMyResponse.mockResolvedValue({
+      id: 'response-existing',
+      revision: 2,
+      updatedAt: '2026-09-18T10:00:00Z',
+      valuesJson: JSON.stringify({
+        documentPdf: 'https://drive.google.com/file/d/old-pdf/view',
+        retiredQuestion: 'historical answer'
+      })
+    });
+    renderForm();
+
+    const pdf = await screen.findByRole('textbox', { name: 'PDF Drive Link' });
+    expect(pdf).toHaveValue('https://drive.google.com/file/d/old-pdf/view');
+    fireEvent.change(pdf, { target: { value: 'https://drive.google.com/file/d/new-pdf/view' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save response changes' }));
+
+    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
+      documentPdf: 'https://drive.google.com/file/d/new-pdf/view'
+    }, 2));
+  });
+
+  it('renders configured academic identity, text, single-choice, and checkbox questions without submitting academic fields as response values', async () => {
+    api.getRosterOptions.mockResolvedValueOnce([{
+      id: 'student-1',
+      studentNumber: '22-1001-001',
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
+      teamCode: '2526-sem2-it332-11',
+      sectionName: 'G7',
+      memberNumber: 1,
+      adviserName: 'Sir Roberto Villanueva'
+    }]);
+    api.getPublicSubmissionForm.mockResolvedValue({
+      workspace: workspaceSession.activeWorkspace,
+      deliverable: {
+        id: 'deliv-srs',
+        trackerColumnKey: 'SRS',
+        title: 'Configured questionnaire',
+        slug: 'week-9-srs',
+        instructions: 'Answer the configured questions.',
+        dueAt: '2026-04-18T23:59:00',
+        pdfRequired: false,
+        status: 'PUBLISHED',
+        fields: [
+          { id: 'identity-number', fieldKey: 'studentNumberPresentation', label: 'School ID', fieldType: 'ACADEMIC_STUDENT_NUMBER', required: true, active: true, options: [] },
+          { id: 'identity-name', fieldKey: 'studentNamePresentation', label: 'Student', fieldType: 'ACADEMIC_STUDENT_NAME', required: true, active: true, options: [] },
+          { id: 'identity-team', fieldKey: 'teamPresentation', label: 'Assigned Team', fieldType: 'ACADEMIC_TEAM_CODE', required: true, active: true, options: [] },
+          { id: 'identity-section', fieldKey: 'sectionPresentation', label: 'Class Section', fieldType: 'ACADEMIC_SECTION', required: false, active: true, options: [] },
+          { id: 'short-field', fieldKey: 'summary', label: 'Summary', helpText: 'Keep this concise.', fieldType: 'SHORT_TEXT', required: true, active: true, options: [] },
+          { id: 'drop-field', fieldKey: 'scope', label: 'Scope', fieldType: 'DROPDOWN', required: true, active: true, options: [
+            { id: 'scope-campus', label: 'Campus' }, { id: 'scope-community', label: 'Community' }
+          ] },
+          { id: 'radio-field', fieldKey: 'readiness', label: 'Readiness', fieldType: 'MULTIPLE_CHOICE', required: true, active: true, options: [
+            { id: 'ready', label: 'Ready' }, { id: 'needs-work', label: 'Needs work' }
+          ] },
+          { id: 'check-field', fieldKey: 'evidence', label: 'Evidence', fieldType: 'CHECKBOXES', required: true, active: true, options: [
+            { id: 'screenshots', label: 'Screenshots' }, { id: 'responses', label: 'Responses' }
+          ] }
+        ]
+      }
+    });
+    renderForm();
+
+    const number = await screen.findByRole('textbox', { name: /School ID/i });
+    await userEvent.click(number);
+    fireEvent.click(await screen.findByRole('option', { name: '22-1001-001' }));
+    expect(screen.getByRole('textbox', { name: /Student/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
+    expect(screen.getByRole('textbox', { name: /Assigned Team/i })).toHaveValue('2526-sem2-it332-11');
+    expect(screen.getByRole('textbox', { name: /Class Section/i })).toHaveValue('G7');
+    expect(screen.getByText('Keep this concise.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Summary' }), { target: { value: 'Validated locally' } });
+    const scope = screen.getByRole('textbox', { name: 'Scope' });
+    await userEvent.click(scope);
+    fireEvent.click(await screen.findByRole('option', { name: 'Campus' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Ready' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Screenshots' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
+
+    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
+      summary: 'Validated locally',
+      scope: 'scope-campus',
+      readiness: 'ready',
+      evidence: ['screenshots']
+    }, null));
+  });
+
+  it('does not require absent or optional academic name, team, or section fields on configured forms', async () => {
+    api.getRosterOptions.mockResolvedValueOnce([{
+      id: 'student-minimal',
+      studentNumber: '22-1001-001',
+      studentName: '',
+      teamCode: '',
+      sectionName: '',
+      memberNumber: 1,
+      adviserName: ''
+    }]);
+    api.getPublicSubmissionForm.mockResolvedValue({
+      workspace: workspaceSession.activeWorkspace,
+      deliverable: {
+        id: 'deliv-srs',
+        trackerColumnKey: 'SRS',
+        title: 'Minimal academic identity',
+        slug: 'week-9-srs',
+        instructions: 'Student Number anchors this form.',
+        dueAt: '2026-04-18T23:59:00',
+        pdfRequired: false,
+        status: 'PUBLISHED',
+        fields: [
+          { id: 'identity-number', fieldKey: 'studentNumberPresentation', label: 'School ID', fieldType: 'ACADEMIC_STUDENT_NUMBER', required: false, active: true, options: [] },
+          { id: 'identity-section', fieldKey: 'sectionPresentation', label: 'Class Section', fieldType: 'ACADEMIC_SECTION', required: false, active: true, options: [] },
+          { id: 'short-field', fieldKey: 'summary', label: 'Summary', fieldType: 'SHORT_TEXT', required: true, active: true, options: [] }
+        ]
+      }
+    });
+    renderForm();
+
+    const number = await screen.findByRole('textbox', { name: /School ID/i });
+    await userEvent.click(number);
+    fireEvent.click(await screen.findByRole('option', { name: '22-1001-001' }));
+    expect(screen.queryByRole('textbox', { name: /Student Name/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /Team Code/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /Class Section/i })).toHaveValue('');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Summary' }), { target: { value: 'No extra identity requirements' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
+
+    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
+      summary: 'No extra identity requirements'
+    }, null));
+  });
+
+  it('blocks a configured required academic field when the matched roster record lacks that value', async () => {
+    api.getRosterOptions.mockResolvedValueOnce([{
+      id: 'student-no-section',
+      studentNumber: '22-1001-001',
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
+      teamCode: '2526-sem2-it332-11',
+      sectionName: '',
+      memberNumber: 1,
+      adviserName: ''
+    }]);
+    api.getPublicSubmissionForm.mockResolvedValue({
+      workspace: workspaceSession.activeWorkspace,
+      deliverable: {
+        id: 'deliv-srs',
+        trackerColumnKey: 'SRS',
+        title: 'Required roster section',
+        slug: 'week-9-srs',
+        instructions: 'Section comes from the matched roster record.',
+        dueAt: '2026-04-18T23:59:00',
+        pdfRequired: false,
+        status: 'PUBLISHED',
+        fields: [
+          { id: 'identity-number', fieldKey: 'studentNumberPresentation', label: 'School ID', fieldType: 'ACADEMIC_STUDENT_NUMBER', required: true, active: true, options: [] },
+          { id: 'identity-section', fieldKey: 'sectionPresentation', label: 'Class Section', fieldType: 'ACADEMIC_SECTION', required: true, active: true, options: [] },
+          { id: 'short-field', fieldKey: 'summary', label: 'Summary', fieldType: 'SHORT_TEXT', required: true, active: true, options: [] }
+        ]
+      }
+    });
+    renderForm();
+
+    const number = await screen.findByRole('textbox', { name: /School ID/i });
+    await userEvent.click(number);
+    fireEvent.click(await screen.findByRole('option', { name: '22-1001-001' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Summary' }), { target: { value: 'Section must come from roster' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
+
+    expect(await screen.findByText('Section is required for this form.')).toBeInTheDocument();
+    expect(api.submitResponse).not.toHaveBeenCalled();
+  });
+
   it('shows each identity result as only the value belonging to that field', async () => {
     renderForm();
 

@@ -6,6 +6,11 @@ const artworkViewports = [
   { label: 'mobile', width: 390, height: 844 }
 ];
 
+const editorViewports = [
+  { label: 'desktop', width: 1280, height: 800 },
+  { label: 'mobile', width: 390, height: 844 }
+];
+
 async function openAs(page, role, path) {
   page.apiFixture = await installApiFixtures(page, { role, connected: true, submitted: true });
   await page.goto(path);
@@ -314,10 +319,73 @@ test('forms shows server-side cleanup progress while unpublishing all forms', as
   const progress = page.getByRole('status', { name: 'Unpublishing all forms' });
   await expect(progress).toBeVisible();
   await expect(progress).toContainText('one server-side batch');
-  await expect(page.getByRole('button', { name: 'Publish form' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'New form' })).toBeDisabled();
   await expect(progress).toHaveCount(0, { timeout: 5000 });
   await expect(page.getByText('Unpublished', { exact: true })).toHaveCount(2);
 });
+
+for (const viewport of editorViewports) {
+  test(`full-page form editor completes the local authoring and public round trip on ${viewport.label}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    page.apiFixture = await installApiFixtures(page, {
+      role: 'admin',
+      connected: true,
+      submitted: false,
+      formStatus: 'UNPUBLISHED'
+    });
+    await page.goto('/forms/deliverable-srs/edit');
+
+    await expect(page.getByRole('heading', { name: 'Edit form' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Form title' })).toHaveValue('Software Requirements Specification');
+    await expect(page.getByText('Unpublished', { exact: true })).toBeVisible();
+    await expectNoPageOverflow(page);
+
+    await page.getByRole('button', { name: 'Add' }).click();
+    const newLabel = page.getByRole('textbox', { name: 'Field label' }).last();
+    await newLabel.fill('Project Summary');
+    const moveUp = page.getByRole('button', { name: 'Move Project Summary up' });
+    await moveUp.focus();
+    await page.keyboard.press('Enter');
+
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText('Saved');
+    const saveCall = page.apiFixture.calls.find((call) => call.method === 'PUT' && call.path === '/deliverables/deliverable-srs');
+    expect(saveCall.body.status).toBe('UNPUBLISHED');
+    expect(saveCall.body.fields.map((field) => field.label).slice(0, 2)).toEqual(['Project Summary', 'PDF Drive Link']);
+
+    const callsBeforePreview = page.apiFixture.calls.length;
+    await page.getByRole('button', { name: 'Preview', exact: true }).click();
+    const preview = page.getByRole('dialog', { name: 'Student preview' });
+    await expect(preview).toBeVisible();
+    await expect(preview.getByRole('textbox', { name: 'Project Summary' })).toBeVisible();
+    await expect(preview).toContainText('Preview only. Nothing entered here is submitted or sent to review services.');
+    expect(page.apiFixture.calls).toHaveLength(callsBeforePreview);
+    await page.keyboard.press('Escape');
+    await expect(preview).toHaveCount(0);
+
+    await page.screenshot({ path: `test-results/ticket12-form-editor-${viewport.label}.png`, fullPage: true });
+    await expectNoPageOverflow(page);
+
+    await page.getByRole('button', { name: 'Publish', exact: true }).click();
+    await expect(page.getByText('Published', { exact: true })).toBeVisible();
+    const publishCalls = page.apiFixture.calls.filter((call) => call.method === 'PUT' && call.path === '/deliverables/deliverable-srs');
+    expect(publishCalls.at(-1).body.status).toBe('PUBLISHED');
+
+    await page.reload();
+    await expect(page.getByRole('textbox', { name: 'Form title' })).toHaveValue('Software Requirements Specification');
+    await expect(page.getByRole('textbox', { name: 'Field label' }).first()).toHaveValue('Project Summary');
+    await expect(page.getByText('Published', { exact: true })).toBeVisible();
+    await expectNoPageOverflow(page);
+
+    await page.goto('/w/it-it332-2025-26-semester-2/submit/week-9-srs');
+    await expect(page.getByRole('heading', { level: 1, name: 'Software Requirements Specification' })).toBeVisible();
+    await page.getByRole('textbox', { name: 'Project Summary' }).fill('Browser round trip');
+    await page.getByRole('textbox', { name: 'PDF Drive Link' }).fill('https://drive.google.com/file/d/ticket12-browser-pdf/view');
+    await page.getByRole('button', { name: 'Submit response' }).click();
+    await expect(page.getByRole('heading', { name: 'Response received' })).toBeVisible();
+    await expectNoPageOverflow(page);
+  });
+}
 
 test('short desktop pages do not reserve an empty global scrollbar gutter', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });

@@ -3,9 +3,11 @@ package com.capvault.backend.deliverable;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.capvault.backend.response.FormResponseRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,10 +18,19 @@ public class DeliverableService {
 
     private final DeliverableRepository repository;
     private final DeliverableFieldRepository fieldRepository;
+    private final DeliverableFieldOptionRepository optionRepository;
+    private final FormResponseRepository responseRepository;
 
-    public DeliverableService(DeliverableRepository repository, DeliverableFieldRepository fieldRepository) {
+    public DeliverableService(
+        DeliverableRepository repository,
+        DeliverableFieldRepository fieldRepository,
+        DeliverableFieldOptionRepository optionRepository,
+        FormResponseRepository responseRepository
+    ) {
         this.repository = repository;
         this.fieldRepository = fieldRepository;
+        this.optionRepository = optionRepository;
+        this.responseRepository = responseRepository;
     }
 
     @Transactional(readOnly = true)
@@ -60,6 +71,9 @@ public class DeliverableService {
         if (repository.existsByWorkspaceIdAndSlug(workspaceId, slug)) {
             throw new IllegalArgumentException("A deliverable with this slug already exists.");
         }
+        if (request.fields() != null && !request.fields().isEmpty()) {
+            validateFields(request.fields());
+        }
 
         Deliverable deliverable = new Deliverable(
             workspaceId,
@@ -74,26 +88,32 @@ public class DeliverableService {
 
         deliverable = repository.saveAndFlush(deliverable);
         saveFields(deliverable, request.fields(), true);
+        deliverable.touch();
+        deliverable = repository.saveAndFlush(deliverable);
         return response(deliverable);
     }
 
     @Transactional
     public DeliverableResponse updateDeliverable(UUID workspaceId, UUID id, DeliverableRequest request) {
         Deliverable deliverable = findRequired(workspaceId, id);
+        if (request.expectedUpdatedAt() != null && !request.expectedUpdatedAt().equals(deliverable.getUpdatedAt())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "This deliverable changed after you opened it. Reload before saving.");
+        }
         String title = request.title().trim();
-        String slug = normalizeSlug(request.slug(), title);
-        if (repository.existsByWorkspaceIdAndSlugAndIdNot(workspaceId, slug, id)) {
-            throw new IllegalArgumentException("A deliverable with this slug already exists.");
+        String requestedSlug = normalizeNullable(request.slug());
+        if (requestedSlug != null && !normalizeSlug(requestedSlug, title).equals(deliverable.getSlug())) {
+            throw new IllegalArgumentException("A published form slug cannot be changed. Keep the existing form URL.");
         }
 
         deliverable.setTrackerColumnKey(request.trackerColumnKey().trim());
         deliverable.setTitle(title);
-        deliverable.setSlug(slug);
         deliverable.setInstructions(normalizeNullable(request.instructions()));
         deliverable.setDueAt(request.dueAt());
         deliverable.setStatus(request.status() == null ? DeliverableStatus.PUBLISHED : request.status());
-        deliverable = repository.saveAndFlush(deliverable);
         saveFields(deliverable, request.fields(), false);
+        deliverable.touch();
+        deliverable = repository.saveAndFlush(deliverable);
         return response(deliverable);
     }
 
@@ -104,13 +124,24 @@ public class DeliverableService {
             .filter(deliverable -> deliverable.getStatus() == DeliverableStatus.PUBLISHED)
             .peek(deliverable -> deliverable.setStatus(DeliverableStatus.UNPUBLISHED))
             .toList();
-        if (!changed.isEmpty()) repository.saveAll(changed);
+        if (!changed.isEmpty()) repository.saveAllAndFlush(changed);
         return deliverables.stream().map(this::response).toList();
     }
 
     private DeliverableResponse response(Deliverable deliverable) {
         List<DeliverableField> fields = activeOrLegacyFields(deliverable);
-        return DeliverableResponse.from(deliverable, fields);
+        Set<String> persistedIds = fields.stream()
+            .map(DeliverableField::getId)
+            .filter(id -> id != null)
+            .collect(Collectors.toSet());
+        Map<String, List<DeliverableFieldOption>> optionsByField = persistedIds.isEmpty()
+            ? Map.of()
+            : optionRepository.findAllByFieldIdInOrderByFieldIdAscDisplayOrderAscLabelAsc(persistedIds).stream()
+                .collect(Collectors.groupingBy(DeliverableFieldOption::getFieldId, java.util.LinkedHashMap::new, Collectors.toList()));
+        List<DeliverableFieldResponse> fieldResponses = fields.stream()
+            .map(field -> DeliverableFieldResponse.from(field, optionsByField.getOrDefault(field.getId(), List.of())))
+            .toList();
+        return DeliverableResponse.from(deliverable, fieldResponses);
     }
 
     private List<DeliverableField> activeOrLegacyFields(Deliverable deliverable) {
@@ -137,6 +168,7 @@ public class DeliverableService {
         }
 
         validateFields(requested);
+        boolean hasResponses = responseRepository.existsByDeliverableId(deliverable.getId());
         Map<String, DeliverableField> existingById = existing.stream()
             .collect(Collectors.toMap(DeliverableField::getId, item -> item));
         Map<String, DeliverableField> existingByKey = existing.stream()
@@ -158,6 +190,7 @@ public class DeliverableService {
                     deliverable.getId(),
                     key,
                     item.label().trim(),
+                    normalizeNullable(item.helpText()),
                     item.fieldType(),
                     item.required(),
                     index,
@@ -169,22 +202,92 @@ public class DeliverableService {
                 if (!field.getFieldKey().equals(key)) {
                     throw new IllegalArgumentException("A field key cannot be changed after publication. Rename the label instead.");
                 }
-                field.update(item.label().trim(), item.fieldType(), item.required(), index,
+                if (hasResponses && field.getFieldType() != item.fieldType()) {
+                    throw new IllegalArgumentException(
+                        "A submission field type cannot be changed after responses exist. Retire it and add a new field instead.");
+                }
+                field.update(item.label().trim(), normalizeNullable(item.helpText()), item.fieldType(), item.required(), index,
                     item.documentCheckPolicy(), item.aiReviewEnabled(), item.active());
             }
             retainedIds.add(field.getId());
-            fieldRepository.save(field);
+            fieldRepository.saveAndFlush(field);
+            syncOptions(field, item.options(), hasResponses);
         }
 
         for (DeliverableField old : existing) {
             if (!retainedIds.contains(old.getId()) && old.isActive()) {
-                old.update(old.getLabel(), old.getFieldType(), old.isRequired(), old.getDisplayOrder(),
+                old.update(old.getLabel(), old.getHelpText(), old.getFieldType(), old.isRequired(), old.getDisplayOrder(),
                     old.getDocumentCheckPolicy(), old.isAiReviewEnabled(), false);
                 fieldRepository.save(old);
             }
         }
         deliverable.setPdfRequired(requested.stream().anyMatch(item -> item.active() && item.fieldType() == DeliverableFieldType.DRIVE_PDF));
         repository.save(deliverable);
+    }
+
+    private void syncOptions(DeliverableField field, List<DeliverableFieldOptionRequest> requested, boolean hasResponses) {
+        List<DeliverableFieldOptionRequest> safeRequested = requested == null ? List.of() : requested;
+        List<DeliverableFieldOption> existing = optionRepository.findAllByFieldIdOrderByDisplayOrderAscLabelAsc(field.getId());
+
+        if (!field.getFieldType().isChoice()) {
+            if (!existing.isEmpty()) {
+                if (hasResponses) {
+                    throw new IllegalArgumentException(
+                        "Choice options cannot be removed from a field after responses exist.");
+                }
+                optionRepository.deleteAll(existing);
+            }
+            return;
+        }
+
+        Map<String, DeliverableFieldOption> existingById = existing.stream()
+            .collect(Collectors.toMap(DeliverableFieldOption::getId, option -> option));
+        if (hasResponses) validateCompatibleOptions(existing, safeRequested);
+        Set<String> retained = new java.util.HashSet<>();
+
+        for (int index = 0; index < safeRequested.size(); index++) {
+            DeliverableFieldOptionRequest item = safeRequested.get(index);
+            String requestedId = normalizeNullable(item.id());
+            DeliverableFieldOption option = requestedId == null ? null : existingById.get(requestedId);
+            if (requestedId != null && option == null) {
+                if (optionRepository.existsById(requestedId)) {
+                    throw new IllegalArgumentException("Choice option ID does not belong to this field.");
+                }
+                // Unknown client-local IDs are only draft identities. Persist a server-generated stable ID.
+                requestedId = null;
+            }
+            if (option == null) {
+                option = new DeliverableFieldOption(
+                    UUID.randomUUID().toString(), field.getId(), item.label().trim(), index);
+            } else {
+                option.update(item.label().trim(), index);
+            }
+            retained.add(option.getId());
+            optionRepository.save(option);
+        }
+
+        if (!hasResponses) {
+            List<DeliverableFieldOption> removed = existing.stream()
+                .filter(option -> !retained.contains(option.getId()))
+                .toList();
+            if (!removed.isEmpty()) optionRepository.deleteAll(removed);
+        }
+    }
+
+    private void validateCompatibleOptions(
+        List<DeliverableFieldOption> existing,
+        List<DeliverableFieldOptionRequest> requested
+    ) {
+        Map<String, DeliverableFieldOptionRequest> requestedById = requested.stream()
+            .filter(option -> normalizeNullable(option.id()) != null)
+            .collect(Collectors.toMap(option -> option.id().trim(), option -> option));
+        for (DeliverableFieldOption option : existing) {
+            DeliverableFieldOptionRequest next = requestedById.get(option.getId());
+            if (next == null || !option.getLabel().equals(next.label().trim())) {
+                throw new IllegalArgumentException(
+                    "Existing choice option IDs and labels cannot be removed or changed after responses exist.");
+            }
+        }
     }
 
     private void validateFields(List<DeliverableFieldRequest> fields) {
@@ -203,8 +306,27 @@ public class DeliverableService {
             if (!pdf && field.aiReviewEnabled()) {
                 throw new IllegalArgumentException("AI Review is only available for Google Drive PDF fields.");
             }
-            if (field.aiReviewEnabled() && field.documentCheckPolicy() == DocumentCheckPolicy.OFF) {
-                throw new IllegalArgumentException("AI Review requires Document Check to be enabled for that PDF field.");
+            List<DeliverableFieldOptionRequest> options = field.options() == null ? List.of() : field.options();
+            if (!field.fieldType().isChoice() && !options.isEmpty()) {
+                throw new IllegalArgumentException("Choice options are only allowed for dropdown, multiple-choice, or checkbox fields.");
+            }
+            if (field.fieldType().isChoice()) {
+                if (options.isEmpty()) {
+                    throw new IllegalArgumentException("Choice fields require at least one option.");
+                }
+                Set<String> optionIds = new java.util.HashSet<>();
+                Set<String> optionLabels = new java.util.HashSet<>();
+                for (DeliverableFieldOptionRequest option : options) {
+                    String optionId = normalizeNullable(option.id());
+                    if (optionId != null && !optionIds.add(optionId)) {
+                        throw new IllegalArgumentException("Choice option IDs must be unique within a field.");
+                    }
+                    String label = option.label() == null ? "" : option.label().trim();
+                    if (label.isBlank()) throw new IllegalArgumentException("Choice option labels cannot be blank.");
+                    if (!optionLabels.add(label.toLowerCase(Locale.ROOT))) {
+                        throw new IllegalArgumentException("Choice option labels must be unique within a field.");
+                    }
+                }
             }
         }
     }

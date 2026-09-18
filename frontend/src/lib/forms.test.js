@@ -1,40 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { buildDeliverableFormPayload, makeDeliverableFormDraft } from './forms.js';
+import { academicFieldSuggestions, duplicateField } from './forms.js';
 
-const state = {
-  trackerColumns: [
-    { key: 'SRS', label: 'SRS', pdfRequired: true },
-    { key: 'SourceCode', label: 'Source Code', pdfRequired: false }
-  ]
-};
-
-describe('deliverable form domain', () => {
-  it('creates a mapped draft due at 11:59 PM without assigning an identity early', () => {
-    expect(makeDeliverableFormDraft(state, 'SRS', new Date(2026, 7, 19, 10, 0))).toMatchObject({
-      id: '',
-      slug: '',
-      trackerColumn: 'SRS',
-      title: 'SRS Submission',
-      dueAt: '2026-08-19T23:59',
-      pdfRequired: true
-    });
+describe('form editor suggestions and identity', () => {
+  it('suggests Section only when current roster data contains a section', () => {
+    expect(academicFieldSuggestions([{ studentNumber: '1', section: '' }]).map((field) => field.type))
+      .toEqual(['academicStudentNumber', 'academicStudentName', 'academicTeamCode']);
+    expect(academicFieldSuggestions([{ studentNumber: '1', section: 'G7' }]).map((field) => field.type))
+      .toEqual(['academicStudentNumber', 'academicStudentName', 'academicTeamCode', 'academicSection']);
   });
 
-  it('builds the persisted submission fields and preserves an existing form identity', () => {
-    expect(buildDeliverableFormPayload(state, {
-      id: 'deliverable-srs',
-      slug: 'week-9-srs',
-      trackerColumn: 'SRS',
-      title: 'Revised SRS',
-      dueAt: '2026-08-19T23:59',
-      pdfRequired: true
-    })).toMatchObject({
-      id: 'deliverable-srs',
-      slug: 'week-9-srs',
-      audience: 'Students',
-      status: 'Published',
-      dueAt: '2026-08-19T23:59:00+08:00',
-      fields: [{ id: 'documentPdf', pdfRequired: true }]
+  it('duplicates a persisted choice question without reusing server field or option identities', () => {
+    const copy = duplicateField({
+      id: 'scope',
+      definitionId: 'field-scope',
+      label: 'Scope',
+      type: 'dropdown',
+      active: true,
+      options: [{ id: 'option-1', label: 'Campus' }, { id: 'option-2', label: 'Community' }]
     });
+
+    expect(copy.id).not.toBe('scope');
+    expect(copy.definitionId).toBeNull();
+    expect(copy.options).toHaveLength(2);
+    expect(copy.options.every((option) => option.id === null)).toBe(true);
+    expect(new Set(copy.options.map((option) => option._localKey)).size).toBe(2);
   });
 });

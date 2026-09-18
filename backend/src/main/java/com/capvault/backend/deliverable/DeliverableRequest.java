@@ -30,6 +30,20 @@ public record DeliverableRequest(
 
     DeliverableStatus status,
 
-    List<@Valid DeliverableFieldRequest> fields
+    List<@Valid DeliverableFieldRequest> fields,
+
+    LocalDateTime expectedUpdatedAt
 ) {
+    public DeliverableRequest(
+        String trackerColumnKey,
+        String title,
+        String slug,
+        String instructions,
+        LocalDateTime dueAt,
+        boolean pdfRequired,
+        DeliverableStatus status,
+        List<DeliverableFieldRequest> fields
+    ) {
+        this(trackerColumnKey, title, slug, instructions, dueAt, pdfRequired, status, fields, null);
+    }
 }

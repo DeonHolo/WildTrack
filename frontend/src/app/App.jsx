@@ -8,6 +8,7 @@ import { RoleBoundary } from './RoleBoundary.jsx';
 import { ArchivePage } from '../pages/ArchivePage.jsx';
 import { AdviserViewPage } from '../pages/AdviserViewPage.jsx';
 import { CommandCenterPage } from '../pages/CommandCenterPage.jsx';
+import { FormEditorPage } from '../pages/FormEditorPage.jsx';
 import { FormsPage } from '../pages/FormsPage.jsx';
 import { PublicSubmissionPage } from '../pages/PublicSubmissionPage.jsx';
 import { RegisterPage } from '../pages/RegisterPage.jsx';
@@ -37,6 +38,16 @@ export default function App() {
         <Route path="/forms" element={(
           <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
             <StaffApplicationShell><FormsPage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/forms/new" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+            <StaffApplicationShell><FormEditorPage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/forms/:formId/edit" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+            <StaffApplicationShell><FormEditorPage /></StaffApplicationShell>
           </RoleBoundary>
         )} />
         <Route path="/tracker" element={(

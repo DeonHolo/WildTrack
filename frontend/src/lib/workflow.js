@@ -264,12 +264,30 @@ export function validateSubmission({ deliverable, values }) {
   const flags = ['Received'];
 
   for (const field of deliverable.fields) {
-    const value = String(values[field.id] || '').trim();
-    if (field.required && !value) {
+    if (field.type?.startsWith('academic')) continue;
+    const rawValue = values[field.id];
+    const isCheckboxes = field.type === 'checkboxes';
+    const value = isCheckboxes ? rawValue : String(rawValue || '').trim();
+    const missing = isCheckboxes ? !Array.isArray(value) || value.length === 0 : !value;
+    if (field.required && missing) {
       errors[field.id] = `${field.label} is required.`;
       continue;
     }
-    if (!value || field.type === 'textarea') continue;
+    if (missing) continue;
+
+    if (field.type === 'shortText' || field.type === 'textarea') continue;
+    if (field.type === 'dropdown' || field.type === 'multipleChoice') {
+      const allowed = new Set((field.options || []).map((option) => option.id));
+      if (!allowed.has(value)) errors[field.id] = `Choose a valid option for ${field.label}.`;
+      continue;
+    }
+    if (field.type === 'checkboxes') {
+      const allowed = new Set((field.options || []).map((option) => option.id));
+      if (!Array.isArray(value) || new Set(value).size !== value.length || value.some((optionId) => !allowed.has(optionId))) {
+        errors[field.id] = `Choose valid options for ${field.label}.`;
+      }
+      continue;
+    }
 
     const linkError = validateUrl(value);
     if (linkError) {
@@ -304,6 +322,42 @@ export function validateSubmission({ deliverable, values }) {
     errors,
     flags
   };
+}
+
+export function validateSubmissionIdentity({ deliverable, identity = {}, student = null }) {
+  const fields = (deliverable?.fields || []).filter((field) => field.active !== false);
+  const academicFields = fields.filter((field) => String(field.type || '').startsWith('academic'));
+  const configuredAcademicIdentity = academicFields.length > 0;
+  const errors = {};
+
+  if (!String(identity.studentNumber || '').trim()) {
+    errors.studentNumber = 'Choose a Student Number.';
+  }
+
+  if (!configuredAcademicIdentity) {
+    if (!String(identity.studentName || '').trim()) errors.studentName = 'Choose a Student Name.';
+    if (!String(identity.teamCode || '').trim()) errors.teamCode = 'Choose a Team Code.';
+    return errors;
+  }
+
+  const requiredTypes = new Set(academicFields.filter((field) => field.required === true).map((field) => field.type));
+  if (requiredTypes.has('academicStudentName') && !String(student?.name || '').trim()) {
+    errors.studentName = 'Student Name is required for this form.';
+  }
+  if (requiredTypes.has('academicTeamCode') && !String(student?.teamCode || '').trim()) {
+    errors.teamCode = 'Team Code is required for this form.';
+  }
+  if (requiredTypes.has('academicSection') && !String(student?.section || '').trim()) {
+    errors.section = 'Section is required for this form.';
+  }
+  return errors;
+}
+
+export function activeSubmissionValues(deliverable, values = {}) {
+  const allowed = new Set((deliverable?.fields || [])
+    .filter((field) => field.active !== false && !field.type?.startsWith('academic'))
+    .map((field) => field.id));
+  return Object.fromEntries(Object.entries(values || {}).filter(([key]) => allowed.has(key)));
 }
 
 export function validateUrl(value) {

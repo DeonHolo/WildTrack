@@ -1,6 +1,7 @@
 package com.capvault.backend.deliverable;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
@@ -75,7 +76,7 @@ public class Deliverable {
 
     @PrePersist
     void prePersist() {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = now();
         if (id == null) {
             id = UUID.randomUUID();
         }
@@ -87,7 +88,7 @@ public class Deliverable {
 
     @PreUpdate
     void preUpdate() {
-        updatedAt = LocalDateTime.now();
+        updatedAt = nextTimestamp(updatedAt);
     }
 
     public UUID getId() {
@@ -160,5 +161,20 @@ public class Deliverable {
 
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    public void touch() {
+        updatedAt = nextTimestamp(updatedAt);
+    }
+
+    private static LocalDateTime now() {
+        return LocalDateTime.now().truncatedTo(ChronoUnit.MILLIS);
+    }
+
+    private static LocalDateTime nextTimestamp(LocalDateTime current) {
+        LocalDateTime candidate = now();
+        return current != null && !candidate.isAfter(current)
+            ? current.plus(1, ChronoUnit.MILLIS)
+            : candidate;
     }
 }
