@@ -374,6 +374,31 @@ for (const viewport of editorViewports) {
     await expect(page.getByText('Unpublished', { exact: true })).toBeVisible();
     await expectNoPageOverflow(page);
 
+    const actionRail = page.locator('.wt-form-editor-action-rail');
+    await expect(actionRail).toBeVisible();
+    if (viewport.label === 'desktop') {
+      const railAlignment = await page.evaluate(() => {
+        const rail = document.querySelector('.wt-form-editor-action-rail');
+        const status = document.querySelector('.wt-form-editor-status-card');
+        const railBox = rail.getBoundingClientRect();
+        const statusBox = status.getBoundingClientRect();
+        return {
+          centerDelta: Math.abs((railBox.left + railBox.width / 2) - (statusBox.left + statusBox.width / 2)),
+          boxSizing: getComputedStyle(rail).boxSizing
+        };
+      });
+      expect(railAlignment.centerDelta).toBeLessThanOrEqual(1);
+      expect(railAlignment.boxSizing).toBe('border-box');
+    }
+
+    const pdfCard = page.getByRole('textbox', { name: 'Field label' }).last().locator('xpath=ancestor::*[contains(@class,"wt-question-card")]');
+    await pdfCard.getByRole('textbox', { name: 'Field type' }).click();
+    const fieldTypeDropdown = page.locator('.wt-field-type-dropdown:visible');
+    await expect(fieldTypeDropdown).toBeVisible();
+    expect(await fieldTypeDropdown.evaluate((node) => getComputedStyle(node).paddingBottom)).toBe('0px');
+    await page.keyboard.press('Escape');
+
+    await pdfCard.getByRole('textbox', { name: 'Field label' }).click();
     await page.getByRole('button', { name: 'Add question' }).click();
     const newLabel = page.getByRole('textbox', { name: 'Field label' }).last();
     await newLabel.fill('Project Summary');
@@ -385,7 +410,7 @@ for (const viewport of editorViewports) {
     await expect(page.getByRole('status')).toContainText('Saved');
     const saveCall = page.apiFixture.calls.find((call) => call.method === 'PUT' && call.path === '/deliverables/deliverable-srs');
     expect(saveCall.body.status).toBe('UNPUBLISHED');
-    expect(saveCall.body.fields.map((field) => field.label).slice(0, 2)).toEqual(['Project Summary', 'PDF Drive Link']);
+    expect(saveCall.body.fields.map((field) => field.label).slice(-2)).toEqual(['Project Summary', 'PDF Drive Link']);
 
     const callsBeforePreview = page.apiFixture.calls.length;
     await page.getByRole('button', { name: 'Preview', exact: true }).click();
@@ -407,7 +432,8 @@ for (const viewport of editorViewports) {
 
     await page.reload();
     await expect(page.getByRole('textbox', { name: 'Form title' })).toHaveValue('Software Requirements Specification');
-    await expect(page.getByRole('textbox', { name: 'Field label' }).first()).toHaveValue('Project Summary');
+    const reloadedLabels = await page.getByRole('textbox', { name: 'Field label' }).evaluateAll((inputs) => inputs.map((input) => input.value));
+    expect(reloadedLabels.slice(-2)).toEqual(['Project Summary', 'PDF Drive Link']);
     await expect(page.getByText('Published', { exact: true })).toBeVisible();
     await expectNoPageOverflow(page);
 

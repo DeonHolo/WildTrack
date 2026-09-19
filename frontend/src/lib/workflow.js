@@ -264,7 +264,7 @@ export function validateSubmission({ deliverable, values }) {
   const flags = ['Received'];
 
   for (const field of deliverable.fields) {
-    if (field.type?.startsWith('academic')) continue;
+    if (field.type?.startsWith('academic') && field.type !== 'academicSection') continue;
     const rawValue = values[field.id];
     const isCheckboxes = field.type === 'checkboxes';
     const value = isCheckboxes ? rawValue : String(rawValue || '').trim();
@@ -275,7 +275,7 @@ export function validateSubmission({ deliverable, values }) {
     }
     if (missing) continue;
 
-    if (field.type === 'shortText' || field.type === 'textarea') continue;
+    if (field.type === 'shortText' || field.type === 'textarea' || field.type === 'academicSection') continue;
     if (field.type === 'dropdown' || field.type === 'multipleChoice') {
       const allowed = new Set((field.options || []).map((option) => option.id));
       if (!allowed.has(value)) errors[field.id] = `Choose a valid option for ${field.label}.`;
@@ -324,7 +324,7 @@ export function validateSubmission({ deliverable, values }) {
   };
 }
 
-export function validateSubmissionIdentity({ deliverable, identity = {}, student = null }) {
+export function validateSubmissionIdentity({ deliverable, identity = {}, student = null, values = {} }) {
   const fields = (deliverable?.fields || []).filter((field) => field.active !== false);
   const academicFields = fields.filter((field) => String(field.type || '').startsWith('academic'));
   const configuredAcademicIdentity = academicFields.length > 0;
@@ -337,6 +337,14 @@ export function validateSubmissionIdentity({ deliverable, identity = {}, student
   if (!configuredAcademicIdentity) {
     if (!String(identity.studentName || '').trim()) errors.studentName = 'Choose a Student Name.';
     if (!String(identity.teamCode || '').trim()) errors.teamCode = 'Choose a Team Code.';
+    if (student && String(identity.studentName || '').trim()
+        && String(identity.studentName || '').trim() !== String(student.name || '').trim()) {
+      errors.studentName = 'Student Name must match the selected Student Number.';
+    }
+    if (student && String(identity.teamCode || '').trim()
+        && String(identity.teamCode || '').trim() !== String(student.teamCode || '').trim()) {
+      errors.teamCode = 'Team Code must match the selected Student Number.';
+    }
     return errors;
   }
 
@@ -347,17 +355,28 @@ export function validateSubmissionIdentity({ deliverable, identity = {}, student
   if (requiredTypes.has('academicTeamCode') && !String(student?.teamCode || '').trim()) {
     errors.teamCode = 'Team Code is required for this form.';
   }
-  if (requiredTypes.has('academicSection') && !String(student?.section || '').trim()) {
-    errors.section = 'Section is required for this form.';
+  if (requiredTypes.has('academicSection')) {
+    const sectionField = academicFields.find((field) => field.type === 'academicSection');
+    const sectionValue = sectionField && Object.hasOwn(values, sectionField.id)
+      ? values[sectionField.id]
+      : student?.section;
+    if (!String(sectionValue || '').trim()) errors.section = 'Section is required for this form.';
   }
   return errors;
 }
 
-export function activeSubmissionValues(deliverable, values = {}) {
-  const allowed = new Set((deliverable?.fields || [])
-    .filter((field) => field.active !== false && !field.type?.startsWith('academic'))
+export function activeSubmissionValues(deliverable, values = {}, student = null) {
+  const fields = (deliverable?.fields || []).filter((field) => field.active !== false);
+  const allowed = new Set(fields
+    .filter((field) => !field.type?.startsWith('academic') || field.type === 'academicSection')
     .map((field) => field.id));
-  return Object.fromEntries(Object.entries(values || {}).filter(([key]) => allowed.has(key)));
+  const active = Object.fromEntries(Object.entries(values || {}).filter(([key]) => allowed.has(key)));
+  for (const field of fields.filter((item) => item.type === 'academicSection')) {
+    if (!Object.hasOwn(active, field.id) && String(student?.section || '').trim()) {
+      active[field.id] = student.section;
+    }
+  }
+  return active;
 }
 
 export function validateUrl(value) {

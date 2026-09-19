@@ -322,7 +322,7 @@ export function PublicSubmissionPage() {
     let cancelled = false;
     setDraftStatus('saving');
     const timer = setTimeout(() => {
-      saveSubmissionDraft(activeWorkspaceId, deliverable.id, activeSubmissionValues(deliverable, values), draftRevisionRef.current)
+      saveSubmissionDraft(activeWorkspaceId, deliverable.id, activeSubmissionValues(deliverable, values, student), draftRevisionRef.current)
         .then((saved) => {
           if (cancelled) return;
           if (saved.conflict) {
@@ -342,7 +342,7 @@ export function PublicSubmissionPage() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [activeWorkspaceId, deliverable?.id, privateReady, valuesEdited, submitting, result, values]);
+  }, [activeWorkspaceId, deliverable?.id, privateReady, valuesEdited, submitting, result, student, values]);
 
   function updateField(id, value) {
     if (!activeAccount || accessDenied || submitting) return;
@@ -387,7 +387,8 @@ export function PublicSubmissionPage() {
       setFormError('Continue with Google before submitting this form.');
       return;
     }
-    const nextIdentityErrors = validateSubmissionIdentity({ deliverable, identity, student });
+    const submittedValues = activeSubmissionValues(deliverable, values, student);
+    const nextIdentityErrors = validateSubmissionIdentity({ deliverable, identity, student, values: submittedValues });
     if (Object.values(nextIdentityErrors).some(Boolean)) {
       setIdentityErrors(nextIdentityErrors);
       setFormError(identity.studentNumber.trim()
@@ -400,7 +401,7 @@ export function PublicSubmissionPage() {
       setFormError('Choose a Student Number from this workspace\'s class record.');
       return;
     }
-    const validation = validateSubmission({ deliverable, values });
+    const validation = validateSubmission({ deliverable, values: submittedValues });
     if (!validation.ok) {
       setFieldErrors(validation.errors);
       setFormError('Review the required submission fields and try again.');
@@ -413,7 +414,6 @@ export function PublicSubmissionPage() {
         if (submittingScope !== privateScope.current) return;
         setServerAssociation(association || null);
       }
-      const submittedValues = activeSubmissionValues(deliverable, values);
       const saved = await commitSubmission(activeWorkspaceId, deliverable.id, submittedValues, myServerResponse?.revision ?? null);
       if (submittingScope !== privateScope.current) return;
       if (saved.conflict) {
@@ -430,7 +430,7 @@ export function PublicSubmissionPage() {
         updated: saved.changed && Boolean(myServerResponse),
         unchanged: !saved.changed,
         attempt: { values: submittedValues, primaryStatus: 'Submitted', reviewStatus: 'PENDING_REVIEW' },
-        student: { name: identity.studentName, studentNumber: identity.studentNumber, teamCode: identity.teamCode },
+        student: { name: student.name, studentNumber: student.studentNumber, teamCode: student.teamCode },
         deliverable: { title: deliverable.title || '', shortTitle: deliverable.shortTitle || deliverable.title || '' },
         trackerSync: null
       });

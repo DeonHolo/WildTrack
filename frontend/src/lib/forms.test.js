@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { academicFieldSuggestions, duplicateField, mergeAcademicSuggestions } from './forms.js';
+import { academicFieldSuggestions, applyAcademicSuggestionReview, duplicateField, mergeAcademicSuggestions } from './forms.js';
 
 describe('form editor suggestions and identity', () => {
-  it('suggests Section only when current roster data contains a section', () => {
+  it('always offers Section as an academic suggestion', () => {
     expect(academicFieldSuggestions([{ studentNumber: '1', section: '' }]).map((field) => field.type))
-      .toEqual(['academicStudentNumber', 'academicStudentName', 'academicTeamCode']);
+      .toEqual(['academicStudentNumber', 'academicStudentName', 'academicTeamCode', 'academicSection']);
     expect(academicFieldSuggestions([{ studentNumber: '1', section: 'G7' }]).map((field) => field.type))
       .toEqual(['academicStudentNumber', 'academicStudentName', 'academicTeamCode', 'academicSection']);
   });
@@ -42,5 +42,28 @@ describe('form editor suggestions and identity', () => {
       'shortText'
     ]);
     expect(merged[merged.length - 1].active).toBe(false);
+  });
+
+  it('applies reviewed academic selection/order while soft-retiring persisted deselections', () => {
+    const fields = [
+      { id: 'student', definitionId: 'def-student', label: 'Student Number', type: 'academicStudentNumber', active: true },
+      { id: 'team', definitionId: 'def-team', label: 'Team Code', type: 'academicTeamCode', active: true },
+      { id: 'pdf', definitionId: 'def-pdf', label: 'SRS PDF', type: 'drive', active: true },
+      { id: 'old', definitionId: 'def-old', label: 'Old field', type: 'shortText', active: false }
+    ];
+    const reviewed = applyAcademicSuggestionReview(
+      fields,
+      ['academicStudentNumber', 'academicSection', 'academicStudentName', 'academicTeamCode'],
+      ['academicStudentNumber', 'academicSection', 'academicStudentName']
+    );
+
+    expect(reviewed.filter((field) => field.active !== false).map((field) => field.type)).toEqual([
+      'academicStudentNumber',
+      'academicSection',
+      'academicStudentName',
+      'drive'
+    ]);
+    expect(reviewed.find((field) => field.id === 'team')).toMatchObject({ definitionId: 'def-team', active: false });
+    expect(reviewed[reviewed.length - 1]).toMatchObject({ id: 'old', active: false });
   });
 });

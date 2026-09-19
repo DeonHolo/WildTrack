@@ -112,6 +112,16 @@ describe('full-page form editor', () => {
     })));
   });
 
+  it('hydrates existing generated forms with academic fields without marking the draft dirty', async () => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+
+    const labels = screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value);
+    expect(labels.slice(0, 4)).toEqual(['Student Number', 'Student Name', 'Team Code', 'Section']);
+    expect(screen.getByRole('status')).toHaveTextContent('No unsaved changes');
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  });
+
   it('keeps the dirty draft after a stale save and guards sidebar-style in-app navigation', async () => {
     submissionClient.saveDeliverable.mockRejectedValueOnce(Object.assign(new Error('Conflict'), { status: 409 }));
     renderEditor('/forms/form-srs/edit');
@@ -173,6 +183,21 @@ describe('full-page form editor', () => {
     expect(screen.getAllByText('Section 1 of 1').length).toBeGreaterThan(0);
   });
 
+  it('adds a question directly below the selected question, selects it, and scrolls it into view', async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+
+    fireEvent.click(screen.getByDisplayValue('Framework PDF'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add question' }));
+
+    const labels = screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value);
+    expect(labels.indexOf('New question')).toBe(labels.indexOf('Framework PDF') + 1);
+    expect(screen.getByDisplayValue('New question').closest('.wt-question-card')).toHaveClass('is-selected');
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
+  });
+
   it('renders the saved public URL as a real link', async () => {
     renderEditor('/forms/form-srs/edit');
     await screen.findByDisplayValue('SRS Submission');
@@ -181,11 +206,11 @@ describe('full-page form editor', () => {
     expect(link).toHaveAttribute('target', '_blank');
   });
 
-  it('reorders questions from the drag handle while keeping arrow controls as a fallback', async () => {
+  it('reorders downward from the native drag handle while keeping arrow controls as a fallback', async () => {
     renderEditor('/forms/form-srs/edit');
     await screen.findByDisplayValue('SRS Submission');
-    const sourceHandle = screen.getByRole('button', { name: 'Drag Scope' });
-    const targetHandle = screen.getByRole('button', { name: 'Drag Framework PDF' });
+    const sourceHandle = screen.getByRole('button', { name: 'Drag Framework PDF' });
+    const targetHandle = screen.getByRole('button', { name: 'Drag Scope' });
     const targetCard = targetHandle.closest('.wt-question-card');
     fireEvent.dragStart(sourceHandle, { dataTransfer: { effectAllowed: 'move' } });
     fireEvent.dragOver(targetCard);
@@ -197,7 +222,54 @@ describe('full-page form editor', () => {
     const activeOrder = submissionClient.saveDeliverable.mock.calls[0][1].fields
       .filter((field) => field.active !== false)
       .map((field) => field.id);
-    expect(activeOrder).toEqual(['studentNumber', 'scope', 'framework']);
+    expect(activeOrder).toEqual(['studentNumber', 'studentName', 'teamCode', 'section', 'scope', 'framework']);
+  });
+
+  it('reviews academic suggestions before applying selection and order, with Student Number locked', async () => {
+    const data = state();
+    data.deliverables[0].fields.splice(1, 0, {
+      id: 'teamCode', definitionId: 'field-team-code', label: 'Team Code', helpText: '', type: 'academicTeamCode', required: true, active: true, options: []
+    });
+    formsClient.loadFormsState.mockResolvedValueOnce(data);
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh academic suggestions' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review academic fields' });
+    expect(within(dialog).getByRole('checkbox', { name: 'Student Number' })).toBeChecked();
+    expect(within(dialog).getByRole('checkbox', { name: 'Student Number' })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Team Code' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move Section up' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move Section up' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+
+    const labels = screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value);
+    expect(labels.slice(0, 3)).toEqual(['Student Number', 'Section', 'Student Name']);
+    expect(labels).not.toContain('Team Code');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalled());
+    expect(submissionClient.saveDeliverable.mock.calls[0][1].fields.find((field) => field.id === 'teamCode'))
+      .toMatchObject({ definitionId: 'field-team-code', active: false });
+  });
+
+  it('cancels academic suggestion review without mutating the draft', async () => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh academic suggestions' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review academic fields' });
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Section' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getAllByRole('textbox', { name: 'Field label' }).some((input) => input.value === 'Section')).toBe(true);
+    expect(screen.getByRole('status')).toHaveTextContent('No unsaved changes');
+  });
+
+  it('uses the compact Field Type dropdown surface without the default bottom padding gap', async () => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    const frameworkCard = screen.getByDisplayValue('Framework PDF').closest('.wt-question-card');
+    fireEvent.click(within(frameworkCard).getByRole('textbox', { name: 'Field type' }));
+    await waitFor(() => expect(document.querySelector('.wt-field-type-dropdown')).toBeInTheDocument());
   });
 
   it('keeps Student Number as a single non-duplicable identity anchor', async () => {

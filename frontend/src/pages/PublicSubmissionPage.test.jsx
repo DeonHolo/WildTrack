@@ -148,6 +148,7 @@ describe('public submission form', () => {
   });
 
   beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
     localStorage.clear();
     workflow.state = createState();
     setServerSession();
@@ -531,7 +532,7 @@ describe('public submission form', () => {
     }, 2));
   });
 
-  it('renders configured academic identity, text, single-choice, and checkbox questions without submitting academic fields as response values', async () => {
+  it('renders configured academic identity and persists editable Section while keeping roster identity out of response values', async () => {
     api.getRosterOptions.mockResolvedValueOnce([{
       id: 'student-1',
       studentNumber: '22-1001-001',
@@ -589,6 +590,7 @@ describe('public submission form', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
 
     await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
+      sectionPresentation: 'G7',
       summary: 'Validated locally',
       scope: 'scope-campus',
       readiness: 'ready',
@@ -640,7 +642,7 @@ describe('public submission form', () => {
     }, null));
   });
 
-  it('blocks a configured required academic field when the matched roster record lacks that value', async () => {
+  it('accepts a manually entered required Section when the roster record has no section', async () => {
     api.getRosterOptions.mockResolvedValueOnce([{
       id: 'student-no-section',
       studentNumber: '22-1001-001',
@@ -657,7 +659,7 @@ describe('public submission form', () => {
         trackerColumnKey: 'SRS',
         title: 'Required roster section',
         slug: 'week-9-srs',
-        instructions: 'Section comes from the matched roster record.',
+        instructions: 'Enter the section when it is missing from the class record.',
         dueAt: '2026-04-18T23:59:00',
         pdfRequired: false,
         status: 'PUBLISHED',
@@ -673,11 +675,62 @@ describe('public submission form', () => {
     const number = await screen.findByRole('textbox', { name: /School ID/i });
     await userEvent.click(number);
     fireEvent.click(await screen.findByRole('option', { name: '22-1001-001' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Summary' }), { target: { value: 'Section must come from roster' } });
+    const section = screen.getByRole('textbox', { name: /Class Section/i });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Summary' }), { target: { value: 'Section entered manually' } });
     fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
 
     expect(await screen.findByText('Section is required for this form.')).toBeInTheDocument();
+    expect(section).toHaveAttribute('aria-invalid', 'true');
     expect(api.submitResponse).not.toHaveBeenCalled();
+
+    fireEvent.change(section, { target: { value: 'G7' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
+
+    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
+      sectionPresentation: 'G7',
+      summary: 'Section entered manually'
+    }, null));
+  });
+
+  it('uses Team Code as a searchable roster filter and clears an incompatible selected student', async () => {
+    api.getPublicSubmissionForm.mockResolvedValue({
+      workspace: workspaceSession.activeWorkspace,
+      deliverable: {
+        id: 'deliv-srs',
+        trackerColumnKey: 'SRS',
+        title: 'Academic identity form',
+        slug: 'week-9-srs',
+        instructions: 'Choose the matching roster identity.',
+        dueAt: '2026-04-18T23:59:00',
+        pdfRequired: false,
+        status: 'PUBLISHED',
+        fields: [
+          { id: 'identity-number', fieldKey: 'studentNumberPresentation', label: 'Student Number', fieldType: 'ACADEMIC_STUDENT_NUMBER', required: true, active: true, options: [] },
+          { id: 'identity-name', fieldKey: 'studentNamePresentation', label: 'Student Name', fieldType: 'ACADEMIC_STUDENT_NAME', required: true, active: true, options: [] },
+          { id: 'identity-team', fieldKey: 'teamPresentation', label: 'Team Code', fieldType: 'ACADEMIC_TEAM_CODE', required: true, active: true, options: [] },
+          { id: 'short-field', fieldKey: 'summary', label: 'Summary', fieldType: 'SHORT_TEXT', required: true, active: true, options: [] }
+        ]
+      }
+    });
+    renderForm();
+
+    const team = await screen.findByRole('textbox', { name: /Team Code/i });
+    await userEvent.click(team);
+    fireEvent.click(await screen.findByRole('option', { name: '2526-sem2-it332-12' }));
+
+    const number = screen.getByRole('textbox', { name: /Student Number/i });
+    await userEvent.click(number);
+    expect(await screen.findByRole('option', { name: '22-1002-002' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: '22-1001-001' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: '22-1002-002' }));
+    expect(screen.getByRole('textbox', { name: /Student Name/i })).toHaveValue('SANTOS, MARIA L.');
+    expect(team).toHaveValue('2526-sem2-it332-12');
+
+    await userEvent.click(team);
+    fireEvent.click(await screen.findByRole('option', { name: '2526-sem2-it332-11' }));
+    expect(number).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: /Student Name/i })).toHaveValue('');
+    expect(team).toHaveValue('2526-sem2-it332-11');
   });
 
   it('shows each identity result as only the value belonging to that field', async () => {
@@ -701,6 +754,19 @@ describe('public submission form', () => {
     expect(screen.getByRole('combobox', { name: /Student Number/i })).toHaveValue('22-1001-001');
     expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
     expect(screen.getByRole('combobox', { name: /Team Code/i })).toHaveValue('2526-sem2-it332-11');
+  });
+
+  it('clears a legacy selected student when Team Code is edited away from the roster match', async () => {
+    renderForm();
+    await selectStudent();
+
+    const team = screen.getByRole('combobox', { name: /Team Code/i });
+    await userEvent.clear(team);
+    await userEvent.type(team, '2526-sem2-it332-12');
+
+    expect(screen.getByRole('combobox', { name: /Student Number/i })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('');
+    expect(team).toHaveValue('2526-sem2-it332-12');
   });
 
   it('keeps all three identity fields required after autofill', async () => {
