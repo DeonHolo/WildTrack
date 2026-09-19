@@ -508,17 +508,24 @@
 .wt-form-editor-side {
   position: sticky;
   top: 160px;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .wt-form-editor-action-rail {
   display: grid;
+  box-sizing: border-box;
   width: 52px;
   place-items: center;
+  margin-inline: auto;
 }
 
 .wt-form-editor-status-card {
   width: 100%;
+  align-self: stretch;
+}
+
+.wt-field-type-dropdown {
+  padding-bottom: 0;
 }
 
 @media (max-width: 900px) {

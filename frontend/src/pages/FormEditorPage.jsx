@@ -40,8 +40,11 @@ import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { SubmissionFields } from '../components/public/SubmissionFields.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import {
+  ACADEMIC_FIELD_ORDER,
   ACADEMIC_FIELD_TYPES,
   CHOICE_FIELD_TYPES,
+  academicFieldSuggestions,
+  applyAcademicSuggestionReview,
   buildDeliverableFormPayload,
   dateAt2359,
   duplicateField,
@@ -89,9 +92,13 @@ export function FormEditorPage() {
   const [saveError, setSaveError] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const [previewOpened, setPreviewOpened] = useState(false);
+  const [academicReviewOpened, setAcademicReviewOpened] = useState(false);
+  const [academicReviewItems, setAcademicReviewItems] = useState([]);
   const initializedScope = useRef('');
   const draftRef = useRef(null);
   const historyRef = useRef({ past: [], future: [] });
+  const questionRefs = useRef(new Map());
+  const pendingScrollId = useRef('');
   const [historyRevision, setHistoryRevision] = useState(0);
   const [draggingId, setDraggingId] = useState('');
   const editing = Boolean(formId);
@@ -108,7 +115,7 @@ export function FormEditorPage() {
       ? state.deliverables.find((item) => String(item.id) === String(formId))
       : null;
     const initial = next
-      ? makeEditableDeliverableForm(next)
+      ? withAcademicSuggestions(makeEditableDeliverableForm(next), state.students || [])
       : makeNewDraft(state, activeColumns);
     setDraft(initial || null);
     draftRef.current = initial || null;
@@ -119,6 +126,14 @@ export function FormEditorPage() {
     setSaveState('idle');
     setSaveError('');
   }, [activeWorkspaceId, activeColumns, editing, formId, state, status]);
+
+  useEffect(() => {
+    if (!pendingScrollId.current || selectedId !== pendingScrollId.current) return;
+    const node = questionRefs.current.get(pendingScrollId.current);
+    if (!node) return;
+    pendingScrollId.current = '';
+    node.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }, [draft, selectedId]);
 
   useEffect(() => {
     if (!dirty) return undefined;
@@ -239,8 +254,16 @@ export function FormEditorPage() {
 
   function addQuestion() {
     const field = newQuestion('shortText');
-    commitDraft((current) => ({ ...current, fields: [...current.fields, field] }));
+    commitDraft((current) => {
+      const fields = [...current.fields];
+      const selectedIndex = fields.findIndex((item) => item.id === selectedId && item.active !== false);
+      const lastActiveIndex = fields.reduce((last, item, index) => item.active !== false ? index : last, -1);
+      const insertAt = selectedIndex >= 0 ? selectedIndex + 1 : lastActiveIndex + 1;
+      fields.splice(insertAt, 0, field);
+      return { ...current, fields };
+    });
     setSelectedId(field.id);
+    pendingScrollId.current = field.id;
   }
 
   function duplicateQuestion(field) {
@@ -278,7 +301,8 @@ export function FormEditorPage() {
       if (sourceIndex < 0 || targetIndex < 0) return current;
       const [moved] = fields.splice(sourceIndex, 1);
       const nextTargetIndex = fields.findIndex((field) => field.id === targetId);
-      fields.splice(nextTargetIndex, 0, moved);
+      const insertAt = sourceIndex < targetIndex ? nextTargetIndex + 1 : nextTargetIndex;
+      fields.splice(insertAt, 0, moved);
       return { ...current, fields };
     });
   }
@@ -296,7 +320,53 @@ export function FormEditorPage() {
   }
 
   function refreshAcademicSuggestions() {
-    commitDraft((current) => ({ ...current, fields: mergeAcademicSuggestions(current.fields, state.students || []) }));
+    const suggestions = academicFieldSuggestions(state.students || []);
+    const activeTypes = draft.fields
+      .filter((field) => field.active !== false && ACADEMIC_FIELD_TYPES.has(field.type))
+      .map((field) => field.type);
+    const orderedTypes = [
+      ...activeTypes,
+      ...ACADEMIC_FIELD_ORDER.filter((type) => !activeTypes.includes(type))
+    ];
+    setAcademicReviewItems(orderedTypes.map((type) => {
+      const existing = draft.fields.find((field) => field.type === type);
+      const suggestion = suggestions.find((field) => field.type === type);
+      return {
+        type,
+        label: existing?.label || suggestion?.label || typeLabel(type),
+        selected: type === 'academicStudentNumber' || (existing ? existing.active !== false : true),
+        locked: type === 'academicStudentNumber'
+      };
+    }));
+    setAcademicReviewOpened(true);
+  }
+
+  function toggleAcademicSuggestion(type, selected) {
+    if (type === 'academicStudentNumber') return;
+    setAcademicReviewItems((items) => items.map((item) => item.type === type ? { ...item, selected } : item));
+  }
+
+  function moveAcademicSuggestion(index, direction) {
+    setAcademicReviewItems((items) => {
+      const target = index + direction;
+      if (target < 0 || target >= items.length) return items;
+      const next = [...items];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function applyAcademicSuggestions() {
+    const orderedTypes = academicReviewItems.map((item) => item.type);
+    const selectedTypes = academicReviewItems.filter((item) => item.selected).map((item) => item.type);
+    commitDraft((current) => ({
+      ...current,
+      fields: applyAcademicSuggestionReview(current.fields, orderedTypes, selectedTypes)
+    }));
+    if (!draftRef.current?.fields.some((field) => field.id === selectedId && field.active !== false)) {
+      setSelectedId(draftRef.current?.fields.find((field) => field.active !== false)?.id || '');
+    }
+    setAcademicReviewOpened(false);
   }
 
   async function save(nextStatus = draft.status || 'Unpublished') {
@@ -417,6 +487,10 @@ export function FormEditorPage() {
                 onDrop={() => { reorderQuestion(draggingId, field.id); setDraggingId(''); }}
                 onDragEnd={() => setDraggingId('')}
                 dragging={draggingId === field.id}
+                cardRef={(node) => {
+                  if (node) questionRefs.current.set(field.id, node);
+                  else questionRefs.current.delete(field.id);
+                }}
                 onDuplicate={() => duplicateQuestion(field)}
                 onRemove={() => removeQuestion(field)}
                 hasAnotherAnchor={activeFields.some((item) => item.id !== field.id && item.type === 'academicStudentNumber')}
@@ -445,6 +519,36 @@ export function FormEditorPage() {
         </Stack>
       </div>
 
+      <Modal opened={academicReviewOpened} onClose={() => setAcademicReviewOpened(false)} title="Review academic fields" size="md" centered>
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">Choose the academic identity fields to include and arrange the order students will see them.</Text>
+          <Stack gap="xs">
+            {academicReviewItems.map((item, index) => (
+              <Paper key={item.type} withBorder p="sm" radius="sm">
+                <Group justify="space-between" gap="sm" wrap="nowrap">
+                  <Checkbox
+                    label={item.label}
+                    checked={item.selected}
+                    disabled={item.locked}
+                    onChange={(event) => toggleAcademicSuggestion(item.type, event.currentTarget.checked)}
+                  />
+                  <Group gap={4} wrap="nowrap">
+                    <ActionIcon variant="subtle" aria-label={`Move ${item.label} up`} disabled={index === 0}
+                      onClick={() => moveAcademicSuggestion(index, -1)}><ArrowUp size={16} /></ActionIcon>
+                    <ActionIcon variant="subtle" aria-label={`Move ${item.label} down`} disabled={index === academicReviewItems.length - 1}
+                      onClick={() => moveAcademicSuggestion(index, 1)}><ArrowDown size={16} /></ActionIcon>
+                  </Group>
+                </Group>
+                {item.locked ? <Text size="xs" c="dimmed" mt={4}>Required identity anchor</Text> : null}
+              </Paper>
+            ))}
+          </Stack>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setAcademicReviewOpened(false)}>Cancel</Button>
+            <Button color="wildtrackMaroon" onClick={applyAcademicSuggestions}>Apply</Button>
+          </Group>
+        </Stack>
+      </Modal>
       <PreviewModal opened={previewOpened} onClose={() => setPreviewOpened(false)} draft={draft} students={state.students || []} />
     </Stack>
   );
@@ -460,7 +564,7 @@ export function FormEditorPage() {
   }
 }
 
-function QuestionCard({ field, selected, position, total, first, last, onSelect, onUpdate, onMove, onDragStart, onDrop, onDragEnd, dragging, onDuplicate, onRemove, hasAnotherAnchor }) {
+function QuestionCard({ field, selected, position, total, first, last, onSelect, onUpdate, onMove, onDragStart, onDrop, onDragEnd, dragging, cardRef, onDuplicate, onRemove, hasAnotherAnchor }) {
   const isChoice = CHOICE_FIELD_TYPES.has(field.type);
   const isPdf = field.type === 'drive';
   const isAnchor = field.type === 'academicStudentNumber';
@@ -481,6 +585,7 @@ function QuestionCard({ field, selected, position, total, first, last, onSelect,
       withBorder
       p={{ base: 'md', sm: 'lg' }}
       radius="md"
+      ref={cardRef}
       className={`wt-question-card${selected ? ' is-selected' : ''}${dragging ? ' is-dragging' : ''}`}
       onClick={onSelect}
       onDragOver={(event) => event.preventDefault()}
@@ -514,6 +619,7 @@ function QuestionCard({ field, selected, position, total, first, last, onSelect,
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
           <TextInput label="Field label" value={field.label} required onChange={(event) => onUpdate({ label: event.currentTarget.value })} />
           <Select label="Field type" value={field.type} data={FIELD_TYPES.map((item) => ({ ...item, disabled: item.value === 'academicStudentNumber' && hasAnotherAnchor }))} allowDeselect={false} disabled={isAnchor}
+            classNames={{ dropdown: 'wt-field-type-dropdown' }}
             onChange={(value) => value && changeType(value)} />
         </SimpleGrid>
         <TextInput label="Help text" value={field.helpText || ''} placeholder="Optional guidance shown below the question"
@@ -600,6 +706,11 @@ function makeNewDraft(state, activeColumns) {
   const firstAvailable = activeColumns.find((column) => !state.deliverables.some((deliverable) => deliverable.trackerColumn === column.key)) || activeColumns[0];
   if (!firstAvailable) return null;
   return makeDeliverableFormDraft(state, firstAvailable.key);
+}
+
+function withAcademicSuggestions(draft, students) {
+  if (!draft) return draft;
+  return { ...draft, fields: mergeAcademicSuggestions(draft.fields, students) };
 }
 
 function validateEditorDraft(draft) {

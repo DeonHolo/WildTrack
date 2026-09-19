@@ -116,6 +116,7 @@ describe('configurable form response validation', () => {
       { id: 'summary', label: 'Summary', type: 'shortText', required: true, active: true },
       { id: 'scope', label: 'Scope', type: 'dropdown', required: true, active: true, options: [{ id: 'campus' }, { id: 'community' }] },
       { id: 'evidence', label: 'Evidence', type: 'checkboxes', required: true, active: true, options: [{ id: 'shot' }, { id: 'sheet' }] },
+      { id: 'section', label: 'Section', type: 'academicSection', required: false, active: true },
       { id: 'retired', label: 'Old question', type: 'shortText', required: false, active: false }
     ]
   };
@@ -135,10 +136,10 @@ describe('configurable form response validation', () => {
     });
   });
 
-  it('filters retired, academic, and unknown keys from outgoing response values', () => {
+  it('keeps editable Section while filtering record-derived academic, retired, and unknown keys', () => {
     expect(activeSubmissionValues(deliverable, {
-      identity: '22-1001', summary: 'Ready', scope: 'campus', evidence: ['shot'], retired: 'old', injected: 'bad'
-    })).toEqual({ summary: 'Ready', scope: 'campus', evidence: ['shot'] });
+      identity: '22-1001', summary: 'Ready', scope: 'campus', evidence: ['shot'], section: 'G7', retired: 'old', injected: 'bad'
+    })).toEqual({ summary: 'Ready', scope: 'campus', evidence: ['shot'], section: 'G7' });
   });
 
   it('requires Student Number but does not invent requirements for absent or optional academic presentation fields', () => {
@@ -160,7 +161,7 @@ describe('configurable form response validation', () => {
     })).toEqual({});
   });
 
-  it('checks required academic presentation fields against the matched roster record', () => {
+  it('checks record-derived academic fields against the roster and required Section against the submitted value', () => {
     const identityDeliverable = {
       fields: [
         { id: 'number', type: 'academicStudentNumber', required: true, active: true },
@@ -173,11 +174,25 @@ describe('configurable form response validation', () => {
     expect(validateSubmissionIdentity({
       deliverable: identityDeliverable,
       identity: { studentNumber: '22-1001', studentName: 'stale name', teamCode: 'stale team' },
-      student: { studentNumber: '22-1001', name: 'Official Name', teamCode: '', section: '' }
+      student: { studentNumber: '22-1001', name: 'Official Name', teamCode: '', section: '' },
+      values: { section: 'G7' }
     })).toEqual({
-      teamCode: 'Team Code is required for this form.',
-      section: 'Section is required for this form.'
+      teamCode: 'Team Code is required for this form.'
     });
+    expect(validateSubmissionIdentity({
+      deliverable: identityDeliverable,
+      identity: { studentNumber: '22-1001', studentName: 'Official Name', teamCode: '2526-it332-41' },
+      student: { studentNumber: '22-1001', name: 'Official Name', teamCode: '2526-it332-41', section: '' },
+      values: {}
+    })).toEqual({ section: 'Section is required for this form.' });
+  });
+
+  it('rejects a legacy Team Code that disagrees with the selected Student Number', () => {
+    expect(validateSubmissionIdentity({
+      deliverable: { fields: [{ id: 'link', type: 'url', required: true, active: true }] },
+      identity: { studentNumber: '22-1001', studentName: 'Official Name', teamCode: 'OTHER-TEAM' },
+      student: { studentNumber: '22-1001', name: 'Official Name', teamCode: 'IT-01' }
+    })).toEqual({ teamCode: 'Team Code must match the selected Student Number.' });
   });
 });
 

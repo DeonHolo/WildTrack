@@ -43,13 +43,14 @@ test('full-page form editor persists through the real backend and public respons
     await expect(admin.getByText('Unpublished', { exact: true })).toBeVisible();
 
     await admin.getByRole('button', { name: 'Add question' }).click();
-    await admin.getByRole('textbox', { name: 'Field label' }).last().fill('Round-trip note');
+    await admin.locator('.wt-question-card.is-selected').getByRole('textbox', { name: 'Field label' }).fill('Round-trip note');
     await admin.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(admin.getByRole('status')).toContainText('Saved');
 
     await clearStorageAndReload(admin);
     await selectWorkspace(admin);
-    await expect(admin.getByRole('textbox', { name: 'Field label' }).last()).toHaveValue('Round-trip note');
+    await expect.poll(() => admin.getByRole('textbox', { name: 'Field label' })
+      .evaluateAll((inputs) => inputs.map((input) => input.value))).toContain('Round-trip note');
     await expect(admin.getByText('Unpublished', { exact: true })).toBeVisible();
 
     await admin.getByRole('button', { name: 'Publish', exact: true }).click();
@@ -57,13 +58,14 @@ test('full-page form editor persists through the real backend and public respons
     await clearStorageAndReload(admin);
     await selectWorkspace(admin);
     await expect(admin.getByText('Published', { exact: true })).toBeVisible();
-    await expect(admin.getByRole('textbox', { name: 'Field label' }).last()).toHaveValue('Round-trip note');
+    await expect.poll(() => admin.getByRole('textbox', { name: 'Field label' })
+      .evaluateAll((inputs) => inputs.map((input) => input.value))).toContain('Round-trip note');
 
     await signIn(studentContext, process.env.JOURNEY_STUDENT_SESSION);
     const student = await studentContext.newPage();
     await student.goto(`http://127.0.0.1:4181${formPath}`);
     await expect(student.getByRole('heading', { level: 1, name: 'Editor Journey Form' })).toBeVisible();
-    await student.getByLabel('Student Number').click();
+    await student.getByRole('textbox', { name: 'Student Number', exact: true }).click();
     await student.getByRole('option').filter({ hasText: '25-9999-010' }).click();
     await student.getByRole('textbox', { name: 'Submission Link', exact: true }).fill('https://example.test/editor-journey');
     await student.getByRole('textbox', { name: 'Round-trip note' }).fill('Persisted through the real backend');

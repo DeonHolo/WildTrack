@@ -7,6 +7,12 @@ export const ACADEMIC_FIELD_TYPES = new Set([
   'academicTeamCode',
   'academicSection'
 ]);
+export const ACADEMIC_FIELD_ORDER = [
+  'academicStudentNumber',
+  'academicStudentName',
+  'academicTeamCode',
+  'academicSection'
+];
 
 export function createLocalKey(prefix = 'item') {
   const token = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -25,30 +31,63 @@ export function defaultSubmissionField(pdfRequired = false) {
       };
 }
 
-export function academicFieldSuggestions(students = []) {
-  const suggestions = [
+export function academicFieldSuggestions() {
+  return [
     academicField('studentNumber', 'Student Number', 'academicStudentNumber', true),
     academicField('studentName', 'Student Name', 'academicStudentName', true),
-    academicField('teamCode', 'Team Code', 'academicTeamCode', true)
+    academicField('teamCode', 'Team Code', 'academicTeamCode', true),
+    academicField('section', 'Section', 'academicSection', false)
   ];
-  if (students.some((student) => String(student.section || '').trim())) {
-    suggestions.push(academicField('section', 'Section', 'academicSection', false));
-  }
-  return suggestions;
 }
 
 export function mergeAcademicSuggestions(fields = [], students = []) {
+  const suggestions = academicFieldSuggestions(students);
   const active = fields.filter((field) => field.active !== false);
-  const retired = fields.filter((field) => field.active === false);
-  const existingTypes = new Set(active.map((field) => field.type));
-  const additions = academicFieldSuggestions(students).filter((field) => !existingTypes.has(field.type));
-  const combined = [...active, ...additions];
-  const academicOrder = ['academicStudentNumber', 'academicStudentName', 'academicTeamCode', 'academicSection'];
-  const academic = academicOrder
-    .map((type) => combined.find((field) => field.type === type))
-    .filter(Boolean);
-  const other = combined.filter((field) => !ACADEMIC_FIELD_TYPES.has(field.type));
-  return [...academic, ...other, ...retired];
+  const existingTypes = new Set(fields.map((field) => field.type));
+  const reactivatedStudentNumber = !active.some((field) => field.type === 'academicStudentNumber')
+    ? fields.find((field) => field.type === 'academicStudentNumber')
+    : null;
+  const academic = ACADEMIC_FIELD_ORDER.map((type) => {
+    const current = active.find((field) => field.type === type);
+    if (current) return current;
+    if (type === 'academicStudentNumber' && reactivatedStudentNumber) {
+      return { ...reactivatedStudentNumber, active: true };
+    }
+    if (!existingTypes.has(type)) return suggestions.find((field) => field.type === type);
+    return null;
+  }).filter(Boolean);
+  const activeOther = active.filter((field) => !ACADEMIC_FIELD_TYPES.has(field.type));
+  const retired = fields.filter((field) => field.active === false && field !== reactivatedStudentNumber);
+  return [...academic, ...activeOther, ...retired];
+}
+
+export function applyAcademicSuggestionReview(fields = [], orderedTypes = ACADEMIC_FIELD_ORDER, selectedTypes = ACADEMIC_FIELD_ORDER) {
+  const selected = new Set(selectedTypes);
+  selected.add('academicStudentNumber');
+  const suggestions = new Map(academicFieldSuggestions().map((field) => [field.type, field]));
+  const academicFields = fields.filter((field) => ACADEMIC_FIELD_TYPES.has(field.type));
+  const selectedAcademic = [];
+  const chosen = new Set();
+
+  for (const type of orderedTypes) {
+    if (!ACADEMIC_FIELD_TYPES.has(type) || !selected.has(type)) continue;
+    const existing = academicFields.find((field) => field.type === type && field.active !== false)
+      || academicFields.find((field) => field.type === type);
+    if (existing) {
+      chosen.add(existing);
+      selectedAcademic.push(existing.active === false ? { ...existing, active: true } : existing);
+    } else {
+      selectedAcademic.push(suggestions.get(type));
+    }
+  }
+
+  const activeOther = fields.filter((field) => field.active !== false && !ACADEMIC_FIELD_TYPES.has(field.type));
+  const retiredHistorical = fields.flatMap((field) => {
+    if (!ACADEMIC_FIELD_TYPES.has(field.type)) return field.active === false ? [field] : [];
+    if (chosen.has(field)) return [];
+    return field.definitionId ? [{ ...field, active: false }] : [];
+  });
+  return [...selectedAcademic.filter(Boolean), ...activeOther, ...retiredHistorical];
 }
 
 export function makeDeliverableFormDraft(state, columnKey, now = new Date()) {

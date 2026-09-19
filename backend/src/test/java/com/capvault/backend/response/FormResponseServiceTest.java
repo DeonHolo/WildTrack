@@ -352,7 +352,7 @@ class FormResponseServiceTest {
     }
 
     @Test
-    void requiredAcademicSectionUsesCanonicalStudentRecordAndRejectsMissingSourceValue() {
+    void requiredAcademicSectionAcceptsAndPersistsManualValueWhenRosterSectionIsBlank() {
         String noSectionNumber = "20-0649-751";
         studentRecordRepository.save(new StudentRecord(
             workspaceId, noSectionNumber, "No Section Student", "2526-it332-42", "1", null, "Sir Adviser", null, 2));
@@ -361,10 +361,29 @@ class FormResponseServiceTest {
             "academic-section", deliverableId, "sectionPresentation", "Section",
             DeliverableFieldType.ACADEMIC_SECTION, true, 0, DocumentCheckPolicy.OFF, false, true));
 
+        var saved = submitFor("section-owner", Map.of("sectionPresentation", "G7"));
+        assertThat(saved.response().getValuesJson()).contains("sectionPresentation", "G7");
+
         assertThatThrownBy(() -> submitFor("section-owner", Map.of()))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("Section is required")
-            .hasMessageContaining("connected Student Record");
+            .hasMessageContaining("Section is required");
+    }
+
+    @Test
+    void recordDerivedAcademicFieldsCannotBeOverriddenInSubmittedValues() {
+        deliverableFieldRepository.saveAll(List.of(
+            new DeliverableField("academic-number", deliverableId, "studentNumberPresentation", "Student Number",
+                DeliverableFieldType.ACADEMIC_STUDENT_NUMBER, true, 0, DocumentCheckPolicy.OFF, false, true),
+            new DeliverableField("academic-name", deliverableId, "studentNamePresentation", "Student Name",
+                DeliverableFieldType.ACADEMIC_STUDENT_NAME, true, 1, DocumentCheckPolicy.OFF, false, true),
+            new DeliverableField("academic-team", deliverableId, "teamPresentation", "Team Code",
+                DeliverableFieldType.ACADEMIC_TEAM_CODE, true, 2, DocumentCheckPolicy.OFF, false, true)
+        ));
+        associate("identity-owner");
+
+        assertThatThrownBy(() -> submitFor("identity-owner", Map.of("teamPresentation", "different-team")))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Team Code comes from the connected Student Record");
     }
 
     @Test

@@ -33,6 +33,17 @@ export function SubmissionFields({
   const configuredIdentity = hasAcademicDefinitions(activeFields);
   const renderedFields = configuredIdentity ? ensureStudentNumberAnchor(activeFields) : activeFields;
 
+  function changeAcademicIdentity(nextIdentity) {
+    if (nextIdentity.studentNumber !== identity.studentNumber) {
+      const selected = findStudent(students, nextIdentity.studentNumber);
+      renderedFields.filter((field) => field.type === 'academicSection').forEach((field) => {
+        const section = selected?.section || '';
+        if (section || Object.hasOwn(values, field.id)) onValueChange?.(field.id, section);
+      });
+    }
+    onIdentityChange?.(nextIdentity);
+  }
+
   if (!configuredIdentity) {
     return (
       <Stack gap="xl">
@@ -67,11 +78,14 @@ export function SubmissionFields({
         <AcademicField
           key={field.id}
           field={field}
+          value={values[field.id]}
+          valueError={errors[field.id]}
           students={students}
           identity={identity}
           errors={identityErrors}
           disabled={disabled}
-          onChange={onIdentityChange}
+          onChange={changeAcademicIdentity}
+          onValueChange={(value) => onValueChange?.(field.id, value)}
         />
       ) : (
         <ResponseField
@@ -87,14 +101,19 @@ export function SubmissionFields({
   );
 }
 
-function AcademicField({ field, students, identity, errors, disabled, onChange }) {
+function AcademicField({ field, value, valueError, students, identity, errors, disabled, onChange, onValueChange }) {
   const matched = findStudent(students, identity.studentNumber);
-  const studentOptions = students
+  const scopedStudents = identity.teamCode
+    ? students.filter((student) => student.teamCode === identity.teamCode)
+    : students;
+  const studentOptions = scopedStudents
     .filter((student) => student.studentNumber)
     .map((student) => ({ value: student.studentNumber, label: student.studentNumber }));
-  const nameOptions = students
+  const nameOptions = scopedStudents
     .filter((student) => student.studentNumber && student.name)
     .map((student) => ({ value: student.studentNumber, label: student.name }));
+  const teamOptions = [...new Set(students.map((student) => student.teamCode).filter(Boolean))]
+    .sort((first, second) => first.localeCompare(second, undefined, { numeric: true }));
   const required = field.type === 'academicStudentNumber' ? true : field.required !== false;
   const description = field.helpText || undefined;
 
@@ -109,22 +128,32 @@ function AcademicField({ field, students, identity, errors, disabled, onChange }
       placeholder="Search student name" onChange={(value) => value && selectStudent(students, value, identity, onChange)} />;
   }
   if (field.type === 'academicTeamCode') {
-    return <TextInput label={field.label} description={description || 'Filled from the selected Student Number.'}
-      required={required} disabled={disabled} readOnly value={matched?.teamCode || ''} error={errors.teamCode}
-      placeholder="Select a Student Number first" />;
+    return <Select searchable label={field.label} description={description || 'Linked to the selected Student Number.'}
+      required={required} disabled={disabled} data={teamOptions}
+      value={identity.teamCode || null} error={errors.teamCode} clearable={!required}
+      placeholder="Search team code"
+      onChange={(teamCode) => selectTeam(matched, teamCode || '', identity, onChange)} />;
   }
   return (
     <TextInput
       label={field.label}
-      description={description || 'Filled from the selected Student Number.'}
-      value={matched?.section || ''}
-      placeholder="No section in the current class record"
-      readOnly
+      description={description || 'Enter your section. The class-record value is used as the starting value when available.'}
+      value={value !== undefined ? value : matched?.section || ''}
+      placeholder="Enter section"
       disabled={disabled}
       required={required}
-      error={errors.section}
+      error={valueError || errors.section}
+      onChange={(event) => onValueChange?.(event.currentTarget.value)}
     />
   );
+}
+
+function selectTeam(matched, teamCode, identity, onChange) {
+  if (matched && matched.teamCode !== teamCode) {
+    onChange?.({ studentNumber: '', studentName: '', teamCode });
+    return;
+  }
+  onChange?.({ ...identity, teamCode });
 }
 
 function selectStudent(students, studentNumber, identity, onChange) {

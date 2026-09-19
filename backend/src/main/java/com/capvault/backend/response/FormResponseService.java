@@ -233,7 +233,8 @@ public class FormResponseService {
             if (submittedField == null) {
                 throw new IllegalArgumentException("Unknown submission field: " + submittedKey);
             }
-            if (submittedField.getFieldType().isAcademicIdentity()) {
+            if (submittedField.getFieldType().isAcademicIdentity()
+                    && submittedField.getFieldType() != DeliverableFieldType.ACADEMIC_SECTION) {
                 throw new IllegalArgumentException(
                     submittedField.getLabel() + " comes from the connected Student Record and cannot be submitted as a response value.");
             }
@@ -250,7 +251,8 @@ public class FormResponseService {
                     Collectors.mapping(DeliverableFieldOption::getId, Collectors.toSet())));
 
         for (DeliverableField field : fields) {
-            if (field.getFieldType().isAcademicIdentity()) continue;
+            if (field.getFieldType().isAcademicIdentity()
+                    && field.getFieldType() != DeliverableFieldType.ACADEMIC_SECTION) continue;
             Object rawValue = safeValues.get(field.getFieldKey());
             boolean missing = isMissingValue(field, rawValue);
             if (field.isRequired() && missing) {
@@ -259,7 +261,8 @@ public class FormResponseService {
             if (missing) continue;
 
             if (field.getFieldType() == DeliverableFieldType.TEXTAREA
-                    || field.getFieldType() == DeliverableFieldType.SHORT_TEXT) {
+                    || field.getFieldType() == DeliverableFieldType.SHORT_TEXT
+                    || field.getFieldType() == DeliverableFieldType.ACADEMIC_SECTION) {
                 requireString(field, rawValue);
                 continue;
             }
@@ -314,7 +317,8 @@ public class FormResponseService {
 
     private static void validateAcademicFieldRequirements(List<DeliverableField> fields, StudentRecord record) {
         for (DeliverableField field : fields) {
-            if (!field.isRequired() || !field.getFieldType().isAcademicIdentity()) continue;
+            if (!field.isRequired() || !field.getFieldType().isAcademicIdentity()
+                    || field.getFieldType() == DeliverableFieldType.ACADEMIC_SECTION) continue;
             String value = switch (field.getFieldType()) {
                 case ACADEMIC_STUDENT_NUMBER -> record.getStudentNumber();
                 case ACADEMIC_STUDENT_NAME -> record.getStudentName();

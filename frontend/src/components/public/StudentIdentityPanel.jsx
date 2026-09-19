@@ -18,7 +18,7 @@ import {
   IdentificationCard,
   MagnifyingGlass
 } from '@phosphor-icons/react';
-import { isUsableAdviserName } from '../../lib/workflow.js';
+import { findStudent, isUsableAdviserName } from '../../lib/workflow.js';
 
 function SearchableIdentityField({ label, placeholder, value, options, onChange, onSelect, renderOption, emptyLabel, error }) {
   const combobox = useCombobox({
@@ -162,8 +162,12 @@ function AccountAttribution({ email }) {
 }
 
 function SubmissionIdentityFields({ students, identity, activeAccount, errors, onChange }) {
-  const numberOptions = useMemo(() => studentOptions(students, 'number'), [students]);
-  const nameOptions = useMemo(() => studentOptions(students, 'name'), [students]);
+  const selectedStudent = useMemo(() => findStudent(students, identity.studentNumber), [students, identity.studentNumber]);
+  const scopedStudents = useMemo(() => identity.teamCode
+    ? students.filter((student) => student.teamCode === identity.teamCode)
+    : students, [students, identity.teamCode]);
+  const numberOptions = useMemo(() => studentOptions(scopedStudents, 'number'), [scopedStudents]);
+  const nameOptions = useMemo(() => studentOptions(scopedStudents, 'name'), [scopedStudents]);
   const teams = useMemo(() => teamOptions(students), [students]);
 
   function selectStudent(student) {
@@ -172,6 +176,12 @@ function SubmissionIdentityFields({ students, identity, activeAccount, errors, o
       studentName: student.name,
       teamCode: student.teamCode
     });
+  }
+
+  function changeTeamCode(teamCode) {
+    onChange(selectedStudent && selectedStudent.teamCode !== teamCode
+      ? { studentNumber: '', studentName: '', teamCode }
+      : { ...identity, teamCode });
   }
 
   return (
@@ -208,8 +218,8 @@ function SubmissionIdentityFields({ students, identity, activeAccount, errors, o
           placeholder="Search team code"
           value={identity.teamCode}
           options={teams}
-          onChange={(teamCode) => onChange({ ...identity, teamCode })}
-          onSelect={(option) => onChange({ ...identity, teamCode: option.teamCode })}
+          onChange={changeTeamCode}
+          onSelect={(option) => changeTeamCode(option.teamCode)}
           renderOption={(option) => <Text size="sm" ff="monospace" fw={650}>{option.teamCode}</Text>}
           emptyLabel="No matching team code"
           error={errors?.teamCode}
