@@ -12,8 +12,19 @@ public record DriveFileMetadata(
     String lastModifyingUserEmail,
     String lastModifyingUserDisplayName,
     boolean canDownload,
-    String webViewLink
+    String webViewLink,
+    OffsetDateTime createdTime,
+    String driveOwner
 ) {
+    public DriveFileMetadata(
+        String id, String name, String mimeType, Long size, String md5Checksum,
+        OffsetDateTime modifiedTime, String lastModifyingUserEmail,
+        String lastModifyingUserDisplayName, boolean canDownload, String webViewLink
+    ) {
+        this(id, name, mimeType, size, md5Checksum, modifiedTime,
+            lastModifyingUserEmail, lastModifyingUserDisplayName, canDownload, webViewLink, null, null);
+    }
+
     public DriveFileMetadata(
         String id,
         String name,
@@ -24,6 +35,6 @@ public record DriveFileMetadata(
         boolean canDownload,
         String webViewLink
     ) {
-        this(id, name, mimeType, size, md5Checksum, modifiedTime, null, null, canDownload, webViewLink);
+        this(id, name, mimeType, size, md5Checksum, modifiedTime, null, null, canDownload, webViewLink, null, null);
     }
 }

@@ -59,7 +59,7 @@ describe('ReviewResponseDrawer submission artifacts', () => {
     expect(screen.queryByText('Validation step')).not.toBeInTheDocument();
   });
 
-  it('shows source-labeled observed file history without claiming older Drive revisions', async () => {
+  it('keeps file history out of the review drawer so Document Check owns the long history view', async () => {
     const student = { name: 'DOE, JANE', studentNumber: '26-0001', teamCode: 'TEAM-01' };
     const deliverable = {
       id: 'deliverable-1', shortTitle: 'SRS',
@@ -91,10 +91,8 @@ describe('ReviewResponseDrawer submission artifacts', () => {
       </MantineProvider>
     );
 
-    expect(await screen.findByText('WildTrack observed file history')).toBeInTheDocument();
-    expect(screen.getByText(/only file states WildTrack observed/i)).toBeInTheDocument();
-    expect(screen.getByText(/Older Google Drive revision history is unavailable/i)).toBeInTheDocument();
-    expect(screen.getByText('Metadata changed')).toBeInTheDocument();
-    expect(screen.getByText(/Modified by editor@example.com/i)).toHaveTextContent('Google Drive File metadata');
+    expect(await screen.findByRole('button', { name: 'Check document' })).toBeInTheDocument();
+    expect(screen.queryByText('WildTrack observed file history')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Older Google Drive revision history is unavailable/i)).not.toBeInTheDocument();
   });
 });

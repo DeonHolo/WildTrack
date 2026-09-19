@@ -105,4 +105,46 @@ class TemplateComparatorTest {
             .contains("TEST APPROACH")
             .doesNotContain("INTRODUCTION");
     }
+
+    @Test
+    void sampleProjectAndTransactionNamesAreNotTreatedAsRequiredTemplateSections() {
+        String template = """
+            Software Requirements Specifications
+            for
+            SKYSYNC
+
+            Table of Contents
+            1. Introduction ........................................ 2
+            3.2. Functional requirements .......................... 8
+
+            1. Introduction
+            Describe the project.
+
+            3.2. Functional requirements
+            Module 1
+            1.1 Transaction Name
+            Use Case Diagram
+            1.2 Transaction Name
+            """;
+        String submission = """
+            Software Requirements Specifications
+            for
+            CapVault
+
+            1. Introduction
+            CapVault manages capstone submissions and review.
+
+            3.2. Functional requirements
+            Module 1
+            1.1 Submit Deliverable
+            The student submits a deliverable link.
+            """;
+
+        TemplateComparison result = comparator.compare(template, submission);
+
+        assertThat(result.expectedTemplateHeadings())
+            .contains("Introduction", "Functional requirements")
+            .doesNotContain("SKYSYNC", "Transaction Name");
+        assertThat(result.missingTemplateHeadings()).isEmpty();
+    }
 }

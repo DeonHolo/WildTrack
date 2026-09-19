@@ -3124,6 +3124,32 @@ textarea:not(.mantine-Input-input):focus {
   padding: 0;
 }
 
+.document-check-tabs > .mantine-Tabs-list {
+  margin: 16px 22px 0;
+}
+
+.document-check-template-summary p {
+  margin: 4px 0 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.document-check-history-panel {
+  margin: 0 22px 18px;
+}
+
+.wt-ai-review-dialog {
+  max-height: 90vh;
+}
+
+.wt-ai-review-dialog-body {
+  padding: 24px 28px 28px;
+}
+
+.wt-ai-review-report {
+  max-width: 92ch;
+}
+
 .document-check-header {
   position: sticky;
   top: 0;
@@ -3313,6 +3339,16 @@ textarea:not(.mantine-Input-input):focus {
 
   .document-check-actions .mantine-Button-root {
     width: 100%;
+  }
+
+  .document-check-tabs > .mantine-Tabs-list,
+  .document-check-history-panel {
+    margin-right: 14px;
+    margin-left: 14px;
+  }
+
+  .wt-ai-review-dialog-body {
+    padding: 18px;
   }
 }
 

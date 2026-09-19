@@ -327,13 +327,13 @@ public class FileCheckService {
         if (inspection.extractedCharacterCount() < properties.minimumReadableCharacters()) {
             summary = "The PDF is readable, but it contains very little extractable text.";
         } else if (comparison.appearsTemplateOnly()) {
-            summary = "The PDF is readable, but most detected content overlaps the official template and little new content was found.";
+            summary = "The PDF is readable, but large portions still appear unchanged from the official template.";
         } else if (!missingSections.isEmpty()) {
-            summary = "The PDF is readable, but some headings from the official template were not detected.";
+            summary = "The PDF is readable, but some expected body sections from the official template were not detected.";
         } else if (!comparison.available()) {
             summary = "The PDF is readable. Upload an official template to enable instruction and template comparison.";
         } else {
-            summary = "The PDF is readable and contains substantial content beyond the official template.";
+            summary = "The PDF is readable and the expected template body sections were detected.";
         }
 
         return new FileCheckResponse(

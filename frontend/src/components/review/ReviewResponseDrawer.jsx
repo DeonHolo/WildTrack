@@ -34,7 +34,6 @@ import {
 import { StatusIndicator } from '../ui.jsx';
 import { ResponseTimingSummary } from '../ResponseTimingSummary.jsx';
 import { submissionArtifactFields } from '../../lib/submissionArtifacts.js';
-import { ObservedFileHistory } from './ObservedFileHistory.jsx';
 
 export function ReviewResponseDrawer({
   opened,
@@ -152,10 +151,6 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onViewAiRevi
   const aiStatus = artifactAiReviewStatus(response, field);
   const aiReport = aiCurrent ? aiState?.report : null;
   const missingPreview = compactMissingSections(report?.missingSections, 4);
-  const fieldKey = field.definitionId || field.id;
-  const observedHistory = response.observedFileHistoryByField?.[fieldKey]
-    || response.observedFileHistory
-    || null;
 
   return (
     <Paper withBorder p="md" radius="md">
@@ -203,7 +198,6 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onViewAiRevi
                 {missingPreview ? <Text size="xs" c="dimmed">Template headings not detected: {missingPreview}</Text> : null}
               </Stack>
             ) : <Text size="xs" c="dimmed">No Document Check result is available for this PDF yet.</Text>}
-            <ObservedFileHistory history={observedHistory} />
             {field.aiReviewEnabled ? (
               <Stack gap={3}>
                 <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={aiStatus} /></Group>

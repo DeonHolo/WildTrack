@@ -1,6 +1,90 @@
 # WildTrack MVP Validation — Progress and Handoff Notes
 
-Last updated: 2026-09-11
+Last updated: 2026-09-15
+
+## 2026-09-15 AI Review grounding hardening
+
+The AI Review contract is now provenance-aware so Gemini cannot turn generic domain knowledge into a WildTrack requirement simply by wording it confidently. A review finding is explicitly sourced as `DOCUMENT`, `DELIVERABLE_REQUIREMENTS`, or `OFFICIAL_TEMPLATE`. Requirement-backed findings must include an exact supplied authority excerpt, and missing required sections must both quote the supplied authority and name a section that actually occurs in that authority text. Document-only evidence can still identify an obvious wrong-deliverable mismatch from the submitted PDF.
+
+The backend now enforces these rules deterministically after the provider responds. Generic Instructions such as `Submit the final Refactored SPMP PDF.` cannot authorize an invented `Project Scope` requirement. If the model returns that unsupported gap, WildTrack rejects the review as `INVALID_RESPONSE` instead of saving it. Model-generated free-form summary and suggested-action text are also no longer trusted as user-facing authority; WildTrack synthesizes those fields from the already validated findings and review limitations so an unsupported claim cannot leak back through prose after the structured arrays were checked.
+
+No-template state is explicit in the Gemini request and in saved review output. When no official template is supplied, the report states that compliance with a specific template structure was not assessed. When Deliverable Instructions are also absent, it states that requirement-compliance review is limited to requested-deliverable identity and document evidence. The Gemini response schema now separates grounded findings from `missingRequiredSections`, and the Admin/Adviser UI shows source labels, cited evidence/authority, `Missing required sections`, and deterministic `Review limits` instead of the old ambiguous `Flags` / `Missing or weak` presentation.
+
+The prompt/cache identity was bumped to `wildtrack-academic-review-v2` and the Gemini adapter cache version to `rest-pdf-v2`, so older saved reviews generated under the weaker grounding contract are not treated as current. Existing duplicate-team-document reuse, workspace/team isolation, explicit multi-PDF artifact targeting, no-auto-retry semantics, PDF-only provider input, and Admin-only AI Review initiation remain unchanged.
+
+### Admin Review drawer UX follow-up
+
+Before merging the same release, the Admin Review drawer was tightened around the real production screenshot. The artifact link no longer stretches across the card as `Open submitted link`; it is now a compact type-specific action such as `Open PDF`, matching the Adviser review treatment. Completed AI results now expose a dedicated `View AI Review` action. The artifact card keeps only a short three-line summary/status preview, while the complete provenance-aware report opens in a large scrollable modal, avoiding the old 180 px nested-scroll report box inside the already-scrollable review drawer. `Rerun AI Review` remains separate so viewing an existing result cannot accidentally spend tokens.
+
+`Project context` is now data-driven. The section renders only when the selected team's project metadata contains a meaningful project title, software name, or proposal remarks. If there is no project context yet, such as an early-semester Capstone 1 team before project metadata/feedback exists, the entire section is absent; the old `Project metadata not loaded yet.` placeholder is no longer shown.
+
+Verification before release preparation:
+
+- focused backend Gemini/deduplication regression suite passed, including the exact no-template wrong-document SPMP case, rejection of invented `Project Scope` under generic Instructions, and acceptance of an explicitly named required section;
+- full backend Maven suite: **191 / 191 passed**, 0 failures/errors/skips;
+- focused frontend AI/Admin/Adviser review suites passed, including **19 / 19** Admin Review tests after the drawer/modal/context follow-up;
+- full frontend Vitest: **300 / 302 passed**. The only failures remain the same unrelated pre-existing App-shell `Ralph Laviste` assertion and FormsLoading one-minute cache-expiry assertion;
+- production frontend build passed with only the existing >500 kB Vite chunk-size warning;
+- complete browser role-flow suite: **19 / 19 passed**.
+
+Keep this progress-note update local and unstaged. The AI-grounding code/tests should be released separately through the normal `wildtrack-rebrand -> PR -> main -> production` path.
+
+## 2026-09-15 adviser refresh/navigation persistence
+
+The Adviser `My advised teams` workbench now keeps the meaningful review location in the URL instead of relying only on ephemeral React selection state. Selecting a team writes `team=<teamCode>` and selecting a deliverable writes `deliverable=<deliverableId>`. Refreshing a deep Adviser page therefore restores the same team and deliverable instead of falling back to the first assigned team.
+
+The URL is treated only as presentation state, never authorization. Requested teams are revalidated against the current signed-in staff identity and active workspace assignments. A stale or unauthorized team parameter falls back safely to an actually assigned team; a stale deliverable falls back to an available deliverable. Admin "view another adviser" also clears the prior team/deliverable location before switching scope so one adviser's URL context cannot leak into another adviser's view.
+
+Team and deliverable changes use ordinary browser history entries, so Back/Forward restores earlier Adviser selections. Temporary review state remains local: search text, feedback drafts, dialogs, checking progress, and selected conflicting output are intentionally not serialized into the URL.
+
+Verification before release preparation:
+
+- focused Adviser regression suite: **21 / 21 passed**, including reload restoration, URL updates, stale/unauthorized-team fallback, and Back navigation;
+- full frontend Vitest: **299 / 301 passed**. The only failures remain the same unrelated pre-existing App-shell `Ralph Laviste` assertion and FormsLoading one-minute cache-expiry assertion;
+- production frontend build passed with 5402 modules transformed and only the existing >500 kB chunk-size warning;
+- complete browser role-flow suite: **19 / 19 passed**;
+- `git diff --check` remains clean apart from repository LF-to-CRLF warnings.
+
+Keep this progress-note update local and unstaged unless its repository-tracking/privacy policy is explicitly resolved.
+
+Release completed through PR **#44**, `Preserve adviser review location`. Code commit `46feec9` (`feat: preserve adviser review location`) was merged to `main` as `823f822fbb744903ccb4254be6b1ea9d9f540eaa`. Vercel reported the exact merge-commit deployment **successful**, production readiness returned HTTP 200 with `status=UP`, `service=wildtrack-backend`, and `database=UP`, and the retained `wildtrack-rebrand` branch was fast-forwarded to the production merge commit and pushed.
+
+## 2026-09-15 shared-adviser and identity-conflict follow-up
+
+Production review after PR #42 exposed two follow-up edge cases. Shared adviser names in imported source data must not depend on one literal separator, and a student self-disconnecting from a disputed Student Record must clear the corresponding Admin work item instead of leaving a stale OPEN identity conflict.
+
+Local engineering changes now cover both areas:
+
+- Imported shared-adviser text is normalized through one backend parser. `A / B`, `A & B`, `A and B`, and case variants such as `A AND B` all produce the same two adviser candidates. The persisted adviser/team authorization model remains many-to-many and does not depend on the source-text separator once assignments are saved.
+- Identity conflict creation now records every currently colliding claimant pair for a Student Record instead of only the most recently found holder. This keeps the queue correct even if three or more Google identities ever claim the same record.
+- When a claimant uses **Disconnect record**, every OPEN conflict involving that claimant is automatically closed. If the other claimant still owns the record, the conflict becomes `RESOLVED`, leaves Today's Work, and remains in Identity history with an automatic-resolution note naming the still-connected account. If neither side remains connected, the obsolete pair is closed as `DISMISSED` history instead of remaining actionable.
+- Moving an account to a different Student Record performs the same stale-conflict cleanup for the old record. Conflicts between any other still-connected claimants remain OPEN.
+- Manual Admin resolution still disconnects only the losing account. If that losing account participates in other conflict rows, those rows are reconciled automatically while unrelated active collisions remain open.
+- Conflict detail now reports an account as `active` only when it is still connected to the specific Student Record represented by that historical conflict, so reassociation does not make old history look active incorrectly.
+- `Decision note` is now optional in the Admin conflict dialog. Resolving still requires selecting the correct account; dismissing requires neither an account selection nor a note.
+- Fixed the frontend conflict-decision request so `confirmedSubject` is actually included in the Admin resolve POST body. This was a latent integration defect: the UI collected the selected account, but the API helper previously omitted it from the request.
+
+Verification for this batch so far:
+
+- focused frontend API/Command Center/Staff/Student tests: **65 / 65 passed**;
+- full backend Maven suite: **187 / 187 passed**, 0 failures/errors/skips;
+- full frontend Vitest: **295 / 297 passed**. The only failures are the same pre-existing unrelated App-shell `Ralph Laviste` assertion and FormsLoading one-minute cache-expiry assertion;
+- production frontend build passed with 5402 modules transformed and only the existing >500 kB chunk-size warning;
+- complete browser role-flow suite: **19 / 19 passed**;
+- `git diff --check` is clean apart from the repository's existing LF-to-CRLF warnings.
+
+Keep this progress-note update local and unstaged unless its repository-tracking/privacy policy is explicitly resolved.
+
+### Adviser review UX follow-up
+
+The same local batch also addresses two Adviser review issues confirmed by a production screenshot:
+
+- Artifact links no longer render as a full-width `Open submitted link` bar inside each artifact card. They now use compact, artifact-specific actions such as `Open PDF`, `Open form`, `Open sheet`, `Open folder`, or `Open link`.
+- Persisted student-visible feedback remains editable in the textarea after the selected deliverable is reopened. The root cause was an unconditional local `setFeedback('')` when a deliverable row was selected, including when reopening the already-selected deliverable. That could blank the editor even though the server-loaded feedback object still existed, which is why the UI could show `Last updated ...` under an empty textarea. Selection no longer clears the draft; the existing server feedback continues to hydrate the editor by response identity/note.
+- Feedback copy now explicitly tells advisers that students see the latest saved version and that the adviser can edit and save it again later.
+- Focused Adviser regression suite after the fix: **17 / 17 passed**, including new coverage for reopening the current deliverable with persisted feedback and for the compact artifact-specific link action.
+
+Release completed through PR **#43**, `Harden adviser and identity workflows`. Code commit `96952e2` (`fix: harden adviser and identity workflows`) was merged to `main` as `c5c232a48d7c781a006f11cd32febd0b16e177ed`. Vercel reported the exact merge-commit deployment **successful**, and post-merge production readiness returned HTTP 200 with `status=UP`, `service=wildtrack-backend`, and `database=UP`. The retained `wildtrack-rebrand` branch was fast-forwarded to the merge commit and pushed. This progress file remains the only local unstaged modification.
 
 ## Post-release real workspace progress - 2026-09-11
 
@@ -95,6 +179,108 @@ This follow-up was released to production on 2026-09-11:
 - `origin/wildtrack-rebrand` remains retained.
 
 Next production action is intentionally a fresh-workspace exercise performed through the authenticated Admin UI: create the correctly labeled **`IT411 2627 SEM1 - MVP Validation`** workspace, then manually import Team Formation -> Software Project Monitor -> current IT411 Tracker in that approved precedence order. Use the fresh import to re-verify the five Tracker deadline/form suggestions before generating forms. After the correct Semester 1 workspace has been checked, the mistaken Semester 2 test workspace can be soft-archived through the new lifecycle UI rather than deleted. No participant links depend on the mistaken workspace.
+
+### 2026-09-11 login-banner production regression follow-up
+
+Post-PR #34 production screenshots exposed a remaining visual regression in the login banner: the login page reused the `FormArtwork` wrapper but still supplied the separate `loginHero` artwork configuration. That asset was anchored at `right bottom` with full-height sizing, which caused visible left-side mascot clipping on desktop and substantially worse clipping on mobile.
+
+The narrow local fix removes the login-specific artwork override from `RegisterPage` so the login now follows the public deliverable form's default `FormArtwork` path literally. The login therefore uses the same `Showing PDF.webp` asset, `center bottom` position, and `auto 100%` sizing as the public submission banner while retaining the login-specific welcome text.
+
+Verification after the fix:
+
+- focused Vitest: `RegisterPage.test.jsx` + `PublicSubmissionPage.test.jsx` = **44 / 44 passed**;
+- focused Playwright responsive regression: desktop **1280 x 720** and mobile **390 x 844** = **2 / 2 passed**;
+- both browser checks confirm the login renders `Showing PDF.webp` with `center bottom` / `auto 100%` and no horizontal page overflow;
+- frontend production build passed with the existing Vite >500 kB chunk-size warning only.
+
+The fix was released through PR **#35**, `Fix login banner artwork crop`. Code commit `f7bffa6` was merged to `main` as `07ef77edc38ef84f734e15ce027db4997d41ec84`. Vercel reported the exact merge-commit deployment successful, and the production readiness endpoint remained HTTP 200. A direct headless render of the deployed `https://www.wildtrack.dev/login` banner at **1280 x 720** and **390 x 844** confirmed the live page uses `Showing PDF.webp`, `50% 100%` computed positioning (`center bottom`), `auto 100%` sizing, no horizontal overflow, and visually shows the full mascot without the earlier left-arm/body clipping. `origin/wildtrack-rebrand` remains retained. The newer notes in this progress file remain a local working-tree modification and were not included in the login-fix commit.
+
+The user clarified that only the shared banner layout/sizing behavior was meant to be reused; the login must keep its original `FIND QUEST NODES.webp` mascot. PR **#37** restored that asset, but production screenshots then exposed the original left-side crop again because its intrinsic aspect ratio is wider than the submission mascot. PR **#38**, `Fix login mascot clipping`, keeps the original login artwork and shared `FormArtwork` component but gives the login mascot a dedicated composition class. Desktop uses a 292 px mascot box at `auto 94%` with a slight right shift; mobile uses a 190 px box at `auto 70%` with a 10 px right shift. The browser regression now loads the real asset dimensions and verifies that the rendered background fits inside the mascot box and that the transformed mascot box remains within the banner at both desktop and mobile widths. Focused Vitest remained **44 / 44 passed**, focused Playwright remained **2 / 2 passed**, the production build passed, and PR #38 merged to `main` as `34d76eb0bb79bbdbe98b00ca8fbef10786f43a2a`. Vercel reported that exact merge deployment successful; live production verification returned `FIND QUEST NODES.webp`, `auto 94%` desktop, `auto 70%` mobile, full in-banner geometry, no horizontal page overflow, and readiness HTTP 200.
+
+A follow-up production screenshot showed the PR #38 mobile composition had become too small. PR **#39**, `Retune login mascot composition`, keeps the same original login mascot and shared banner component but retunes only the login composition using the asset's measured non-transparent bounds: mobile is now `auto 90%`, centered horizontally in its 190 px artwork box and shifted into the banner's right padding; desktop remains `auto 94%` with a larger right shift and centered source positioning. The Playwright regression now scans the image alpha bounds instead of requiring the full transparent canvas to fit, so it verifies the actual visible mascot stays uncut. Focused Vitest passed **44 / 44**, desktop/mobile Playwright passed **2 / 2**, and the production build passed. The branch was merged with newer `main` first to avoid accidentally reverting unrelated asset/favicon changes. PR #39 merged as `27bd61a43e89470c0e58b292661ad975c908dd73`; Vercel reported the exact merge deployment successful. Direct live verification measured the visible mascot at approximately **181 x 143 px** on 390 px mobile and **213 x 169 px** on 1280 px desktop, fully inside the banner with no horizontal page overflow.
+
+### 2026-09-11 workspace administration declutter and archive closeout UX
+
+The next Admin Workspace UI pass is implemented and released. Academic workspace management now starts collapsed and uses the same compact expand/collapse language as the other dense setup sections. Staff & Advisers also has an explicit collapse control while leaving the Add staff/adviser action accessible in the header.
+
+Staff cards no longer print the complete comma-separated cross-workspace team-code and workspace-name list. Active advisers instead show only the number of assigned capstone teams; the detailed assignment list remains available inside Edit access. Disabled/revoked accounts are separated from current staff in a conditional `Revoked access` tab. That tab is omitted entirely when no revoked staff exists.
+
+Workspace archiving now performs a read-only closeout readiness check using the existing monitoring state before `active=false` is submitted. It verifies whether every current submitted response version is presently archived and whether any forms remain `PUBLISHED`. If an unarchived response still needs current acceptance, the dialog directs the Admin to Review; accepted-but-unarchived responses direct to Final Archive; published forms direct to Forms for unpublishing. The checklist remains advisory so an abandoned or intentionally incomplete workspace can still be archived via `Archive anyway`. No Google polling, import, or writeback was added.
+
+Verification for this local batch:
+
+- focused/broader affected Vitest: **65 / 65 passed** across Workspace, Staff, Forms, Final Archive, WorkspaceSession, and the new readiness helper;
+- direct StaffAccess regression after removing card team dumps: **11 / 11 passed** with StaffManagementPanel;
+- full browser role-flow suite: **15 / 15 passed**, including new desktop/mobile checks for collapsed workspace management, conditional revoked access, concise adviser cards, collapsible Staff & Advisers, and no horizontal overflow;
+- final frontend production build passed with 5402 modules transformed and only the existing >500 kB Vite chunk warning;
+- full frontend Vitest: **284 / 286 passed**. The only failures are the same pre-existing unrelated App-shell `Ralph Laviste` assertion and FormsLoading 60-second cache-expiry assertion.
+
+Keep this progress-note update local unless its repository-tracking/privacy policy is explicitly resolved. Do not casually stage it with the UI batch.
+
+Release completed through PR **#36**, `Streamline workspace administration UX`. Code commit `65943a4` (`feat: streamline workspace administration`) was merged to `main` as `aab7136189ae57f6279f02c39eff42cdad7b53de`. GitHub/Vercel reported the exact merge deployment successful, and the production readiness endpoint returned HTTP 200. `wildtrack-rebrand` remains the working branch; the newer progress-note edits remain local and unstaged.
+
+### 2026-09-11 workspace cleanup UX refinement
+
+The follow-up Workspace/Forms declutter pass standardizes Academic workspaces and Staff & Advisers on the same visible `Show` / `Hide` collapsible-header treatment. Academic workspaces remains collapsed by default, while Staff & Advisers remains expanded by default with Add staff/adviser available in the header. The duplicate `Deliverable columns` editor was removed from Workspace setup so form configuration lives on the Forms page; pending Tracker deadline suggestions remain accessible directly under Source sheets and can still generate/update suggested forms after the import summary closes.
+
+Forms now exposes a guarded `Unpublish all` action whenever one or more forms are currently published. The confirmation states how many forms will stop accepting responses and that existing responses remain preserved. The operation uses the existing per-deliverable update path, tracks partial failures honestly, updates successful rows, and keeps individual republish behavior available.
+
+The workspace archive pre-check was redesigned as a wider compact closeout dialog with two independent readiness cards: submissions archived and forms unpublished. Each card keeps status, concise counts, and the relevant navigation action separated so text and controls do not overlap. On small screens the cards stack cleanly. `Archive anyway` remains available for intentional cleanup of incomplete workspaces, and the preflight remains read-only with no Google polling/import/writeback.
+
+Verification for this refinement:
+
+- focused Workspace/Staff/Forms/shared-UI Vitest: **51 / 51 passed**;
+- focused responsive Playwright: **6 / 6 passed**, covering standardized collapsibles, no duplicate Deliverable columns UI, mobile archive-preflight geometry, bulk-unpublish confirmation, source-table fit, and compact statuses;
+- complete browser role-flow suite: **17 / 17 passed**;
+- frontend production build passed with 5402 modules transformed and only the existing >500 kB chunk warning;
+- full frontend Vitest: **286 / 288 passed**. The only failures remain the same unrelated App-shell `Ralph Laviste` assertion and FormsLoading 60-second cache-expiry assertion.
+
+Release completed through PR **#40**, `Streamline semester cleanup workflows`. Code commit `1286229` (`feat: streamline semester cleanup workflows`) was merged with current `main` on the retained release branch, then PR #40 merged to `main` as `7eae38d1216b613f721708aa6320c7fc17afcc4c`. Vercel reported the exact merge-commit deployment successful, and the production readiness endpoint returned `status=UP`, `service=wildtrack-backend`, and `database=UP`. `origin/wildtrack-rebrand` remains retained.
+
+### 2026-09-11 atomic form-cleanup and scrollbar follow-up
+
+Production use of PR #40 exposed two concrete follow-up issues. First, the document-level `html { scrollbar-gutter: stable; }` rule permanently reserved a desktop scrollbar lane even on short pages, leaving fixed headers visibly short of the right viewport edge. The global rule has now been removed while the intentional `scrollbar-gutter: stable` on the Tracker grid viewport remains unchanged.
+
+Second, PR #40's `Unpublish all` action still orchestrated one sequential browser `PUT` per published deliverable. Refreshing or navigating away could therefore terminate the remaining client loop after only part of the workspace had been unpublished. The replacement implementation adds one ADMIN-only `POST /api/deliverables/unpublish-all` mutation scoped by `workspaceId`. The service performs the status changes inside one Spring transaction, changes only `PUBLISHED` deliverables in that workspace to `UNPUBLISHED`, and returns the authoritative workspace deliverable list. Existing responses, field definitions, templates, and archive history are untouched.
+
+The Forms page now sends that single bulk request, shows an explicit animated cleanup/progress surface while it is pending, disables conflicting form actions, and installs a `beforeunload` warning during the in-flight request. On an ambiguous network failure it performs an authoritative reload and reports success only if that reload actually confirms that no published forms remain; an unavailable reload no longer gets mistaken for successful cleanup.
+
+Verification completed before release preparation:
+
+- focused frontend Forms/API/client tests: **36 / 36 passed**;
+- focused backend Deliverable controller/security/multi-artifact tests passed, including ADMIN-only enforcement and workspace scoping;
+- focused Playwright regressions: **2 / 2 passed**, proving visible server-side cleanup progress and no reserved global scrollbar gutter on a short desktop page;
+- full frontend Vitest: **288 / 290 passed**. The only failures remain the known unrelated `Ralph Laviste` App-shell assertion and FormsLoading one-minute cache-expiry assertion;
+- production frontend build passed with 5402 modules transformed and only the existing >500 kB chunk-size warning;
+- complete role-flow Playwright suite: **19 / 19 passed**. The broader `npm run test:browser` command was **21 / 23** because both desktop/mobile cases in the unchanged `loading-friction.spec.js` still expect Student Number to be disabled during hydration, while the current approved submission UX intentionally keeps those identity fields editable; this unrelated stale browser-test debt was not changed as part of the cleanup fix;
+- full backend Maven suite: **182 / 182 passed**, 0 failures/errors/skips.
+
+Release completed through PR **#41**, `Make form cleanup atomic and visible`. Code commit `ff63d3c` (`fix: make form cleanup atomic and visible`) was merged to `main` as `c5eafccbff66f5c41e8488830c2c9a1595e499b8`. GitHub/Vercel reported that exact merge commit as **Deployment has completed**. Post-merge production readiness returned HTTP 200 with `status=UP`, `service=wildtrack-backend`, and `database=UP`.
+
+A direct production Chromium render of `https://www.wildtrack.dev/login` at **1600 x 1000** confirmed the document now computes `scrollbar-gutter: auto`, `innerWidth=clientWidth=scrollWidth=1600`, `scrollHeight=innerHeight=1000`, and the page root reaches the full 1600 px viewport width. This verifies the empty global desktop scrollbar lane is gone on a real short production page. The Tracker grid's component-level `scrollbar-gutter: stable` remains in source and was not part of the removal.
+
+Production Admin verification of the live `Unpublish all` interaction still requires an authenticated WildTrack Admin browser session. The exact deployed merge commit contains the new one-request bulk path, and local browser verification proves the progress surface and final all-unpublished reconciliation, but no attempt was made to scrape or reuse browser cookies from the user's interactive session.
+
+Keep this progress-note update local and unstaged unless its repository-tracking/privacy policy is explicitly resolved.
+
+### 2026-09-15 live progress and co-adviser follow-up
+
+Production screenshots exposed three small administration UX issues and one cross-surface progress gap. The Workspace page still printed the Google Drive API connection sentence even though the template area already makes Drive availability apparent; that status sentence is now removed. Staff cards also exposed `Review imported adviser teams`, which only duplicated `Edit access`; the duplicate control is removed. Inside Edit staff access, currently selected teams now sort to the top of the assignment picker instead of being mixed into the full cross-workspace list.
+
+The `Blank` tracker value after a successful WildTrack form submission was a real architecture gap rather than a failed form save. Tracker cells are imported Google Sheet snapshots, and the approved application deliberately does not auto-write submissions back to Google. The frontend now overlays recorded WildTrack response timestamps onto the matching deliverable tracker column when domain state is loaded. An on-time recorded submission displays `0`; a late submission displays the computed days-late value. The imported Google Sheet value remains untouched. This same overlay is applied by the student dashboard, Admin monitoring/workspace state, and adviser monitoring state. A successful public-form submission also invalidates the shared resource cache and dispatches the normal refresh event so returning/mounted dashboards do not keep an old cached `Blank` value.
+
+The imported-adviser edge case is now modeled as many-to-many rather than exclusive team ownership. A team may be assigned to both Erica Jean Abadinas and Jasmine Tulin while each adviser keeps their other teams. Saving one adviser no longer transfers or deletes the other adviser's assignment. The team picker describes an existing shared assignment as `also assigned to ...`. Compound imported adviser text separated by `/`, such as `Erica Jean Abadinas / Jasmine Tulin`, is split into separate adviser-name candidates for that same team. Adviser authorization remains based on assignment membership, so both advisers receive the shared team in their scoped monitoring results without gaining each other's unrelated teams. No database migration was required because the existing assignment uniqueness key is per workspace + adviser subject + team code, which already permits multiple adviser subjects for one team.
+
+Verification for this local batch:
+
+- affected frontend suites: **90 / 90 passed** across Staff management, submission refresh, student dashboard, tracker, and domain-progress mapping;
+- focused backend StaffManagementService test suite passed, including shared-team assignments and compound imported adviser names;
+- full backend Maven suite passed with no failures;
+- full frontend Vitest: **292 / 294 passed**. The only failures are the same unrelated pre-existing App-shell `Ralph Laviste` assertion and FormsLoading one-minute cache-expiry assertion;
+- frontend production build passed with 5402 modules transformed and only the existing >500 kB Vite chunk warning;
+- no automatic Google polling, Sheet import, or Tracker writeback was added.
+
+Keep this progress-note update local and unstaged unless its repository-tracking/privacy policy is explicitly resolved.
 
 ## Latest engineering status - 2026-09-11 multi-artifact implementation
 

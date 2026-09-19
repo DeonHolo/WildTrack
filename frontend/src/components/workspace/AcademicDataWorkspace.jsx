@@ -3,9 +3,9 @@ import {
   Alert,
   Badge,
   Button,
-  Collapse,
   Group,
   Modal,
+  Pagination,
   Select,
   Stack,
   Tabs,
@@ -13,8 +13,10 @@ import {
   Textarea,
   TextInput
 } from '@mantine/core';
-import { ArrowClockwise, CaretDown, CaretUp, Plus, UploadSimple } from '@phosphor-icons/react';
+import { ArrowClockwise, Plus, UploadSimple } from '@phosphor-icons/react';
 import { loadAcademicData, saveAcademicRows } from '../../lib/academicDataClient.js';
+
+const PAGE_SIZE_OPTIONS = ['25', '50', '100'];
 
 const GRID_CONFIG = {
   students: {
@@ -72,7 +74,6 @@ const HEADER_ALIASES = {
 };
 
 export function AcademicDataWorkspace({ workspaceId, onSaved }) {
-  const [opened, setOpened] = useState(false);
   const [activeGrid, setActiveGrid] = useState('students');
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
@@ -81,14 +82,17 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
   const [dirty, setDirty] = useState(emptyDirty);
   const [pasteOpened, setPasteOpened] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   useEffect(() => {
-    setOpened(false);
     setStatus('idle');
     setData(emptyData());
     setDirty(emptyDirty());
     setError('');
     setNotice('');
+    setPage(1);
+    if (workspaceId) void load();
   }, [workspaceId]);
 
   async function load() {
@@ -106,14 +110,12 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
     }
   }
 
-  async function toggleOpen() {
-    const next = !opened;
-    setOpened(next);
-    if (next && status === 'idle') await load();
-  }
-
   const config = GRID_CONFIG[activeGrid];
   const rows = data[activeGrid] || [];
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const firstVisible = rows.length ? ((page - 1) * pageSize) + 1 : 0;
+  const lastVisible = Math.min(page * pageSize, rows.length);
+  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
   const errors = useMemo(() => validateRows(activeGrid, rows, data.trackerColumns), [activeGrid, rows, data.trackerColumns]);
   const dirtyKeys = dirty[activeGrid];
   const dirtyRows = rows.filter((row) => dirtyKeys.has(rowKey(row)));
@@ -122,6 +124,11 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
     () => parsePaste(activeGrid, pasteText, rows, data.trackerColumns),
     [activeGrid, pasteText, rows, data.trackerColumns]
   );
+
+  useEffect(() => setPage(1), [activeGrid, pageSize]);
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   function updateCell(key, field, value) {
     setData((current) => ({
@@ -181,62 +188,69 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
   }
 
   return (
-    <section className="panel wt-academic-data" aria-label="Academic data workspace">
-      <div className="panel-header">
-        <div>
-          <h2>Academic data</h2>
-          <p>Edit imported records or add rows directly. Saves stay inside WildTrack and never write back to Google Sheets.</p>
-        </div>
-        <Button variant="default" rightSection={opened ? <CaretUp size={16} /> : <CaretDown size={16} />} onClick={toggleOpen}>
-          {opened ? 'Hide grids' : 'Open grids'}
-        </Button>
-      </div>
+    <section className="wt-academic-data wt-academic-data-sheet" aria-label="Academic data workspace">
+      <Stack gap="md">
+        {error ? <Alert color="red" role="alert">{error}</Alert> : null}
+        {notice ? <Alert color="green" role="status">{notice}</Alert> : null}
+        {status === 'loading' ? <Text size="sm" c="dimmed">Loading academic records…</Text> : null}
+        {status !== 'loading' ? (
+          <Tabs value={activeGrid} onChange={(value) => value && setActiveGrid(value)}>
+            <Tabs.List className="wt-academic-sheet-tabs">
+              <Tabs.Tab value="students">Students ({data.students.length})</Tabs.Tab>
+              <Tabs.Tab value="projects">Teams / Projects ({data.projects.length})</Tabs.Tab>
+              <Tabs.Tab value="deliverables">Deliverables ({data.deliverables.length})</Tabs.Tab>
+            </Tabs.List>
 
-      <Collapse in={opened}>
-        <Stack gap="md" pt="sm">
-          {error ? <Alert color="red" role="alert">{error}</Alert> : null}
-          {notice ? <Alert color="green" role="status">{notice}</Alert> : null}
-          {status === 'loading' ? <Text size="sm" c="dimmed">Loading academic records…</Text> : null}
-          {status !== 'loading' ? (
-            <Tabs value={activeGrid} onChange={(value) => value && setActiveGrid(value)}>
-              <Tabs.List>
-                <Tabs.Tab value="students">Students ({data.students.length})</Tabs.Tab>
-                <Tabs.Tab value="projects">Teams / Projects ({data.projects.length})</Tabs.Tab>
-                <Tabs.Tab value="deliverables">Deliverables ({data.deliverables.length})</Tabs.Tab>
-              </Tabs.List>
-
-              <Stack gap="sm" mt="md">
-                <Group justify="space-between" align="flex-end" gap="sm" wrap="wrap">
-                  <div>
-                    <Text fw={750}>{config.label}</Text>
-                    <Text size="xs" c="dimmed">Columns marked * are required. Existing imported source references stay attached when you edit values.</Text>
-                  </div>
-                  <Group gap="xs">
-                    <Button variant="default" leftSection={<ArrowClockwise size={16} />} onClick={load} disabled={status === 'saving'}>Reload</Button>
-                    <Button variant="default" leftSection={<UploadSimple size={16} />} onClick={() => { setPasteText(''); setPasteOpened(true); }}>Paste rows</Button>
-                    {activeGrid === 'deliverables' ? null : (
-                      <Button variant="default" leftSection={<Plus size={16} />} onClick={addRow}>Add row</Button>
-                    )}
-                    <Button color="wildtrackMaroon" onClick={save} loading={status === 'saving'} disabled={!dirtyRows.length || dirtyHasErrors}>
-                      Save changes{dirtyRows.length ? ` (${dirtyRows.length})` : ''}
-                    </Button>
-                  </Group>
+            <Stack gap="sm" mt="md">
+              <Group className="wt-academic-sheet-toolbar" justify="space-between" align="flex-end" gap="sm" wrap="wrap">
+                <div>
+                  <Text fw={750}>{config.label}</Text>
+                  <Text size="xs" c="dimmed">Columns marked * are required. Existing imported source references stay attached when you edit values.</Text>
+                </div>
+                <Group gap="xs">
+                  <Button variant="default" leftSection={<ArrowClockwise size={16} />} onClick={load} disabled={status === 'saving'}>Reload</Button>
+                  <Button variant="default" leftSection={<UploadSimple size={16} />} onClick={() => { setPasteText(''); setPasteOpened(true); }}>Paste rows</Button>
+                  {activeGrid === 'deliverables' ? null : (
+                    <Button variant="default" leftSection={<Plus size={16} />} onClick={addRow}>Add row</Button>
+                  )}
+                  <Button color="wildtrackMaroon" onClick={save} loading={status === 'saving'} disabled={!dirtyRows.length || dirtyHasErrors}>
+                    Save changes{dirtyRows.length ? ` (${dirtyRows.length})` : ''}
+                  </Button>
                 </Group>
+              </Group>
 
-                <AcademicGrid
-                  kind={activeGrid}
-                  rows={rows}
-                  columns={config.columns}
-                  errors={errors}
-                  trackerColumns={data.trackerColumns}
-                  dirtyKeys={dirtyKeys}
-                  onChange={updateCell}
-                />
-              </Stack>
-            </Tabs>
-          ) : null}
-        </Stack>
-      </Collapse>
+              <AcademicGrid
+                kind={activeGrid}
+                rows={pageRows}
+                rowOffset={(page - 1) * pageSize}
+                columns={config.columns}
+                errors={errors}
+                trackerColumns={data.trackerColumns}
+                dirtyKeys={dirtyKeys}
+                onChange={updateCell}
+              />
+
+              <Group className="wt-academic-pagination" justify="space-between" gap="md" wrap="wrap">
+                <Text size="sm" c="dimmed" className="wt-tabular">
+                  {rows.length ? `${firstVisible}–${lastVisible} of ${rows.length}` : '0 rows'}
+                </Text>
+                <Group gap="sm" wrap="wrap">
+                  <Select
+                    aria-label="Rows per page"
+                    value={String(pageSize)}
+                    onChange={(value) => setPageSize(Number(value || 50))}
+                    data={PAGE_SIZE_OPTIONS.map((value) => ({ value, label: `${value} rows` }))}
+                    allowDeselect={false}
+                    w={120}
+                    size="sm"
+                  />
+                  <Pagination value={page} onChange={setPage} total={pageCount} withEdges />
+                </Group>
+              </Group>
+            </Stack>
+          </Tabs>
+        ) : null}
+      </Stack>
 
       <Modal opened={pasteOpened} onClose={() => setPasteOpened(false)} title={`Paste ${config.label.toLowerCase()} rows`} size="xl" centered>
         <Stack gap="md">
@@ -278,22 +292,24 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
   );
 }
 
-function AcademicGrid({ kind, rows, columns, errors, trackerColumns, dirtyKeys, onChange }) {
+function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColumns, dirtyKeys, onChange }) {
   return (
     <div className="wt-academic-grid-scroll">
       <table className="wt-academic-grid" aria-label={`${GRID_CONFIG[kind].label} academic data`}>
         <thead>
           <tr>
+            <th className="wt-academic-row-number" aria-label="Row number">#</th>
             <th>Source</th>
             {columns.map((item) => <th key={item.key}>{item.label}{item.required ? ' *' : ''}</th>)}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => {
+          {rows.map((row, index) => {
             const key = rowKey(row);
             const rowErrors = errors.get(key) || {};
             return (
               <tr key={key} className={dirtyKeys.has(key) ? 'is-dirty' : undefined}>
+                <td className="wt-academic-row-number">{rowOffset + index + 1}</td>
                 <td className="wt-academic-source-cell">{sourceLabel(kind, row)}</td>
                 {columns.map((item) => (
                   <td key={item.key}>
@@ -310,7 +326,7 @@ function AcademicGrid({ kind, rows, columns, errors, trackerColumns, dirtyKeys, 
               </tr>
             );
           })}
-          {!rows.length ? <tr><td colSpan={columns.length + 1}><Text size="sm" c="dimmed">No rows yet. Add a row or paste spreadsheet data.</Text></td></tr> : null}
+          {!rows.length ? <tr><td colSpan={columns.length + 2}><Text size="sm" c="dimmed">No rows yet. Add a row or paste spreadsheet data.</Text></td></tr> : null}
         </tbody>
       </table>
     </div>
@@ -324,6 +340,7 @@ function GridCell({ kind, row, column: item, error, trackerColumns, onChange }) 
     return (
       <Select
         aria-label="Tracker column"
+        variant="unstyled"
         value={value || null}
         data={trackerColumns.map((column) => ({ value: column.columnKey, label: column.label || column.columnKey }))}
         onChange={(next) => onChange(next || '')}
@@ -332,12 +349,13 @@ function GridCell({ kind, row, column: item, error, trackerColumns, onChange }) 
     );
   }
   if (item.type === 'status') {
-    return <Select aria-label={`${item.label} for ${rowIdentity(kind, row)}`} value={value || 'UNPUBLISHED'} data={['UNPUBLISHED', 'PUBLISHED']} onChange={(next) => onChange(next || 'UNPUBLISHED')} error={error} />;
+    return <Select aria-label={`${item.label} for ${rowIdentity(kind, row)}`} variant="unstyled" value={value || 'UNPUBLISHED'} data={['UNPUBLISHED', 'PUBLISHED']} onChange={(next) => onChange(next || 'UNPUBLISHED')} error={error} />;
   }
   return (
     <TextInput
       aria-label={`${item.label} for ${rowIdentity(kind, row)}`}
       type={item.type === 'datetime-local' ? 'datetime-local' : 'text'}
+      variant="unstyled"
       value={item.type === 'datetime-local' ? value.slice(0, 16) : value}
       onChange={(event) => onChange(event.currentTarget.value)}
       error={error}

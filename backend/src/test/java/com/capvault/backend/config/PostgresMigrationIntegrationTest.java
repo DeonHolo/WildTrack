@@ -27,7 +27,7 @@ class PostgresMigrationIntegrationTest {
             MigrateResult firstMigration = flyway.migrate();
 
             assertThat(firstMigration.migrationsExecuted).isPositive();
-            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("24");
+            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("25");
             assertThat(tableExists(dataSource, "domain_audit_events")).isTrue();
             assertThat(tableExists(dataSource, "response_tracker_outbox")).isTrue();
             assertThat(tableExists(dataSource, "archive_records")).isTrue();
@@ -48,6 +48,8 @@ class PostgresMigrationIntegrationTest {
             assertThat(columnExists(dataSource, "academic_file_check_reports", "source_value_sha256")).isTrue();
             assertThat(columnExists(dataSource, "academic_file_check_reports", "drive_last_modifying_user_email")).isTrue();
             assertThat(columnExists(dataSource, "academic_file_check_reports", "drive_last_modifying_user_display_name")).isTrue();
+            assertThat(columnExists(dataSource, "academic_file_check_reports", "drive_created_time")).isTrue();
+            assertThat(columnExists(dataSource, "academic_file_check_reports", "drive_owner_display")).isTrue();
             assertThat(columnExists(dataSource, "academic_document_templates", "field_id")).isTrue();
             assertThat(columnExists(dataSource, "archive_records", "artifact_snapshot_json")).isTrue();
             assertThat(constraintExists(dataSource, "academic_document_templates", "uq_academic_document_template_field")).isTrue();

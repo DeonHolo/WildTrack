@@ -31,6 +31,10 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         named in the supplied Deliverable Instructions or official template, and requirement must quote the exact
         supplied passage that requires it. If neither supplied authority explicitly names a section, do not list it.
         If no official template is supplied, do not infer a standard template. Suggested action: 1-3 sentences.
+        Official-template sample project names, sample transaction names, placeholder labels, worked examples and
+        demonstration values are examples to replace, not the requested project's identity or required factual values.
+        Never compare the submitted project's name against a sample name from the template. Before reporting a required
+        section as missing, inspect the attached PDF and do not report it missing when that body section is present.
         The summary and suggested action may only synthesize the grounded findings and supplied review limitations;
         they must not introduce new mandatory requirements. Use empty arrays when appropriate. Distinguish an absent
         requirement from evidence you could not inspect. Do not invent citations or claim you checked external
@@ -55,7 +59,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     @Override public boolean isConfigured() { return !key.isBlank(); }
 
     @Override public String cacheVersion() {
-        return MODEL + ":rest-pdf-v2:temperature-0.2:thinking-minimal:output-" + MAX_OUTPUT_TOKENS
+        return MODEL + ":rest-pdf-v3:temperature-0.2:thinking-minimal:output-" + MAX_OUTPUT_TOKENS
             + ":" + AiReviewService.sha256(GUIDANCE.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 

@@ -24,7 +24,9 @@ class GoogleDriveApiGatewayTest {
                   "mimeType":"application/pdf",
                   "size":"1200",
                   "md5Checksum":"abc123",
+                  "createdTime":"2026-09-01T05:06:07Z",
                   "modifiedTime":"2026-09-18T01:02:03Z",
+                  "owners":[{"displayName":"Drive Owner","emailAddress":"owner@example.com"}],
                   "lastModifyingUser":{"displayName":"Drive Name","emailAddress":"editor@example.com"},
                   "capabilities":{"canDownload":true},
                   "webViewLink":"https://drive.google.com/file/d/file-1/view"
@@ -37,6 +39,8 @@ class GoogleDriveApiGatewayTest {
 
         assertThat(metadata.lastModifyingUserEmail()).isEqualTo("editor@example.com");
         assertThat(metadata.lastModifyingUserDisplayName()).isEqualTo("Drive Name");
+        assertThat(metadata.createdTime()).isEqualTo(java.time.OffsetDateTime.parse("2026-09-01T05:06:07Z"));
+        assertThat(metadata.driveOwner()).isEqualTo("Drive Owner");
         assertThat(metadata.md5Checksum()).isEqualTo("abc123");
         server.verify();
     }
@@ -63,6 +67,8 @@ class GoogleDriveApiGatewayTest {
 
         assertThat(metadata.lastModifyingUserEmail()).isNull();
         assertThat(metadata.lastModifyingUserDisplayName()).isNull();
+        assertThat(metadata.createdTime()).isNull();
+        assertThat(metadata.driveOwner()).isNull();
         server.verify();
     }
 }
