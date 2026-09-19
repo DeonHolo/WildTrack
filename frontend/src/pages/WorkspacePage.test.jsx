@@ -21,6 +21,8 @@ const workflow = vi.hoisted(() => ({
   updateWorkspace: vi.fn(),
   refreshWorkspaceManagementCatalog: vi.fn(),
   connectSheetSource: vi.fn(),
+  previewSheetSource: vi.fn(),
+  applySheetPreview: vi.fn(),
   loadArchiveReadiness: vi.fn(),
   generateFormsFromSuggestions: vi.fn(),
   refreshBackendData: vi.fn(),
@@ -63,12 +65,18 @@ vi.mock('../lib/workspaceAdminClient.js', () => ({
   loadWorkspaceAdmin: vi.fn(),
   loadWorkspaceArchiveReadiness: (...args) => workflow.loadArchiveReadiness(...args),
   importWorkspaceSheet: (_workspaceId, sourceType, payload) => workflow.connectSheetSource(sourceType, payload),
+  previewWorkspaceSheet: (_workspaceId, sourceType, payload) => workflow.previewSheetSource(sourceType, payload),
+  applyWorkspaceSheetPreview: (_workspaceId, sourceType, previewId, resolutions) => workflow.applySheetPreview(sourceType, previewId, resolutions),
   publishSuggestedForms: (...args) => workflow.generateFormsFromSuggestions(...args)
 }));
 
 vi.mock('../lib/submissionClient.js', () => ({
   saveSubmissionTemplate: (_workspaceId, template) => workflow.saveTemplate(template),
   removeSubmissionTemplate: (_workspaceId, templateId) => workflow.removeTemplate(templateId)
+}));
+vi.mock('../lib/academicDataClient.js', () => ({
+  loadAcademicData: vi.fn(),
+  saveAcademicRows: vi.fn()
 }));
 vi.mock('../lib/api.js', () => ({
   getDriveConnectionStatus: vi.fn().mockResolvedValue({ configured: true, message: 'Google Drive connected.' }),
@@ -272,18 +280,36 @@ describe('workspace operations', () => {
       const workspace = workflow.allWorkspaces.find((item) => item.id === workspaceId);
       return { ok: true, workspace: { ...workspace, ...updates } };
     });
+    workflow.previewSheetSource.mockImplementation(async (sourceType) => ({
+      previewId: `preview-${sourceType}`,
+      sourceKey: sourceType,
+      sourceLabel: sourceType === 'teamFormation' ? 'Team Formation' : sourceType === 'projectMonitor' ? 'Software Project Monitor' : 'Tracker',
+      addedRows: 0,
+      changedRows: 0,
+      missingRows: 0,
+      changes: [],
+      warnings: [],
+      details: { missingFields: [] }
+    }));
+    workflow.applySheetPreview.mockImplementation(async (sourceType) => ({
+      ok: true,
+      state: createState(),
+      importSummary: { sourceType: sourceType === 'teamFormation' ? 'Team Formation' : sourceType === 'projectMonitor' ? 'Software Project Monitor' : 'Tracker', suggestedForms: [], mappings: [] }
+    }));
   });
 
-  it.each(['workspace', 'account'])('discards a late import summary after the %s changes', async (changed) => {
+  it.each(['workspace', 'account'])('discards a late re-import preview after the %s changes', async (changed) => {
     let finish;
-    workflow.connectSheetSource.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    workflow.previewSheetSource.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const view = renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Import Tracker' }));
     if (changed === 'workspace') workflow.activeWorkspaceId = 'workspace-cs';
     else workflow.session = { authenticated: true, email: 'other@school.edu' };
     view.rerender(workspaceTree());
-    await act(async () => finish({ ok: true, state: createState(), importSummary: { sourceType: 'Tracker', suggestedForms: [], mappings: [] } }));
-    expect(screen.queryByRole('dialog', { name: 'Tracker import summary' })).not.toBeInTheDocument();
+    await act(async () => finish({
+      previewId: 'late-preview', sourceKey: 'tracker', sourceLabel: 'Tracker', addedRows: 1, changedRows: 0, missingRows: 0, changes: []
+    }));
+    expect(screen.queryByRole('dialog', { name: 'Tracker re-import preview' })).not.toBeInTheDocument();
     expect(screen.queryByText('Tracker imported.')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Import Tracker' })).toBeEnabled();
   });
@@ -417,40 +443,51 @@ describe('workspace operations', () => {
     expect(screen.getByText('Sheet ID: test-sheet-12345')).toBeInTheDocument();
   });
 
-  it('shows source-specific mapping, missing, optional, unrecognized, skipped, and deadline details', async () => {
-    workflow.connectSheetSource.mockResolvedValue({
-      ok: true,
-      state: createState(),
-      importSummary: {
-        sourceType: 'Tracker',
-        resultStatus: 'Imported with warnings',
-        headers: ['NAME OF STUDENT', 'TEAM FORMATION', 'SRS', 'Mystery'],
-        mappings: [
-          { key: 'studentName', label: 'Student name', sourceColumn: 'NAME OF STUDENT', required: true },
-          { key: 'teamCode', label: 'Team code', sourceColumn: 'TEAM FORMATION', required: true }
-        ],
-        detectedFields: ['Student Name', 'Team Code', '1 deliverable column'],
-        missingFields: [],
-        optionalFields: ['Student Number'],
-        unrecognizedFields: ['Mystery'],
-        skippedRows: [{ rowNumber: 4, reason: 'No student identity' }],
-        deadlineRows: [{ rowNumber: 10, suggestions: [] }],
-        metrics: { studentRows: 2 },
-        suggestedForms: [],
-        warnings: []
-      }
+  it('previews differences and requires explicit source-vs-local conflict resolution before applying', async () => {
+    workflow.previewSheetSource.mockResolvedValue({
+      previewId: 'preview-conflict',
+      sourceKey: 'tracker',
+      sourceLabel: 'Tracker',
+      addedRows: 1,
+      changedRows: 1,
+      missingRows: 1,
+      details: { missingFields: ['Student Number'] },
+      warnings: ['Coordinator Note was ignored.'],
+      changes: [{
+        key: 'student:one', entityType: 'student', rowKey: 'one', rowLabel: 'DOE, JANE', kind: 'CHANGED',
+        fields: [{
+          key: 'student:one:teamCode', field: 'teamCode', label: 'Team code',
+          sourceValue: 'SOURCE-TEAM', localValue: 'LOCAL-TEAM', conflict: true
+        }]
+      }]
     });
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Import Tracker' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Tracker import summary' });
-    expect(within(dialog).getByText('Field mapping')).toBeInTheDocument();
-    expect(within(dialog).getByLabelText('Student name source column')).toHaveValue('NAME OF STUDENT');
+    const dialog = await screen.findByRole('dialog', { name: 'Tracker re-import preview' });
+    expect(within(dialog).getByText('Read-only preview')).toBeInTheDocument();
+    expect(within(dialog).getByText('DOE, JANE')).toBeInTheDocument();
+    expect(within(dialog).getByText('Source: SOURCE-TEAM')).toBeInTheDocument();
+    expect(within(dialog).getByText('Local: LOCAL-TEAM')).toBeInTheDocument();
     expect(within(dialog).getByText('Student Number')).toBeInTheDocument();
-    const unrecognized = within(dialog).getByText('Unrecognized columns').parentElement;
-    expect(within(unrecognized).getByText('Mystery')).toBeInTheDocument();
-    expect(within(dialog).getByText(/Row 4/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Row 10/)).toBeInTheDocument();
+    expect(within(dialog).getByText('Coordinator Note was ignored.')).toBeInTheDocument();
+    const apply = within(dialog).getByRole('button', { name: 'Apply re-import' });
+    expect(apply).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText('Resolve DOE, JANE Team code'), { target: { value: 'LOCAL' } });
+    expect(apply).toBeEnabled();
+    fireEvent.click(apply);
+    await waitFor(() => expect(workflow.applySheetPreview).toHaveBeenCalledWith('tracker', 'preview-conflict', {
+      'student:one:teamCode': 'LOCAL'
+    }));
+  });
+
+  it('cancels a re-import preview without applying anything', async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Import Tracker' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Tracker re-import preview' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Tracker re-import preview' })).not.toBeInTheDocument());
+    expect(workflow.applySheetPreview).not.toHaveBeenCalled();
   });
 
   it('keeps Tracker form suggestions accessible without a duplicate deliverable-column editor', async () => {
@@ -578,13 +615,23 @@ describe('workspace operations', () => {
     expect(alert).toHaveClass('danger');
   });
 
-  it('reports a failed Sheet import instead of claiming success', async () => {
-    workflow.connectSheetSource.mockRejectedValue(new Error('Request failed with status 401'));
+  it('reports a failed Sheet preview instead of claiming success', async () => {
+    workflow.previewSheetSource.mockRejectedValue(new Error('Request failed with status 401'));
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Import Tracker' }));
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Request failed with status 401'));
     expect(screen.getByRole('status')).toHaveClass('danger');
+  });
+
+  it('keeps a stale preview open and explains that it must be previewed again', async () => {
+    workflow.applySheetPreview.mockRejectedValue(Object.assign(new Error('WildTrack academic data changed after this preview. Preview the Sheet again before applying.'), { status: 409 }));
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Import Tracker' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Tracker re-import preview' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply re-import' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('changed after this preview'));
+    expect(screen.getByRole('dialog', { name: 'Tracker re-import preview' })).toBeInTheDocument();
   });
 
   it('stays quiet about backend sync when every segment loaded', () => {

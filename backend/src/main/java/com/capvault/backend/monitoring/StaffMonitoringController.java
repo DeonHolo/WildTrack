@@ -13,6 +13,8 @@ import com.capvault.backend.project.ProjectMetadataRepository;
 import com.capvault.backend.project.ProjectMetadataResponse;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseService;
+import com.capvault.backend.response.ResponseTimingService;
+import com.capvault.backend.response.ResponseTimingView;
 import com.capvault.backend.staff.StaffManagementService;
 import com.capvault.backend.staff.StaffRole;
 import com.capvault.backend.student.StudentAssociationSecurity;
@@ -46,9 +48,11 @@ public class StaffMonitoringController {
     private final TrackerCellRepository cellRepository;
     private final DeliverableService deliverableService;
     private final FormResponseService responseService;
+    private final ResponseTimingService responseTimingService;
     private final ArchiveRecordRepository archiveRepository;
     private final com.capvault.backend.response.ReviewFeedbackService reviews;
     private final com.capvault.backend.filecheck.FileCheckService checks;
+    private final com.capvault.backend.filecheck.ObservedFileHistoryService observedFileHistory;
     private final com.capvault.backend.aireview.AiReviewService aiReviews;
 
     public StaffMonitoringController(
@@ -61,9 +65,11 @@ public class StaffMonitoringController {
         TrackerCellRepository cellRepository,
         DeliverableService deliverableService,
         FormResponseService responseService,
+        ResponseTimingService responseTimingService,
         ArchiveRecordRepository archiveRepository,
         com.capvault.backend.response.ReviewFeedbackService reviews,
         com.capvault.backend.filecheck.FileCheckService checks,
+        com.capvault.backend.filecheck.ObservedFileHistoryService observedFileHistory,
         com.capvault.backend.aireview.AiReviewService aiReviews
     ) {
         this.security = security;
@@ -75,9 +81,11 @@ public class StaffMonitoringController {
         this.cellRepository = cellRepository;
         this.deliverableService = deliverableService;
         this.responseService = responseService;
+        this.responseTimingService = responseTimingService;
         this.archiveRepository = archiveRepository;
         this.reviews = reviews;
         this.checks = checks;
+        this.observedFileHistory = observedFileHistory;
         this.aiReviews = aiReviews;
     }
 
@@ -90,11 +98,14 @@ public class StaffMonitoringController {
         List<TrackerRowResponse> trackerRows,
         List<DeliverableResponse> deliverables,
         List<FormResponse> responses,
+        java.util.Map<UUID, ResponseTimingView> responseTimings,
         List<UUID> archivedResponseIds,
         java.util.Map<UUID, java.util.Map<String, Object>> reviewStates,
         java.util.Map<String, com.capvault.backend.filecheck.FileCheckResponse> fileChecks,
         java.util.Map<UUID, com.capvault.backend.aireview.AiReviewService.View> aiReviews,
         java.util.Map<String, java.util.Map<String, com.capvault.backend.filecheck.FileCheckResponse>> fileChecksByField,
+        java.util.Map<String, com.capvault.backend.filecheck.ObservedFileHistoryView> observedFileHistory,
+        java.util.Map<String, java.util.Map<String, com.capvault.backend.filecheck.ObservedFileHistoryView>> observedFileHistoryByField,
         java.util.Map<UUID, java.util.Map<String, com.capvault.backend.aireview.AiReviewService.View>> aiReviewsByField
     ) {
     }
@@ -139,6 +150,10 @@ public class StaffMonitoringController {
         var cells = rows.isEmpty() ? java.util.Map.<UUID, List<com.capvault.backend.tracker.TrackerCell>>of()
             : cellRepository.findAllByTrackerRowIdIn(rows.stream().map(row -> row.getId()).toList()).stream()
                 .collect(Collectors.groupingBy(cell -> cell.getTrackerRow().getId()));
+        var responseIds = responses.stream().map(r -> r.getId().toString()).toList();
+        var observedHistory = includeReviews
+            ? observedFileHistory.forResponses(workspaceId, responseIds)
+            : new com.capvault.backend.filecheck.ObservedFileHistoryService.Batch(java.util.Map.of(), java.util.Map.of());
         return new MonitoringResponse(
             allTeams,
             teams,
@@ -161,11 +176,14 @@ public class StaffMonitoringController {
                 .toList(),
             deliverableService.listDeliverables(workspaceId),
             responses,
+            responseTimingService.forResponses(responses),
             archivedResponseIds,
             reviewStates,
-            includeReviews ? checks.latestForResponses(workspaceId, responses.stream().map(r -> r.getId().toString()).toList()) : java.util.Map.of(),
+            includeReviews ? checks.latestForResponses(workspaceId, responseIds) : java.util.Map.of(),
             includeReviews ? aiReviews.savedFor(responses) : java.util.Map.of(),
-            includeReviews ? checks.latestByFieldForResponses(workspaceId, responses.stream().map(r -> r.getId().toString()).toList()) : java.util.Map.of(),
+            includeReviews ? checks.latestByFieldForResponses(workspaceId, responseIds) : java.util.Map.of(),
+            observedHistory.legacy(),
+            observedHistory.byField(),
             includeReviews ? aiReviews.savedByFieldFor(responses) : java.util.Map.of()
         );
     }

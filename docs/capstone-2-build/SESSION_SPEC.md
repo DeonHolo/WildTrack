@@ -39,7 +39,7 @@ Deliver the research instrument before app work, then implement bounded end-to-e
 
 ## Implementation Decisions
 
-- Research package is Ticket 01 and is runnable against the current MVP. Objective 3 uses a dedicated validation workspace plus a frozen controlled student task; it is not a fictional scenario quiz.
+- Research package is Ticket 01 and is runnable against the current MVP. Objective 3 uses the existing imported MVP Validation workspace plus a frozen controlled student task; do not create a second synthetic validation workspace, and do not replace the task with a fictional scenario quiz.
 - Selected third goal is student submission transaction correctness. The current proposed working target is at least 95% correct scored transaction tasks across the frozen initial-submission and material-revision protocol; freeze the number before collection and do not claim adviser endorsement.
 - Student questionnaire ratings are supporting MVP feedback only. Do not use them to score Objective 3, and do not require respondent-facing research codes or a self-created participant code.
 - Ticket 01 proposes and documents concrete targets/case counts for Document Check and AI Review before final evaluation; do not present arbitrary targets as published standards. Freeze scoring before collection.
@@ -48,7 +48,7 @@ Deliver the research instrument before app work, then implement bounded end-to-e
 - One global/canonical person association across workspaces, with scoped membership. Audit existing identities before migration. Existing conflicts go to Admin resolution, not automated winners.
 - First binding + successful submission form one transaction. Include concurrent first-claim tests and account-disconnect behavior for existing response editing. No mandatory OTP/precollected emails.
 - Effective submission time accounts for material artifact changes and verified relevant file changes while keeping original timestamps. Capture content identity when possible; no-op saves remain unchanged.
-- History has two labeled sources: recorded WildTrack observations and authorized Drive revisions. Do not merge duplicate events or infer missing editors incorrectly.
+- History has two labeled sources: recorded WildTrack observations and, only when separately authorized later, Drive revisions. Do not merge duplicate events, infer missing editors, or map provider identity to roster names as proof of authorship.
 - Optional Drive integration must preserve pasted-link UX. A feasibility/access record chooses a justified scope, tests role restrictions and details secure token handling. Real owner grants are external actions.
 - AI prompt grounding, artifact identity, no-template limitations and Admin-only invocation remain. Make checker changes only from reproducible fixture failures.
 - Benchmark fixtures are synthetic test inputs; logs of actual runs are evidence. Final study analysis uses actual participant data only.

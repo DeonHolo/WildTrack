@@ -65,6 +65,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST,
                     "/api/workspaces",
                     "/api/sheets/import/**",
+                    "/api/sheets/preview/**",
+                    "/api/sheets/apply/**",
                     "/api/deliverables",
                     "/api/deliverables/unpublish-all",
                     "/api/templates",

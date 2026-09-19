@@ -85,8 +85,8 @@ export function saveSubmissionDraft(workspaceId, deliverableId, values, revision
   return saveDraft(workspaceId, deliverableId, values, revision);
 }
 
-export function commitSubmission(workspaceId, deliverableId, values, revision) {
-  return submitResponse(workspaceId, deliverableId, values, revision);
+export function commitSubmission(workspaceId, deliverableId, values, revision, studentNumber) {
+  return submitResponse(workspaceId, deliverableId, values, revision, studentNumber);
 }
 
 export function confirmSubmissionAssociation(workspaceId, studentNumber) {

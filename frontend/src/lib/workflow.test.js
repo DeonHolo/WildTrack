@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   activeSubmissionValues,
+  isArtifactAiReviewCurrent,
+  isArtifactDocumentCheckCurrent,
   dedupeDeliverables,
   findOwnedResponse,
   getResponseOwnerKey,
@@ -60,6 +62,32 @@ describe('Google-attributed response ownership', () => {
       studentNumber: '22-1001-001',
       googleEmail: 'owner@gmail.com'
     })).toBe(false);
+  });
+});
+
+describe('artifact-scoped review currentness', () => {
+  it('keeps unchanged artifact reviews current when another artifact changes', () => {
+    const first = { id: 'frameworkPdf', definitionId: 'field-framework', aiReviewEnabled: true };
+    const second = { id: 'highlightsPdf', definitionId: 'field-highlights', aiReviewEnabled: true };
+    const response = {
+      values: {
+        frameworkPdf: 'https://drive.google.com/file/d/framework-new/view',
+        highlightsPdf: 'https://drive.google.com/file/d/highlights-stable/view'
+      },
+      artifactChecks: {
+        'field-framework': { status: 'Completed', checkedAt: '2026-09-19T10:00:00Z', sourceUrl: 'https://drive.google.com/file/d/framework-old/view' },
+        'field-highlights': { status: 'Completed', checkedAt: '2026-09-19T10:00:00Z', sourceUrl: 'https://drive.google.com/file/d/highlights-stable/view' }
+      },
+      artifactAiReviews: {
+        'field-framework': { status: 'COMPLETED', generatedAt: '2026-09-19T10:00:00Z', sourceUrl: 'https://drive.google.com/file/d/framework-old/view', report: {} },
+        'field-highlights': { status: 'COMPLETED', generatedAt: '2026-09-19T10:00:00Z', sourceUrl: 'https://drive.google.com/file/d/highlights-stable/view', report: {} }
+      }
+    };
+
+    expect(isArtifactDocumentCheckCurrent(response, first)).toBe(false);
+    expect(isArtifactDocumentCheckCurrent(response, second)).toBe(true);
+    expect(isArtifactAiReviewCurrent(response, first)).toBe(false);
+    expect(isArtifactAiReviewCurrent(response, second)).toBe(true);
   });
 });
 

@@ -1,17 +1,14 @@
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
-import { Alert, Button, Container, Group, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
-import { modals } from '@mantine/modals';
-import { ArrowClockwise, ArrowSquareOut, WarningCircle } from '@phosphor-icons/react';
+import { Alert, Button, Container, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { ArrowClockwise, WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
-import { StudentIdentityPanel } from '../components/public/StudentIdentityPanel.jsx';
 import { StudentDeliverableList } from '../components/student/StudentDeliverableList.jsx';
-import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { StudentProfileSummary } from '../components/student/StudentProfileSummary.jsx';
 import { StudentProgressPanel } from '../components/student/StudentProgressPanel.jsx';
 import { StudentWelcomeBanner } from '../components/student/StudentWelcomeBanner.jsx';
 import { StudentWorkspacePicker } from '../components/student/StudentWorkspacePicker.jsx';
-import { StatusIndicator } from '../components/ui.jsx';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
@@ -23,14 +20,12 @@ import {
   getIdentityStudents,
   getProjectMetadata,
   getPublishedDeliverables,
-  getStudentOptions,
   getWorkspacePublicKey,
   isUsableAdviserName,
-  makeDriveViewUrl,
   normalizeStudentNumber
 } from '../lib/workflow.js';
-import { confirmStudentAssociation, disconnectStudentAssociation } from '../lib/api.js';
 import { emptyStudentDashboardState, loadStudentDashboard } from '../lib/studentDashboardClient.js';
+import { submissionArtifactFields } from '../lib/submissionArtifacts.js';
 
 export function StudentStatusPage() {
   const {
@@ -51,13 +46,9 @@ export function StudentStatusPage() {
     error: dashboardError,
     reload: refreshDashboard
   } = useWorkspaceResource(activeWorkspaceId, loadStudentDashboard, emptyStudentDashboardState, 'student-dashboard');
-  const [selectedNumber, setSelectedNumber] = useState('');
-  const [connectionError, setConnectionError] = useState('');
   const [signInError, setSignInError] = useState('');
   const activeAccount = sessionAccount;
   const identityStudents = useMemo(() => getIdentityStudents(state.rosterOptions), [state.rosterOptions]);
-  const connectionOptions = useMemo(() => getStudentOptions(identityStudents), [identityStudents]);
-  const selectedStudent = useMemo(() => findStudent(identityStudents, selectedNumber), [identityStudents, selectedNumber]);
   const currentAssociation = state.association;
   const studentNumber = currentAssociation?.studentNumber || '';
   const student = useMemo(() => findStudent(state.students, studentNumber) || (currentAssociation ? {
@@ -107,69 +98,8 @@ export function StudentStatusPage() {
   const loadError = dashboardError;
 
   useEffect(() => {
-    setSelectedNumber('');
-    setConnectionError('');
     setSignInError('');
   }, [isCurrentScope]);
-
-  function connectSelectedRecord() {
-    setConnectionError('');
-    if (!selectedStudent) {
-      setConnectionError('Choose a Student Number from this workspace before continuing.');
-      return;
-    }
-    modals.openConfirmModal({
-      title: 'Connect this student record?',
-      children: (
-        <Stack gap="xs">
-          <Text size="sm">This associates <strong>{activeAccount.email}</strong> with this record in {activeWorkspace?.name}.</Text>
-          <Text size="sm" fw={700}>{selectedStudent.name}</Text>
-          <Text size="sm" c="dimmed">{selectedStudent.studentNumber} | {selectedStudent.teamCode} | Member {selectedStudent.memberNumber}</Text>
-          <Text size="xs" c="dimmed">You can disconnect the record from this dashboard later.</Text>
-        </Stack>
-      ),
-      labels: { confirm: 'Connect record', cancel: 'Cancel' },
-      confirmProps: { color: 'wildtrackMaroon' },
-      centered: true,
-      onConfirm: async () => {
-        if (!isCurrentScope()) return;
-        try {
-          await confirmStudentAssociation(activeWorkspace.id, selectedStudent.studentNumber);
-          await refreshDashboard();
-          if (!isCurrentScope()) return;
-          setConnectionError('');
-        } catch (confirmError) {
-          if (!isCurrentScope()) return;
-          setConnectionError(confirmError.message || 'The connection could not be saved. Try again.');
-        }
-      }
-    });
-  }
-
-  function disconnectRecord() {
-    modals.openConfirmModal({
-      title: 'Disconnect this student record?',
-      children: (
-        <Text size="sm">
-          This removes the association from your Google account in {activeWorkspace?.name}. It does not delete submissions or class records.
-        </Text>
-      ),
-      labels: { confirm: 'Disconnect record', cancel: 'Keep connected' },
-      confirmProps: { color: 'red' },
-      centered: true,
-      onConfirm: async () => {
-        if (!isCurrentScope()) return;
-        try {
-          await disconnectStudentAssociation(activeWorkspace.id);
-        } catch (disconnectError) {
-          if (!isCurrentScope()) return;
-          setConnectionError(disconnectError.message || 'The disconnection could not be saved. Try again.');
-          return;
-        }
-        await refreshDashboard();
-      }
-    });
-  }
 
   if (!activeAccount) {
     return (
@@ -213,44 +143,33 @@ export function StudentStatusPage() {
   if (dashboardStatus === 'error') return <DashboardContainer><ResourceBoundary status={dashboardStatus} error={dashboardError} onRetry={refreshDashboard} /></DashboardContainer>;
 
   if (!studentNumber) {
+    const published = getPublishedDeliverables(state);
     return (
       <DashboardContainer>
         <div className="wt-student-connect-column">
           <header className="wt-student-page-heading">
-            <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">Complete your profile</Text>
-            <Title order={1}>Connect your student record</Title>
-            <Text c="dimmed">Choose your Student Number once. WildTrack fills in the matching name and team details.</Text>
+            <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">Account binding pending</Text>
+            <Title order={1}>Submit your first form</Title>
+            <Text c="dimmed">Your Google account binds to the Student Number only when your first valid submission is successfully saved.</Text>
           </header>
           <StudentWorkspacePicker key={activeWorkspaceId} />
           {dashboardError ? <ResourceBoundary status="ready" error={dashboardError} onRetry={refreshDashboard} /> : null}
           {workspaceCatalogError ? <ResourceBoundary status="ready" error={workspaceCatalogError} onRetry={refreshWorkspaceCatalog} /> : null}
-          {connectionError ? <Alert color="red" icon={<WarningCircle size={18} />} mb="md">{connectionError}</Alert> : null}
-          {connectionOptions.length ? (
-            <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
-              <StudentIdentityPanel
-                students={connectionOptions}
-                student={selectedStudent}
-                value={selectedNumber}
-                activeAccount={activeAccount}
-                returning={false}
-                onChange={(value, selected) => {
-                  setSelectedNumber(selected?.studentNumber || value);
-                  setConnectionError('');
-                }}
-              />
-              {connectionError ? <Alert color="red" mt="md" icon={<WarningCircle size={18} />}>{connectionError}</Alert> : null}
-              <Button mt="lg" color="wildtrackMaroon" disabled={!selectedStudent} onClick={connectSelectedRecord}>
-                Connect student record
-              </Button>
-            </Paper>
-          ) : identityStudents.length ? (
-            <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
-              <StudentDataUnavailable
-                title="No student records are available to connect"
-                error="Every Student Number in this workspace is already associated with another account. Ask the administrator to review the account records."
-              />
-            </Paper>
-          ) : (
+          <Alert color="blue" icon={<WarningCircle size={18} />}>
+            Selecting a Student Number or opening a form does not reserve the record. If another account has already completed the first successful submission for that Student Number, WildTrack will block the save and ask for administrator recovery.
+          </Alert>
+          {identityStudents.length ? <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
+            <Stack gap="md">
+              <Title order={2}>Published submission forms</Title>
+              <Text size="sm" c="dimmed">Choose your Student Number inside the form. The successful save creates the account binding.</Text>
+              {published.length ? published.map(deliverable => (
+                <Button key={deliverable.id} component={Link}
+                  to={`/w/${workspaceKey}/submit/${deliverable.slug}`} variant="default">
+                  Open {deliverable.shortTitle || deliverable.title}
+                </Button>
+              )) : <Text c="dimmed">No submission forms are published yet.</Text>}
+            </Stack>
+          </Paper> : (
             <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
               <StudentDataUnavailable error={loadError} onRetry={refreshDashboard} />
             </Paper>
@@ -267,8 +186,6 @@ export function StudentStatusPage() {
         <StudentDataUnavailable
           title="Student record unavailable"
           error="The connected Student Number is not present in this workspace's current Team Formation data."
-          actionLabel="Disconnect record"
-          onRetry={disconnectRecord}
         />
       </DashboardContainer>
     );
@@ -285,17 +202,14 @@ export function StudentStatusPage() {
       {dashboardError ? <ResourceBoundary status="ready" error={dashboardError} onRetry={refreshDashboard} /> : null}
       {workspaceCatalogError ? <ResourceBoundary status="ready" error={workspaceCatalogError} onRetry={refreshWorkspaceCatalog} /> : null}
 
-      {connectionError ? <Alert color="red" icon={<WarningCircle size={18} />}>{connectionError}</Alert> : null}
       <StudentWelcomeBanner student={student} rows={deliverableRows} />
       <StudentProfileSummary
         account={activeAccount}
         student={student}
         project={project}
         adviserLabel={adviserLabel}
-        onDisconnect={disconnectRecord}
       />
       <StudentDeliverableList rows={deliverableRows} workspaceKey={workspaceKey} studentNumber={student.studentNumber} />
-      <StudentSubmissionArtifacts rows={deliverableRows} />
       <StudentProgressPanel activeColumns={activeColumns} student={student} />
     </DashboardContainer>
   );
@@ -383,37 +297,51 @@ function buildStudentDeliverableRow(deliverable, response, recorded, teamProgres
   const feedback = response.feedback?.find((item) => item.visibility !== 'Staff') || null;
   const accepted = response.primaryStatus === 'Accepted' || response.reviewStatus === 'Accepted';
   const artifacts = buildStudentArtifacts(deliverable, response);
-  const submittedLinks = artifacts.filter((artifact) => artifact.isLink).map((artifact) => artifact.value);
-  const reviewableArtifacts = artifacts.filter((artifact) => artifact.reviewablePdf);
-  const legacyDocumentCheck = reviewableArtifacts.length === 1 ? reviewableArtifacts[0].documentCheck : null;
+  const singleArtifact = artifacts.length === 1 ? artifacts[0] : null;
   return {
     deliverable,
     response,
     recorded: true,
     status: accepted ? 'Accepted' : 'Submitted',
     savedAt: response.updatedAt || response.submittedAt || '',
-    link: submittedLinks.length === 1 ? submittedLinks[0] : '',
+    link: singleArtifact?.isLink ? singleArtifact.value : '',
     feedback,
-    documentCheck: legacyDocumentCheck,
+    documentCheck: singleArtifact?.reviewablePdf ? singleArtifact.documentCheck : null,
     artifacts,
     teamProgress,
-    fileCheck: getStudentFileCheck(response, reviewableArtifacts)
+    fileCheck: getStudentFileCheck(response, artifacts)
   };
 }
 
-function getStudentFileCheck(response, reviewableArtifacts = []) {
-  if (reviewableArtifacts.length > 1) {
-    const statuses = reviewableArtifacts.map((artifact) => artifact.documentCheckStatus);
-    if (statuses.includes('Needs attention')) {
-      return { label: 'PDF needs attention', summary: 'At least one submitted PDF needs attention. Review the artifact details below.', tone: 'warning' };
+function getStudentFileCheck(response, artifacts = []) {
+  if (artifacts.length > 1) {
+    const reviewableArtifacts = artifacts.filter((artifact) => artifact.reviewablePdf);
+    if (!reviewableArtifacts.length) {
+      return {
+        label: 'Artifacts submitted',
+        summary: `${artifacts.length} submitted file or link artifacts are available.`,
+        tone: 'neutral'
+      };
     }
-    if (statuses.includes('Outdated')) {
-      return { label: 'PDF check outdated', summary: 'At least one PDF changed after its last Document Check.', tone: 'warning' };
+    if (reviewableArtifacts.some(artifactNeedsAttention)) {
+      return {
+        label: 'Some files need attention',
+        summary: 'At least one submitted PDF has a failed, outdated, or attention-required Document Check.',
+        tone: 'warning'
+      };
     }
-    if (statuses.every((status) => status === 'Ready for review')) {
-      return { label: 'PDFs accessible', summary: 'All submitted PDF artifacts passed the current Document Check.', tone: 'success' };
+    if (reviewableArtifacts.every((artifact) => artifact.documentCheckStatus === 'Ready for review')) {
+      return {
+        label: 'All files accessible',
+        summary: 'All submitted PDF artifacts with Document Check enabled are accessible and current.',
+        tone: 'success'
+      };
     }
-    return { label: 'PDF checks incomplete', summary: 'One or more submitted PDF artifacts have not been checked yet.', tone: 'neutral' };
+    return {
+      label: 'Checks pending',
+      summary: 'One or more submitted PDF artifacts are still waiting for a current Document Check.',
+      tone: 'neutral'
+    };
   }
 
   const check = response.documentCheck;
@@ -438,87 +366,20 @@ function getStudentFileCheck(response, reviewableArtifacts = []) {
   return { label: 'Not checked', summary: 'Document Check has not inspected this response yet.', tone: 'neutral' };
 }
 
-function StudentSubmissionArtifacts({ rows }) {
-  const [activeArtifact, setActiveArtifact] = useState(null);
-  const multiArtifactRows = rows.filter((row) => row.response && row.artifacts?.length > 1);
-  if (!multiArtifactRows.length) return null;
-
-  return (
-    <>
-      <Paper withBorder radius="sm" p="lg" aria-label="Submitted artifacts">
-        <Stack gap="lg">
-        <div>
-          <Title order={2}>Submitted artifacts</Title>
-          <Text size="sm" c="dimmed">Multi-part deliverables keep each submitted link and each PDF check separate.</Text>
-        </div>
-        {multiArtifactRows.map((row) => (
-          <section key={row.deliverable.id} aria-label={`${row.deliverable.shortTitle} submitted artifacts`}>
-            <Stack gap="sm">
-              <div>
-                <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">{row.deliverable.shortTitle}</Text>
-                <Text fw={750}>{row.deliverable.title}</Text>
-              </div>
-              {row.artifacts.map((artifact) => (
-                <Paper key={artifact.key} withBorder radius="sm" p="md" role="group" aria-label={`${artifact.label} artifact`}>
-                  <Stack gap="xs">
-                    <Group justify="space-between" align="flex-start" wrap="wrap">
-                      <div>
-                        <Text fw={700}>{artifact.label}</Text>
-                        <Text size="xs" c="dimmed">{artifact.typeLabel}</Text>
-                      </div>
-                      {artifact.reviewablePdf ? <StatusIndicator status={artifact.documentCheckStatus} /> : null}
-                    </Group>
-                    {artifact.isLink ? (
-                      <Button
-                        component="a"
-                        href={makeDriveViewUrl(artifact.value)}
-                        target="_blank"
-                        rel="noreferrer"
-                        variant="default"
-                        size="xs"
-                        leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}
-                      >
-                        Open {artifact.label}
-                      </Button>
-                    ) : <Text size="sm">{artifact.value}</Text>}
-                    {artifact.reviewablePdf ? (
-                      <Stack gap={4}>
-                        <Text size="xs" c="dimmed">{artifact.documentCheck?.summary || 'No current Document Check is available for this PDF.'}</Text>
-                        {artifact.documentCheck ? (
-                          <Button
-                            variant="subtle"
-                            size="compact-sm"
-                            color="wildtrackMaroon"
-                            onClick={() => setActiveArtifact({ row, artifact })}
-                          >
-                            View Document Check
-                          </Button>
-                        ) : null}
-                      </Stack>
-                    ) : null}
-                  </Stack>
-                </Paper>
-              ))}
-            </Stack>
-          </section>
-        ))}
-        </Stack>
-      </Paper>
-      <DocumentCheckDialog
-        open={Boolean(activeArtifact)}
-        onClose={() => setActiveArtifact(null)}
-        response={activeArtifact?.row?.response || null}
-        documentCheck={activeArtifact?.artifact?.documentCheck || null}
-        fileLink={activeArtifact?.artifact?.value || ''}
-        audience="student"
-        allowRecheck={false}
-      />
-    </>
-  );
+function artifactNeedsAttention(artifact) {
+  if (!artifact?.reviewablePdf) return false;
+  if (['Needs attention', 'Outdated'].includes(artifact.documentCheckStatus)) return true;
+  const report = artifact.documentCheck;
+  if (!report) return false;
+  if (report.status === 'Unavailable') return true;
+  if (report.metadata?.canDownload === false) return true;
+  if (report.metadata?.mimeType && report.metadata.mimeType !== 'application/pdf') return true;
+  if (report.document?.readable === false) return true;
+  return false;
 }
 
 function buildStudentArtifacts(deliverable, response) {
-  return (deliverable.fields || []).map((field) => {
+  return submissionArtifactFields(deliverable.fields || []).map((field) => {
     const value = String(response.values?.[field.id] || '').trim();
     if (!value) return null;
     const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');

@@ -56,6 +56,7 @@ class TemplateComparatorTest {
     void excludesInstitutionalBoilerplateFromMissingHeadings() {
         String template = """
             CEBU INSTITUTE OF TECHNOLOGY - UNIVERSITY
+            UNIVERSITY
             COLLEGE OF COMPUTER STUDIES
             SOFTWARE REQUIREMENTS SPECIFICATION
             1. PURPOSE
@@ -70,9 +71,38 @@ class TemplateComparatorTest {
         assertThat(result.missingTemplateHeadings())
             .doesNotContain(
                 "CEBU INSTITUTE OF TECHNOLOGY - UNIVERSITY",
+                "UNIVERSITY",
                 "COLLEGE OF COMPUTER STUDIES",
                 "SOFTWARE REQUIREMENTS SPECIFICATION"
             )
             .contains("FUNCTIONAL REQUIREMENTS");
+    }
+
+    @Test
+    void tableOfContentsMentionDoesNotSatisfyMissingBodyHeading() {
+        String template = """
+            Table of Contents
+            1. INTRODUCTION ........................................ 2
+            1.2. TEST APPROACH ..................................... 2
+
+            1. INTRODUCTION
+            A real introduction body.
+            1.2. TEST APPROACH
+            A real test approach body.
+            """;
+        String submission = """
+            Table of Contents
+            1. INTRODUCTION ........................................ 2
+            1.2. TEST APPROACH ..................................... 2
+
+            1. INTRODUCTION
+            A completed introduction body, but the Test Approach body section was removed.
+            """;
+
+        TemplateComparison result = comparator.compare(template, submission);
+
+        assertThat(result.missingTemplateHeadings())
+            .contains("TEST APPROACH")
+            .doesNotContain("INTRODUCTION");
     }
 }

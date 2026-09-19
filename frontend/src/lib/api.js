@@ -281,6 +281,27 @@ export async function saveBackendDeliverable(workspaceId, payload) {
   });
 }
 
+export async function previewSheetImportSource(sourceType, payload, workspaceId) {
+  return request(withWorkspace(`/sheets/preview/${toApiSourceType(sourceType)}`, workspaceId), {
+    method: 'POST',
+    body: {
+      sheetUrl: payload.sheetUrl,
+      displayName: payload.displayName || payload.trackerSheet || payload.name || '',
+      mappingOverrides: payload.mappingOverrides || {}
+    }
+  });
+}
+
+export async function applySheetImportPreview(sourceType, previewId, resolutions, workspaceId) {
+  return request(withWorkspace(`/sheets/apply/${toApiSourceType(sourceType)}`, workspaceId), {
+    method: 'POST',
+    body: {
+      previewId,
+      resolutions: resolutions || {}
+    }
+  });
+}
+
 function toApiFieldType(type) {
   return ({
     drive: 'DRIVE_PDF',
@@ -464,7 +485,7 @@ export async function getMyResponse(workspaceId, deliverableId) {
   return request(`/workspace/responses/mine?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`);
 }
 
-export async function submitResponse(workspaceId, deliverableId, values, revision) {
+export async function submitResponse(workspaceId, deliverableId, values, revision, studentNumber = '') {
   await ensureCsrfToken();
   const response = await fetch(`${API_BASE_URL}/workspace/responses/submit?workspaceId=${encodeURIComponent(workspaceId)}`, {
     method: 'POST',
@@ -475,9 +496,9 @@ export async function submitResponse(workspaceId, deliverableId, values, revisio
       'Content-Type': 'application/json',
       ...csrfHeader()
     },
-    body: JSON.stringify({ deliverableId, valuesJson: JSON.stringify(values), revision: revision ?? null })
+    body: JSON.stringify({ deliverableId, studentNumber: studentNumber || null, valuesJson: JSON.stringify(values), revision: revision ?? null })
   });
-  if (response.status === 409) {
+  if (response.status === 409 && response.headers.get('X-WildTrack-Conflict') === 'stale-revision') {
     return { conflict: true };
   }
   if (!response.ok) {
@@ -537,6 +558,26 @@ export async function decideIdentityConflict(workspaceId, conflictId, decision, 
   return request(
     `/workspace/students/identity-conflicts/${encodeURIComponent(conflictId)}/decision?workspaceId=${encodeURIComponent(workspaceId)}`,
     { method: 'POST', body }
+  );
+}
+
+export async function getStudentAccountBindings(workspaceId) {
+  return request(`/workspace/students/account-bindings?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function disconnectStudentAccountBinding(workspaceId, studentRecordId) {
+  await ensureCsrfToken();
+  return request(
+    `/workspace/students/account-bindings/${encodeURIComponent(studentRecordId)}/disconnect?workspaceId=${encodeURIComponent(workspaceId)}`,
+    { method: 'POST' }
+  );
+}
+
+export async function recoverStudentAccountBinding(workspaceId, studentRecordId, confirmedSubject) {
+  await ensureCsrfToken();
+  return request(
+    `/workspace/students/account-bindings/${encodeURIComponent(studentRecordId)}/recover?workspaceId=${encodeURIComponent(workspaceId)}`,
+    { method: 'POST', body: { confirmedSubject } }
   );
 }
 

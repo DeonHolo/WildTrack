@@ -148,6 +148,7 @@ describe('full-page form editor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Duplicate Scope' }));
     fireEvent.click(screen.getByRole('button', { name: 'Remove Framework PDF' }));
     expect(screen.queryByDisplayValue('Framework PDF')).not.toBeInTheDocument();
+    expect(screen.getByText('Item deleted')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalled());
@@ -177,20 +178,20 @@ describe('full-page form editor', () => {
     fireEvent.click(redo);
     expect(screen.getByRole('textbox', { name: 'Form title' })).toHaveValue('Revised SRS title');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add question' }));
+    fireEvent.click(screen.getByRole('button', { name: '+ Add Button' }));
     expect(screen.getByDisplayValue('New question')).toBeInTheDocument();
     expect(screen.getAllByText(/Question [0-9]+ of [0-9]+/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Section 1 of 1').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Section 1 of 1')).not.toBeInTheDocument();
   });
 
-  it('adds a question directly below the selected question, selects it, and scrolls it into view', async () => {
+  it('adds a question directly below the selected question and keeps question selection behavior', async () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
     renderEditor('/forms/form-srs/edit');
     await screen.findByDisplayValue('SRS Submission');
 
     fireEvent.click(screen.getByDisplayValue('Framework PDF'));
-    fireEvent.click(screen.getByRole('button', { name: 'Add question' }));
+    fireEvent.click(screen.getByRole('button', { name: '+ Add Button' }));
 
     const labels = screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value);
     expect(labels.indexOf('New question')).toBe(labels.indexOf('Framework PDF') + 1);
@@ -198,12 +199,32 @@ describe('full-page form editor', () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
   });
 
-  it('renders the saved public URL as a real link', async () => {
+  it('renders the saved public URL as a top-right action button', async () => {
     renderEditor('/forms/form-srs/edit');
     await screen.findByDisplayValue('SRS Submission');
-    const link = screen.getByRole('link', { name: '/w/it-it411-2026-27-semester-1/submit/srs-submission' });
+    expect(screen.queryByText('Public URL:')).not.toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'Public URL' });
     expect(link).toHaveAttribute('href', '/w/it-it411-2026-27-semester-1/submit/srs-submission');
     expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('keeps a deleted-item snackbar until Undo and restores only that question', async () => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Framework PDF' }));
+
+    const deletedLabel = screen.getByText('Item deleted');
+    const snackbar = deletedLabel.closest('.wt-form-editor-delete-snackbar');
+    expect(snackbar).toBeInTheDocument();
+    expect(within(snackbar).getByText(/Framework PDF was removed/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Form title' }), { target: { value: 'Title changed after delete' } });
+    expect(screen.getByText('Item deleted')).toBeInTheDocument();
+    fireEvent.click(within(snackbar).getByRole('button', { name: 'Undo' }));
+
+    expect(screen.getByDisplayValue('Framework PDF')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Form title' })).toHaveValue('Title changed after delete');
+    expect(screen.queryByText('Item deleted')).not.toBeInTheDocument();
   });
 
   it('reorders downward from the native drag handle while keeping arrow controls as a fallback', async () => {

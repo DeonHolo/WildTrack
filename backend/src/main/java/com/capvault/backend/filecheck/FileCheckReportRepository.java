@@ -43,4 +43,9 @@ public interface FileCheckReportRepository extends JpaRepository<FileCheckReport
         UUID workspaceId,
         String externalResponseId
     );
+
+    List<FileCheckReport> findAllByWorkspaceIdAndExternalResponseIdInOrderByCheckedAtAsc(
+        UUID workspaceId,
+        List<String> externalResponseIds
+    );
 }

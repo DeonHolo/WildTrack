@@ -16,6 +16,7 @@ import { ReviewPage } from '../pages/ReviewPage.jsx';
 import { StudentStatusPage } from '../pages/StudentStatusPage.jsx';
 import { TrackerPage } from '../pages/TrackerPage.jsx';
 import { WorkspacePage } from '../pages/WorkspacePage.jsx';
+import { ValidationStudyPage } from '../pages/ValidationStudyPage.jsx';
 
 export default function App() {
   return (
@@ -73,6 +74,11 @@ export default function App() {
         <Route path="/workspace" element={(
           <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
             <StaffApplicationShell><WorkspacePage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/validation-study" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+            <StaffApplicationShell><ValidationStudyPage /></StaffApplicationShell>
           </RoleBoundary>
         )} />
         <Route path="*" element={<RoleHomeRedirect />} />

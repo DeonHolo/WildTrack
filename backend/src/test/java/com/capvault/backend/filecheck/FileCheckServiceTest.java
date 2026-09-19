@@ -36,7 +36,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class FileCheckServiceTest {
 
     @Test
-    void fieldSpecificCheckDoesNotFallBackToLegacyOrAnotherArtifactTemplate() {
+    void fieldSpecificCheckDoesNotFallBackToLegacyOrAnotherArtifactTemplate() throws Exception {
         UUID workspaceId = UUID.randomUUID();
         String deliverableKey = "MVP Validation";
         String fieldId = "framework-pdf";
@@ -80,6 +80,8 @@ class FileCheckServiceTest {
             1024L,
             "checksum",
             OffsetDateTime.parse("2026-09-11T00:00:00Z"),
+            "editor@example.com",
+            "Drive Editor",
             true,
             sourceUrl
         ));
@@ -126,6 +128,12 @@ class FileCheckServiceTest {
         assertThat(result.fieldId()).isEqualTo(fieldId);
         assertThat(result.flags()).contains("No Template");
         assertThat(result.templateComparison().available()).isFalse();
+        var savedReport = org.mockito.ArgumentCaptor.forClass(FileCheckReport.class);
+        verify(repository).save(savedReport.capture());
+        assertThat(savedReport.getValue().getDriveLastModifyingUserEmail()).isEqualTo("editor@example.com");
+        assertThat(savedReport.getValue().getDriveLastModifyingUserDisplayName()).isEqualTo("Drive Editor");
+        assertThat(new ObjectMapper().findAndRegisterModules().writeValueAsString(result))
+            .doesNotContain("lastModifyingUserEmail", "lastModifyingUserDisplayName", "editor@example.com", "Drive Editor");
         verify(templateService).find(workspaceId, deliverableKey, fieldId);
         verify(templateService, never()).find(workspaceId, deliverableKey);
         verify(templateService, never()).find(workspaceId, deliverableKey, otherFieldId);

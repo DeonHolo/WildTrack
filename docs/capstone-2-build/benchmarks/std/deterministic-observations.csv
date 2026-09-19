@@ -1,0 +1,12 @@
+fixture_id,readable,pages,extracted_characters,template_coverage,added_content_ratio,template_only,missing_template_headings,observation_status
+STD-01,true,7,4101,1.000,0.000,true,"",LOCAL_PROBE_2026-09-19
+STD-02,true,2,1370,0.920,0.021,true,"",LOCAL_PROBE_2026-09-19
+STD-03,true,2,1600,0.920,0.324,false,"",LOCAL_PROBE_2026-09-19
+STD-05,true,3,4291,0.720,0.829,false,"",LOCAL_PROBE_2026-09-19
+STD-08,true,4,8459,0.700,0.435,false,"",LOCAL_PROBE_2026-09-19
+STD-09,true,2,3950,0.720,0.769,false,"",LOCAL_PROBE_2026-09-19
+STD-10,true,3,5339,0.720,0.650,false,"",LOCAL_PROBE_2026-09-19
+STD-12,true,2,3918,0.720,0.816,false,"Test Approach",LOCAL_PROBE_2026-09-19
+STD-18,true,1,998,0.220,0.864,false,"System Overview; Test Approach; Definitions and Acronyms; Features to be Tested; Features not to be Tested; Testing Tools and Environment",LOCAL_PROBE_2026-09-19
+STD-21,true,3,4126,0.720,0.825,false,"",LOCAL_PROBE_2026-09-19
+STD-24,true,2,3924,0.720,0.820,false,"Test Approach",LOCAL_PROBE_2026-09-19

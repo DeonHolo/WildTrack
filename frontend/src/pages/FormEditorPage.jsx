@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Anchor,
   ActionIcon,
   Alert,
   Badge,
@@ -24,6 +23,7 @@ import {
   ArrowLeft,
   ArrowClockwise,
   ArrowCounterClockwise,
+  ArrowSquareOut,
   ArrowUp,
   Check,
   Copy,
@@ -94,6 +94,7 @@ export function FormEditorPage() {
   const [previewOpened, setPreviewOpened] = useState(false);
   const [academicReviewOpened, setAcademicReviewOpened] = useState(false);
   const [academicReviewItems, setAcademicReviewItems] = useState([]);
+  const [deletedQuestion, setDeletedQuestion] = useState(null);
   const initializedScope = useRef('');
   const draftRef = useRef(null);
   const historyRef = useRef({ past: [], future: [] });
@@ -125,6 +126,7 @@ export function FormEditorPage() {
     setSelectedId(initial?.fields?.find((field) => field.active !== false)?.id || '');
     setSaveState('idle');
     setSaveError('');
+    setDeletedQuestion(null);
   }, [activeWorkspaceId, activeColumns, editing, formId, state, status]);
 
   useEffect(() => {
@@ -224,6 +226,7 @@ export function FormEditorPage() {
     setHistoryRevision((value) => value + 1);
     setSaveState('idle');
     setSaveError('');
+    setDeletedQuestion(null);
   }
 
   function redoDraft() {
@@ -239,6 +242,7 @@ export function FormEditorPage() {
     setHistoryRevision((value) => value + 1);
     setSaveState('idle');
     setSaveError('');
+    setDeletedQuestion(null);
   }
 
   function updateDraft(changes) {
@@ -309,6 +313,9 @@ export function FormEditorPage() {
 
   function removeQuestion(field) {
     if (field.type === 'academicStudentNumber') return;
+    const current = draftRef.current || draft;
+    const index = current.fields.findIndex((item) => item.id === field.id);
+    setDeletedQuestion({ field, index });
     commitDraft((current) => ({
       ...current,
       fields: field.definitionId
@@ -317,6 +324,24 @@ export function FormEditorPage() {
     }));
     const next = activeFields.find((item) => item.id !== field.id);
     setSelectedId(next?.id || '');
+  }
+
+  function undoDeletedQuestion() {
+    if (!deletedQuestion) return;
+    const { field, index } = deletedQuestion;
+    commitDraft((current) => {
+      const existingIndex = current.fields.findIndex((item) => item.id === field.id);
+      if (existingIndex >= 0) {
+        const fields = current.fields.map((item) => item.id === field.id ? { ...item, active: true } : item);
+        return { ...current, fields };
+      }
+      const fields = [...current.fields];
+      fields.splice(Math.max(0, Math.min(index, fields.length)), 0, field);
+      return { ...current, fields };
+    });
+    setSelectedId(field.id);
+    pendingScrollId.current = field.id;
+    setDeletedQuestion(null);
   }
 
   function refreshAcademicSuggestions() {
@@ -423,6 +448,13 @@ export function FormEditorPage() {
           <ActionIcon variant="default" size="lg" aria-label="Undo" disabled={!canUndo} onClick={undoDraft}><ArrowCounterClockwise size={18} /></ActionIcon>
           <ActionIcon variant="default" size="lg" aria-label="Redo" disabled={!canRedo} onClick={redoDraft}><ArrowClockwise size={18} /></ActionIcon>
           <Badge variant="light" color={published ? 'green' : 'gray'}>{published ? 'Published' : 'Unpublished'}</Badge>
+          {publicPath ? (
+            <Button component="a" href={publicPath} target="_blank" rel="noreferrer" variant="default" leftSection={<ArrowSquareOut size={17} />}>
+              Public URL
+            </Button>
+          ) : (
+            <Button variant="default" leftSection={<ArrowSquareOut size={17} />} disabled>Public URL</Button>
+          )}
           <Button variant="default" leftSection={<Eye size={17} />} onClick={() => setPreviewOpened(true)}>Preview</Button>
           <Button variant="default" leftSection={<FloppyDisk size={17} />} loading={saveState === 'saving'} onClick={() => save(draft.status || 'Unpublished')}>Save</Button>
           {published ? (
@@ -443,10 +475,7 @@ export function FormEditorPage() {
         <Stack gap="md" className="wt-form-editor-main">
           <Paper withBorder p={{ base: 'md', sm: 'xl' }} radius="md" className="wt-form-editor-title-card">
             <Stack gap="md">
-              <Group justify="space-between" gap="sm" wrap="wrap">
-                <Text size="xs" fw={800} tt="uppercase" c="dimmed">Section 1 of 1</Text>
-                <Text size="xs" c="dimmed">{activeFields.length} question{activeFields.length === 1 ? '' : 's'}</Text>
-              </Group>
+              <Text size="xs" c="dimmed">{activeFields.length} question{activeFields.length === 1 ? '' : 's'}</Text>
               <TextInput label="Form title" value={draft.title} required onChange={(event) => updateDraft({ title: event.currentTarget.value })} />
               <Textarea label="Instructions" value={draft.instructions || ''} autosize minRows={3}
                 onChange={(event) => updateDraft({ instructions: event.currentTarget.value })} />
@@ -456,15 +485,7 @@ export function FormEditorPage() {
                 <TextInput label="Deadline" type="datetime-local" value={String(draft.dueAt || dateAt2359()).slice(0, 16)} required
                   onChange={(event) => updateDraft({ dueAt: event.currentTarget.value })} />
               </SimpleGrid>
-              <Group justify="space-between" gap="sm" wrap="wrap">
-                <Group gap={6} wrap="wrap">
-                  <Text size="xs" c="dimmed">Public URL:</Text>
-                  {publicPath ? (
-                    <Anchor size="xs" href={publicPath} target="_blank" rel="noreferrer">{publicPath}</Anchor>
-                  ) : (
-                    <Text size="xs" c="dimmed">Available after first save</Text>
-                  )}
-                </Group>
+              <Group justify="flex-end" gap="sm" wrap="wrap">
                 <Button size="xs" variant="subtle" onClick={refreshAcademicSuggestions}>Refresh academic suggestions</Button>
               </Group>
             </Stack>
@@ -502,22 +523,31 @@ export function FormEditorPage() {
 
         <Stack gap="sm" className="wt-form-editor-side">
           <Paper withBorder radius="md" p={6} className="wt-form-editor-action-rail">
-            <ActionIcon size="xl" variant="subtle" color="wildtrackMaroon" aria-label="Add question" onClick={addQuestion}>
-              <Plus size={24} />
-            </ActionIcon>
+            <Button variant="default" onClick={addQuestion}>+ Add Button</Button>
           </Paper>
           <Paper withBorder p="md" radius="md" className="wt-form-editor-status-card">
             <Stack gap="xs">
               <Text fw={750}>Form status</Text>
               <Text size="sm" c="dimmed">Save keeps the current publication state. Publish makes the stable public URL accept responses.</Text>
               <Divider my="xs" />
-              <Text size="sm"><Text component="span" fw={700}>Section </Text>1 of 1</Text>
               <Text size="sm"><Text component="span" fw={700}>Questions </Text>{activeFields.length}</Text>
               <Text size="sm"><Text component="span" fw={700}>Academic fields </Text>{activeFields.filter((field) => ACADEMIC_FIELD_TYPES.has(field.type)).length}</Text>
             </Stack>
           </Paper>
         </Stack>
       </div>
+
+      {deletedQuestion ? (
+        <Paper withBorder shadow="md" radius="md" p="sm" className="wt-form-editor-delete-snackbar" role="status" aria-live="polite">
+          <Group gap="md" wrap="nowrap">
+            <div>
+              <Text fw={750} size="sm">Item deleted</Text>
+              <Text size="xs" c="dimmed">{deletedQuestion.field.label || 'Question'} was removed from this form.</Text>
+            </div>
+            <Button variant="subtle" size="xs" onClick={undoDeletedQuestion}>Undo</Button>
+          </Group>
+        </Paper>
+      ) : null}
 
       <Modal opened={academicReviewOpened} onClose={() => setAcademicReviewOpened(false)} title="Review academic fields" size="md" centered>
         <Stack gap="md">

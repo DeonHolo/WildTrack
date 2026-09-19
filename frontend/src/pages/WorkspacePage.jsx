@@ -28,13 +28,15 @@ import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/
 import { getDocumentTemplateFileUrl } from '../lib/api.js';
 import { removeSubmissionTemplate, saveSubmissionTemplate } from '../lib/submissionClient.js';
 import {
+  applyWorkspaceSheetPreview,
   emptyWorkspaceAdmin,
-  importWorkspaceSheet,
   loadWorkspaceArchiveReadiness,
   loadWorkspaceAdmin,
+  previewWorkspaceSheet,
   publishSuggestedForms
 } from '../lib/workspaceAdminClient.js';
 import { StaffManagementPanel } from '../components/workspace/StaffManagementPanel.jsx';
+import { AcademicDataWorkspace } from '../components/workspace/AcademicDataWorkspace.jsx';
 
 const SOURCE_CONFIG = [
   {
@@ -132,6 +134,9 @@ export function WorkspacePage() {
   const [templateToRemove, setTemplateToRemove] = useState(null);
   const [message, setMessage] = useState('');
   const [summary, setSummary] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importResolutions, setImportResolutions] = useState({});
+  const [applyingImportPreview, setApplyingImportPreview] = useState(false);
   const [mappingDraft, setMappingDraft] = useState({});
   const [importing, setImporting] = useState('');
   const [refreshingBackend, setRefreshingBackend] = useState(false);
@@ -179,6 +184,9 @@ export function WorkspacePage() {
     setWorkspaceName(activeWorkspace?.name || '');
     setTrackerSheet(`${activeWorkspace?.courseCode || activeWorkspace?.program || 'Capstone'} Tracker`);
     setSummary(null);
+    setImportPreview(null);
+    setImportResolutions({});
+    setApplyingImportPreview(false);
     setMessage('');
     setTemplateModalOpen(false);
     setMappingDraft({});
@@ -206,27 +214,50 @@ export function WorkspacePage() {
     if (!isCurrentScope()) return;
     setImporting(sourceType);
     setMessage('');
-    let result;
+    let preview;
     try {
-      result = await importWorkspaceSheet(activeWorkspaceId, sourceType, {
-      name: workspaceName,
-      trackerSheet,
-      sheetUrl: sources[sourceType],
-      mappingOverrides
+      preview = await previewWorkspaceSheet(activeWorkspaceId, sourceType, {
+        name: workspaceName,
+        trackerSheet,
+        sheetUrl: sources[sourceType],
+        mappingOverrides
       });
       if (!isCurrentScope()) return;
-      setState(result.state);
+      setImportPreview(preview);
+      setImportResolutions({});
     } catch (error) {
-      result = { ok: false, error: error?.message || 'Sheet import failed.' };
+      if (isCurrentScope()) setMessage(error?.message || 'Sheet preview failed.');
     }
     if (!isCurrentScope()) return;
     setImporting('');
-    const nextSummary = result.importSummary
-      ? { ...result.importSummary, sourceKey: sourceType }
-      : null;
-    setSummary(nextSummary);
-    setMappingDraft(Object.fromEntries((nextSummary?.mappings || []).map((item) => [item.key, item.sourceColumn || ''])));
-    setMessage(result.ok ? `${result.importSummary?.sourceType || 'Sheet'} imported.` : result.error);
+  }
+
+  async function applyImportPreview() {
+    if (!importPreview?.previewId || !importPreview?.sourceKey || !isCurrentScope()) return;
+    setApplyingImportPreview(true);
+    setMessage('');
+    try {
+      const result = await applyWorkspaceSheetPreview(
+        activeWorkspaceId,
+        importPreview.sourceKey,
+        importPreview.previewId,
+        importResolutions
+      );
+      if (!isCurrentScope()) return;
+      setState(result.state);
+      const nextSummary = result.importSummary
+        ? { ...result.importSummary, sourceKey: importPreview.sourceKey }
+        : null;
+      setSummary(nextSummary);
+      setMappingDraft(Object.fromEntries((nextSummary?.mappings || []).map((item) => [item.key, item.sourceColumn || ''])));
+      setMessage(`${result.importSummary?.sourceType || 'Sheet'} imported.`);
+      setImportPreview(null);
+      setImportResolutions({});
+    } catch (error) {
+      if (isCurrentScope()) setMessage(error?.message || 'Sheet import could not be applied. Preview the Sheet again.');
+    } finally {
+      if (isCurrentScope()) setApplyingImportPreview(false);
+    }
   }
 
   function applyMapping() {
@@ -519,6 +550,8 @@ export function WorkspacePage() {
         </div>
       </section>
 
+      <AcademicDataWorkspace workspaceId={activeWorkspaceId} onSaved={reload} />
+
       <section className="panel wt-source-section">
         <div className="panel-header">
           <div>
@@ -656,6 +689,15 @@ export function WorkspacePage() {
         onGenerate={generateSuggestedForms}
         onClose={() => setSummary(null)}
         importing={Boolean(importing)}
+      />
+
+      <ImportReconciliationDialog
+        preview={importPreview}
+        resolutions={importResolutions}
+        onResolutionChange={(key, value) => setImportResolutions((current) => ({ ...current, [key]: value }))}
+        onApply={applyImportPreview}
+        onClose={() => { setImportPreview(null); setImportResolutions({}); }}
+        applying={applyingImportPreview}
       />
 
       <Modal opened={templateModalOpen} onClose={() => { setTemplateModalOpen(false); setTemplateError(''); }} title={template.replacing ? 'Replace official template' : 'Add official template'} centered size="lg">
@@ -856,6 +898,102 @@ export function WorkspacePage() {
       </ConfirmDialog>
 
     </div>
+  );
+}
+
+function ImportReconciliationDialog({ preview, resolutions, onResolutionChange, onApply, onClose, applying }) {
+  if (!preview) return null;
+  const changes = Array.isArray(preview.changes) ? preview.changes : [];
+  const conflictFields = changes.flatMap((change) => (change.fields || []).filter((field) => field.conflict));
+  const unresolved = conflictFields.filter((field) => !['SOURCE', 'LOCAL'].includes(resolutions[field.key]));
+  return (
+    <Modal
+      opened
+      onClose={onClose}
+      title={`${preview.sourceLabel || preview.sourceType || 'Sheet'} re-import preview`}
+      centered
+      size="xl"
+      aria-label={`${preview.sourceLabel || preview.sourceType || 'Sheet'} re-import preview`}
+    >
+      <div className="wt-import-summary-content">
+        <div className="panel-header">
+          <div>
+            <span className="eyebrow">Read-only preview</span>
+            <h2>Review source changes before applying</h2>
+            <p>Nothing is changed until you apply this preview. Conflicts require an explicit Source or Local choice.</p>
+          </div>
+          <StatusIndicator status={conflictFields.length ? 'Needs attention' : 'Ready'} />
+        </div>
+
+        <div className="summary-metric-grid">
+          <MetricMini label="Added rows" value={preview.addedRows || 0} />
+          <MetricMini label="Changed rows" value={preview.changedRows || 0} />
+          <MetricMini label="Missing rows" value={preview.missingRows || 0} />
+          <MetricMini label="Conflicts" value={conflictFields.length} />
+        </div>
+
+        {preview.details?.missingFields?.length ? (
+          <section className="wt-import-block">
+            <h3>Missing source fields</h3>
+            <div className="wt-import-row-list">
+              {preview.details.missingFields.map((field) => <span key={field}>{field}</span>)}
+            </div>
+          </section>
+        ) : null}
+
+        <section className="wt-import-block">
+          <h3>Row and field differences</h3>
+          {changes.length ? (
+            <div className="wt-import-row-list">
+              {changes.map((change) => (
+                <div key={change.key} className="wt-import-reconciliation-row">
+                  <div>
+                    <strong>{change.rowLabel || change.rowKey}</strong>
+                    <span>{change.entityType} · {change.kind}</span>
+                  </div>
+                  {(change.fields || []).length ? (
+                    <div className="wt-import-reconciliation-fields">
+                      {change.fields.map((field) => (
+                        <div key={field.key} className="wt-import-reconciliation-field">
+                          <div>
+                            <strong>{field.label}</strong>
+                            <span>Source: {field.sourceValue || '—'}</span>
+                            <span>Local: {field.localValue || '—'}</span>
+                          </div>
+                          {field.conflict ? (
+                            <NativeSelect
+                              aria-label={`Resolve ${change.rowLabel || change.rowKey} ${field.label}`}
+                              label="Resolution"
+                              value={resolutions[field.key] || ''}
+                              onChange={(event) => onResolutionChange(field.key, event.currentTarget.value)}
+                              data={[
+                                { value: '', label: 'Choose…' },
+                                { value: 'SOURCE', label: 'Use source' },
+                                { value: 'LOCAL', label: 'Keep local' }
+                              ]}
+                            />
+                          ) : <StatusIndicator status="Source change" />}
+                        </div>
+                      ))}
+                    </div>
+                  ) : <span>Current record is missing from the source and will be preserved.</span>}
+                </div>
+              ))}
+            </div>
+          ) : <p>No row or field differences were detected. Applying records a repeat import without changing academic values.</p>}
+        </section>
+
+        {preview.warnings?.length ? <div className="inline-alert warning">{preview.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div> : null}
+        {unresolved.length ? <div className="inline-alert warning" role="alert">Resolve {unresolved.length} conflict{unresolved.length === 1 ? '' : 's'} before applying.</div> : null}
+
+        <div className="modal-actions">
+          <MantineButton variant="default" onClick={onClose} disabled={applying}>Cancel</MantineButton>
+          <MantineButton color="wildtrackMaroon" onClick={onApply} loading={applying} disabled={Boolean(unresolved.length)}>
+            Apply re-import
+          </MantineButton>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

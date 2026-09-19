@@ -10,7 +10,7 @@ import org.springframework.web.util.UriUtils;
 final class GoogleDriveApiGateway implements GoogleDriveGateway {
 
     private static final String METADATA_FIELDS =
-        "id,name,mimeType,size,md5Checksum,modifiedTime,capabilities(canDownload),webViewLink";
+        "id,name,mimeType,size,md5Checksum,modifiedTime,lastModifyingUser(displayName,emailAddress),capabilities(canDownload),webViewLink";
 
     private final GoogleDriveProperties properties;
     private final RestClient restClient;
@@ -38,6 +38,8 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
                 parseSize(response.size()),
                 response.md5Checksum(),
                 parseTime(response.modifiedTime()),
+                response.lastModifyingUser() == null ? null : response.lastModifyingUser().emailAddress(),
+                response.lastModifyingUser() == null ? null : response.lastModifyingUser().displayName(),
                 response.capabilities() != null && response.capabilities().canDownload(),
                 response.webViewLink()
             );
@@ -134,9 +136,13 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
         String size,
         String md5Checksum,
         String modifiedTime,
+        DriveUser lastModifyingUser,
         Capabilities capabilities,
         String webViewLink
     ) {
+    }
+
+    private record DriveUser(String displayName, String emailAddress) {
     }
 
     private record Capabilities(boolean canDownload) {

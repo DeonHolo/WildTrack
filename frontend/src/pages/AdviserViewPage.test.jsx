@@ -149,6 +149,11 @@ function createMultiArtifactState({ accepted = false, archived = false } = {}) {
   deliverable.title = 'MVP Validation';
   deliverable.trackerColumn = 'MVPValidation';
   deliverable.fields = [
+    { definitionId: 'field-student-number', id: 'studentNumber', label: 'Student Number', type: 'academicStudentNumber', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
+    { definitionId: 'field-student-name', id: 'studentName', label: 'Student Name', type: 'academicStudentName', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
+    { definitionId: 'field-team-code', id: 'teamCode', label: 'Team Code', type: 'academicTeamCode', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
+    { definitionId: 'field-section', id: 'section', label: 'Section', type: 'academicSection', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
+    { definitionId: 'field-validation-step', id: 'validationStep', label: 'Validation step', type: 'multipleChoice', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
     { definitionId: 'field-form', id: 'validationInstrument', label: 'Validation Instrument', type: 'googleForm', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
     { definitionId: 'field-framework', id: 'frameworkModel', label: 'Framework / Model', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true },
     { definitionId: 'field-sheet', id: 'validationResponseSheet', label: 'Validation Response Sheet', type: 'googleSheet', pdfRequired: false, documentCheckPolicy: 'OFF', aiReviewEnabled: false },
@@ -158,6 +163,11 @@ function createMultiArtifactState({ accepted = false, archived = false } = {}) {
   state.attempts = state.attempts.map((response) => {
     if (response.deliverableId !== 'deliv-srs') return response;
     const values = {
+      studentNumber: response.studentNumber,
+      studentName: response.studentName,
+      teamCode: response.teamCode,
+      section: 'G7',
+      validationStep: 'Initial submission',
       validationInstrument: 'https://docs.google.com/forms/d/e/validation-form/viewform',
       frameworkModel: 'https://drive.google.com/file/d/framework-pdf/view',
       validationResponseSheet: 'https://docs.google.com/spreadsheets/d/validation-sheet/edit',
@@ -289,6 +299,32 @@ describe('adviser My advised teams review', () => {
     expect(screen.queryByRole('button', { name: /Run AI Review|Rerun AI Review/i })).not.toBeInTheDocument();
   });
 
+  it('shows WildTrack-observed file history and its Drive history limitation to advisers', () => {
+    workflow.state = createState();
+    const response = workflow.state.attempts.find((item) => item.id === 'response-a2');
+    response.observedFileHistory = {
+      sourceLabel: 'WildTrack Document Check observation',
+      coverageMessage: 'This history contains only file states WildTrack observed when Document Check ran.',
+      olderRevisionHistoryMessage: 'Older Google Drive revision history is unavailable with the current API-key connection.',
+      observations: [{
+        changeType: 'CONTENT_CHANGED',
+        firstObservedAt: '2026-04-17T10:45:00+08:00',
+        lastObservedAt: '2026-04-17T10:45:00+08:00',
+        driveModifiedTime: '2026-04-17T10:40:00+08:00',
+        contentIdentifier: 'md5:changed123',
+        modifiedBy: 'editor@example.com',
+        editorMetadataSource: 'Google Drive File metadata'
+      }]
+    };
+    renderPage();
+
+    expect(screen.getByText('WildTrack observed file history')).toBeInTheDocument();
+    expect(screen.getByText(/only file states WildTrack observed/i)).toBeInTheDocument();
+    expect(screen.getByText(/Older Google Drive revision history is unavailable/i)).toBeInTheDocument();
+    expect(screen.getByText('Content changed')).toBeInTheDocument();
+    expect(screen.getByText(/Modified by editor@example.com/)).toHaveTextContent('Google Drive File metadata');
+  });
+
   it('targets Document Check and AI state to the explicit PDF artifact instead of the first submitted URL', async () => {
     workflow.state = createMultiArtifactState();
     workflow.runDocumentCheck.mockResolvedValue({
@@ -306,6 +342,11 @@ describe('adviser My advised teams review', () => {
     const formArtifact = screen.getByRole('group', { name: 'Validation Instrument artifact' });
     const frameworkArtifact = screen.getByRole('group', { name: 'Framework / Model artifact' });
     const highlightsArtifact = screen.getByRole('group', { name: 'MVP Validation Highlights artifact' });
+    expect(screen.queryByRole('group', { name: 'Student Number artifact' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Student Name artifact' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Team Code artifact' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Section artifact' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Validation step artifact' })).not.toBeInTheDocument();
     expect(within(formArtifact).getByText('Google Form')).toBeInTheDocument();
     expect(within(formArtifact).queryByRole('button', { name: /Document Check/i })).not.toBeInTheDocument();
     expect(within(frameworkArtifact).getByRole('button', { name: 'View Document Check' })).toBeInTheDocument();

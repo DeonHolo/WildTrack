@@ -9,9 +9,27 @@ describe('production API delivery', () => {
   });
   it('sends the loaded response revision and preserves a stale-tab conflict', async () => {
     document.cookie = 'XSRF-TOKEN=test-csrf; path=/';
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 409 }));
-    await expect(submitResponse('workspace', 'form', { value: 'edit' }, 7)).resolves.toEqual({ conflict: true });
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ deliverableId: 'form', valuesJson: '{"value":"edit"}', revision: 7 });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, {
+      status: 409,
+      headers: { 'X-WildTrack-Conflict': 'stale-revision' }
+    }));
+    await expect(submitResponse('workspace', 'form', { value: 'edit' }, 7, '22-1001-001')).resolves.toEqual({ conflict: true });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      deliverableId: 'form', studentNumber: '22-1001-001', valuesJson: '{"value":"edit"}', revision: 7
+    });
+  });
+
+  it('surfaces an account-binding 409 as an API error rather than a stale response revision', async () => {
+    document.cookie = 'XSRF-TOKEN=test-csrf; path=/';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      error: 'This Student Number is already associated with another Google account.'
+    }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
+
+    await expect(submitResponse('workspace', 'form', { value: 'edit' }, null, '22-1001-001'))
+      .rejects.toMatchObject({
+        status: 409,
+        message: 'This Student Number is already associated with another Google account.'
+      });
   });
 
   it('sends configurable question metadata and stale-write timestamp through the deliverable contract', async () => {

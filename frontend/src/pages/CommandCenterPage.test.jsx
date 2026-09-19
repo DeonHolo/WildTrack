@@ -18,7 +18,9 @@ const workflow = vi.hoisted(() => ({
 
 const api = vi.hoisted(() => ({
   getIdentityConflicts: vi.fn(),
-  decideIdentityConflict: vi.fn()
+  getStudentAccountBindings: vi.fn(),
+  disconnectStudentAccountBinding: vi.fn(),
+  recoverStudentAccountBinding: vi.fn()
 }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
@@ -141,7 +143,42 @@ describe("today's work queues", () => {
     workflow.archiveAttempt.mockReset().mockResolvedValue({ ok: true, archived: 1 });
     workflow.activeWorkspaceId = null;
     api.getIdentityConflicts.mockReset().mockResolvedValue([]);
-    api.decideIdentityConflict.mockReset().mockResolvedValue({ status: 'RESOLVED' });
+    api.getStudentAccountBindings.mockReset().mockResolvedValue({ firstClaimLimitation: 'First successful submission is self-declared.', accounts: [] });
+    api.disconnectStudentAccountBinding.mockReset().mockResolvedValue({ status: 'UNBOUND' });
+    api.recoverStudentAccountBinding.mockReset().mockResolvedValue({ status: 'BOUND' });
+  });
+
+  it('opens account management and exposes explicit Admin disconnect and recovery actions', async () => {
+    workflow.activeWorkspaceId = 'ws-account';
+    api.getStudentAccountBindings.mockResolvedValue({
+      firstClaimLimitation: 'Account ownership is self-declared by the first successful submission.',
+      accounts: [
+        {
+          studentRecordId: 'record-bound', studentNumber: '22-1001-001', studentName: 'Bound Student', teamCode: 'TEAM-1',
+          status: 'BOUND', googleSubject: 'sub-bound', googleEmail: 'bound@example.test', candidates: []
+        },
+        {
+          studentRecordId: 'record-conflict', studentNumber: '22-1002-002', studentName: 'Review Student', teamCode: 'TEAM-2',
+          status: 'CONFLICT', googleSubject: null, googleEmail: null, candidates: [
+            { googleSubject: 'sub-first', googleEmail: 'first@example.test', active: true },
+            { googleSubject: 'sub-second', googleEmail: 'second@example.test', active: true }
+          ]
+        }
+      ]
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Account management' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Student account management' });
+    expect(dialog).toHaveTextContent('self-declared by the first successful submission');
+    expect(dialog).toHaveTextContent('Needs review');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect account' }));
+    await waitFor(() => expect(api.disconnectStudentAccountBinding).toHaveBeenCalledWith('ws-account', 'record-bound'));
+
+    fireEvent.click(within(dialog).getByRole('radio', { name: /second@example\.test/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Recover selected account' }));
+    await waitFor(() => expect(api.recoverStudentAccountBinding).toHaveBeenCalledWith('ws-account', 'record-conflict', 'sub-second'));
   });
 
   it.each(['workspace', 'account'])('discards old command results after a %s change', async (change) => {
@@ -306,7 +343,22 @@ describe('identity conflicts from the server', () => {
     // The page must read the workspace from the workflow context root, as production does.
     workflow.activeWorkspaceId = 'workspace-1';
     workflow.state.openConflicts = [conflict];
-    api.decideIdentityConflict.mockReset().mockResolvedValue({ ...conflict, status: 'RESOLVED' });
+    api.getStudentAccountBindings.mockResolvedValue({
+      firstClaimLimitation: 'Account ownership is self-declared by the first successful submission.',
+      accounts: [{
+        studentRecordId: 'record-1',
+        studentNumber: '20-0649-750',
+        studentName: 'Deon Holo',
+        teamCode: '2526-sem2-it332-07',
+        status: 'CONFLICT',
+        googleSubject: null,
+        googleEmail: null,
+        candidates: [
+          { googleSubject: 'sub-first', googleEmail: 'rontaghoy@gmail.com', active: true },
+          { googleSubject: 'sub-second', googleEmail: 'impostor@gmail.com', active: true }
+        ]
+      }]
+    });
   });
 
   it('renders each open conflict with its Student Record and both competing identities', async () => {
@@ -320,42 +372,39 @@ describe('identity conflicts from the server', () => {
     expect(within(queue).getByText(/impostor@gmail.com/)).toBeInTheDocument();
   });
 
-  it('records a resolve decision and drops the conflict from the open list', async () => {
+  it('routes conflict review to account management without preselecting a winner', async () => {
     renderPage();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Review identity conflict for 20-0649-750' }));
-    fireEvent.click(await screen.findByRole('radio', { name: 'rontaghoy@gmail.com' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Record decision' }));
-    await waitFor(() => expect(api.decideIdentityConflict)
-      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'RESOLVED', '', 'sub-first'));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Review identity conflict for 20-0649-750' })).not.toBeInTheDocument());
-    expect(screen.getByText('All clear for this workspace')).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog', { name: 'Student account management' });
+    expect(dialog).toHaveTextContent('Needs review');
+    expect(within(dialog).getByRole('radio', { name: /rontaghoy@gmail\.com/i })).not.toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: /impostor@gmail\.com/i })).not.toBeChecked();
+    expect(within(dialog).getByRole('button', { name: 'Recover selected account' })).toBeDisabled();
   });
 
-  it('records a dismiss decision and drops the conflict from the open list', async () => {
-    api.decideIdentityConflict.mockResolvedValue({ ...conflict, status: 'DISMISSED' });
+  it('recovers only the explicitly selected account from an unresolved conflict', async () => {
     renderPage();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Review identity conflict for 20-0649-750' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Decision' }), { target: { value: 'DISMISSED' } });
-    expect(screen.getByRole('textbox', { name: /Decision note \(optional\)/ })).not.toBeRequired();
-    fireEvent.click(screen.getByRole('button', { name: 'Record decision' }));
-    await waitFor(() => expect(api.decideIdentityConflict)
-      .toHaveBeenCalledWith('workspace-1', 'conflict-1', 'DISMISSED', '', null));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Review identity conflict for 20-0649-750' })).not.toBeInTheDocument());
+    const dialog = await screen.findByRole('dialog', { name: 'Student account management' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: /rontaghoy@gmail\.com/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Recover selected account' }));
+    await waitFor(() => expect(api.recoverStudentAccountBinding)
+      .toHaveBeenCalledWith('workspace-1', 'record-1', 'sub-first'));
   });
 
-  it('keeps the conflict listed when the decision fails', async () => {
-    api.decideIdentityConflict.mockRejectedValue(new Error('Admin authorization required.'));
+  it('keeps the conflict listed when account recovery fails', async () => {
+    api.recoverStudentAccountBinding.mockRejectedValue(new Error('Admin authorization required.'));
     renderPage();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Review identity conflict for 20-0649-750' }));
-    fireEvent.click(await screen.findByRole('radio', { name: 'rontaghoy@gmail.com' }));
-    fireEvent.change(screen.getByRole('textbox', { name: /Decision note/ }), { target: { value: 'Verified in person.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Record decision' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Record decision' }));
-    await waitFor(() => expect(api.decideIdentityConflict).toHaveBeenCalled());
+    const dialog = await screen.findByRole('dialog', { name: 'Student account management' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: /rontaghoy@gmail\.com/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Recover selected account' }));
+    await waitFor(() => expect(api.recoverStudentAccountBinding).toHaveBeenCalled());
     expect(await screen.findByText('Admin authorization required.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review identity conflict for 20-0649-750' })).toBeInTheDocument();
   });
 
   it('says the queue is incomplete instead of all clear when conflicts cannot be loaded', async () => {

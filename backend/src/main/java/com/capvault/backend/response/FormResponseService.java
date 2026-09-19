@@ -88,11 +88,17 @@ public class FormResponseService {
         UUID deliverableId,
         String googleSubject,
         String googleEmail,
+        String studentNumber,
         Map<String, Object> values,
         Long revision
     ) {
         public SubmitCommand(UUID workspaceId, UUID deliverableId, String googleSubject, String googleEmail, Map<String, Object> values) {
-            this(workspaceId, deliverableId, googleSubject, googleEmail, values, null);
+            this(workspaceId, deliverableId, googleSubject, googleEmail, null, values, null);
+        }
+
+        public SubmitCommand(UUID workspaceId, UUID deliverableId, String googleSubject, String googleEmail,
+                Map<String, Object> values, Long revision) {
+            this(workspaceId, deliverableId, googleSubject, googleEmail, null, values, revision);
         }
     }
 
@@ -113,22 +119,36 @@ public class FormResponseService {
             ? List.of(legacyField(deliverable))
             : persistedFields;
         Map<String, Object> submittedValues = command.values() == null ? Map.of() : command.values();
-        StudentAssociationService.AssociationView activeAssociation = null;
         if (!allPersistedFields.isEmpty()) {
             validateSubmissionFields(persistedFields, submittedValues);
-            if (persistedFields.stream().anyMatch(field -> field.getFieldType().isAcademicIdentity())) {
-                activeAssociation = associationService
-                    .activeAssociation(command.workspaceId(), command.googleSubject())
-                    .orElseThrow(() -> new IllegalStateException("Connect your Student Record before submitting."));
-                StudentRecord record = studentRecordRepository.findById(activeAssociation.studentRecordId())
-                    .filter(item -> command.workspaceId().equals(item.getWorkspaceId()) && item.isCurrentActive())
-                    .orElseThrow(() -> new IllegalStateException("The connected Student Record is no longer available in this workspace."));
-                validateAcademicFieldRequirements(persistedFields, record);
-            }
         }
         Instant now = clock.instant();
         Optional<FormResponse> existing = responseRepository
             .findByWorkspaceIdAndDeliverableIdAndGoogleSubject(command.workspaceId(), command.deliverableId(), command.googleSubject());
+
+        String selectedStudentNumber = command.studentNumber() == null ? "" : command.studentNumber().trim();
+        if (existing.isPresent()) {
+            if (!selectedStudentNumber.isBlank()
+                    && !existing.get().getStudentNumber().equalsIgnoreCase(selectedStudentNumber)) {
+                throw new StudentAssociationService.AccountBindingConflictException(
+                    "This saved response belongs to a different Student Number. Reload your student record before editing it.");
+            }
+            selectedStudentNumber = existing.get().getStudentNumber();
+        }
+        if (selectedStudentNumber.isBlank()) {
+            selectedStudentNumber = associationService.activeAssociation(command.workspaceId(), command.googleSubject())
+                .map(StudentAssociationService.AssociationView::studentNumber)
+                .orElse("");
+        }
+        StudentAssociationService.AssociationView association = associationService.associationForSuccessfulSave(
+            command.workspaceId(), command.googleSubject(), command.googleEmail(), selectedStudentNumber, existing.isPresent());
+        if (!allPersistedFields.isEmpty()
+                && persistedFields.stream().anyMatch(field -> field.getFieldType().isAcademicIdentity())) {
+            StudentRecord record = studentRecordRepository.findById(association.studentRecordId())
+                .filter(item -> command.workspaceId().equals(item.getWorkspaceId()) && item.isCurrentActive())
+                .orElseThrow(() -> new IllegalStateException("The connected Student Record is no longer available in this workspace."));
+            validateAcademicFieldRequirements(persistedFields, record);
+        }
 
         if (existing.isPresent()) {
             FormResponse response = existing.get();
@@ -142,7 +162,7 @@ public class FormResponseService {
             if (currentValues.equals(nextValues)) {
                 return new SaveResult(false, response, response.getRevision()); // identical resave: untouched
             }
-            archiveVersion(response);
+            archiveVersion(response, now);
             response.setValuesJson(nextJson);
             response.setUpdatedAt(now);
             // revision increments via @Version on flush; keep client-visible in sync:
@@ -156,12 +176,8 @@ public class FormResponseService {
             return new SaveResult(true, response, response.getRevision());
         }
 
-        // First submission: require an active association (ticket 03) and snapshot the roster record.
+        // First successful save and canonical account binding share this transaction.
         if (command.revision() != null) throw new ConcurrentModificationException();
-        StudentAssociationService.AssociationView association = activeAssociation != null
-            ? activeAssociation
-            : associationService.activeAssociation(command.workspaceId(), command.googleSubject())
-                .orElseThrow(() -> new IllegalStateException("Connect your Student Record before submitting."));
         FormResponse created = new FormResponse(
             UUID.randomUUID(),
             command.workspaceId(),
@@ -406,11 +422,18 @@ public class FormResponseService {
     private static String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
     }
-    /** Ownership is the Google subject: another identity can never read or overwrite these values. */
+    /**
+     * Private response reads require both the original Google subject and the currently active
+     * canonical/workspace association. An Admin disconnect therefore revokes the old account's
+     * read/edit path until that account is explicitly recovered.
+     */
     @Transactional(readOnly = true)
     public Optional<FormResponse> ownedResponse(UUID workspaceId, UUID deliverableId, String googleSubject) {
         if (googleSubject == null || googleSubject.isBlank()) return Optional.empty();
-        return responseRepository.findByWorkspaceIdAndDeliverableIdAndGoogleSubject(workspaceId, deliverableId, googleSubject);
+        return responseRepository.findByWorkspaceIdAndDeliverableIdAndGoogleSubject(workspaceId, deliverableId, googleSubject)
+            .filter(response -> associationService.activeAssociation(workspaceId, googleSubject)
+                .map(association -> association.studentRecordId().equals(response.getStudentRecordId()))
+                .orElse(false));
     }
 
     @Transactional(readOnly = true)
@@ -458,9 +481,9 @@ public class FormResponseService {
             .toList();
     }
 
-    private void archiveVersion(FormResponse response) {
+    private void archiveVersion(FormResponse response, Instant savedAt) {
         versionRepository.save(new FormResponseVersion(
-            UUID.randomUUID(), response, response.getValuesJson(), response.getRevision(), clock.instant()));
+            UUID.randomUUID(), response, response.getValuesJson(), response.getRevision(), savedAt));
     }
 
     private String toJson(Map<String, Object> values) {

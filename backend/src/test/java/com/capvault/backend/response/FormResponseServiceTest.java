@@ -92,15 +92,18 @@ class FormResponseServiceTest {
 
     private FormResponseService.SaveResult submitFor(String subject, Map<String, Object> values) {
         return service.submit(new FormResponseService.SubmitCommand(
-            workspaceId, deliverableId, subject, subject + "@gmail.com", values,
+            workspaceId, deliverableId, subject, subject + "@gmail.com", rosterNumber, values,
             service.ownedResponse(workspaceId, deliverableId, subject).map(FormResponse::getRevision).orElse(null)));
     }
 
     @Test
-    void firstSubmissionRequiresActiveAssociation() {
-        assertThatThrownBy(() -> submitFor("sub-X", Map.of("link", "https://drive.example/a")))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("Connect your Student Record");
+    void firstSuccessfulSubmissionCreatesTheAssociationWithoutPreconnect() {
+        assertThat(associationService.activeAssociation(workspaceId, "sub-X")).isEmpty();
+
+        var saved = submitFor("sub-X", Map.of("link", "https://drive.example/a"));
+
+        assertThat(saved.response().getStudentNumber()).isEqualTo(rosterNumber);
+        assertThat(associationService.activeAssociation(workspaceId, "sub-X")).isPresent();
     }
 
     @Test
@@ -119,11 +122,15 @@ class FormResponseServiceTest {
         associate("sub-A");
         var first = submitFor("sub-A", Map.of("driveLink", "https://drive.example/a"));
         long revisionBefore = first.clientRevision();
+        var submittedAtBefore = first.response().getSubmittedAt();
+        var updatedAtBefore = first.response().getUpdatedAt();
 
         var second = submitFor("sub-A", Map.of("driveLink", "https://drive.example/a"));
 
         assertThat(second.changed()).isFalse();
         assertThat(second.response().getRevision()).isEqualTo(revisionBefore);
+        assertThat(second.response().getSubmittedAt()).isEqualTo(submittedAtBefore);
+        assertThat(second.response().getUpdatedAt()).isEqualTo(updatedAtBefore);
         // No version row archived for identical resave
         assertThat(service.history(workspaceId, deliverableId, "sub-A")).isEmpty();
     }
@@ -145,25 +152,16 @@ class FormResponseServiceTest {
     }
 
     @Test
-    void ownershipIsByGoogleSubjectNotStudentNumber() {
+    void alternateGoogleSubjectCannotSubmitAfterTheFirstSuccessfulClaim() {
         associate("sub-A");
-        // sub-B associates the SAME roster record (conflict path from ticket 03)
-        associationService.confirmAssociation(workspaceId, "sub-B", "b@gmail.com", rosterNumber);
-
         submitFor("sub-A", Map.of("driveLink", "https://drive.example/a-owned"));
-        submitFor("sub-B", Map.of("driveLink", "https://drive.example/b-owned"));
 
-        // Each identity owns exactly its own response; neither can see or overwrite the other's.
-        var aView = service.ownedResponse(workspaceId, deliverableId, "sub-A").orElseThrow();
-        var bView = service.ownedResponse(workspaceId, deliverableId, "sub-B").orElseThrow();
-        assertThat(aView.getValuesJson()).contains("a-owned").doesNotContain("b-owned");
-        assertThat(bView.getValuesJson()).contains("b-owned").doesNotContain("a-owned");
-
-        // Editing B's response as A is impossible: A's save touches only A's row.
-        service.submit(new FormResponseService.SubmitCommand(
-            workspaceId, deliverableId, "sub-A", "a@gmail.com", Map.of("driveLink", "https://drive.example/a-edit"), aView.getRevision()));
-        assertThat(service.ownedResponse(workspaceId, deliverableId, "sub-B").orElseThrow().getValuesJson())
-            .contains("b-owned");
+        assertThatThrownBy(() -> submitFor("sub-B", Map.of("driveLink", "https://drive.example/b-owned")))
+            .isInstanceOf(StudentAssociationService.AccountBindingConflictException.class)
+            .hasMessageContaining("already associated with another Google account");
+        assertThat(service.ownedResponse(workspaceId, deliverableId, "sub-B")).isEmpty();
+        assertThat(service.ownedResponse(workspaceId, deliverableId, "sub-A").orElseThrow().getValuesJson())
+            .contains("a-owned");
     }
 
     @Test
@@ -217,6 +215,7 @@ class FormResponseServiceTest {
             jdbc.update("delete from academic_file_check_reports where workspace_id = ?", workspaceId);
             jdbc.update("delete from form_responses where workspace_id = ?", workspaceId);
             jdbc.update("delete from workspace_student_associations where workspace_id = ?", workspaceId);
+            jdbc.update("delete from canonical_student_account_bindings where student_number_key = lower(?)", rosterNumber);
             jdbc.update("delete from academic_student_records where workspace_id = ?", workspaceId);
             jdbc.update("delete from academic_deliverables where workspace_id = ?", workspaceId);
             jdbc.update("delete from academic_workspaces where id = ?", workspaceId);

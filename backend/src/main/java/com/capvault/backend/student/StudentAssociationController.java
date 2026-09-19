@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.UUID;
 
 import com.capvault.backend.student.StudentAssociationService.AssociationView;
+import com.capvault.backend.student.StudentAssociationService.AccountBindingView;
+import com.capvault.backend.student.StudentAssociationService.AccountManagementView;
 import com.capvault.backend.student.StudentAssociationService.ConflictDetail;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -37,6 +39,9 @@ public class StudentAssociationController {
     public record ConflictDecisionRequest(@NotBlank String decision, String note, String confirmedSubject) {
     }
 
+    public record RecoverAccountRequest(@NotBlank String confirmedSubject) {
+    }
+
     @GetMapping("/me")
     public ResponseEntity<AssociationView> myAssociation(@RequestParam UUID workspaceId, HttpServletRequest request) {
         var session = security.requireSession(request);
@@ -58,14 +63,41 @@ public class StudentAssociationController {
         HttpServletRequest request
     ) {
         var session = security.requireSession(request);
-        return associationService.confirmAssociation(workspaceId, session.googleSubject(), session.googleEmail(), body.studentNumber());
+        return associationService.previewAssociation(workspaceId, session.googleSubject(), session.googleEmail(), body.studentNumber());
     }
 
     @DeleteMapping("/associate")
     public ResponseEntity<Void> disconnect(@RequestParam UUID workspaceId, HttpServletRequest request) {
-        var session = security.requireSession(request);
-        associationService.disconnect(workspaceId, session.googleSubject());
-        return ResponseEntity.noContent().build();
+        security.requireSession(request);
+        throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN,
+            "Student account bindings can only be disconnected by an administrator.");
+    }
+
+    @GetMapping("/account-bindings")
+    public AccountManagementView accountBindings(@RequestParam UUID workspaceId, HttpServletRequest request) {
+        requireAdmin(request);
+        return associationService.accountManagement(workspaceId);
+    }
+
+    @PostMapping("/account-bindings/{studentRecordId}/disconnect")
+    public AccountBindingView adminDisconnect(
+        @RequestParam UUID workspaceId,
+        @PathVariable UUID studentRecordId,
+        HttpServletRequest request
+    ) {
+        var session = requireAdmin(request);
+        return associationService.adminDisconnect(workspaceId, studentRecordId, session.googleSubject(), session.googleEmail());
+    }
+
+    @PostMapping("/account-bindings/{studentRecordId}/recover")
+    public AccountBindingView adminRecover(
+        @RequestParam UUID workspaceId,
+        @PathVariable UUID studentRecordId,
+        @Valid @RequestBody RecoverAccountRequest body,
+        HttpServletRequest request
+    ) {
+        var session = requireAdmin(request);
+        return associationService.adminRecover(workspaceId, studentRecordId, body.confirmedSubject(), session.googleSubject(), session.googleEmail());
     }
 
     @GetMapping("/identity-conflicts")

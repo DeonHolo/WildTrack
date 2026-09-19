@@ -1,5 +1,6 @@
 import { useStaffIdentity } from '../app/StaffIdentity.jsx';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
+import { ResponseTimingSummary } from '../components/ResponseTimingSummary.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -38,6 +39,7 @@ import {
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { AiReviewReport } from '../components/review/AiReviewReport.jsx';
+import { ObservedFileHistory } from '../components/review/ObservedFileHistory.jsx';
 import { StatusIndicator } from '../components/ui.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../hooks/useApplicationRole.js';
 import { getStoredPreviewAdviser, setStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
@@ -75,6 +77,7 @@ import {
   reviewableSubmissionFields,
   sortDeliverables
 } from '../lib/workflow.js';
+import { submissionArtifactFields } from '../lib/submissionArtifacts.js';
 
 export function AdviserViewPage() {
   const { activeWorkspaceId } = useWorkspaceSession();
@@ -619,13 +622,14 @@ function SelectedGroupOutput({
         </Alert>
       ) : (
         <Stack gap="md">
+          <ResponseTimingSummary timing={response.timing} />
           <section>
             <div className="wt-adviser-detail-heading">
               <Text fw={800}>Submission artifacts</Text>
               <Text size="xs" c="dimmed">Each PDF is checked and reviewed independently.</Text>
             </div>
             <Stack gap="sm" mt="sm">
-              {(row.deliverable.fields || []).map((field) => (
+              {submissionArtifactFields(row.deliverable.fields || []).map((field) => (
                 <AdviserArtifact
                   key={field.definitionId || field.id}
                   field={field}
@@ -700,6 +704,10 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck }) {
   const artifactReviewCurrent = aiEnabled && isArtifactAiReviewCurrent(response, field);
   const legacyReviewCurrent = aiEnabled && !field.definitionId && !artifactReview && isAiReportCurrent(response);
   const aiReport = artifactReviewCurrent ? artifactReview?.report : legacyReviewCurrent ? response.aiReport : null;
+  const fieldKey = field.definitionId || field.id;
+  const observedHistory = response.observedFileHistoryByField?.[fieldKey]
+    || response.observedFileHistory
+    || null;
   const aiStatus = legacyReviewCurrent
     ? aiReviewStatus(response)
     : aiEnabled
@@ -744,6 +752,7 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck }) {
               {aiEnabled ? <StatusIndicator status={aiStatus} /> : null}
             </Group>
             <Text size="sm" c="dimmed">{check?.summary || 'No current Document Check is available for this PDF.'}</Text>
+            <ObservedFileHistory history={observedHistory} />
             {aiEnabled ? (
               aiReport ? (
                 <AiReviewReport report={aiReport} />

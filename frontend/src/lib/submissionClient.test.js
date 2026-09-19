@@ -182,8 +182,10 @@ describe('SubmissionClient intake', () => {
 
     await expect(saveSubmissionDraft('workspace-1', 'deliverable-1', { primaryLink: 'https://example.test' }, 3))
       .resolves.toEqual({ conflict: true });
-    await expect(commitSubmission('workspace-1', 'deliverable-1', { primaryLink: 'https://example.test' }))
+    await expect(commitSubmission('workspace-1', 'deliverable-1', { primaryLink: 'https://example.test' }, null, '22-1001-001'))
       .resolves.toEqual({ conflict: true });
+    expect(api.submitResponse).toHaveBeenCalledWith(
+      'workspace-1', 'deliverable-1', { primaryLink: 'https://example.test' }, null, '22-1001-001');
   });
 
   it('clears the server draft only through the draft endpoint', async () => {
