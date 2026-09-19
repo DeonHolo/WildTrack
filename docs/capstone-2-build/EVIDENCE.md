@@ -199,3 +199,12 @@ For study/provider runs additionally record fixture/model/prompt/template versio
 - Package validator from repository root: `powershell -NoProfile -ExecutionPolicy Bypass -File docs/capstone-2-build/validate-package.ps1` — PASS: 9 nonempty package documents, 12 structured tickets, forward-only dependency graph and valid saved PNG. Screenshot SHA256 remains `7600CA41F0AB5ADD66F27F5E06C1AAD6141BB1CFCBBB5AB9B627067643EAE591`.
 - Security/correctness closeout rechecked five previously material seams: legacy direct re-import cannot bypass preview/apply after first import; disconnected accounts do not regain old response access through `/my-team`; Student Dashboard timing does not expose teammate artifact URLs; Drive editor identity is staff-only; Validation Study evidence endpoint/page remains Admin-only.
 - External work remains deliberately unfinished: Ticket 09 delegated Drive revision history awaits explicit owner authorization and genuine Google access; Ticket 10 final validation awaits independent human answer-key/provider evidence; Ticket 11 empirical analysis awaits real participant/task data. No deployment, live Google mutation, participant messaging or paid/provider run occurred in this closeout.
+
+## 2026-09-19 — Prompt 2 Git/PR publication
+
+- Final intended stage set contained 133 public Prompt 2 files. `git diff --cached --check` passed with line-ending notices only.
+- Explicit exclusion check confirmed the preserved local/private files were not staged: `docs/WildTrack_MVP_Validation_Progress.md`, `docs/STD TEMPLATE.pdf`, `docs/TRANSCRIPT CAPSTONE 2.md`, `docs/WildTrack_Capstone_2_Session_Answers.md`, and `docs/WildTrack_Document_Validation_Test_Plan.md`.
+- Created commit `f1452df feat: complete capstone 2 validation hardening` on `wildtrack-rebrand`: 133 files changed, 9,584 insertions and 651 deletions.
+- `git push origin wildtrack-rebrand` succeeded, advancing the remote branch from `77082c9` to `f1452df`.
+- GitHub reported no existing open PR from `wildtrack-rebrand` to `main`. Opened new PR #48, `Complete Capstone 2 validation workflow hardening`: https://github.com/DeonHolo/WildTrack/pull/48.
+- PR #48 is intentionally left unmerged. No direct merge to `main` and no deployment occurred.

@@ -8,7 +8,7 @@ Full-session execution started from the current feature branch after Prompt 1/ed
 
 ## Next action
 
-Prompt 2 local implementation and full-mode integration closeout are complete. Inspect the exact intended stage set, exclude the preserved private/local source documents, commit and push `wildtrack-rebrand`, then open a new pull request to `main`. PR #46 and PR #47 are already merged, so this Prompt 2 work must not be attached to either old PR. Do not merge directly to `main`.
+Prompt 2 local implementation and full-mode integration closeout are complete. The audited work is committed and pushed to `wildtrack-rebrand`, and new PR #48 is open to `main`. PR #46 and PR #47 were already merged and were not reused. Do not merge directly to `main`; human review of PR #48 is the next release step.
 
 ## Initial unrelated/pre-existing state
 
@@ -35,16 +35,16 @@ Preserve them. A current git status is required; these notes are not a complete 
 ## Checkpoint — overwrite after each meaningful slice
 
 - Active ticket: none for remaining local Prompt 2 implementation. Ticket 08 and full-mode Ticket 12 are complete locally.
-- Current objective: final staged-file audit, commit/push to `wildtrack-rebrand`, then open a new pull request to `main` without merging it.
+- Current objective: keep PR #48 reviewable and unmerged while external Ticket 09/10/11 prerequisites remain honestly separate from the completed local implementation.
 - Last completed slices: Ticket 08 source-labeled WildTrack-observed history/provider metadata privacy and the full Ticket 12 cross-ticket integration closeout.
 - Current implementation scope: Prompt 2 local code/docs/tests are ready for the final Git/PR workflow. Tickets 09/10/11 retain their explicitly external authorization/human/provider/respondent work.
 - Exact integration checks: Ticket 08 focused backend exit 0; Ticket 08/student/staff frontend 4 files / 56 tests PASS; full frontend affected suite 20 files / 246 tests PASS; broad backend non-browser suite 137 tests PASS plus real-backend FormEditorPersistenceJourneyIT PASS; seeded browser role/academic flows 25/25 PASS; backend compile PASS; frontend production build PASS; package validator PASS.
 - Privacy/security closeout rechecked teammate timing URL isolation, staff-only Drive editor metadata, re-import preview/apply enforcement, disconnect access revocation and Admin-only Validation Study access.
 - Running process/session IDs: none owned by this package
-- Remaining local acceptance criteria: final staged-file/diff audit and Git/PR publication of the already verified local work. Ticket 09 remains gated on owner authorization; Ticket 10 still needs independent human answer-key/provider evidence; Ticket 11 still needs real participant evidence/analysis.
-- Next exact action: inspect `git status`, explicitly stage only intended Prompt 2 files, run final staged diff audit, commit/push `wildtrack-rebrand`, and open a new PR to `main`.
+- Remaining local acceptance criteria: none for Prompt 2 implementation/integration. Ticket 09 remains gated on owner authorization; Ticket 10 still needs independent human answer-key/provider evidence; Ticket 11 still needs real participant evidence/analysis.
+- Next exact action: review PR #48. Separately, the owner may authorize or decline Ticket 09 delegated Drive access; Ticket 10/11 continue only when genuine human/provider/respondent evidence exists.
 - Decisions made since spec: Objective 3 is student submission transaction correctness with a working >=95% transaction target; Refactored SRS is frozen as the common task; T1/T2 use Initial submission/Revised submission; no WildTrack student file uploads; Google Form remains supporting feedback only
 - Blockers: actual respondent data for Ticket 11 empirical analysis; genuine Google consent/file access for Ticket 09 live verification; adviser/framework endorsement if course-required. These do not block local code/preparation work.
 - Research revision validation: package validator PASS; git diff --check PASS; stale-reference audit found no live package instruction that restores the superseded status-scenario goal. Historical references remain only where explicitly labeled superseded.
 - Unsafe to repeat: any live provider call/write already recorded in EVIDENCE.md (none yet)
-- Commit/PR/deployment: current feature branch already contains prior commit 77082c9, which is also in `main` through merged PRs #46/#47. Commit/push the verified Prompt 2 changes to `wildtrack-rebrand` and open a new PR to `main`; do not merge directly to `main`. No deployment, publication, participant messaging or live Google mutation is authorized.
+- Commit/PR/deployment: Prompt 2 implementation commit `f1452df` is pushed to `wildtrack-rebrand`; PR #48 (`wildtrack-rebrand` -> `main`) is open. It has not been merged. No deployment, publication, participant messaging or live Google mutation was performed.
