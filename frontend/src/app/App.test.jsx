@@ -58,6 +58,7 @@ vi.mock('./WorkspaceSession.jsx', () => ({
 }));
 
 vi.mock('../pages/ArchivePage.jsx', () => ({ ArchivePage: () => <h1>Archive page</h1> }));
+vi.mock('../pages/AcademicDataPage.jsx', () => ({ AcademicDataPage: () => <h1>Academic data page</h1> }));
 vi.mock('../pages/AdviserViewPage.jsx', () => ({ AdviserViewPage: () => <h1>Team review page</h1> }));
 vi.mock('../pages/CommandCenterPage.jsx', () => ({ CommandCenterPage: () => <h1>Today&apos;s work page</h1> }));
 vi.mock('../pages/FormsPage.jsx', () => ({ FormsPage: () => <h1>Forms page</h1> }));
@@ -121,6 +122,7 @@ describe('role-specific application shells', () => {
     expect(within(navigation).getByRole('link', { name: 'Review' })).toBeInTheDocument();
     expect(within(navigation).getByRole('link', { name: 'My advised teams' })).toBeInTheDocument();
     expect(within(navigation).getByRole('link', { name: 'Tracker' })).toBeInTheDocument();
+    expect(within(navigation).getByRole('link', { name: 'Academic data' })).toBeInTheDocument();
     expect(within(navigation).getByRole('link', { name: 'Archive' })).toBeInTheDocument();
     expect(within(navigation).getByRole('link', { name: 'Workspace' })).toBeInTheDocument();
     expect(within(navigation).getByRole('link', { name: 'Validation Study' })).toBeInTheDocument();
@@ -139,6 +141,7 @@ describe('role-specific application shells', () => {
     expect(within(navigation).queryByRole('link', { name: 'Forms' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('link', { name: 'Review' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('link', { name: 'Archive' })).not.toBeInTheDocument();
+    expect(within(navigation).queryByRole('link', { name: 'Academic data' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('link', { name: 'Workspace' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('link', { name: 'Validation Study' })).not.toBeInTheDocument();
   });
@@ -150,6 +153,16 @@ describe('role-specific application shells', () => {
 
     setRole('adviser');
     renderApp('/validation-study');
+    expect(await screen.findByRole('heading', { name: 'Team review page' })).toBeInTheDocument();
+  });
+
+  it('keeps Academic data on its own Admin-only page', async () => {
+    setRole('admin');
+    renderApp('/academic-data');
+    expect(screen.getByRole('heading', { name: 'Academic data page' })).toBeInTheDocument();
+
+    setRole('adviser');
+    renderApp('/academic-data');
     expect(await screen.findByRole('heading', { name: 'Team review page' })).toBeInTheDocument();
   });
 

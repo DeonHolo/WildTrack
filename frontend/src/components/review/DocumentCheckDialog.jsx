@@ -1,11 +1,13 @@
-import { Alert, Badge, Modal } from '@mantine/core';
+import { Alert, Badge, Modal, Tabs } from '@mantine/core';
 import { ArrowSquareOut, CheckCircle, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
 import { Button, StatusIndicator } from '../ui.jsx';
 import { formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
+import { ObservedFileHistory } from './ObservedFileHistory.jsx';
 
 export function DocumentCheckDialog({
   response,
   documentCheck = null,
+  observedHistory = null,
   fileLink,
   open,
   onClose,
@@ -22,9 +24,12 @@ export function DocumentCheckDialog({
   const document = report?.document;
   const comparison = report?.templateComparison;
   const missingSections = report?.missingSections || [];
+  const expectedSectionCount = comparison?.expectedTemplateHeadings?.length || 0;
+  const detectedSectionCount = comparison?.detectedTemplateHeadings?.length || 0;
   const studentView = audience === 'student';
   const currentStatus = documentCheckStatus(effectiveResponse);
   const successful = currentStatus === 'Ready for review';
+  const latestObservation = studentView ? null : observedHistory?.observations?.[0];
 
   const title = (
     <div className="document-check-title">
@@ -49,73 +54,112 @@ export function DocumentCheckDialog({
       closeButtonProps={{ 'aria-label': 'Close Document Check details' }}
     >
       {error ? <Alert color="red" role="alert">{error}</Alert> : null}
-      <div className={`document-check-overview ${report?.redFlags?.length ? 'attention' : ''}`}>
-        {successful && !report?.redFlags?.length ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
-        <div>
-          <StatusIndicator status={studentView ? studentDocumentCheckStatus(effectiveResponse) : currentStatus} />
-          <p>{studentView ? studentSummary(report, effectiveResponse) : report?.summary || effectiveResponse.checkSummary || 'No Document Check result is available.'}</p>
-        </div>
-      </div>
+      <Tabs defaultValue="result" className="document-check-tabs">
+        {!studentView ? (
+          <Tabs.List>
+            <Tabs.Tab value="result">Check result</Tabs.Tab>
+            <Tabs.Tab value="history">File history</Tabs.Tab>
+          </Tabs.List>
+        ) : null}
 
-      <section className="document-check-section">
-        <h3>File validation</h3>
-        <div className="document-check-grid">
-          <CheckFact label="Drive access" value={metadata ? 'Accessible' : unavailableValue(response)} ready={Boolean(metadata)} />
-          <CheckFact label="File type" value={metadata?.mimeType === 'application/pdf' ? 'PDF' : metadata?.mimeType || 'Not available'} ready={metadata?.mimeType === 'application/pdf'} />
-          <CheckFact label="Download" value={metadata ? metadata.canDownload ? 'Allowed' : 'Disabled' : 'Not available'} ready={Boolean(metadata?.canDownload)} />
-          <CheckFact label="File size" value={formatBytes(metadata?.size)} ready={Boolean(metadata?.size)} neutral />
-          <CheckFact label="PDF integrity" value={document?.readable ? 'Readable' : document?.encrypted ? 'Password protected' : 'Not verified'} ready={Boolean(document?.readable)} />
-          <CheckFact label="Pages" value={document ? String(document.pageCount) : 'Not available'} ready={Boolean(document?.pageCount)} neutral />
-          <CheckFact
-            label="Readable text"
-            value={Number.isFinite(Number(document?.extractedCharacterCount)) ? `${Number(document.extractedCharacterCount).toLocaleString()} characters` : 'Not available'}
-            ready={Number(document?.extractedCharacterCount) > 0}
-            neutral
-          />
-          <CheckFact label="Drive modified" value={metadata?.modifiedTime ? formatDateTime(metadata.modifiedTime) : 'Not available'} ready={Boolean(metadata?.modifiedTime)} neutral />
-        </div>
-      </section>
-
-      <section className="document-check-section">
-        <h3>Official template comparison</h3>
-        {comparison?.available ? (
-          <>
-            <div className="document-check-measures">
-              <div><span>Template coverage</span><strong>{Math.round(comparison.templateCoverage * 100)}%</strong></div>
-              <div><span>Added content</span><strong>{Math.round(comparison.addedContentRatio * 100)}%</strong></div>
-              <div><span>Unchanged instructions</span><strong>{comparison.unchangedInstructionCount}</strong></div>
+        <Tabs.Panel value="result" pt={studentView ? 0 : 'md'}>
+          <div className={'document-check-overview ' + (report?.redFlags?.length ? 'attention' : '')}>
+            {successful && !report?.redFlags?.length ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
+            <div>
+              <StatusIndicator status={studentView ? studentDocumentCheckStatus(effectiveResponse) : currentStatus} />
+              <p>{studentView ? studentSummary(report, effectiveResponse) : report?.summary || effectiveResponse.checkSummary || 'No Document Check result is available.'}</p>
             </div>
-            <div className="document-check-findings">
-              <h4>Template headings not detected</h4>
-              {missingSections.length ? (
-                <ul>{missingSections.map((section) => <li key={section}>{section}</li>)}</ul>
-              ) : <p>No missing template headings were detected.</p>}
-            </div>
-          </>
-        ) : (
-          <p className="muted-copy">
-            {studentView
-              ? 'No official template was available for comparison when your PDF was checked.'
-              : 'No official template was available for this deliverable when the document was checked.'}
-          </p>
-        )}
-      </section>
-
-      {report?.redFlags?.length ? (
-        <section className="document-check-section">
-          <h3>{studentView ? 'What needs attention' : 'Findings'}</h3>
-          <div className="status-strip stable">
-            {report.redFlags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}
           </div>
-          <p>{studentView ? 'Review the items above and update your submitted PDF link if needed.' : report.suggestedAction}</p>
-        </section>
-      ) : null}
 
-      <div className="inline-alert info document-check-limitation">
-        {studentView
-          ? 'Document Check checks whether your PDF can be accessed and read and, when an official template is available, compares its structure. It does not grade your work or decide whether it is accepted.'
-          : 'Document Check screens file access, PDF integrity, readable text, and template similarity. It does not grade the submission or replace staff review.'}
-      </div>
+          <section className="document-check-section">
+            <h3>File validation</h3>
+            <div className="document-check-grid">
+              <CheckFact label="Drive access" value={metadata ? 'Accessible' : unavailableValue(response)} ready={Boolean(metadata)} />
+              <CheckFact label="File type" value={metadata?.mimeType === 'application/pdf' ? 'PDF' : metadata?.mimeType || 'Not available'} ready={metadata?.mimeType === 'application/pdf'} />
+              <CheckFact label="Download" value={metadata ? metadata.canDownload ? 'Allowed' : 'Disabled' : 'Not available'} ready={Boolean(metadata?.canDownload)} />
+              <CheckFact label="File size" value={formatBytes(metadata?.size)} ready={Boolean(metadata?.size)} neutral />
+              <CheckFact label="PDF integrity" value={document?.readable ? 'Readable' : document?.encrypted ? 'Password protected' : 'Not verified'} ready={Boolean(document?.readable)} />
+              <CheckFact label="Pages" value={document ? String(document.pageCount) : 'Not available'} ready={Boolean(document?.pageCount)} neutral />
+              <CheckFact
+                label="Readable text"
+                value={Number.isFinite(Number(document?.extractedCharacterCount)) ? Number(document.extractedCharacterCount).toLocaleString() + ' characters' : 'Not available'}
+                ready={Number(document?.extractedCharacterCount) > 0}
+                neutral
+              />
+              <CheckFact label="Drive modified" value={metadata?.modifiedTime ? formatDateTime(metadata.modifiedTime) : 'Not available'} ready={Boolean(metadata?.modifiedTime)} neutral />
+              {!studentView ? (
+                <>
+                  <CheckFact label="Created time" value={latestObservation?.driveCreatedTime ? formatDateTime(latestObservation.driveCreatedTime) : 'Unavailable'} ready={Boolean(latestObservation?.driveCreatedTime)} neutral />
+                  <CheckFact label="Drive owner" value={latestObservation?.driveOwner || 'Unavailable'} ready={Boolean(latestObservation?.driveOwner)} neutral />
+                  <CheckFact label="Last modified by" value={latestObservation?.modifiedBy || 'Unavailable'} ready={Boolean(latestObservation?.modifiedBy && latestObservation.modifiedBy !== 'Unavailable')} neutral />
+                </>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="document-check-section">
+            <h3>Official template structure</h3>
+            {comparison?.available ? (
+              <>
+                <div className="document-check-template-summary">
+                  <strong>{missingSections.length ? missingSections.length + ' expected body section' + (missingSections.length === 1 ? '' : 's') + ' not detected' : 'Expected template sections detected'}</strong>
+                  <p>
+                    This check compares the document's body structure with the official template. Sample project names, example transaction names, and placeholder values are not treated as required headings.
+                  </p>
+                </div>
+                {expectedSectionCount ? (
+                  <div className="document-check-measures">
+                    <div><span>Expected body sections</span><strong>{expectedSectionCount}</strong></div>
+                    <div><span>Detected in body</span><strong>{detectedSectionCount}</strong></div>
+                    <div><span>Not detected</span><strong>{missingSections.length}</strong></div>
+                  </div>
+                ) : null}
+                <div className="document-check-findings">
+                  <h4>{missingSections.length ? 'Expected body sections not detected' : 'Structure result'}</h4>
+                  {missingSections.length ? (
+                    <ul>{missingSections.map((section) => <li key={section}>{section}</li>)}</ul>
+                  ) : <p>No expected body sections were flagged as missing.</p>}
+                </div>
+                {comparison.appearsTemplateOnly ? (
+                  <Alert color="orange" mt="sm" title="Document still looks largely like the blank template">
+                    Large portions of the official template appear unchanged. Treat this as a review signal, not a grade or completion percentage.
+                  </Alert>
+                ) : null}
+              </>
+            ) : (
+              <p className="muted-copy">
+                {studentView
+                  ? 'No official template was available for comparison when your PDF was checked.'
+                  : 'No official template was available for this deliverable when the document was checked.'}
+              </p>
+            )}
+          </section>
+
+          {report?.redFlags?.length ? (
+            <section className="document-check-section">
+              <h3>{studentView ? 'What needs attention' : 'Findings'}</h3>
+              <div className="status-strip stable">
+                {report.redFlags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}
+              </div>
+              <p>{studentView ? 'Review the items above and update your submitted PDF link if needed.' : report.suggestedAction}</p>
+            </section>
+          ) : null}
+
+          <div className="inline-alert info document-check-limitation">
+            {studentView
+              ? 'Document Check checks whether your PDF can be accessed and read and, when an official template is available, compares its structure. It does not grade your work or decide whether it is accepted.'
+              : 'Document Check verifies file access and readability, then compares deterministic template structure when an official template is available. It does not grade the submission or replace staff review.'}
+          </div>
+        </Tabs.Panel>
+
+        {!studentView ? (
+          <Tabs.Panel value="history" pt="md">
+            <div className="document-check-history-panel">
+              <ObservedFileHistory history={observedHistory} />
+            </div>
+          </Tabs.Panel>
+        ) : null}
+      </Tabs>
 
       <footer className="document-check-actions">
         {fileLink ? (

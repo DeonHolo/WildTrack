@@ -7,6 +7,7 @@ import { WorkspaceSessionProvider, useWorkspaceSession } from './WorkspaceSessio
 import { RoleBoundary } from './RoleBoundary.jsx';
 import { ArchivePage } from '../pages/ArchivePage.jsx';
 import { AdviserViewPage } from '../pages/AdviserViewPage.jsx';
+import { AcademicDataPage } from '../pages/AcademicDataPage.jsx';
 import { CommandCenterPage } from '../pages/CommandCenterPage.jsx';
 import { FormEditorPage } from '../pages/FormEditorPage.jsx';
 import { FormsPage } from '../pages/FormsPage.jsx';
@@ -54,6 +55,11 @@ export default function App() {
         <Route path="/tracker" element={(
           <RoleBoundary allow={[APPLICATION_ROLES.ADMIN, APPLICATION_ROLES.ADVISER]}>
             <StaffApplicationShell><TrackerPage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/academic-data" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+            <StaffApplicationShell><AcademicDataPage /></StaffApplicationShell>
           </RoleBoundary>
         )} />
         <Route path="/review" element={(

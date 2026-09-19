@@ -57,6 +57,7 @@ class GeminiAiReviewProviderTest {
             .andExpect(jsonPath("$.contents[0].parts[1].inlineData.mimeType").value("application/pdf"))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("hasOfficialTemplate")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("hasDeliverableInstructions")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("sample project names")))
             .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("DO NOT SEND THIS DUPLICATE TEXT"))))
             .andRespond(withSuccess(validResponse(), MediaType.APPLICATION_JSON));
         var result = provider.review(input());
@@ -64,7 +65,7 @@ class GeminiAiReviewProviderTest {
         assertThat(result.findings().get(0).source()).isEqualTo(AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS);
         assertThat(result.missingRequiredSections()).isEmpty();
         assertThat(result.limitations()).isEmpty();
-        assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v2", "thinking-minimal", "output-2048");
+        assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v3", "thinking-minimal", "output-2048");
         server.verify();
     }
 

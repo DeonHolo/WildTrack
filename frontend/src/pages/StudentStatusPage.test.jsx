@@ -599,9 +599,12 @@ describe('student dashboard', () => {
     expect(dialog).toHaveTextContent('PDF integrityReadable');
     expect(dialog).toHaveTextContent('Readable text6,787 characters');
     expect(dialog).toHaveTextContent('Pages24');
-    expect(dialog).toHaveTextContent('Official template comparison');
-    expect(dialog).toHaveTextContent('Template coverage92%');
+    expect(dialog).toHaveTextContent('Official template structure');
+    expect(dialog).not.toHaveTextContent('Template coverage');
+    expect(dialog).not.toHaveTextContent('Unchanged instructions');
     expect(dialog).toHaveTextContent('Risk management');
+    expect(within(dialog).queryByRole('tab', { name: 'File history' })).not.toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent('Last modified by');
     expect(dialog).toHaveTextContent('It does not grade your work or decide whether it is accepted.');
     expect(within(dialog).queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
     expect(dialog).not.toHaveTextContent('STAFF ONLY AI ANALYSIS');

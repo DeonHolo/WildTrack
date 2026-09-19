@@ -39,7 +39,6 @@ import {
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { AiReviewReport } from '../components/review/AiReviewReport.jsx';
-import { ObservedFileHistory } from '../components/review/ObservedFileHistory.jsx';
 import { StatusIndicator } from '../components/ui.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../hooks/useApplicationRole.js';
 import { getStoredPreviewAdviser, setStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
@@ -134,6 +133,12 @@ export function AdviserViewPage() {
     artifactTargetKey(checkDialogResponse?.id, field) === checkDialogTarget?.targetKey
   )) || null;
   const checkDialogReport = checkDialogField ? artifactDocumentCheck(checkDialogResponse, checkDialogField) : null;
+  const checkDialogFieldKey = checkDialogField?.definitionId || checkDialogField?.id || '';
+  const checkDialogHistory = checkDialogField
+    ? (checkDialogResponse?.observedFileHistoryByField?.[checkDialogFieldKey]
+      || checkDialogResponse?.observedFileHistory
+      || null)
+    : null;
 
   useEffect(() => {
     setBatchProgress(null);
@@ -546,6 +551,7 @@ export function AdviserViewPage() {
           documentCheck: checkDialogReport,
           fileCheckStatus: checkDialogReport.status
         } : checkDialogResponse}
+        observedHistory={checkDialogHistory}
         fileLink={checkDialogField ? checkDialogResponse?.values?.[checkDialogField.id] : ''}
         rechecking={checkDialogField ? checkingIds.has(artifactTargetKey(checkDialogResponse?.id, checkDialogField)) : false}
         error={checkDialogField && feedbackError?.targetKey === artifactTargetKey(checkDialogResponse?.id, checkDialogField) ? feedbackError?.message : ''}
@@ -704,10 +710,6 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck }) {
   const artifactReviewCurrent = aiEnabled && isArtifactAiReviewCurrent(response, field);
   const legacyReviewCurrent = aiEnabled && !field.definitionId && !artifactReview && isAiReportCurrent(response);
   const aiReport = artifactReviewCurrent ? artifactReview?.report : legacyReviewCurrent ? response.aiReport : null;
-  const fieldKey = field.definitionId || field.id;
-  const observedHistory = response.observedFileHistoryByField?.[fieldKey]
-    || response.observedFileHistory
-    || null;
   const aiStatus = legacyReviewCurrent
     ? aiReviewStatus(response)
     : aiEnabled
@@ -752,7 +754,6 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck }) {
               {aiEnabled ? <StatusIndicator status={aiStatus} /> : null}
             </Group>
             <Text size="sm" c="dimmed">{check?.summary || 'No current Document Check is available for this PDF.'}</Text>
-            <ObservedFileHistory history={observedHistory} />
             {aiEnabled ? (
               aiReport ? (
                 <AiReviewReport report={aiReport} />

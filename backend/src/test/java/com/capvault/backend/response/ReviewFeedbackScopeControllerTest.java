@@ -350,7 +350,8 @@ class ReviewFeedbackScopeControllerTest {
         DriveFileMetadata staffMetadata = new DriveFileMetadata(
             "private-editor-file", "srs.pdf", "application/pdf", 1200L, "abc123",
             OffsetDateTime.parse("2026-09-19T01:00:00Z"),
-            "private-editor@example.com", "Private Editor Name", true, sourceUrl);
+            "private-editor@example.com", "Private Editor Name", true, sourceUrl,
+            OffsetDateTime.parse("2026-09-01T00:00:00Z"), "Private Drive Owner");
         fileCheckReportRepository.saveAndFlush(new FileCheckReport(
             workspaceId, request, safeResponse, objectMapper.writeValueAsString(safeResponse), staffMetadata));
 
@@ -361,7 +362,9 @@ class ReviewFeedbackScopeControllerTest {
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(
                 org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("private-editor@example.com"))))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(
-                org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Private Editor Name"))));
+                org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Private Editor Name"))))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(
+                org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Private Drive Owner"))));
 
         String admin = sessionTokenFor("history-admin", "history-admin@school.edu", StaffRole.ADMIN);
         mockMvc.perform(get("/api/monitoring").param("workspaceId", workspaceId.toString())
@@ -370,7 +373,9 @@ class ReviewFeedbackScopeControllerTest {
             .andExpect(jsonPath("$.observedFileHistory['" + response.getId() + "'].observations[0].modifiedBy")
                 .value("private-editor@example.com"))
             .andExpect(jsonPath("$.observedFileHistory['" + response.getId() + "'].observations[0].providerDisplayName")
-                .value("Private Editor Name"));
+                .value("Private Editor Name"))
+            .andExpect(jsonPath("$.observedFileHistory['" + response.getId() + "'].observations[0].driveOwner")
+                .value("Private Drive Owner"));
     }
 
     @Test

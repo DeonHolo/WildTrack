@@ -125,6 +125,27 @@ class ObservedFileHistoryServiceTest {
         assertThat(observation.editorMetadataSource()).isEqualTo("Google Drive File metadata");
     }
 
+    @Test
+    void exposesCreationTimeAndDriveOwnerOnlyFromObservedStaffMetadata() {
+        UUID workspaceId = UUID.randomUUID();
+        String responseId = UUID.randomUUID().toString();
+        FileCheckReportRepository reports = mock(FileCheckReportRepository.class);
+        FileCheckReport report = report(responseId, "pdf",
+            "https://drive.google.com/file/d/creation-file/view", "2026-09-18T10:00:00",
+            metadata("creation-file", "report.pdf", "abc", "2026-09-18T01:00:00Z", null, null),
+            null, null);
+        when(report.getDriveCreatedTime()).thenReturn("2026-09-01T08:00:00Z");
+        when(report.getDriveOwnerDisplay()).thenReturn("Owner from Drive");
+        when(reports.findAllByWorkspaceIdAndExternalResponseIdInOrderByCheckedAtAsc(workspaceId, List.of(responseId)))
+            .thenReturn(List.of(report));
+
+        var observed = new ObservedFileHistoryService(reports, new ObjectMapper().findAndRegisterModules())
+            .forResponses(workspaceId, List.of(responseId)).byField().get(responseId).get("pdf").observations().get(0);
+        assertThat(observed.driveCreatedTime()).isEqualTo(java.time.OffsetDateTime.parse("2026-09-01T08:00:00Z"));
+        assertThat(observed.driveOwner()).isEqualTo("Owner from Drive");
+        assertThat(observed.modifiedBy()).isEqualTo("Unavailable");
+    }
+
     private static FileCheckReport report(
         String responseId,
         String fieldId,

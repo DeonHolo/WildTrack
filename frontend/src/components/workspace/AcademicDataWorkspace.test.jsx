@@ -70,7 +70,6 @@ function renderWorkspace(props = {}) {
 }
 
 async function openStudents() {
-  fireEvent.click(screen.getByRole('button', { name: 'Open grids' }));
   return screen.findByRole('table', { name: 'Students academic data' });
 }
 
@@ -199,5 +198,26 @@ describe('AcademicDataWorkspace', () => {
     expect(within(deliverables).getAllByText('Tracker column')).toHaveLength(2);
     expect(within(deliverables).getByText('Refactored SRS')).toBeInTheDocument();
     expect(within(deliverables).getByText('Refactored SDD')).toBeInTheDocument();
+  });
+
+  it('paginates large academic grids without changing the editable dataset', async () => {
+    const students = Array.from({ length: 55 }, (_, index) => ({
+      ...snapshot().students[0],
+      id: `student-${index + 1}`,
+      studentNumber: `26-${String(index + 1).padStart(4, '0')}`,
+      studentName: `STUDENT, ${index + 1}`,
+      sourceRowNumber: index + 2
+    }));
+    client.loadAcademicData.mockResolvedValueOnce(snapshot({ students }));
+    renderWorkspace();
+
+    const firstPage = await openStudents();
+    expect(within(firstPage).getByRole('textbox', { name: 'Student name for 26-0001' })).toBeInTheDocument();
+    expect(within(firstPage).queryByRole('textbox', { name: 'Student name for 26-0051' })).not.toBeInTheDocument();
+    expect(screen.getByText('1–50 of 55')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '2' }));
+    expect(await screen.findByRole('textbox', { name: 'Student name for 26-0051' })).toBeInTheDocument();
+    expect(screen.getByText('51–55 of 55')).toBeInTheDocument();
   });
 });

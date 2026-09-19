@@ -1,6 +1,7 @@
 package com.capvault.backend.drive;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
@@ -10,7 +11,7 @@ import org.springframework.web.util.UriUtils;
 final class GoogleDriveApiGateway implements GoogleDriveGateway {
 
     private static final String METADATA_FIELDS =
-        "id,name,mimeType,size,md5Checksum,modifiedTime,lastModifyingUser(displayName,emailAddress),capabilities(canDownload),webViewLink";
+        "id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,owners(displayName,emailAddress),lastModifyingUser(displayName,emailAddress),capabilities(canDownload),webViewLink";
 
     private final GoogleDriveProperties properties;
     private final RestClient restClient;
@@ -41,7 +42,9 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
                 response.lastModifyingUser() == null ? null : response.lastModifyingUser().emailAddress(),
                 response.lastModifyingUser() == null ? null : response.lastModifyingUser().displayName(),
                 response.capabilities() != null && response.capabilities().canDownload(),
-                response.webViewLink()
+                response.webViewLink(),
+                parseTime(response.createdTime()),
+                driveOwner(response.owners())
             );
         } catch (RestClientResponseException exception) {
             throw translate(exception);
@@ -109,6 +112,19 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
         return value == null || value.isBlank() ? null : OffsetDateTime.parse(value);
     }
 
+    private static String driveOwner(List<DriveUser> owners) {
+        if (owners == null || owners.isEmpty()) return null;
+        String display = owners.stream()
+            .filter(java.util.Objects::nonNull)
+            .map(owner -> owner.displayName() != null && !owner.displayName().isBlank()
+                ? owner.displayName().trim() : owner.emailAddress())
+            .filter(value -> value != null && !value.isBlank())
+            .distinct()
+            .limit(3)
+            .collect(java.util.stream.Collectors.joining(", "));
+        return display.isBlank() ? null : display;
+    }
+
     private static GoogleDriveUnavailableException translate(RestClientResponseException exception) {
         int status = exception.getStatusCode().value();
         if (status == 403 || status == 404) {
@@ -135,7 +151,9 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
         String mimeType,
         String size,
         String md5Checksum,
+        String createdTime,
         String modifiedTime,
+        List<DriveUser> owners,
         DriveUser lastModifyingUser,
         Capabilities capabilities,
         String webViewLink

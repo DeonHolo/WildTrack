@@ -12,17 +12,17 @@ export function AiReviewReport({ report }) {
   const missingRequiredSections = report.missingRequiredSections || legacyMissingSections(report.missingSections);
 
   return (
-    <Stack gap={3}>
-      <Text size="sm">{report.summary}</Text>
+    <Stack gap="sm" className="wt-ai-review-report">
+      <Text size="md" lh={1.55}>{report.summary}</Text>
       {findings.map((finding, index) => (
-        <Text size="xs" key={`${finding.source || 'legacy'}:${finding.issue}:${index}`}>
+        <Text size="sm" lh={1.55} key={`${finding.source || 'legacy'}:${finding.issue}:${index}`}>
           <strong>{sourceLabel(finding.source)}:</strong> {finding.issue}
           {finding.evidence ? <Text component="span" c="dimmed"> Evidence: {finding.evidence}</Text> : null}
           {finding.requirement ? <Text component="span" c="dimmed"> Authority: {finding.requirement}</Text> : null}
         </Text>
       ))}
       {missingRequiredSections.length ? (
-        <Text size="xs">
+        <Text size="sm" lh={1.55}>
           <strong>Missing required sections:</strong>{' '}
           {missingRequiredSections.map((item) => item.source
             ? `${item.section} (${sourceLabel(item.source)})`
@@ -30,9 +30,9 @@ export function AiReviewReport({ report }) {
         </Text>
       ) : null}
       {report.limitations?.length ? (
-        <Text size="xs" c="dimmed"><strong>Review limits:</strong> {report.limitations.join(' ')}</Text>
+        <Text size="sm" lh={1.55} c="dimmed"><strong>Review limits:</strong> {report.limitations.join(' ')}</Text>
       ) : null}
-      {report.suggestedAction ? <Text size="xs"><strong>Suggested action:</strong> {report.suggestedAction}</Text> : null}
+      {report.suggestedAction ? <Text size="sm" lh={1.55}><strong>Suggested action:</strong> {report.suggestedAction}</Text> : null}
     </Stack>
   );
 }

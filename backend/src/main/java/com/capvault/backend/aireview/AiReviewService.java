@@ -35,11 +35,15 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AiReviewService {
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v2";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v3";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
         official template text are the only authoritative sources for mandatory requirements or required sections.
+        An official template may contain sample project names, sample transaction names, placeholders, examples, or
+        demonstration values. Those are examples to replace, not the requested project's identity or required factual
+        values, unless Deliverable Instructions explicitly say otherwise. Never say a submitted project should be named
+        after a sample project in the template. The requested deliverable title identifies the requested artifact type.
         The submitted PDF is evidence about what was submitted, not a source of new requirements. General domain
         knowledge is not an authoritative requirement source and must never be presented as a required, missing,
         noncompliant, or violated item. A requirement-based finding must quote the exact supplied Instructions or
@@ -139,7 +143,7 @@ public class AiReviewService {
                         if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Administrator access changed.");
                         var raw = provider.review(new AiReviewProvider.Input(key + ":" + claim.job().token(), bytes, inspection.extractedText(),
                             SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template()));
-                        var result = groundAndValidate(raw, context);
+                        var result = groundAndValidate(raw, context, inspection.extractedText());
                         store.complete(claim.job(), json.writeValueAsString(result));
                         assertCurrent(response, target, context, subject);
                     } catch (Exception failure) {
@@ -362,7 +366,7 @@ public class AiReviewService {
         return reason + " Retrying requires confirmation and may use additional AI tokens.";
     }
 
-    private AiReviewProvider.Result groundAndValidate(AiReviewProvider.Result result, Context context) {
+    private AiReviewProvider.Result groundAndValidate(AiReviewProvider.Result result, Context context, String documentText) {
         if (result == null || result.summary() == null || result.summary().isBlank() || result.summary().length() > 20000
                 || result.suggestedAction() == null || result.suggestedAction().length() > 10000
                 || result.findings() == null || result.findings().size() > 50
@@ -373,7 +377,9 @@ public class AiReviewService {
         for (var missing : result.missingRequiredSections()) validateMissingSection(missing, context);
 
         var groundedFindings = List.copyOf(result.findings());
-        var groundedMissing = List.copyOf(result.missingRequiredSections());
+        var groundedMissing = result.missingRequiredSections().stream()
+            .filter(missing -> !documentContainsBodySection(documentText, missing.section()))
+            .toList();
         var groundedLimitations = limitations(context);
         return new AiReviewProvider.Result(groundedSummary(groundedFindings, groundedMissing, groundedLimitations),
             groundedFindings, groundedMissing, groundedLimitations,
@@ -469,6 +475,26 @@ public class AiReviewService {
         String source = normalizeAuthorityText(authority);
         String expected = normalizeAuthorityText(excerpt);
         return !source.isBlank() && !expected.isBlank() && source.contains(expected);
+    }
+
+    private static boolean documentContainsBodySection(String documentText, String section) {
+        String expected = canonicalSectionTitle(section);
+        if (expected.isBlank()) return false;
+        return Objects.requireNonNullElse(documentText, "").lines()
+            .map(String::trim)
+            .filter(line -> !line.matches("^.+\\.{2,}.+\\d+\\s*$"))
+            .map(AiReviewService::canonicalSectionTitle)
+            .anyMatch(expected::equals);
+    }
+
+    private static String canonicalSectionTitle(String value) {
+        String stripped = Objects.requireNonNullElse(value, "").trim()
+            .replaceFirst(
+                "^(?:\\d+(?:\\.(?:\\d+|[A-Za-z]))*|[A-Z](?:\\.\\d+)*|[IVXLC]+)[.)]?\\s+",
+                ""
+            )
+            .replaceFirst("^[^\\p{L}\\p{N}]+", "");
+        return normalizeAuthorityText(stripped);
     }
 
     private static String normalizeAuthorityText(String value) {

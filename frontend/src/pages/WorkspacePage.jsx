@@ -36,7 +36,6 @@ import {
   publishSuggestedForms
 } from '../lib/workspaceAdminClient.js';
 import { StaffManagementPanel } from '../components/workspace/StaffManagementPanel.jsx';
-import { AcademicDataWorkspace } from '../components/workspace/AcademicDataWorkspace.jsx';
 
 const SOURCE_CONFIG = [
   {
@@ -549,8 +548,6 @@ export function WorkspacePage() {
           <span><strong>{state.templates.length}</strong> templates</span>
         </div>
       </section>
-
-      <AcademicDataWorkspace workspaceId={activeWorkspaceId} onSaved={reload} />
 
       <section className="panel wt-source-section">
         <div className="panel-header">

@@ -299,9 +299,11 @@ describe('adviser My advised teams review', () => {
     expect(screen.queryByRole('button', { name: /Run AI Review|Rerun AI Review/i })).not.toBeInTheDocument();
   });
 
-  it('shows WildTrack-observed file history and its Drive history limitation to advisers', () => {
+  it('shows staff-only modifier metadata and WildTrack history inside Document Check', async () => {
     workflow.state = createState();
     const response = workflow.state.attempts.find((item) => item.id === 'response-a2');
+    response.documentCheck.checkedAt = '2026-04-17T10:45:00+08:00';
+    response.documentCheck.sourceUrl = response.values.documentPdf;
     response.observedFileHistory = {
       sourceLabel: 'WildTrack Document Check observation',
       coverageMessage: 'This history contains only file states WildTrack observed when Document Check ran.',
@@ -311,6 +313,8 @@ describe('adviser My advised teams review', () => {
         firstObservedAt: '2026-04-17T10:45:00+08:00',
         lastObservedAt: '2026-04-17T10:45:00+08:00',
         driveModifiedTime: '2026-04-17T10:40:00+08:00',
+        driveCreatedTime: '2026-04-01T08:00:00+08:00',
+        driveOwner: 'Original Drive Owner',
         contentIdentifier: 'md5:changed123',
         modifiedBy: 'editor@example.com',
         editorMetadataSource: 'Google Drive File metadata'
@@ -318,6 +322,12 @@ describe('adviser My advised teams review', () => {
     };
     renderPage();
 
+    fireEvent.click(screen.getByRole('button', { name: 'View Document Check' }));
+    const dialog = await screen.findByRole('dialog', { name: /Document Check/i });
+    expect(dialog).toHaveTextContent('Last modified byeditor@example.com');
+    expect(dialog).toHaveTextContent('Created time');
+    expect(dialog).toHaveTextContent('Drive ownerOriginal Drive Owner');
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'File history' }));
     expect(screen.getByText('WildTrack observed file history')).toBeInTheDocument();
     expect(screen.getByText(/only file states WildTrack observed/i)).toBeInTheDocument();
     expect(screen.getByText(/Older Google Drive revision history is unavailable/i)).toBeInTheDocument();

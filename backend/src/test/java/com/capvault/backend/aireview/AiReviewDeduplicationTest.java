@@ -238,6 +238,29 @@ class AiReviewDeduplicationTest {
             .containsExactly("Project Scope");
     }
 
+    @Test void providerMissingSectionClaimIsRemovedWhenTheSubmittedBodyContainsThatSection() {
+        deliverable.setInstructions("Include a 2.4 Constraints section.");
+        when(pdf.inspect(any())).thenReturn(new PdfInspection(true, false, 4, 500, """
+            1. Introduction
+            Project context.
+            2.4. Constraints
+            The system requires internet access and role-based authentication.
+            """, ""));
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result(
+            "The Constraints section is missing.", List.of(),
+            List.of(new AiReviewProvider.MissingRequiredSection("2.4 Constraints",
+                AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS,
+                "Include a 2.4 Constraints section.")),
+            List.of(), "Add the Constraints section."));
+
+        var completed = run(first);
+
+        assertThat(completed.status()).isEqualTo("COMPLETED");
+        assertThat(completed.report().missingRequiredSections()).isEmpty();
+        assertThat(completed.report().summary()).doesNotContain("Constraints section is missing");
+        assertThat(completed.report().suggestedAction()).doesNotContain("Add the Constraints section");
+    }
+
     @Test void twoPdfArtifactsInOneResponseKeepIndependentSavedLinksAndReviews() {
         var framework = new DeliverableField("framework-field", deliverableId, "frameworkModel", "Framework / Model",
             DeliverableFieldType.DRIVE_PDF, true, 0, DocumentCheckPolicy.MANUAL, true, true);

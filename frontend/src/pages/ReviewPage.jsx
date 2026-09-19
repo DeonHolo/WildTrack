@@ -148,6 +148,12 @@ export function ReviewPage() {
     ? (checkDialogResponse?.artifactChecks?.[checkDialogField.definitionId]
       || (!checkDialogField.definitionId ? checkDialogResponse?.documentCheck : null))
     : null;
+  const checkDialogFieldKey = checkDialogField?.definitionId || checkDialogField?.id || '';
+  const checkDialogHistory = checkDialogField
+    ? (checkDialogResponse?.observedFileHistoryByField?.[checkDialogFieldKey]
+      || checkDialogResponse?.observedFileHistory
+      || null)
+    : null;
   const aiReportDialogResponse = state.attempts.find((response) => response.id === aiReportDialogTarget?.responseId) || null;
   const aiReportDialogDeliverable = aiReportDialogResponse
     ? state.deliverables.find((item) => item.id === aiReportDialogResponse.deliverableId) || null
@@ -664,6 +670,7 @@ export function ReviewPage() {
       <DocumentCheckDialog
         open={Boolean(checkDialogResponse)}
         response={checkDialogResponse && checkDialogReport ? { ...checkDialogResponse, documentCheck: checkDialogReport, fileCheckStatus: checkDialogReport.status } : checkDialogResponse}
+        observedHistory={checkDialogHistory}
         fileLink={checkDialogField ? checkDialogResponse?.values?.[checkDialogField.id] : ''}
         rechecking={checkDialogField ? checkingIds.has(artifactTargetKey(checkDialogResponse?.id, checkDialogField)) : false}
         error={checkDialogField && checkError?.targetKey === artifactTargetKey(checkDialogResponse?.id, checkDialogField) ? checkError?.message : ''}

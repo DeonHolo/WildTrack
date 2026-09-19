@@ -21,6 +21,7 @@ import {
   Archive,
   ClipboardText,
   Gauge,
+  GridFour,
   GoogleLogo,
   ListChecks,
   SignOut,
@@ -53,6 +54,7 @@ const ADMIN_GROUPS = [
     label: 'Records',
     items: [
       { to: '/tracker', label: 'Tracker', icon: Table },
+      { to: '/academic-data', label: 'Academic data', icon: GridFour },
       { to: '/archive', label: 'Archive', icon: Archive }
     ]
   },

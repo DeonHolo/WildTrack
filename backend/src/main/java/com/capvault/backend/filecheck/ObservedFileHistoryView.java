@@ -25,7 +25,9 @@ public record ObservedFileHistoryView(
         boolean editorMetadataAvailable,
         String fileId,
         String fileName,
-        String sourceUrl
+        String sourceUrl,
+        OffsetDateTime driveCreatedTime,
+        String driveOwner
     ) {
     }
 }

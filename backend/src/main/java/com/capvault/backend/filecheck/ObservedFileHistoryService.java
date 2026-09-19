@@ -124,20 +124,24 @@ public class ObservedFileHistoryService {
     private ParsedMetadata metadata(FileCheckReport report) {
         String editorEmail = normalize(report.getDriveLastModifyingUserEmail());
         String editorDisplayName = normalize(report.getDriveLastModifyingUserDisplayName());
+        OffsetDateTime createdTime = parseOffsetDateTime(report.getDriveCreatedTime());
+        String driveOwner = normalize(report.getDriveOwnerDisplay());
         try {
             JsonNode root = objectMapper.readTree(report.getReportJson());
             JsonNode metadata = root == null ? null : root.get("metadata");
-            if (metadata == null || metadata.isNull()) return ParsedMetadata.editorOnly(editorEmail, editorDisplayName);
+            if (metadata == null || metadata.isNull()) return ParsedMetadata.staffOnly(editorEmail, editorDisplayName, createdTime, driveOwner);
             return new ParsedMetadata(
                 text(metadata.get("fileId")),
                 text(metadata.get("name")),
                 text(metadata.get("md5Checksum")),
                 offsetDateTime(metadata.get("modifiedTime")),
                 editorEmail,
-                editorDisplayName
+                editorDisplayName,
+                createdTime,
+                driveOwner
             );
         } catch (Exception ignored) {
-            return ParsedMetadata.editorOnly(editorEmail, editorDisplayName);
+            return ParsedMetadata.staffOnly(editorEmail, editorDisplayName, createdTime, driveOwner);
         }
     }
 
@@ -153,7 +157,9 @@ public class ObservedFileHistoryService {
             String.valueOf(normalize(metadata.fileName())),
             String.valueOf(normalize(metadata.modifiedTime())),
             String.valueOf(normalize(metadata.editorEmail())),
-            String.valueOf(normalize(metadata.editorDisplayName())));
+            String.valueOf(normalize(metadata.editorDisplayName())),
+            String.valueOf(normalize(metadata.createdTime())),
+            String.valueOf(normalize(metadata.driveOwner())));
     }
 
     private static String normalize(Object value) {
@@ -172,7 +178,10 @@ public class ObservedFileHistoryService {
     }
 
     private static OffsetDateTime offsetDateTime(JsonNode node) {
-        String value = text(node);
+        return parseOffsetDateTime(text(node));
+    }
+
+    private static OffsetDateTime parseOffsetDateTime(String value) {
         if (value == null || value.isBlank()) return null;
         try { return OffsetDateTime.parse(value); }
         catch (Exception ignored) { return null; }
@@ -184,10 +193,13 @@ public class ObservedFileHistoryService {
         String md5Checksum,
         OffsetDateTime modifiedTime,
         String editorEmail,
-        String editorDisplayName
+        String editorDisplayName,
+        OffsetDateTime createdTime,
+        String driveOwner
     ) {
-        private static ParsedMetadata editorOnly(String email, String displayName) {
-            return new ParsedMetadata(null, null, null, null, email, displayName);
+        private static ParsedMetadata staffOnly(String email, String displayName,
+                OffsetDateTime createdTime, String driveOwner) {
+            return new ParsedMetadata(null, null, null, null, email, displayName, createdTime, driveOwner);
         }
     }
 
@@ -203,6 +215,8 @@ public class ObservedFileHistoryService {
         private String providerDisplayName;
         private String fileId;
         private String fileName;
+        private OffsetDateTime driveCreatedTime;
+        private String driveOwner;
         private final String sourceUrl;
 
         private MutableObservation(
@@ -234,6 +248,8 @@ public class ObservedFileHistoryService {
             if (this.modifiedBy == null) this.modifiedBy = "Unavailable";
             if (normalize(metadata.fileId()) != null) this.fileId = metadata.fileId();
             if (normalize(metadata.fileName()) != null) this.fileName = metadata.fileName();
+            if (metadata.createdTime() != null) this.driveCreatedTime = metadata.createdTime();
+            this.driveOwner = metadata.driveOwner();
         }
 
         private ObservedFileHistoryView.Observation toView() {
@@ -252,7 +268,9 @@ public class ObservedFileHistoryService {
                 (modifiedByEmail != null && !modifiedByEmail.isBlank()) || (providerDisplayName != null && !providerDisplayName.isBlank()),
                 fileId,
                 fileName,
-                sourceUrl
+                sourceUrl,
+                driveCreatedTime,
+                driveOwner
             );
         }
     }
