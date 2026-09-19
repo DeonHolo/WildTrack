@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
@@ -38,8 +39,11 @@ public class TemplateComparator {
         int unchangedInstructions = (int) templateLines.stream()
             .filter(line -> normalizedSubmission.contains(normalize(line)))
             .count();
+        Set<String> submittedHeadings = headingCandidates(submittedText).stream()
+            .map(TemplateComparator::normalize)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
         List<String> missingHeadings = headingCandidates(templateText).stream()
-            .filter(heading -> !normalizedSubmission.contains(normalize(heading)))
+            .filter(heading -> !submittedHeadings.contains(normalize(heading)))
             .limit(8)
             .toList();
         boolean templateOnly = coverage >= properties.templateCoverageThreshold()
@@ -88,6 +92,7 @@ public class TemplateComparator {
     private static boolean isDocumentBoilerplate(String value) {
         String normalized = normalize(value);
         return normalized.startsWith("cebu institute of technology")
+            || normalized.equals("university")
             || normalized.startsWith("college of computer studies")
             || normalized.startsWith("department of ")
             || normalized.equals("software requirements specification")

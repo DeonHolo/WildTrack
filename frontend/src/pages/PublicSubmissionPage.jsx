@@ -34,7 +34,6 @@ import {
 import {
   clearSubmissionDraft,
   commitSubmission,
-  confirmSubmissionAssociation,
   describeSubmissionError,
   loadSubmissionState,
   openPublicSubmission,
@@ -409,12 +408,8 @@ export function PublicSubmissionPage() {
     }
     setSubmitting(true);
     try {
-      if (serverAssociation?.studentNumber !== identity.studentNumber) {
-        const association = await confirmSubmissionAssociation(activeWorkspaceId, identity.studentNumber);
-        if (submittingScope !== privateScope.current) return;
-        setServerAssociation(association || null);
-      }
-      const saved = await commitSubmission(activeWorkspaceId, deliverable.id, submittedValues, myServerResponse?.revision ?? null);
+      const saved = await commitSubmission(
+        activeWorkspaceId, deliverable.id, submittedValues, myServerResponse?.revision ?? null, identity.studentNumber);
       if (submittingScope !== privateScope.current) return;
       if (saved.conflict) {
         setFormError('A newer version was saved from another session. Reload the form to continue editing.');

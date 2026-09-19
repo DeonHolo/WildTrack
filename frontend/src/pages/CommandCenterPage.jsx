@@ -1,4 +1,4 @@
-import { IdentityConflictDesk } from '../components/command/IdentityConflictDesk.jsx';
+import { StudentAccountManagement } from '../components/command/StudentAccountManagement.jsx';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -20,7 +20,7 @@ import { WorkQueueTable } from '../components/command/WorkQueueTable.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { archiveAttempts as archiveServerAttempts } from '../lib/archiveClient.js';
-import { decideIdentityConflict, getIdentityConflicts } from '../lib/api.js';
+import { getIdentityConflicts } from '../lib/api.js';
 import { emptyMonitoringState, loadMonitoringState } from '../lib/monitoringClient.js';
 import {
   applyDocumentCheck,
@@ -58,7 +58,7 @@ export function CommandCenterPage() {
     activeWorkspaceId,
     loadWorkQueue,
     emptyWorkQueue, 'work-queue');
-  const [conflictDesk, setConflictDesk] = useState(null);
+  const [accountManagementOpen, setAccountManagementOpen] = useState(false);
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -71,7 +71,7 @@ export function CommandCenterPage() {
   const isCurrentScope = useWorkspaceScope(workspaceId);
 
   useEffect(() => {
-    setConflictDesk(null);
+    setAccountManagementOpen(false);
     setRunningIds(new Set());
     setResolvedTaskIds(new Set());
     setBatchProgress(null);
@@ -270,7 +270,7 @@ export function CommandCenterPage() {
           <Title order={1}>Today&apos;s work</Title>
           <Text c="dimmed">Resolve unchecked files, review decisions, conflicts, imports, and final records for this workspace.</Text>
         </div>
-        <Button variant="default" onClick={() => setConflictDesk({ history: true })}>Identity history</Button>
+        <Button variant="default" onClick={() => setAccountManagementOpen(true)}>Account management</Button>
         {pendingDocumentTasks.length ? (
           <Button
             variant="default"
@@ -283,8 +283,8 @@ export function CommandCenterPage() {
         ) : null}
       </header>
 
-      {conflictDesk ? <IdentityConflictDesk workspaceId={workspaceId} {...conflictDesk} onClose={() => setConflictDesk(null)}
-        onDecided={updated => setState(current => ({ ...current, openConflicts: (current.openConflicts || []).filter(item => item.id !== updated.id) }))} /> : null}
+      <StudentAccountManagement workspaceId={workspaceId} opened={accountManagementOpen}
+        onClose={() => setAccountManagementOpen(false)} onChanged={reload} />
       <ResourceBoundary status={status} error={error} onRetry={reload}>
       <Paper withBorder className="wt-command-workbench">
         <div className="wt-command-workbench-head">
@@ -357,7 +357,7 @@ export function CommandCenterPage() {
               runningIds={runningIds}
               onCheck={checkDocument}
               onArchive={confirmArchive}
-              onDecideConflict={task => setConflictDesk({ conflict: task.conflict })}
+              onDecideConflict={() => setAccountManagementOpen(true)}
             />
             {visibleTasks.length > PAGE_SIZE ? (
               <div className="wt-command-pagination">
@@ -395,10 +395,10 @@ function buildWorkQueue(state, openConflicts = []) {
       id: 'conflict:' + conflict.id,
       category: 'identity',
       type: 'Identity conflict',
-      title: (conflict.studentName || 'Unnamed student') + ' has two Google accounts claiming one Student Record',
+      title: (conflict.studentName || 'Unnamed student') + ' has unresolved Google account claims',
       detail: 'Student Record ' + label + ' | '
         + identityLabel(conflict.existingIdentity) + ' vs ' + identityLabel(conflict.conflictingIdentity)
-        + '. Resolve keeps the record under staff review; Dismiss closes it as harmless.',
+        + '. Review the recorded accounts before choosing any recovery action.',
       studentName: conflict.studentName || '',
       teamCode: conflict.teamCode || 'Unmatched team',
       deliverableCode: 'Student identity',

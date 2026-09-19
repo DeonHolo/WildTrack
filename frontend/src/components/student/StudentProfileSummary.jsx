@@ -19,14 +19,12 @@ export function StudentProfileSummary({ account, student, project, adviserLabel,
             <Text size="sm" c="dimmed">{account.email}</Text>
           </Stack>
         </Group>
-        <Button
+        {onDisconnect ? <Button
           variant="subtle"
           color="wildtrackMaroon"
           leftSection={<LinkBreak size={17} />}
           onClick={onDisconnect}
-        >
-          Disconnect record
-        </Button>
+        >Disconnect record</Button> : null}
       </Group>
 
       <SimpleGrid component="dl" className="wt-student-profile-facts" cols={{ base: 2, sm: 4 }} spacing={0} mt="lg">

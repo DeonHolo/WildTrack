@@ -46,6 +46,14 @@ class StudentAssociationServiceTest {
     }
 
     @Test
+    void previewingAStudentNumberDoesNotReserveTheRecord() {
+        var preview = service.previewAssociation(workspaceId, "preview-subject", "preview@gmail.com", "20-0649-750");
+
+        assertThat(preview.studentNumber()).isEqualTo("20-0649-750");
+        assertThat(service.activeAssociation(workspaceId, "preview-subject")).isEmpty();
+    }
+
+    @Test
     void confirmCreatesSelfDeclaredAssociation() {
         var view = service.confirmAssociation(workspaceId, "sub-A", "a@gmail.com", "20-0649-750");
 
@@ -72,15 +80,20 @@ class StudentAssociationServiceTest {
     }
 
     @Test
-    void duplicateIdentityOnSameRecordRecordsConflictButStillAssociates() {
+    void duplicateLegacyClaimsRemainUnresolvedWithoutSelectingAWinner() {
         service.confirmAssociation(workspaceId, "sub-A", "a@gmail.com", "20-0649-750");
         var second = service.confirmAssociation(workspaceId, "sub-B", "b@gmail.com", "20-0649-750");
 
         assertThat(second.studentNumber()).isEqualTo("20-0649-750");
         assertThat(conflictRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(workspaceId)).hasSize(1);
-        // both identities hold active associations independently
-        assertThat(service.activeAssociation(workspaceId, "sub-A")).isPresent();
-        assertThat(service.activeAssociation(workspaceId, "sub-B")).isPresent();
+        assertThat(service.activeAssociation(workspaceId, "sub-A")).isEmpty();
+        assertThat(service.activeAssociation(workspaceId, "sub-B")).isEmpty();
+        var account = service.accountManagement(workspaceId).accounts().stream()
+            .filter(item -> item.studentNumber().equals("20-0649-750")).findFirst().orElseThrow();
+        assertThat(account.status()).isEqualTo("CONFLICT");
+        assertThat(account.googleSubject()).isNull();
+        assertThat(account.candidates()).extracting(StudentAssociationService.AccountCandidate::googleSubject)
+            .containsExactlyInAnyOrder("sub-A", "sub-B");
     }
 
     @Test

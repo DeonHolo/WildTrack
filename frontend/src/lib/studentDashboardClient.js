@@ -20,7 +20,7 @@ export async function loadStudentDashboard(workspaceId) {
   const dashboard = await getStudentDashboard(workspaceId);
   const deliverables = mapDeliverables(dashboard.deliverables || []);
   const attempts = (dashboard.responses || []).map((raw) => {
-    const response = mapResponse(raw);
+    const response = mapResponse(raw, dashboard.responseTimings?.[raw.id] || null);
     if (!raw.owned) return response;
     return applyReviewState(
       applyFieldChecks(applyFileCheck(response, dashboard.fileChecks?.[raw.id]), dashboard.fileChecksByField?.[raw.id]),

@@ -13,6 +13,9 @@ it('maps one server-composed snapshot, with private review data only for owned r
       { id: 'mine', owned: true, updatedAt, valuesJson: '{"link":"private"}' },
       { id: 'team', owned: false, valuesJson: '' }
     ],
+    responseTimings: {
+      mine: { effectiveSubmittedAt: updatedAt, effectiveReason: 'Material artifact save', daysLate: 1, late: true }
+    },
     reviewStates: {
       mine: { feedback: [{ note: 'Visible feedback' }], acceptance: { sourceResponseUpdatedAt: updatedAt } },
       team: { feedback: [{ note: 'Not owned' }] }
@@ -22,6 +25,7 @@ it('maps one server-composed snapshot, with private review data only for owned r
   const result = await loadStudentDashboard('workspace');
   expect(getStudentDashboard).toHaveBeenCalledExactlyOnceWith('workspace');
   expect(result.attempts[0]).toMatchObject({ values: { link: 'private' }, primaryStatus: 'Accepted', documentCheck: { reportId: 'report' } });
+  expect(result.attempts[0].timing).toMatchObject({ effectiveReason: 'Material artifact save', daysLate: 1 });
   expect(result.attempts[1]).toMatchObject({ values: {}, feedback: [], acceptance: null });
 });
 

@@ -32,6 +32,9 @@ import {
   makeDriveViewUrl
 } from '../../lib/workflow.js';
 import { StatusIndicator } from '../ui.jsx';
+import { ResponseTimingSummary } from '../ResponseTimingSummary.jsx';
+import { submissionArtifactFields } from '../../lib/submissionArtifacts.js';
+import { ObservedFileHistory } from './ObservedFileHistory.jsx';
 
 export function ReviewResponseDrawer({
   opened,
@@ -55,7 +58,7 @@ export function ReviewResponseDrawer({
     .some((value) => String(value || '').trim());
   const accepted = response.reviewStatus === 'Accepted';
   const archived = response.archiveStatus === 'Archived';
-  const fields = deliverable.fields || [];
+  const fields = submissionArtifactFields(deliverable.fields || []);
 
   return (
     <Drawer
@@ -76,6 +79,7 @@ export function ReviewResponseDrawer({
               <Title order={2} size="h3">{student.name}</Title>
               <Text size="sm" c="dimmed" className="wt-tabular">{student.studentNumber} | {student.teamCode || response.teamCode}</Text>
               <Text size="xs" c="dimmed" mt={4}>Saved {formatDateTime(response.updatedAt || response.submittedAt)}</Text>
+              <ResponseTimingSummary timing={response.timing} />
             </div>
             <StatusIndicator status={archived ? 'Archived' : response.reviewStatus || 'Received'} />
           </Group>
@@ -89,7 +93,7 @@ export function ReviewResponseDrawer({
               <Text component="h3" id="submission-artifacts-heading" fw={750}>Submission artifacts</Text>
               <Text size="xs" c="dimmed">Only PDF artifacts configured for review are sent through Document Check or AI Review.</Text>
             </div>
-            {fields.map((field) => (
+            {fields.length ? fields.map((field) => (
               <ArtifactCard
                 key={field.definitionId || field.id}
                 response={response}
@@ -99,7 +103,7 @@ export function ReviewResponseDrawer({
                 onViewAiReview={() => onViewAiReview?.(field)}
                 onAiReview={() => onAiReview?.(field)}
               />
-            ))}
+            )) : <Text size="sm" c="dimmed">No file or link artifacts were submitted for this response.</Text>}
           </Stack>
         </section>
 
@@ -148,6 +152,10 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onViewAiRevi
   const aiStatus = artifactAiReviewStatus(response, field);
   const aiReport = aiCurrent ? aiState?.report : null;
   const missingPreview = compactMissingSections(report?.missingSections, 4);
+  const fieldKey = field.definitionId || field.id;
+  const observedHistory = response.observedFileHistoryByField?.[fieldKey]
+    || response.observedFileHistory
+    || null;
 
   return (
     <Paper withBorder p="md" radius="md">
@@ -195,6 +203,7 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onViewAiRevi
                 {missingPreview ? <Text size="xs" c="dimmed">Template headings not detected: {missingPreview}</Text> : null}
               </Stack>
             ) : <Text size="xs" c="dimmed">No Document Check result is available for this PDF yet.</Text>}
+            <ObservedFileHistory history={observedHistory} />
             {field.aiReviewEnabled ? (
               <Stack gap={3}>
                 <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={aiStatus} /></Group>

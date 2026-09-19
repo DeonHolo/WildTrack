@@ -3,6 +3,7 @@ package com.capvault.backend.filecheck;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+import com.capvault.backend.drive.DriveFileMetadata;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -49,6 +50,12 @@ public class FileCheckReport {
     @Column(name = "report_json", nullable = false, columnDefinition = "TEXT")
     private String reportJson;
 
+    @Column(name = "drive_last_modifying_user_email", length = 320)
+    private String driveLastModifyingUserEmail;
+
+    @Column(name = "drive_last_modifying_user_display_name", length = 500)
+    private String driveLastModifyingUserDisplayName;
+
     @Column(name = "checked_at", nullable = false)
     private LocalDateTime checkedAt;
 
@@ -61,6 +68,16 @@ public class FileCheckReport {
         FileCheckResponse response,
         String reportJson
     ) {
+        this(workspaceId, request, response, reportJson, null);
+    }
+
+    public FileCheckReport(
+        UUID workspaceId,
+        FileCheckRequest request,
+        FileCheckResponse response,
+        String reportJson,
+        DriveFileMetadata observedMetadata
+    ) {
         this.workspaceId = workspaceId;
         this.externalResponseId = request.responseId();
         this.fieldId = request.fieldId();
@@ -72,6 +89,8 @@ public class FileCheckReport {
         this.attentionRequired = response.attentionRequired();
         this.primaryFlag = response.flags().isEmpty() ? null : response.flags().get(0);
         this.reportJson = reportJson;
+        this.driveLastModifyingUserEmail = observedMetadata == null ? null : observedMetadata.lastModifyingUserEmail();
+        this.driveLastModifyingUserDisplayName = observedMetadata == null ? null : observedMetadata.lastModifyingUserDisplayName();
         this.checkedAt = response.checkedAt();
     }
 
@@ -104,6 +123,9 @@ public class FileCheckReport {
     public String getReportJson() {
         return reportJson;
     }
+
+    public String getDriveLastModifyingUserEmail() { return driveLastModifyingUserEmail; }
+    public String getDriveLastModifyingUserDisplayName() { return driveLastModifyingUserDisplayName; }
 
     public LocalDateTime getCheckedAt() {
         return checkedAt;

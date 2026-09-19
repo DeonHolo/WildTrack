@@ -91,6 +91,10 @@ class ProductionSecurityBoundaryTest {
             .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/sheets/import/TEAM_FORMATION").with(session()))
             .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/sheets/preview/TEAM_FORMATION").with(session()))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/sheets/apply/TEAM_FORMATION").with(session()))
+            .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/deliverables").with(session()))
             .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/deliverables/unpublish-all").with(session()))

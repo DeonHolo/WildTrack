@@ -1,9 +1,11 @@
 import {
   createTrackerColumn,
+  applySheetImportPreview,
   getStaffMonitoring,
   getTemplates,
   getWorkspaceSources,
   importSheetSource,
+  previewSheetImportSource,
   updateTrackerColumn as updateBackendTrackerColumn
 } from './api.js';
 import {
@@ -92,6 +94,48 @@ function sameInstant(first, second) {
 
 export async function importWorkspaceSheet(workspaceId, sourceType, payload) {
   const imported = await importSheetSource(sourceType, payload, workspaceId);
+  const state = await loadWorkspaceAdmin(workspaceId);
+  const suggestions = (imported.deadlineSuggestions || []).map((item) => ({
+    trackerColumn: item.trackerColumnKey,
+    shortTitle: item.trackerColumnKey,
+    title: item.title,
+    dueAt: item.dueAt,
+    pdfRequired: item.pdfRequired,
+    sourceValue: item.sourceValue,
+    sourceRowNumber: item.sourceRowNumber
+  }));
+  const label = sourceType === 'teamFormation' ? 'Team Formation' : sourceType === 'projectMonitor' ? 'Software Project Monitor' : 'Tracker';
+  const details = imported.details || {};
+  state.classRecord.importSummary = {
+    sourceType: label,
+    resultStatus: (imported.warnings || []).length ? 'Imported with warnings' : 'Imported',
+    studentsFound: imported.studentsFound,
+    officialIdsFound: imported.officialIdsFound,
+    groupsFound: imported.groupsFound,
+    columnsFound: imported.columnsFound,
+    metrics: details.metrics || {},
+    detectedFields: details.detectedFields || [],
+    missingFields: details.missingFields || [],
+    deadlineRows: details.deadlineRows || [],
+    suggestedForms: suggestions,
+    warnings: imported.warnings || []
+  };
+  state.classRecord.pendingFormSuggestions = suggestions;
+  return { ok: true, state, importSummary: state.classRecord.importSummary, suggestedForms: suggestions };
+}
+
+export async function previewWorkspaceSheet(workspaceId, sourceType, payload) {
+  const preview = await previewSheetImportSource(sourceType, payload, workspaceId);
+  const label = sourceType === 'teamFormation' ? 'Team Formation' : sourceType === 'projectMonitor' ? 'Software Project Monitor' : 'Tracker';
+  return {
+    ...preview,
+    sourceKey: sourceType,
+    sourceLabel: label
+  };
+}
+
+export async function applyWorkspaceSheetPreview(workspaceId, sourceType, previewId, resolutions) {
+  const imported = await applySheetImportPreview(sourceType, previewId, resolutions, workspaceId);
   const state = await loadWorkspaceAdmin(workspaceId);
   const suggestions = (imported.deadlineSuggestions || []).map((item) => ({
     trackerColumn: item.trackerColumnKey,

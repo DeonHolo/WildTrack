@@ -146,6 +146,11 @@ function createMultiArtifactState() {
   deliverable.shortTitle = 'MVP Validation';
   deliverable.trackerColumn = 'MVPValidation';
   deliverable.fields = [
+    { definitionId: 'field-student-number', id: 'studentNumber', label: 'Student Number', type: 'academicStudentNumber', pdfRequired: false, documentCheckPolicy: 'OFF' },
+    { definitionId: 'field-student-name', id: 'studentName', label: 'Student Name', type: 'academicStudentName', pdfRequired: false, documentCheckPolicy: 'OFF' },
+    { definitionId: 'field-team-code', id: 'teamCode', label: 'Team Code', type: 'academicTeamCode', pdfRequired: false, documentCheckPolicy: 'OFF' },
+    { definitionId: 'field-section', id: 'section', label: 'Section', type: 'academicSection', pdfRequired: false, documentCheckPolicy: 'OFF' },
+    { definitionId: 'field-validation-step', id: 'validationStep', label: 'Validation step', type: 'multipleChoice', pdfRequired: false, documentCheckPolicy: 'OFF' },
     { definitionId: 'field-form', id: 'validationInstrument', label: 'Validation Instrument', type: 'googleForm', pdfRequired: false, documentCheckPolicy: 'OFF' },
     { definitionId: 'field-framework', id: 'frameworkModel', label: 'Framework / Model', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO' },
     { definitionId: 'field-sheet', id: 'validationResponseSheet', label: 'Validation Response Sheet', type: 'googleSheet', pdfRequired: false, documentCheckPolicy: 'OFF' },
@@ -156,6 +161,11 @@ function createMultiArtifactState() {
     if (response.deliverableId !== 'deliv-srs') return response;
     if (response.id !== 'owned-srs') return { ...response, deliverableId: 'deliv-mvp-validation' };
     const values = {
+      studentNumber: '22-1001-001',
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
+      teamCode: '2526-sem2-it332-41',
+      section: 'G7',
+      validationStep: 'Initial submission',
       validationInstrument: 'https://docs.google.com/forms/d/e/student-validation/viewform',
       frameworkModel: 'https://drive.google.com/file/d/student-framework/view',
       validationResponseSheet: 'https://docs.google.com/spreadsheets/d/student-validation-sheet/edit',
@@ -355,7 +365,7 @@ describe('student dashboard', () => {
     expect(screen.queryByRole('combobox', { name: /Student Number/i })).not.toBeInTheDocument();
   });
 
-  it('lets a signed-in student connect one class-record identity with confirmation', async () => {
+  it('leaves an unbound account unclaimed until a published form is successfully submitted', async () => {
     const { confirmStudentAssociation } = await import('../lib/api.js');
     workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
@@ -366,20 +376,11 @@ describe('student dashboard', () => {
     }];
     renderDashboard();
 
-    expect(screen.queryByText(/class-record entries available/i)).not.toBeInTheDocument();
-
-    const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
-    fireEvent.focus(studentNumber);
-    fireEvent.change(studentNumber, { target: { value: '22-1001' } });
-    fireEvent.click(screen.getByRole('option', { name: /22-1001-001/i }));
-
-    expect(screen.getByLabelText('Selected student record')).toHaveTextContent('DELA CRUZ, JUAN CARLOS M.');
-    fireEvent.click(screen.getByRole('button', { name: 'Connect student record' }));
-
-    const dialog = await screen.findByRole('dialog', { name: 'Connect this student record?' });
-    expect(dialog).toHaveTextContent('juan.student@gmail.com');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
-    await waitFor(() => expect(confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1001-001'));
+    expect(screen.getByRole('heading', { name: 'Submit your first form' })).toBeInTheDocument();
+    expect(screen.getByText(/only when your first valid submission is successfully saved/i)).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /Student Number/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open SRS' })).toHaveAttribute('href', '/w/workspace-it/submit/week-9-srs');
+    expect(confirmStudentAssociation).not.toHaveBeenCalled();
   });
 
   it('shows team submission progress in the context of each deliverable', () => {
@@ -469,12 +470,25 @@ describe('student dashboard', () => {
     });
   });
 
-  it('shows every submitted artifact for a multi-artifact deliverable with independent PDF check state', async () => {
+  it('moves multi-artifact details into the deliverable-row modal and keeps identity/ordinary fields out', async () => {
     workflow.state = createMultiArtifactState();
     associateAccount();
     renderDashboard();
 
-    const artifacts = screen.getByLabelText('MVP Validation submitted artifacts');
+    expect(screen.queryByLabelText('Submitted artifacts')).not.toBeInTheDocument();
+    const openArtifacts = screen.getByRole('button', { name: 'View submitted artifacts' });
+    const row = openArtifacts.closest('article');
+    expect(row).toHaveTextContent('Checks pending');
+    expect(within(row).queryByRole('link', { name: 'Open file' })).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: 'View Document Check' })).not.toBeInTheDocument();
+
+    fireEvent.click(openArtifacts);
+    const artifacts = await screen.findByRole('dialog', { name: 'Submitted artifacts' });
+    expect(within(artifacts).queryByRole('group', { name: 'Student Number artifact' })).not.toBeInTheDocument();
+    expect(within(artifacts).queryByRole('group', { name: 'Student Name artifact' })).not.toBeInTheDocument();
+    expect(within(artifacts).queryByRole('group', { name: 'Team Code artifact' })).not.toBeInTheDocument();
+    expect(within(artifacts).queryByRole('group', { name: 'Section artifact' })).not.toBeInTheDocument();
+    expect(within(artifacts).queryByRole('group', { name: 'Validation step artifact' })).not.toBeInTheDocument();
     expect(within(artifacts).getByRole('group', { name: 'Validation Instrument artifact' })).toHaveTextContent('Google Form');
     expect(within(artifacts).getByRole('link', { name: 'Open Validation Instrument' })).toHaveAttribute(
       'href',
@@ -501,6 +515,30 @@ describe('student dashboard', () => {
       'https://drive.google.com/drive/folders/student-validation-evidence'
     );
     expect(screen.queryByRole('link', { name: 'Open file' })).not.toBeInTheDocument();
+  });
+
+  it('summarizes all-current multi-PDF checks as accessible and attention states as aggregate warnings', () => {
+    workflow.state = createMultiArtifactState();
+    const response = workflow.state.attempts.find((item) => item.id === 'owned-srs');
+    response.artifactChecks['field-highlights'] = {
+      fieldId: 'field-highlights',
+      status: 'Current',
+      checkedAt: '2026-04-18T20:45:00+08:00',
+      sourceUrl: response.values.validationHighlights,
+      sourceResponseUpdatedAt: response.updatedAt,
+      summary: 'Highlights PDF is readable and accessible.'
+    };
+    associateAccount();
+    const view = renderDashboard();
+    expect(screen.getByRole('button', { name: 'View submitted artifacts' }).closest('article')).toHaveTextContent('All files accessible');
+
+    response.artifactChecks['field-highlights'] = {
+      ...response.artifactChecks['field-highlights'],
+      attentionRequired: true,
+      summary: 'Highlights PDF needs attention.'
+    };
+    view.rerender(dashboardTree());
+    expect(screen.getByRole('button', { name: 'View submitted artifacts' }).closest('article')).toHaveTextContent('Some files need attention');
   });
 
   it('keeps long adviser feedback compact and reveals the full note in a dialog', async () => {
@@ -569,7 +607,7 @@ describe('student dashboard', () => {
     expect(dialog).not.toHaveTextContent('STAFF ONLY AI ANALYSIS');
   });
 
-  it('renders and disconnects a server association when the roster snapshot is stale', async () => {
+  it('renders a server association snapshot without exposing student-side disconnect', async () => {
     const { disconnectStudentAssociation } = await import('../lib/api.js');
     workflow.state.association = {
       id: 'association-stale-roster',
@@ -594,10 +632,8 @@ describe('student dashboard', () => {
 
     expect(await screen.findByRole('heading', { name: 'SERVER ASSOCIATED STUDENT' })).toBeInTheDocument();
     expect(screen.getByText('99-9999-999')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Disconnect record' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Disconnect this student record?' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect record' }));
-    await waitFor(() => expect(disconnectStudentAssociation).toHaveBeenCalledWith('workspace-it'));
+    expect(screen.queryByRole('button', { name: 'Disconnect record' })).not.toBeInTheDocument();
+    expect(disconnectStudentAssociation).not.toHaveBeenCalled();
   });
 
   it('renders a stable loading state while workspace data is being fetched', () => {
@@ -704,87 +740,47 @@ describe('student dashboard', () => {
     expect(screen.getByRole('combobox', { name: 'Workspace' })).toBeEnabled();
   });
 
-  it('persists a confirmed connection to the server association', async () => {
+  it('does not create a server association from the dashboard before a submission', async () => {
     const { confirmStudentAssociation } = await import('../lib/api.js');
-    confirmStudentAssociation.mockResolvedValue({
-      id: 'assoc-1',
-      workspaceId: 'workspace-it',
-      googleEmail: 'juan.student@gmail.com',
-      studentRecordId: 'record-1',
-      studentNumber: '22-1001-001',
-      studentName: 'DELA CRUZ, JUAN CARLOS M.',
-      teamCode: '2526-sem2-it332-11',
-      assuranceLevel: 'SELF_DECLARED'
-    });
     workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
     renderDashboard();
 
-    const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
-    fireEvent.focus(studentNumber);
-    fireEvent.change(studentNumber, { target: { value: '22-1001' } });
-    fireEvent.click(screen.getByRole('option', { name: /22-1001-001/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Connect student record' }));
-
-    const dialog = await screen.findByRole('dialog', { name: 'Connect this student record?' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
-
-    await waitFor(() => expect(confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1001-001'));
+    expect(screen.getByRole('heading', { name: 'Submit your first form' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /^Open /i }).length).toBeGreaterThan(0);
+    expect(confirmStudentAssociation).not.toHaveBeenCalled();
   });
 
-  it('shows an error and stays unconnected when the server rejects the association', async () => {
+  it('explains that opening or selecting a form does not reserve a Student Number', async () => {
     const { confirmStudentAssociation } = await import('../lib/api.js');
-    confirmStudentAssociation.mockRejectedValue(new Error('No Student Record with that number exists in this workspace.'));
     workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     workflow.state.activeAccountEmail = 'juan.student@gmail.com';
     workflow.state.studentAccounts = [{ email: 'juan.student@gmail.com', googleSubject: 'google-juan', studentNumber: '' }];
     renderDashboard();
 
-    const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
-    fireEvent.focus(studentNumber);
-    fireEvent.change(studentNumber, { target: { value: '22-1001' } });
-    fireEvent.click(screen.getByRole('option', { name: /22-1001-001/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Connect student record' }));
-
-    const dialog = await screen.findByRole('dialog', { name: 'Connect this student record?' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
-
-    const alerts = await screen.findAllByRole('alert');
-    const connectionAlert = alerts.find((node) => node.textContent.includes('No Student Record with that number exists'));
-    expect(connectionAlert).toBeDefined();
-    expect(workflow.refreshBackendData).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/does not reserve the record/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/administrator recovery/i);
+    expect(confirmStudentAssociation).not.toHaveBeenCalled();
   });
 
-  it('discards an association failure after switching accounts', async () => {
+  it('does not start an identity mutation that could leak across account switches', async () => {
     const { confirmStudentAssociation } = await import('../lib/api.js');
-    let fail;
-    confirmStudentAssociation.mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject; }));
     workflow.session = { authenticated: true, email: 'juan.student@gmail.com', roles: [] };
     const view = renderDashboard();
-    const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
-    fireEvent.focus(studentNumber);
-    fireEvent.change(studentNumber, { target: { value: '22-1001' } });
-    fireEvent.click(screen.getByRole('option', { name: /22-1001-001/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Connect student record' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Connect record' }));
     workflow.session = { authenticated: true, email: 'other.student@example.com', roles: [] };
     view.rerender(dashboardTree());
-    await act(async () => { fail(new Error('Private previous student association failure')); });
-    expect(screen.queryAllByText('Private previous student association failure')).toHaveLength(0);
+    expect(confirmStudentAssociation).not.toHaveBeenCalled();
+    expect(screen.getByText('other.student@example.com')).toBeInTheDocument();
   });
 
-  it('deactivates the association on the server when disconnecting', async () => {
+  it('requires administrator recovery instead of student-side disconnect', async () => {
     const { disconnectStudentAssociation } = await import('../lib/api.js');
-    disconnectStudentAssociation.mockResolvedValue({});
     associateAccount();
     renderDashboard();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Disconnect record' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Disconnect this student record?' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect record' }));
-
-    await waitFor(() => expect(disconnectStudentAssociation).toHaveBeenCalledWith('workspace-it'));
+    expect(screen.queryByRole('button', { name: 'Disconnect record' })).not.toBeInTheDocument();
+    expect(disconnectStudentAssociation).not.toHaveBeenCalled();
   });
 
   it('renders identity from the server association on a fresh browser with no local claim', async () => {
@@ -808,61 +804,15 @@ describe('student dashboard', () => {
     expect(screen.getByText('22-1001-001')).toBeInTheDocument();
   });
 
-  it('reconnecting to another student record confirms with the new record', async () => {
+  it('does not let a connected student switch the bound Student Number from the dashboard', async () => {
     const { confirmStudentAssociation, disconnectStudentAssociation } = await import('../lib/api.js');
-    let serverAssociation = {
-      id: 'assoc-1',
-      workspaceId: 'workspace-it',
-      googleEmail: 'juan.student@gmail.com',
-      studentNumber: '22-1001-001',
-      studentName: 'DELA CRUZ, JUAN CARLOS M.',
-      teamCode: '2526-sem2-it332-11',
-      assuranceLevel: 'SELF_DECLARED'
-    };
-    workflow.refreshBackendData.mockImplementation(async () => {
-      workflow.state = { ...workflow.state, association: serverAssociation };
-      return workflow.state;
-    });
-    disconnectStudentAssociation.mockImplementation(async () => {
-      serverAssociation = null;
-      return {};
-    });
-    confirmStudentAssociation.mockImplementation(async () => {
-      serverAssociation = {
-        id: 'assoc-2',
-        workspaceId: 'workspace-it',
-        googleEmail: 'juan.student@gmail.com',
-        studentNumber: '22-1002-002',
-        studentName: 'SANTOS, MARIA L.',
-        teamCode: '2526-sem2-it332-11',
-        assuranceLevel: 'SELF_DECLARED'
-      };
-      return serverAssociation;
-    });
-    associateAccount(); // currently connected to 22-1001-001
+    associateAccount();
     renderDashboard();
 
-    // disconnect first (the connected dashboard has no selector by design)
-    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect record' }));
-    let dialog = await screen.findByRole('dialog', { name: 'Disconnect this student record?' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect record' }));
-    await waitFor(() => expect(disconnectStudentAssociation).toHaveBeenCalledWith('workspace-it'));
-
-    expect(await screen.findByRole('heading', { name: 'Connect your student record' })).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    const studentNumber = screen.getByRole('combobox', { name: /Student Number/i });
-    fireEvent.focus(studentNumber);
-    fireEvent.change(studentNumber, { target: { value: '22-1002' } });
-    // Mantine positions the dropdown with floating-ui; in jsdom the re-rendered
-    // dropdown keeps display:none, so the option is queried including hidden nodes.
-    fireEvent.click(await screen.findByRole('option', { name: /22-1002-002/i, hidden: true }));
-    fireEvent.click(screen.getByRole('button', { name: 'Connect student record' }));
-
-    dialog = await screen.findByRole('dialog', { name: 'Connect this student record?' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Connect record' }));
-
-    await waitFor(() => expect(confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1002-002'));
-    expect(await screen.findByRole('heading', { name: 'SANTOS, MARIA L.' })).toBeInTheDocument();
-    expect(workflow.refreshBackendData).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('heading', { name: 'DELA CRUZ, JUAN CARLOS M.' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /Student Number/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Disconnect record' })).not.toBeInTheDocument();
+    expect(confirmStudentAssociation).not.toHaveBeenCalled();
+    expect(disconnectStudentAssociation).not.toHaveBeenCalled();
   });
 });

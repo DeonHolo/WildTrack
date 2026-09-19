@@ -113,13 +113,66 @@ export async function installApiFixtures(page, {
     }
     if (path === '/workspace/responses/mine' && method === 'GET') return reply(response);
     if (path === '/workspace/responses/submit' && method === 'POST') {
-      expect(association).not.toBeNull();
-      response = makeResponse(JSON.parse(request.postDataJSON().valuesJson));
+      const body = request.postDataJSON();
+      expect(body.studentNumber).toBe(student.studentNumber);
+      association ??= { ...student, assuranceLevel: 'SELF_DECLARED' };
+      response = makeResponse(JSON.parse(body.valuesJson));
       return reply({ changed: true, responseId: response.id, revision: response.revision, valuesJson: response.valuesJson });
     }
     if (path === '/deliverables/unpublish-all' && method === 'POST') {
       deliverables.forEach((item) => { item.status = 'UNPUBLISHED'; });
       return reply(deliverables);
+    }
+    if (method === 'POST' && path.startsWith('/sheets/preview/')) {
+      const sourceType = path.split('/').pop();
+      return reply({
+        previewId: `browser-preview-${sourceType}`,
+        sourceType,
+        stateVersion: 'browser-state-v1',
+        sourceVersion: 'browser-source-v1',
+        addedRows: 0,
+        changedRows: 1,
+        missingRows: 0,
+        changes: [{
+          key: 'student:student-1',
+          entityType: 'student',
+          rowKey: 'student-1',
+          rowLabel: student.studentName,
+          kind: 'CHANGED',
+          fields: [{
+            key: 'student:student-1:teamCode',
+            field: 'teamCode',
+            label: 'Team code',
+            sourceValue: '2627-sem1-it411-11',
+            localValue: student.teamCode,
+            conflict: true
+          }]
+        }],
+        warnings: [],
+        deadlineSuggestions: [],
+        details: { detectedFields: ['Student name', 'Team code'], missingFields: [], metrics: { studentRows: 1 }, deadlineRows: 0 }
+      });
+    }
+    if (method === 'POST' && path.startsWith('/sheets/apply/')) {
+      const sourceType = path.split('/').pop();
+      expect(request.postDataJSON()).toEqual({
+        previewId: `browser-preview-${sourceType}`,
+        resolutions: { 'student:student-1:teamCode': 'SOURCE' }
+      });
+      return reply({
+        importRunId: 'browser-import-run',
+        sourceType,
+        status: 'IMPORTED',
+        rowsFound: 1,
+        columnsFound: 1,
+        studentsFound: 1,
+        officialIdsFound: 1,
+        groupsFound: 0,
+        warnings: [],
+        deadlineSuggestions: [],
+        details: { detectedFields: ['Student name', 'Team code'], missingFields: [], metrics: { studentRows: 1 }, deadlineRows: 0 },
+        importedAt: timestamp
+      });
     }
     if (path === `/deliverables/${deliverable.id}` && method === 'PUT') {
       const body = request.postDataJSON();

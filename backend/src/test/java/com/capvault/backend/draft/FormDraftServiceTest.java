@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.springframework.security.access.AccessDeniedException;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -52,6 +53,7 @@ class FormDraftServiceTest {
 
     private UUID workspaceId;
     private UUID deliverableId;
+    private UUID studentRecordId;
     private String rosterNumber = "20-0649-750";
 
     @BeforeEach
@@ -59,8 +61,8 @@ class FormDraftServiceTest {
         AcademicWorkspace workspace = workspaceRepository.save(new AcademicWorkspace(
             "IT332 Sem 2", "IT", "IT332", "Semester 1", "2026-27", true));
         workspaceId = workspace.getId();
-        studentRecordRepository.save(new StudentRecord(
-            workspaceId, rosterNumber, "Deon Holo", "2526-it332-41", "1", "IT41", "Sir Adviser", null, 1));
+        studentRecordId = studentRecordRepository.save(new StudentRecord(
+            workspaceId, rosterNumber, "Deon Holo", "2526-it332-41", "1", "IT41", "Sir Adviser", null, 1)).getId();
         Deliverable deliverable = deliverableRepository.save(new Deliverable(
             workspaceId, "SRS", "SRS Submission", "srs-week9",
             "Submit a PDF Drive link.", LocalDateTime.parse("2026-04-18T23:59:00"),
@@ -148,6 +150,21 @@ class FormDraftServiceTest {
         var bRestore = draftService.restore(workspaceId, deliverableId, "sub-B");
         assertThat(bRestore).isEmpty();
     }
+
+    @Test
+    void adminDisconnectRevokesOldAccountsDraftReadAndWriteUntilRecovery() {
+        associate_and_submit();
+
+        associationService.adminDisconnect(
+            workspaceId, studentRecordId, "admin-subject", "admin@example.test");
+
+        assertThat(draftService.restore(workspaceId, deliverableId, "sub-A")).isEmpty();
+        assertThatThrownBy(() -> save("sub-A", Map.of("link", "disconnected-edit"), null))
+            .isInstanceOf(AccessDeniedException.class)
+            .hasMessageContaining("no longer associated");
+
+        associationService.adminRecover(
+            workspaceId, studentRecordId, "sub-A", "admin-subject", "admin@example.test");
+        assertThat(draftService.restore(workspaceId, deliverableId, "sub-A")).isEmpty();
+    }
 }
-
-

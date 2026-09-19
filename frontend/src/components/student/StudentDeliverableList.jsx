@@ -3,6 +3,7 @@ import { ArrowSquareOut, NotePencil } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { formatDate, formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 import { DocumentCheckDialog } from '../review/DocumentCheckDialog.jsx';
+import { ResponseTimingSummary } from '../ResponseTimingSummary.jsx';
 import { StatusIndicator } from '../ui.jsx';
 
 const FILTERS = [
@@ -15,6 +16,7 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
   const [filter, setFilter] = useState('all');
   const [activeFeedback, setActiveFeedback] = useState(null);
   const [activeCheck, setActiveCheck] = useState(null);
+  const [activeArtifacts, setActiveArtifacts] = useState(null);
   const filteredRows = useMemo(() => rows.filter((row) => {
     if (filter === 'missing') return row.status === 'Not submitted';
     if (filter === 'submitted') return row.status !== 'Not submitted';
@@ -44,6 +46,7 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
       <div className="wt-student-deliverable-list" role="list" aria-label="Your deliverables">
         {filteredRows.map((row) => {
           const formUrl = `/w/${workspaceKey}/submit/${row.deliverable.slug}?student=${encodeURIComponent(studentNumber)}`;
+          const hasMultipleArtifacts = (row.artifacts?.length || 0) > 1;
           return (
             <article className="wt-student-deliverable-row" role="listitem" key={row.deliverable.id}>
               <div className="wt-student-deliverable-title">
@@ -57,6 +60,7 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
               <div className="wt-student-deliverable-state">
                 <StatusIndicator status={row.status} />
                 {row.savedAt ? <Text size="xs" c="dimmed">Saved {formatDateTime(row.savedAt)}</Text> : null}
+                {row.response?.timing ? <ResponseTimingSummary timing={row.response.timing} /> : null}
                 <Text size="xs" c="dimmed" className="wt-nowrap wt-tabular">
                   {formatTeamProgress(row.teamProgress)}
                 </Text>
@@ -70,8 +74,17 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
                       <Text size="sm" c="dimmed" lineClamp={2}>{row.fileCheck.summary}</Text>
                     </div>
                     <Group gap="md" mt={4}>
-                      {row.documentCheck ? (
-                        <Button variant="subtle" size="compact-sm" color="wildtrackMaroon" onClick={() => setActiveCheck(row)}>
+                      {!hasMultipleArtifacts && row.documentCheck ? (
+                        <Button
+                          variant="subtle"
+                          size="compact-sm"
+                          color="wildtrackMaroon"
+                          onClick={() => setActiveCheck({
+                            response: row.response,
+                            documentCheck: row.documentCheck,
+                            fileLink: row.link
+                          })}
+                        >
                           View Document Check
                         </Button>
                       ) : null}
@@ -88,7 +101,14 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
               </div> : null}
 
               <Group className="wt-student-deliverable-actions" gap="xs" justify="flex-end" wrap="wrap">
-                {row.link ? (
+                {hasMultipleArtifacts ? (
+                  <Button
+                    variant="default"
+                    onClick={() => setActiveArtifacts(row)}
+                  >
+                    View submitted artifacts
+                  </Button>
+                ) : row.link ? (
                   <Button
                     component="a"
                     href={makeDriveViewUrl(row.link)}
@@ -141,12 +161,74 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
         ) : null}
       </Modal>
 
+      <Modal
+        opened={Boolean(activeArtifacts)}
+        onClose={() => setActiveArtifacts(null)}
+        title="Submitted artifacts"
+        centered
+        size="lg"
+      >
+        {activeArtifacts ? (
+          <Stack gap="md">
+            <div>
+              <Text fw={750}>{activeArtifacts.deliverable.title}</Text>
+              <Text size="sm" c="dimmed">Open each submitted file or link, and review PDF checks separately when available.</Text>
+            </div>
+            {(activeArtifacts.artifacts || []).map((artifact) => (
+              <Paper key={artifact.key} withBorder radius="sm" p="md" role="group" aria-label={`${artifact.label} artifact`}>
+                <Stack gap="sm">
+                  <Group justify="space-between" align="flex-start" wrap="wrap">
+                    <div>
+                      <Text fw={700}>{artifact.label}</Text>
+                      <Text size="xs" c="dimmed">{artifact.typeLabel}</Text>
+                    </div>
+                    {artifact.reviewablePdf ? <StatusIndicator status={artifact.documentCheckStatus} /> : null}
+                  </Group>
+                  <Group gap="xs" wrap="wrap">
+                    <Button
+                      component="a"
+                      href={makeDriveViewUrl(artifact.value)}
+                      target="_blank"
+                      rel="noreferrer"
+                      variant="default"
+                      size="xs"
+                      leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}
+                    >
+                      Open {artifact.label}
+                    </Button>
+                    {artifact.reviewablePdf && artifact.documentCheck ? (
+                      <Button
+                        variant="subtle"
+                        size="compact-sm"
+                        color="wildtrackMaroon"
+                        onClick={() => setActiveCheck({
+                          response: activeArtifacts.response,
+                          documentCheck: artifact.documentCheck,
+                          fileLink: artifact.value
+                        })}
+                      >
+                        View Document Check
+                      </Button>
+                    ) : null}
+                  </Group>
+                  {artifact.reviewablePdf ? (
+                    <Text size="xs" c="dimmed">
+                      {artifact.documentCheck?.summary || 'No current Document Check is available for this PDF.'}
+                    </Text>
+                  ) : null}
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        ) : null}
+      </Modal>
+
       <DocumentCheckDialog
         open={Boolean(activeCheck)}
         onClose={() => setActiveCheck(null)}
         response={activeCheck?.response || null}
         documentCheck={activeCheck?.documentCheck || null}
-        fileLink={activeCheck?.link || ''}
+        fileLink={activeCheck?.fileLink || ''}
         audience="student"
         allowRecheck={false}
       />

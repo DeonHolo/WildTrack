@@ -14,4 +14,8 @@ public interface WorkspaceStudentAssociationRepository extends JpaRepository<Wor
 
     List<WorkspaceStudentAssociation> findAllByWorkspaceIdAndStudentRecordIdAndActiveTrueOrderByUpdatedAtDesc(
         UUID workspaceId, UUID studentRecordId);
+
+    List<WorkspaceStudentAssociation> findAllByStudentNumberIgnoreCaseAndActiveTrueOrderByUpdatedAtDesc(String studentNumber);
+
+    List<WorkspaceStudentAssociation> findAllByStudentNumberIgnoreCaseOrderByUpdatedAtDesc(String studentNumber);
 }

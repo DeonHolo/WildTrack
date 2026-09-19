@@ -61,13 +61,13 @@ export function mapStudents(studentItems = [], trackerRows = []) {
     return {
       ...(matched || {}),
       rowKey: row.id,
-      studentNumber: row.studentNumber || matched?.studentNumber || '',
-      name: row.studentName || matched?.name || '',
-      teamCode: row.teamCode || matched?.teamCode || '',
+      studentNumber: matched?.studentNumber || row.studentNumber || '',
+      name: matched?.name || row.studentName || '',
+      teamCode: matched?.teamCode || row.teamCode || '',
       teamFormationCode: matched?.teamFormationCode || '',
-      memberNumber: row.memberNumber || matched?.memberNumber || '',
-      section: row.sectionName || matched?.section || '',
-      adviser: row.adviserName || matched?.adviser || '',
+      memberNumber: matched?.memberNumber || row.memberNumber || '',
+      section: matched?.section || row.sectionName || '',
+      adviser: matched?.adviser || row.adviserName || '',
       softwareTitle: matched?.softwareTitle || '',
       email: matched?.email || '',
       milestones: Object.fromEntries((row.cells || []).map((cell) => [cell.columnKey, cell.rawValue || '']))
@@ -94,10 +94,14 @@ export function applySubmissionProgress(students = [], deliverables = [], respon
     const studentNumber = normalizeStudentNumber(response.studentNumber);
     const student = studentNumber ? byStudentNumber.get(studentNumber) : null;
     if (!student) continue;
-    const submittedAt = Date.parse(response.submittedAt || '');
-    const dueAt = Date.parse(deliverable.dueAt || '');
-    if (!Number.isFinite(submittedAt) || !Number.isFinite(dueAt)) continue;
-    const daysLate = Math.max(0, Math.ceil((submittedAt - dueAt) / 86_400_000));
+    const serverDaysLate = Number(response.timing?.daysLate);
+    let daysLate = Number.isFinite(serverDaysLate) ? Math.max(0, serverDaysLate) : null;
+    if (daysLate === null) {
+      const submittedAt = Date.parse(response.submittedAt || '');
+      const dueAt = Date.parse(deliverable.dueAt || '');
+      if (!Number.isFinite(submittedAt) || !Number.isFinite(dueAt)) continue;
+      daysLate = Math.max(0, Math.ceil((submittedAt - dueAt) / 86_400_000));
+    }
     const key = student.rowKey || student.studentNumber;
     updates.set(key, { ...(updates.get(key) || {}), [trackerColumn]: daysLate });
   }
@@ -141,7 +145,7 @@ export function mapSources(items = []) {
   return sources;
 }
 
-export function mapResponse(response) {
+export function mapResponse(response, timing = null) {
   return {
     id: response.id,
     deliverableId: response.deliverableId,
@@ -152,6 +156,7 @@ export function mapResponse(response) {
     googleEmailSnapshot: response.googleEmail || '',
     submittedAt: response.submittedAt,
     updatedAt: response.updatedAt,
+    timing: timing || null,
     values: parseValues(response.valuesJson),
     flags: [],
     feedback: [],

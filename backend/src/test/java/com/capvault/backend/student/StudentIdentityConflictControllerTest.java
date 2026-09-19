@@ -181,7 +181,7 @@ class StudentIdentityConflictControllerTest {
     }
 
     @Test
-    void studentDisconnectAutomaticallyResolvesTheConflictIntoHistory() throws Exception {
+    void studentCannotSelfDisconnectAnAccountBinding() throws Exception {
         String studentToken = sessionTokenFor(SECOND_SUBJECT, SECOND_EMAIL);
         String adminToken = sessionTokenFor("sub-admin", "admin@school.edu", StaffRole.ADMIN);
 
@@ -189,24 +189,69 @@ class StudentIdentityConflictControllerTest {
                 .param("workspaceId", workspaceId.toString())
                 .cookie(sessionCookie(studentToken))
                 .with(csrf()))
-            .andExpect(status().isNoContent());
+            .andExpect(status().isForbidden());
 
         mockMvc.perform(get("/api/workspace/students/identity-conflicts")
                 .param("workspaceId", workspaceId.toString())
-                .cookie(sessionCookie(adminToken)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$", hasSize(0)));
-
-        mockMvc.perform(get("/api/workspace/students/identity-conflicts")
-                .param("workspaceId", workspaceId.toString())
-                .param("includeClosed", "true")
                 .cookie(sessionCookie(adminToken)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
-            .andExpect(jsonPath("$[0].status").value("RESOLVED"))
-            .andExpect(jsonPath("$[0].existingIdentity.active").value(true))
-            .andExpect(jsonPath("$[0].conflictingIdentity.active").value(false))
-            .andExpect(jsonPath("$[0].decisionNote").value(org.hamcrest.Matchers.containsString("Automatically resolved")));
+            .andExpect(jsonPath("$[0].status").value("OPEN"));
+    }
+
+    @Test
+    void adminAccountManagementSurfacesConflictWithoutAWinnerAndSupportsExplicitRecovery() throws Exception {
+        String adminToken = sessionTokenFor("sub-account-admin", "account-admin@school.edu", StaffRole.ADMIN);
+
+        mockMvc.perform(get("/api/workspace/students/account-bindings")
+                .param("workspaceId", workspaceId.toString())
+                .cookie(sessionCookie(adminToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.firstClaimLimitation").value(org.hamcrest.Matchers.containsString("first successful submission")))
+            .andExpect(jsonPath("$.accounts[0].studentNumber").value(STUDENT_NUMBER))
+            .andExpect(jsonPath("$.accounts[0].status").value("CONFLICT"))
+            .andExpect(jsonPath("$.accounts[0].googleSubject").isEmpty())
+            .andExpect(jsonPath("$.accounts[0].candidates", hasSize(2)));
+
+        UUID studentRecordId = studentRecordRepository.findByWorkspaceIdAndStudentNumberIgnoreCase(workspaceId, STUDENT_NUMBER)
+            .orElseThrow().getId();
+        mockMvc.perform(post("/api/workspace/students/account-bindings/" + studentRecordId + "/recover")
+                .param("workspaceId", workspaceId.toString())
+                .cookie(sessionCookie(adminToken))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"confirmedSubject\":\"" + FIRST_SUBJECT + "\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("BOUND"))
+            .andExpect(jsonPath("$.googleSubject").value(FIRST_SUBJECT))
+            .andExpect(jsonPath("$.googleEmail").value(FIRST_EMAIL));
+
+        mockMvc.perform(post("/api/workspace/students/account-bindings/" + studentRecordId + "/disconnect")
+                .param("workspaceId", workspaceId.toString())
+                .cookie(sessionCookie(adminToken))
+                .with(csrf()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("UNBOUND"))
+            .andExpect(jsonPath("$.googleSubject").isEmpty());
+    }
+
+    @Test
+    void nonAdminCannotUseAccountManagementEndpoints() throws Exception {
+        String studentToken = sessionTokenFor("sub-account-student", "student@school.edu");
+        UUID studentRecordId = studentRecordRepository.findByWorkspaceIdAndStudentNumberIgnoreCase(workspaceId, STUDENT_NUMBER)
+            .orElseThrow().getId();
+
+        mockMvc.perform(get("/api/workspace/students/account-bindings")
+                .param("workspaceId", workspaceId.toString())
+                .cookie(sessionCookie(studentToken)))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/workspace/students/account-bindings/" + studentRecordId + "/recover")
+                .param("workspaceId", workspaceId.toString())
+                .cookie(sessionCookie(studentToken))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"confirmedSubject\":\"" + FIRST_SUBJECT + "\"}"))
+            .andExpect(status().isForbidden());
     }
 
     @Test

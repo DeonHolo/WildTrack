@@ -61,7 +61,7 @@ Last reconciled: 2026-09-19. Origin: owner conversation and docs/WildTrack_Capst
 - No-op response saves do not change lateness/revision/history. Actual artifact value edits do.
 - Lateness proposal: effective time is the latest initial submission, material saved artifact change, or verified relevant PDF content-change time. Preserve each source timestamp and show the reason; use existing deadline/timezone policy and verify consistency across student/Admin/adviser views.
 - Metadata-only changes are not automatically proven content changes; compare available content identity/checksum, keep uncertainty visible, and never use the check's run time as file-change time.
-- Display editor as Full Name (email) when returned identity matches an authorized student record; email otherwise; unavailable if absent. Label "Modified by", not proof of authorship.
+- Display only Google Drive provider-returned editor metadata. Use the returned email when available, otherwise the returned display name, otherwise unavailable. Do not join Drive identity to the roster or present a roster name as authorship. Label it "Modified by" provider metadata, not proof of historical revision authorship.
 - Distinguish WildTrack-observed history from older Google revisions. Current API-key flow lacks delegated history access.
 - Keep pasted Drive links; no forced picker. Real older-history access needs suitable file permissions and OAuth; permission/Cloud access cannot be fabricated or enabled by changing the API key.
 - Optional delegated Drive history is a gated integration. Prepare the scope/access decision and callback/token flow plan; owner grants Google permissions through genuine UI before live verification. Existing link submission must continue if history is unavailable.

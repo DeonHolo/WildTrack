@@ -8,6 +8,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -20,6 +22,11 @@ import com.capvault.backend.deliverable.DeliverableFieldType;
 import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DeliverableStatus;
 import com.capvault.backend.deliverable.DocumentCheckPolicy;
+import com.capvault.backend.drive.DriveFileMetadata;
+import com.capvault.backend.filecheck.FileCheckReport;
+import com.capvault.backend.filecheck.FileCheckReportRepository;
+import com.capvault.backend.filecheck.FileCheckRequest;
+import com.capvault.backend.filecheck.FileCheckResponse;
 import com.capvault.backend.staff.AdviserTeamAssignment;
 import com.capvault.backend.staff.AdviserTeamAssignmentRepository;
 import com.capvault.backend.staff.StaffRole;
@@ -30,6 +37,7 @@ import com.capvault.backend.student.StudentRecord;
 import com.capvault.backend.student.StudentRecordRepository;
 import com.capvault.backend.workspace.AcademicWorkspace;
 import com.capvault.backend.workspace.AcademicWorkspaceRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import jakarta.servlet.http.Cookie;
 
@@ -98,6 +106,12 @@ class ReviewFeedbackScopeControllerTest {
 
     @Autowired
     private com.capvault.backend.archive.ArchiveRecordRepository archiveRepository;
+
+    @Autowired
+    private FileCheckReportRepository fileCheckReportRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     private UUID workspaceId;
     private UUID assignedResponseId;
@@ -262,11 +276,18 @@ class ReviewFeedbackScopeControllerTest {
     }
 
     @Test
-    void dashboardComposesOwnedDataAndRedactsDuplicateClaimants() throws Exception {
+    void dashboardComposesOwnedDataAndRedactsTeammateResponses() throws Exception {
         var original = responseRepository.findById(assignedResponseId).orElseThrow();
-        associationService.confirmAssociation(workspaceId, "duplicate-subject", "duplicate@gmail.com", original.getStudentNumber());
-        responseService.submit(new FormResponseService.SubmitCommand(workspaceId, original.getDeliverableId(),
-            "duplicate-subject", "duplicate@gmail.com", Map.of("driveLink", "https://private.example/duplicate")));
+        deliverableFieldRepository.save(new DeliverableField(
+            "private-pdf", original.getDeliverableId(), "driveLink", "Private PDF", DeliverableFieldType.DRIVE_PDF,
+            true, 0, DocumentCheckPolicy.MANUAL, false, true));
+        studentRecordRepository.save(new StudentRecord(
+            workspaceId, "20-0649-752", "Private Teammate", ASSIGNED_TEAM, "2", ASSIGNED_TEAM,
+            "Sir Adviser", null, 2));
+        associationService.confirmAssociation(workspaceId, "duplicate-subject", "duplicate@gmail.com", "20-0649-752");
+        String teammateDriveUrl = "https://drive.google.com/file/d/test-teammate-file/view";
+        var teammateResponse = responseService.submit(new FormResponseService.SubmitCommand(workspaceId, original.getDeliverableId(),
+            "duplicate-subject", "duplicate@gmail.com", Map.of("driveLink", teammateDriveUrl))).response();
         String admin = sessionTokenFor("dashboard-admin", "dashboard-admin@school.edu", StaffRole.ADMIN);
         mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/feedback")
                 .cookie(sessionCookie(admin)).with(csrf()).contentType("application/json")
@@ -277,20 +298,79 @@ class ReviewFeedbackScopeControllerTest {
                 .cookie(sessionCookie(token)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.association.studentNumber").value(original.getStudentNumber()))
-            .andExpect(jsonPath("$.students.length()").value(1))
+            .andExpect(jsonPath("$.students.length()").value(2))
             .andExpect(jsonPath("$.responses.length()").value(2))
             .andExpect(jsonPath("$.responses[?(@.owned == false)].valuesJson").value(org.hamcrest.Matchers.contains("")))
             .andExpect(jsonPath("$.responses[?(@.owned == false)].googleEmail").value(org.hamcrest.Matchers.contains("")))
+            .andExpect(jsonPath("$.responseTimings['" + teammateResponse.getId() + "']").doesNotExist())
             .andExpect(jsonPath("$.reviewStates['" + assignedResponseId + "'].feedback.length()").value(0))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(
-                org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("https://private.example/duplicate"))));
-        associationService.disconnect(workspaceId, "sub-student-a");
+                org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(teammateDriveUrl))));
+        var studentRecord = studentRecordRepository
+            .findByWorkspaceIdAndStudentNumberIgnoreCase(workspaceId, original.getStudentNumber())
+            .orElseThrow();
+        associationService.adminDisconnect(
+            workspaceId, studentRecord.getId(), "dashboard-admin-disconnect", "dashboard-admin@example.test");
         mockMvc.perform(get("/api/workspace/students/dashboard").param("workspaceId", workspaceId.toString())
                 .cookie(sessionCookie(token)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.students.length()").value(0))
-            .andExpect(jsonPath("$.responses.length()").value(1))
-            .andExpect(jsonPath("$.responses[0].id").value(assignedResponseId.toString()));
+            .andExpect(jsonPath("$.responses.length()").value(0))
+            .andExpect(jsonPath("$.responseTimings").isEmpty());
+    }
+
+    @Test
+    void driveEditorMetadataIsStaffOnlyAndNeverAppearsInStudentDashboardJson() throws Exception {
+        var response = responseRepository.findById(assignedResponseId).orElseThrow();
+        String sourceUrl = "https://drive.google.com/file/d/private-editor-file/view";
+        LocalDateTime checkedAt = LocalDateTime.parse("2026-09-19T09:00:00");
+        FileCheckResponse safeResponse = new FileCheckResponse(
+            null,
+            response.getId().toString(),
+            null,
+            sourceUrl,
+            response.getUpdatedAt().toString(),
+            "COMPLETED",
+            false,
+            "Document Check completed.",
+            List.of(),
+            List.of(),
+            List.of(),
+            "Staff review may continue.",
+            new FileCheckResponse.DriveMetadata(
+                "private-editor-file", "srs.pdf", "application/pdf", 1200L, "abc123",
+                OffsetDateTime.parse("2026-09-19T01:00:00Z"), true, sourceUrl),
+            null,
+            null,
+            "WildTrack",
+            checkedAt
+        );
+        FileCheckRequest request = new FileCheckRequest(
+            response.getId().toString(), null, "SRS", sourceUrl, response.getUpdatedAt().toString());
+        DriveFileMetadata staffMetadata = new DriveFileMetadata(
+            "private-editor-file", "srs.pdf", "application/pdf", 1200L, "abc123",
+            OffsetDateTime.parse("2026-09-19T01:00:00Z"),
+            "private-editor@example.com", "Private Editor Name", true, sourceUrl);
+        fileCheckReportRepository.saveAndFlush(new FileCheckReport(
+            workspaceId, request, safeResponse, objectMapper.writeValueAsString(safeResponse), staffMetadata));
+
+        String studentToken = sessionTokenFor("sub-student-a", "a@gmail.com");
+        mockMvc.perform(get("/api/workspace/students/dashboard").param("workspaceId", workspaceId.toString())
+                .cookie(sessionCookie(studentToken)))
+            .andExpect(status().isOk())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(
+                org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("private-editor@example.com"))))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(
+                org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Private Editor Name"))));
+
+        String admin = sessionTokenFor("history-admin", "history-admin@school.edu", StaffRole.ADMIN);
+        mockMvc.perform(get("/api/monitoring").param("workspaceId", workspaceId.toString())
+                .param("includeReviews", "true").cookie(sessionCookie(admin)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.observedFileHistory['" + response.getId() + "'].observations[0].modifiedBy")
+                .value("private-editor@example.com"))
+            .andExpect(jsonPath("$.observedFileHistory['" + response.getId() + "'].observations[0].providerDisplayName")
+                .value("Private Editor Name"));
     }
 
     @Test

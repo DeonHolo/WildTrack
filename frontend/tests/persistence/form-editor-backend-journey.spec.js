@@ -42,8 +42,14 @@ test('full-page form editor persists through the real backend and public respons
     await expect(admin.getByRole('textbox', { name: 'Form title' })).toHaveValue('Editor Journey Form');
     await expect(admin.getByText('Unpublished', { exact: true })).toBeVisible();
 
-    await admin.getByRole('button', { name: 'Add question' }).click();
-    await admin.locator('.wt-question-card.is-selected').getByRole('textbox', { name: 'Field label' }).fill('Round-trip note');
+    await admin.getByRole('button', { name: '+ Add Button' }).click();
+    const fieldLabels = admin.getByRole('textbox', { name: 'Field label' });
+    await expect.poll(() => fieldLabels.evaluateAll((inputs) => inputs.map((input) => input.value)))
+      .toContain('New question');
+    const newQuestionIndex = await fieldLabels.evaluateAll((inputs) =>
+      inputs.findIndex((input) => input.value === 'New question'));
+    expect(newQuestionIndex).toBeGreaterThanOrEqual(0);
+    await fieldLabels.nth(newQuestionIndex).fill('Round-trip note');
     await admin.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(admin.getByRole('status')).toContainText('Saved');
 

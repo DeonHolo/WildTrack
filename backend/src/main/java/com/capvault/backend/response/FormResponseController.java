@@ -46,6 +46,7 @@ public class FormResponseController {
 
     public record SubmitRequest(
         @NotNull UUID deliverableId,
+        String studentNumber,
         @NotBlank String valuesJson,
         Long revision
     ) {
@@ -125,11 +126,14 @@ public class FormResponseController {
         }
         try {
             return ResponseEntity.ok(toSubmitResponse(responseService.submit(new FormResponseService.SubmitCommand(
-                workspaceId, request.deliverableId(), session.googleSubject(), session.googleEmail(), values, request.revision()))));
+                workspaceId, request.deliverableId(), session.googleSubject(), session.googleEmail(), request.studentNumber(), values, request.revision()))));
         } catch (FormResponseService.ConcurrentModificationException e) {
             return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
                 .header("X-WildTrack-Conflict", "stale-revision")
                 .body(null);
+        } catch (StudentAssociationService.AccountBindingConflictException e) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.CONFLICT, e.getMessage());
         } catch (IllegalStateException e) {
             throw new IllegalArgumentException(e.getMessage());
         }
@@ -211,14 +215,20 @@ public class FormResponseController {
                 .toList();
         }
         var assoc = associationService.activeAssociation(workspaceId, session.googleSubject());
-        if (assoc.isPresent() && assoc.get().teamCode() != null && !assoc.get().teamCode().isBlank()) {
-            return responseService.responsesForTeams(workspaceId, List.of(assoc.get().teamCode())).stream()
-                .map(response -> ScopedResponse.from(
-                    response, response.getGoogleSubject().equals(session.googleSubject())))
+        if (assoc.isPresent()) {
+            if (assoc.get().teamCode() != null && !assoc.get().teamCode().isBlank()) {
+                return responseService.responsesForTeams(workspaceId, List.of(assoc.get().teamCode())).stream()
+                    .map(response -> ScopedResponse.from(
+                        response, response.getGoogleSubject().equals(session.googleSubject())))
+                    .toList();
+            }
+            return responseService.responsesForSubject(workspaceId, session.googleSubject()).stream()
+                .map(response -> ScopedResponse.from(response, true))
                 .toList();
         }
-        return responseService.responsesForSubject(workspaceId, session.googleSubject()).stream()
-            .map(response -> ScopedResponse.from(response, true))
-            .toList();
+        // A disconnected account has no active student scope. Do not fall back to
+        // historical ownership here, otherwise /my-team would bypass the account
+        // disconnect guard enforced by the private response/history endpoints.
+        return List.of();
     }
 }

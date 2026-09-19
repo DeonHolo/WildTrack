@@ -223,6 +223,31 @@ test('workspace source imports fit at desktop width', async ({ page }) => {
   ))).toBe(true);
 });
 
+test('workspace re-import previews conflicts and applies only after an explicit resolution', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openAs(page, 'admin', '/workspace');
+
+  await page.getByRole('button', { name: 'Import Tracker' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tracker re-import preview' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Read-only preview')).toBeVisible();
+  await expect(dialog.getByText('Source: 2627-sem1-it411-11')).toBeVisible();
+  await expect(dialog.getByText(`Local: 2526-sem2-it332-11`)).toBeVisible();
+
+  const apply = dialog.getByRole('button', { name: 'Apply re-import' });
+  await expect(apply).toBeDisabled();
+  await dialog.getByLabel(`Resolve DELA CRUZ, JUAN CARLOS M. Team code`).selectOption('SOURCE');
+  await expect(apply).toBeEnabled();
+  await apply.click();
+
+  await expect(page.getByText('Tracker imported.', { exact: true })).toBeVisible();
+  const applyCall = page.apiFixture.calls.find((call) => call.method === 'POST' && call.path === '/sheets/apply/TRACKER');
+  expect(applyCall?.body).toEqual({
+    previewId: 'browser-preview-TRACKER',
+    resolutions: { 'student:student-1:teamCode': 'SOURCE' }
+  });
+});
+
 for (const viewport of artworkViewports) {
   test('workspace administration keeps inactive records out of the main flow on ' + viewport.label, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -399,7 +424,7 @@ for (const viewport of editorViewports) {
     await page.keyboard.press('Escape');
 
     await pdfCard.getByRole('textbox', { name: 'Field label' }).click();
-    await page.getByRole('button', { name: 'Add question' }).click();
+    await page.getByRole('button', { name: '+ Add Button' }).click();
     const newLabel = page.getByRole('textbox', { name: 'Field label' }).last();
     await newLabel.fill('Project Summary');
     const moveUp = page.getByRole('button', { name: 'Move Project Summary up' });

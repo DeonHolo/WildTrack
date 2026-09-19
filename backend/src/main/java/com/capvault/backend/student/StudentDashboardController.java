@@ -16,6 +16,8 @@ import com.capvault.backend.project.ProjectMetadataResponse;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseController.ScopedResponse;
 import com.capvault.backend.response.FormResponseService;
+import com.capvault.backend.response.ResponseTimingService;
+import com.capvault.backend.response.ResponseTimingView;
 import com.capvault.backend.response.ReviewFeedbackService;
 import com.capvault.backend.tracker.TrackerCellRepository;
 import com.capvault.backend.tracker.TrackerColumnRepository;
@@ -43,13 +45,14 @@ public class StudentDashboardController {
     private final TrackerCellRepository cells;
     private final DeliverableService deliverables;
     private final FormResponseService responses;
+    private final ResponseTimingService responseTimings;
     private final ReviewFeedbackService reviews;
     private final FileCheckService checks;
 
     public StudentDashboardController(StudentAssociationSecurity security, StudentAssociationService associations,
             AcademicWorkspaceRepository workspaces, StudentRecordRepository students, ProjectMetadataRepository projects,
             TrackerColumnRepository columns, TrackerRowRepository rows, TrackerCellRepository cells,
-            DeliverableService deliverables, FormResponseService responses, ReviewFeedbackService reviews,
+            DeliverableService deliverables, FormResponseService responses, ResponseTimingService responseTimings, ReviewFeedbackService reviews,
             FileCheckService checks) {
         this.security = security;
         this.associations = associations;
@@ -61,6 +64,7 @@ public class StudentDashboardController {
         this.cells = cells;
         this.deliverables = deliverables;
         this.responses = responses;
+        this.responseTimings = responseTimings;
         this.reviews = reviews;
         this.checks = checks;
     }
@@ -69,7 +73,8 @@ public class StudentDashboardController {
             List<StudentRecordResponse> rosterOptions, List<StudentRecordResponse> students,
             List<ProjectMetadataResponse> projects, List<TrackerColumnResponse> trackerColumns,
             List<TrackerRowResponse> trackerRows, List<DeliverableResponse> deliverables,
-            List<ScopedResponse> responses, Map<UUID, Map<String, Object>> reviewStates,
+            List<ScopedResponse> responses, Map<UUID, ResponseTimingView> responseTimings,
+            Map<UUID, Map<String, Object>> reviewStates,
             Map<UUID, FileCheckResponse> fileChecks,
             Map<UUID, Map<String, FileCheckResponse>> fileChecksByField) { }
 
@@ -84,8 +89,9 @@ public class StudentDashboardController {
         if (team != null && !team.isBlank()) {
             responses.responsesForTeams(workspaceId, List.of(team)).forEach(item -> visible.put(item.getId(), item));
         }
-        // Disconnecting or changing teams must not hide the account's earlier submissions.
-        var owned = responses.responsesForSubject(workspaceId, session.googleSubject());
+        var owned = association == null
+            ? List.<FormResponse>of()
+            : responses.responsesForSubject(workspaceId, session.googleSubject());
         var submittedDeliverables = owned.stream().map(FormResponse::getDeliverableId).collect(Collectors.toSet());
         owned.forEach(item -> visible.put(item.getId(), item));
         Map<UUID, Map<String, Object>> reviewStates = new LinkedHashMap<>();
@@ -119,6 +125,7 @@ public class StudentDashboardController {
                 .filter(item -> item.status() == DeliverableStatus.PUBLISHED || submittedDeliverables.contains(item.id()))
                 .toList(),
             visible.values().stream().map(item -> ScopedResponse.from(item, session.googleSubject().equals(item.getGoogleSubject()))).toList(),
+            responseTimings.forResponses(owned),
             reviewStates, fileChecks, fieldChecks);
     }
 

@@ -164,6 +164,22 @@ class FormResponseStaffViewControllerTest {
     }
 
     @Test
+    void disconnectedStudentCannotReadOldSubmissionThroughMyTeamFallback() throws Exception {
+        String token = sessionTokenFor("sub-student-a", "a@gmail.com");
+        StudentRecord record = studentRecordRepository
+            .findByWorkspaceIdAndStudentNumberIgnoreCase(workspaceId, "20-0649-750")
+            .orElseThrow();
+        associationService.adminDisconnect(
+            workspaceId, record.getId(), "admin-subject", "admin@example.test");
+
+        mockMvc.perform(get("/api/workspace/responses/my-team")
+                .param("workspaceId", workspaceId.toString())
+                .cookie(sessionCookie(token)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
     void unauthenticatedRequestIsRejected() throws Exception {
         mockMvc.perform(get("/api/workspace/responses/staff")
                 .param("workspaceId", workspaceId.toString()))

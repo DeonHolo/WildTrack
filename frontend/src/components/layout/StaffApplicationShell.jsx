@@ -58,7 +58,10 @@ const ADMIN_GROUPS = [
   },
   {
     label: 'Administration',
-    items: [{ to: '/workspace', label: 'Workspace', icon: GoogleLogo }]
+    items: [
+      { to: '/workspace', label: 'Workspace', icon: GoogleLogo },
+      { to: '/validation-study', label: 'Validation Study', icon: ClipboardText }
+    ]
   }
 ];
 

@@ -7,8 +7,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseRepository;
+import com.capvault.backend.student.StudentAssociationService;
 
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,16 +20,19 @@ public class FormDraftService {
 
     private final FormResponseDraftRepository draftRepository;
     private final FormResponseRepository responseRepository;
+    private final StudentAssociationService associationService;
     private final Clock clock;
     private final Duration retention;
 
     public FormDraftService(
         FormResponseDraftRepository draftRepository,
         FormResponseRepository responseRepository,
+        StudentAssociationService associationService,
         Clock clock
     ) {
         this.draftRepository = draftRepository;
         this.responseRepository = responseRepository;
+        this.associationService = associationService;
         this.clock = clock;
         this.retention = Duration.ofDays(14);
     }
@@ -42,6 +48,7 @@ public class FormDraftService {
 
     @Transactional
     public DraftState save(UUID workspaceId, UUID deliverableId, String googleSubject, Map<String, Object> values, Long clientRevision) {
+        requireExistingResponseAccess(workspaceId, deliverableId, googleSubject);
         Instant now = clock.instant();
         Optional<FormResponseDraft> existing = draftRepository
             .findByWorkspaceIdAndDeliverableIdAndGoogleSubject(workspaceId, deliverableId, googleSubject);
@@ -83,6 +90,7 @@ public class FormDraftService {
     /** Autosave restore: only when no newer submitted response takes precedence. */
     @Transactional(readOnly = true)
     public Optional<DraftState> restore(UUID workspaceId, UUID deliverableId, String googleSubject) {
+        if (!hasExistingResponseAccess(workspaceId, deliverableId, googleSubject)) return Optional.empty();
         Instant now = clock.instant();
         Optional<FormResponseDraft> draft = draftRepository
             .findByWorkspaceIdAndDeliverableIdAndGoogleSubject(workspaceId, deliverableId, googleSubject)
@@ -94,6 +102,7 @@ public class FormDraftService {
     /** Deliberate clear with confirmation happens in UI; this just performs it. */
     @Transactional
     public void clear(UUID workspaceId, UUID deliverableId, String googleSubject) {
+        requireExistingResponseAccess(workspaceId, deliverableId, googleSubject);
         draftRepository.findByWorkspaceIdAndDeliverableIdAndGoogleSubject(workspaceId, deliverableId, googleSubject)
             .ifPresent(draftRepository::delete);
     }
@@ -113,6 +122,27 @@ public class FormDraftService {
     @Transactional
     public int purgeExpired() {
         return draftRepository.deleteAllExpired(clock.instant());
+    }
+
+    /**
+     * Before the first successful submission there is no response to protect, so anonymous-to-
+     * WildTrack draft autosave remains allowed for a signed-in Google subject. Once a response
+     * exists, the subject must still hold the active association for that response's Student Record.
+     */
+    private boolean hasExistingResponseAccess(UUID workspaceId, UUID deliverableId, String googleSubject) {
+        Optional<FormResponse> response = responseRepository
+            .findByWorkspaceIdAndDeliverableIdAndGoogleSubject(workspaceId, deliverableId, googleSubject);
+        if (response.isEmpty()) return true;
+        return associationService.activeAssociation(workspaceId, googleSubject)
+            .map(association -> association.studentRecordId().equals(response.get().getStudentRecordId()))
+            .orElse(false);
+    }
+
+    private void requireExistingResponseAccess(UUID workspaceId, UUID deliverableId, String googleSubject) {
+        if (!hasExistingResponseAccess(workspaceId, deliverableId, googleSubject)) {
+            throw new AccessDeniedException(
+                "This account is no longer associated with the Student Number for the saved response.");
+        }
     }
 
     private DraftState toState(FormResponseDraft draft) {

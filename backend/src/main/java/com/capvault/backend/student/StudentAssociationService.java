@@ -2,12 +2,19 @@ package com.capvault.backend.student;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @Service
 public class StudentAssociationService {
@@ -18,6 +25,7 @@ public class StudentAssociationService {
     public static final String CONFLICT_DISMISSED = "DISMISSED";
 
     private final WorkspaceStudentAssociationRepository associationRepository;
+    private final CanonicalStudentAccountBindingRepository canonicalBindingRepository;
     private final StudentIdentityConflictRepository conflictRepository;
     private final StudentRecordRepository studentRecordRepository;
     private final Clock clock;
@@ -25,12 +33,14 @@ public class StudentAssociationService {
 
     public StudentAssociationService(
         WorkspaceStudentAssociationRepository associationRepository,
+        CanonicalStudentAccountBindingRepository canonicalBindingRepository,
         StudentIdentityConflictRepository conflictRepository,
         StudentRecordRepository studentRecordRepository,
         Clock clock,
         com.capvault.backend.response.DomainEventRecorder events
     ) {
         this.associationRepository = associationRepository;
+        this.canonicalBindingRepository = canonicalBindingRepository;
         this.conflictRepository = conflictRepository;
         this.studentRecordRepository = studentRecordRepository;
         this.clock = clock;
@@ -76,10 +86,139 @@ public class StudentAssociationService {
     ) {
     }
 
+    public record AccountCandidate(
+        String googleSubject,
+        String googleEmail,
+        boolean active,
+        Instant lastSeenAt
+    ) {
+    }
+
+    public record AccountBindingView(
+        UUID studentRecordId,
+        String studentNumber,
+        String studentName,
+        String teamCode,
+        String status,
+        String googleSubject,
+        String googleEmail,
+        List<AccountCandidate> candidates
+    ) {
+    }
+
+    public record AccountManagementView(
+        String firstClaimLimitation,
+        List<AccountBindingView> accounts
+    ) {
+    }
+
+    public static class AccountBindingConflictException extends RuntimeException {
+        public AccountBindingConflictException(String message) {
+            super(message);
+        }
+    }
+
     @Transactional(readOnly = true)
     public Optional<AssociationView> activeAssociation(UUID workspaceId, String googleSubject) {
-        return associationRepository.findByWorkspaceIdAndGoogleSubjectAndActiveTrue(workspaceId, googleSubject)
-            .flatMap(this::toView);
+        Optional<CanonicalStudentAccountBinding> canonical = canonicalBindingRepository.findByGoogleSubject(googleSubject)
+            .filter(CanonicalStudentAccountBinding::isBound);
+        if (canonical.isPresent()) {
+            return studentRecordRepository.findByWorkspaceIdAndStudentNumberIgnoreCase(
+                    workspaceId, canonical.get().getStudentNumberKey())
+                .filter(StudentRecord::isCurrentActive)
+                .map(record -> canonicalView(workspaceId, canonical.get(), record));
+        }
+
+        Optional<WorkspaceStudentAssociation> legacy = associationRepository
+            .findByWorkspaceIdAndGoogleSubjectAndActiveTrue(workspaceId, googleSubject);
+        if (legacy.isEmpty()) return Optional.empty();
+        String key = normalizeStudentNumber(legacy.get().getStudentNumber());
+        Optional<CanonicalStudentAccountBinding> binding = canonicalBindingRepository.findById(key);
+        if (binding.filter(CanonicalStudentAccountBinding::isBound).isPresent()
+                || binding.map(CanonicalStudentAccountBinding::getBlockedGoogleSubject)
+                    .filter(googleSubject::equals).isPresent()) {
+            return Optional.empty();
+        }
+        Set<String> activeSubjects = activeLegacyClaims(legacy.get().getStudentNumber()).stream()
+            .map(WorkspaceStudentAssociation::getGoogleSubject)
+            .collect(Collectors.toSet());
+        if (activeSubjects.size() != 1 || !activeSubjects.contains(googleSubject)) return Optional.empty();
+        return toView(legacy.get());
+    }
+
+    /** Validates a roster choice without reserving ownership. Binding happens only inside a successful response save. */
+    @Transactional(readOnly = true)
+    public AssociationView previewAssociation(UUID workspaceId, String googleSubject, String googleEmail, String studentNumber) {
+        StudentRecord record = requireCurrentRecord(workspaceId, studentNumber);
+        return new AssociationView(null, workspaceId, googleEmail, record.getId(), record.getStudentNumber(),
+            record.getStudentName(), record.getTeamCode(), ASSURANCE_SELF_DECLARED);
+    }
+
+    /**
+     * Joins the response transaction. Field validation must already have succeeded before this is called.
+     * The canonical row is locked so two accounts cannot win the same first successful claim concurrently.
+     */
+    @Transactional
+    public AssociationView associationForSuccessfulSave(UUID workspaceId, String googleSubject, String googleEmail,
+            String studentNumber, boolean editingExistingResponse) {
+        StudentRecord selected = requireCurrentRecord(workspaceId, studentNumber);
+        StudentRecord record = studentRecordRepository.lockById(selected.getId())
+            .filter(StudentRecord::isCurrentActive)
+            .orElseThrow(() -> new IllegalArgumentException("That Student Record is no longer available in this workspace."));
+        String key = normalizeStudentNumber(record.getStudentNumber());
+        CanonicalStudentAccountBinding binding = lockCanonicalBinding(key);
+        Instant now = clock.instant();
+
+        canonicalBindingRepository.findByGoogleSubject(googleSubject)
+            .filter(other -> !other.getStudentNumberKey().equals(key) && other.isBound())
+            .ifPresent(other -> { throw new AccountBindingConflictException(
+                "This Google account is already associated with a different Student Number. Ask an administrator to recover the account binding."); });
+
+        if (binding.isBound()) {
+            if (!googleSubject.equals(binding.getGoogleSubject())) {
+                throw new AccountBindingConflictException(
+                    "This Student Number is already associated with another Google account. Ask an administrator to review the account binding.");
+            }
+            WorkspaceStudentAssociation workspaceAssociation = upsertWorkspaceAssociation(record, googleSubject, googleEmail, now);
+            return toView(workspaceAssociation).orElseThrow();
+        }
+
+        if (googleSubject.equals(binding.getBlockedGoogleSubject())) {
+            throw new AccountBindingConflictException(
+                "This Google account was disconnected from the Student Number by an administrator. Ask an administrator to recover the account binding.");
+        }
+
+        List<WorkspaceStudentAssociation> activeLegacy = activeLegacyClaims(record.getStudentNumber());
+        Map<String, WorkspaceStudentAssociation> legacyBySubject = latestBySubject(activeLegacy);
+        if (legacyBySubject.size() > 1 || hasOpenLegacyConflictForStudentNumber(record.getStudentNumber())) {
+            throw new AccountBindingConflictException(
+                "This Student Number has unresolved account claims. Ask an administrator to review account management before submitting.");
+        }
+        if (legacyBySubject.size() == 1) {
+            WorkspaceStudentAssociation legacyHolder = legacyBySubject.values().iterator().next();
+            if (!googleSubject.equals(legacyHolder.getGoogleSubject())) {
+                throw new AccountBindingConflictException(
+                    "This Student Number is already associated with another Google account. Ask an administrator to review the account binding.");
+            }
+            binding.bind(googleSubject, googleEmail, now);
+            canonicalBindingRepository.save(binding);
+            WorkspaceStudentAssociation workspaceAssociation = upsertWorkspaceAssociation(record, googleSubject, googleEmail, now);
+            events.record(workspaceId, record.getId(), googleSubject, "ACCOUNT_BINDING_MIGRATED",
+                Map.of("studentNumber", record.getStudentNumber(), "source", "LEGACY_WORKSPACE_ASSOCIATION"));
+            return toView(workspaceAssociation).orElseThrow();
+        }
+
+        if (editingExistingResponse) {
+            throw new AccountBindingConflictException(
+                "This account is no longer associated with the Student Number for this saved response. Ask an administrator to recover the account binding before editing it.");
+        }
+
+        binding.bind(googleSubject, googleEmail, now);
+        canonicalBindingRepository.save(binding);
+        WorkspaceStudentAssociation workspaceAssociation = upsertWorkspaceAssociation(record, googleSubject, googleEmail, now);
+        events.record(workspaceId, record.getId(), googleSubject, "ACCOUNT_BOUND_ON_FIRST_SUCCESSFUL_SUBMISSION",
+            Map.of("studentNumber", record.getStudentNumber(), "assurance", ASSURANCE_SELF_DECLARED));
+        return toView(workspaceAssociation).orElseThrow();
     }
 
     /** Searchable roster options scoped strictly to one workspace; powers the three selectors. */
@@ -171,6 +310,83 @@ public class StudentAssociationService {
     @Transactional(readOnly = true)
     public List<ConflictDetail> conflictHistory(UUID workspaceId) {
         return conflictRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(workspaceId).stream().map(this::toDetail).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public AccountManagementView accountManagement(UUID workspaceId) {
+        List<AccountBindingView> accounts = studentRecordRepository
+            .findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
+            .filter(StudentRecord::isCurrentActive)
+            .map(this::accountBindingView)
+            .toList();
+        return new AccountManagementView(
+            "Account ownership is self-declared by the first successful submission. This prevents later account overwrites, but it cannot prove the first claimant was the rightful student.",
+            accounts);
+    }
+
+    @Transactional
+    public AccountBindingView adminDisconnect(UUID workspaceId, UUID studentRecordId,
+            String actorSubject, String actorEmail) {
+        StudentRecord selected = requireWorkspaceRecord(workspaceId, studentRecordId);
+        StudentRecord record = studentRecordRepository.lockById(selected.getId()).orElseThrow();
+        String key = normalizeStudentNumber(record.getStudentNumber());
+        CanonicalStudentAccountBinding binding = lockCanonicalBinding(key);
+        EffectiveBinding effective = effectiveBinding(binding, record.getStudentNumber(), record.getId());
+        if (effective.conflict()) {
+            throw new AccountBindingConflictException(
+                "This Student Number has unresolved account claims. Choose a recovery account instead of disconnecting an unknown winner.");
+        }
+        if (effective.googleSubject() == null) {
+            throw new IllegalArgumentException("This Student Number has no active account binding to disconnect.");
+        }
+        Instant now = clock.instant();
+        binding.disconnect(effective.googleSubject(), effective.googleEmail(), now);
+        canonicalBindingRepository.save(binding);
+        deactivateLegacyClaims(record.getStudentNumber(), now);
+        events.record(workspaceId, record.getId(), actorSubject, "ACCOUNT_BINDING_ADMIN_DISCONNECTED", Map.of(
+            "studentNumber", record.getStudentNumber(),
+            "disconnectedSubject", effective.googleSubject(),
+            "disconnectedEmail", String.valueOf(effective.googleEmail()),
+            "actorEmail", String.valueOf(actorEmail)));
+        return accountBindingView(record);
+    }
+
+    @Transactional
+    public AccountBindingView adminRecover(UUID workspaceId, UUID studentRecordId, String confirmedSubject,
+            String actorSubject, String actorEmail) {
+        if (confirmedSubject == null || confirmedSubject.isBlank()) {
+            throw new IllegalArgumentException("Choose an account to recover.");
+        }
+        StudentRecord selected = requireWorkspaceRecord(workspaceId, studentRecordId);
+        StudentRecord record = studentRecordRepository.lockById(selected.getId()).orElseThrow();
+        String key = normalizeStudentNumber(record.getStudentNumber());
+        CanonicalStudentAccountBinding binding = lockCanonicalBinding(key);
+        Map<String, WorkspaceStudentAssociation> known = latestBySubject(
+            associationRepository.findAllByStudentNumberIgnoreCaseOrderByUpdatedAtDesc(record.getStudentNumber()));
+        String recoveredEmail = Optional.ofNullable(known.get(confirmedSubject))
+            .map(WorkspaceStudentAssociation::getGoogleEmail)
+            .orElseGet(() -> confirmedSubject.equals(binding.getBlockedGoogleSubject()) ? binding.getBlockedGoogleEmail() : null);
+        if (recoveredEmail == null || recoveredEmail.isBlank()) {
+            throw new IllegalArgumentException("Choose an account previously recorded for this Student Number.");
+        }
+        canonicalBindingRepository.findByGoogleSubject(confirmedSubject)
+            .filter(other -> !other.getStudentNumberKey().equals(key) && other.isBound())
+            .ifPresent(other -> { throw new AccountBindingConflictException(
+                "That Google account is already associated with a different Student Number."); });
+
+        Instant now = clock.instant();
+        deactivateLegacyClaims(record.getStudentNumber(), now);
+        binding.bind(confirmedSubject, recoveredEmail, now);
+        canonicalBindingRepository.save(binding);
+        upsertWorkspaceAssociation(record, confirmedSubject, recoveredEmail, now);
+        closeConflictsAfterExplicitRecovery(record.getStudentNumber(), confirmedSubject, recoveredEmail,
+            actorSubject, actorEmail, now);
+        events.record(workspaceId, record.getId(), actorSubject, "ACCOUNT_BINDING_ADMIN_RECOVERED", Map.of(
+            "studentNumber", record.getStudentNumber(),
+            "confirmedSubject", confirmedSubject,
+            "confirmedEmail", recoveredEmail,
+            "actorEmail", String.valueOf(actorEmail)));
+        return accountBindingView(record);
     }
 
     /**
@@ -340,6 +556,149 @@ public class StudentAssociationService {
     private static boolean samePair(StudentIdentityConflict conflict, String firstSubject, String secondSubject) {
         return (conflict.getExistingSubject().equals(firstSubject) && conflict.getConflictingSubject().equals(secondSubject))
             || (conflict.getExistingSubject().equals(secondSubject) && conflict.getConflictingSubject().equals(firstSubject));
+    }
+
+    private AccountBindingView accountBindingView(StudentRecord record) {
+        String key = normalizeStudentNumber(record.getStudentNumber());
+        CanonicalStudentAccountBinding binding = canonicalBindingRepository.findById(key).orElse(null);
+        EffectiveBinding effective = effectiveBinding(binding, record.getStudentNumber(), record.getId());
+        Map<String, WorkspaceStudentAssociation> candidatesBySubject = latestBySubject(
+            associationRepository.findAllByStudentNumberIgnoreCaseOrderByUpdatedAtDesc(record.getStudentNumber()));
+        if (binding != null && binding.getBlockedGoogleSubject() != null
+                && !candidatesBySubject.containsKey(binding.getBlockedGoogleSubject())) {
+            candidatesBySubject.put(binding.getBlockedGoogleSubject(), null);
+        }
+        List<AccountCandidate> candidates = candidatesBySubject.entrySet().stream()
+            .map(entry -> {
+                WorkspaceStudentAssociation association = entry.getValue();
+                String email = association == null ? binding.getBlockedGoogleEmail() : association.getGoogleEmail();
+                boolean active = association != null && association.isActive();
+                Instant lastSeen = association == null ? binding.getUpdatedAt() : association.getUpdatedAt();
+                return new AccountCandidate(entry.getKey(), email, active, lastSeen);
+            })
+            .sorted((first, second) -> {
+                Instant a = first.lastSeenAt() == null ? Instant.EPOCH : first.lastSeenAt();
+                Instant b = second.lastSeenAt() == null ? Instant.EPOCH : second.lastSeenAt();
+                return b.compareTo(a);
+            })
+            .toList();
+        return new AccountBindingView(record.getId(), record.getStudentNumber(), record.getStudentName(),
+            record.getTeamCode(), effective.conflict() ? "CONFLICT" : effective.googleSubject() == null ? "UNBOUND" : "BOUND",
+            effective.googleSubject(), effective.googleEmail(), candidates);
+    }
+
+    private EffectiveBinding effectiveBinding(CanonicalStudentAccountBinding binding, String studentNumber, UUID studentRecordId) {
+        if (binding != null && binding.isBound()) {
+            return new EffectiveBinding(binding.getGoogleSubject(), binding.getGoogleEmail(), false);
+        }
+        Map<String, WorkspaceStudentAssociation> active = latestBySubject(activeLegacyClaims(studentNumber));
+        boolean openConflict = hasOpenLegacyConflictForStudentNumber(studentNumber);
+        if (active.size() > 1 || openConflict) return new EffectiveBinding(null, null, true);
+        if (active.size() == 1) {
+            WorkspaceStudentAssociation only = active.values().iterator().next();
+            return new EffectiveBinding(only.getGoogleSubject(), only.getGoogleEmail(), false);
+        }
+        return new EffectiveBinding(null, null, false);
+    }
+
+    private record EffectiveBinding(String googleSubject, String googleEmail, boolean conflict) { }
+
+    private StudentRecord requireCurrentRecord(UUID workspaceId, String studentNumber) {
+        if (studentNumber == null || studentNumber.isBlank()) {
+            throw new IllegalArgumentException("Choose a Student Number from this workspace.");
+        }
+        StudentRecord record = studentRecordRepository.findByWorkspaceIdAndStudentNumberIgnoreCase(workspaceId, studentNumber)
+            .orElseThrow(() -> new IllegalArgumentException("No Student Record with that number exists in this workspace."));
+        if (!record.isCurrentActive()) {
+            throw new IllegalArgumentException("That Student Record is not part of the current Tracker roster.");
+        }
+        return record;
+    }
+
+    private StudentRecord requireWorkspaceRecord(UUID workspaceId, UUID studentRecordId) {
+        return studentRecordRepository.findById(studentRecordId)
+            .filter(record -> workspaceId.equals(record.getWorkspaceId()))
+            .orElseThrow(() -> new IllegalArgumentException("Student Record was not found in this workspace."));
+    }
+
+    private CanonicalStudentAccountBinding lockCanonicalBinding(String key) {
+        Optional<CanonicalStudentAccountBinding> existing = canonicalBindingRepository.lockByStudentNumberKey(key);
+        if (existing.isPresent()) return existing.get();
+        try {
+            CanonicalStudentAccountBinding created = canonicalBindingRepository.saveAndFlush(
+                new CanonicalStudentAccountBinding(key, clock.instant()));
+            return canonicalBindingRepository.lockByStudentNumberKey(created.getStudentNumberKey()).orElseThrow();
+        } catch (DataIntegrityViolationException concurrentInsert) {
+            throw new AccountBindingConflictException(
+                "This Student Number was claimed by another submission at the same time. Reload and try again.");
+        }
+    }
+
+    private WorkspaceStudentAssociation upsertWorkspaceAssociation(StudentRecord record, String googleSubject,
+            String googleEmail, Instant now) {
+        WorkspaceStudentAssociation association = associationRepository
+            .findByWorkspaceIdAndGoogleSubject(record.getWorkspaceId(), googleSubject)
+            .orElseGet(() -> new WorkspaceStudentAssociation(UUID.randomUUID(), record.getWorkspaceId(), googleSubject,
+                googleEmail, record.getId(), record.getStudentNumber(), ASSURANCE_SELF_DECLARED, true, now, now));
+        association.setGoogleEmail(googleEmail);
+        association.setStudentRecordId(record.getId());
+        association.setStudentNumber(record.getStudentNumber());
+        association.setActive(true);
+        association.setUpdatedAt(now);
+        return associationRepository.save(association);
+    }
+
+    private List<WorkspaceStudentAssociation> activeLegacyClaims(String studentNumber) {
+        return associationRepository.findAllByStudentNumberIgnoreCaseAndActiveTrueOrderByUpdatedAtDesc(studentNumber);
+    }
+
+    private Map<String, WorkspaceStudentAssociation> latestBySubject(List<WorkspaceStudentAssociation> claims) {
+        Map<String, WorkspaceStudentAssociation> latest = new LinkedHashMap<>();
+        for (WorkspaceStudentAssociation claim : claims) latest.putIfAbsent(claim.getGoogleSubject(), claim);
+        return latest;
+    }
+
+    private void deactivateLegacyClaims(String studentNumber, Instant now) {
+        List<WorkspaceStudentAssociation> active = activeLegacyClaims(studentNumber);
+        active.forEach(association -> {
+            association.setActive(false);
+            association.setUpdatedAt(now);
+        });
+        associationRepository.saveAll(active);
+    }
+
+    private boolean hasOpenLegacyConflictForStudentNumber(String studentNumber) {
+        String key = normalizeStudentNumber(studentNumber);
+        for (StudentIdentityConflict conflict : conflictRepository.findAllByStatusOrderByCreatedAtDesc(CONFLICT_OPEN)) {
+            StudentRecord record = studentRecordRepository.findById(conflict.getStudentRecordId()).orElse(null);
+            if (record != null && normalizeStudentNumber(record.getStudentNumber()).equals(key)) return true;
+        }
+        return false;
+    }
+
+    private void closeConflictsAfterExplicitRecovery(String studentNumber, String confirmedSubject, String confirmedEmail,
+            String actorSubject, String actorEmail, Instant decidedAt) {
+        String key = normalizeStudentNumber(studentNumber);
+        for (StudentIdentityConflict conflict : new ArrayList<>(conflictRepository.findAllByStatusOrderByCreatedAtDesc(CONFLICT_OPEN))) {
+            StudentRecord record = studentRecordRepository.findById(conflict.getStudentRecordId()).orElse(null);
+            if (record == null || !normalizeStudentNumber(record.getStudentNumber()).equals(key)) continue;
+            String note = conflict.getExistingSubject().equals(confirmedSubject) || conflict.getConflictingSubject().equals(confirmedSubject)
+                ? "Admin account recovery confirmed account: " + confirmedEmail + "."
+                : "Admin account recovery selected a different previously recorded account: " + confirmedEmail + ".";
+            conflict.decide(CONFLICT_RESOLVED, actorSubject, actorEmail, note, decidedAt);
+            conflictRepository.save(conflict);
+            events.record(conflict.getWorkspaceId(), conflict.getId(), actorSubject, "IDENTITY_CONFLICT_DECIDED",
+                Map.of("decision", CONFLICT_RESOLVED, "reason", "ADMIN_ACCOUNT_RECOVERY"));
+        }
+    }
+
+    private AssociationView canonicalView(UUID workspaceId, CanonicalStudentAccountBinding binding, StudentRecord record) {
+        return new AssociationView(null, workspaceId, binding.getGoogleEmail(), record.getId(), record.getStudentNumber(),
+            record.getStudentName(), record.getTeamCode(), ASSURANCE_SELF_DECLARED);
+    }
+
+    private static String normalizeStudentNumber(String studentNumber) {
+        return String.valueOf(studentNumber == null ? "" : studentNumber).trim().toLowerCase(Locale.ROOT);
     }
 
     private Optional<AssociationView> toView(WorkspaceStudentAssociation association) {

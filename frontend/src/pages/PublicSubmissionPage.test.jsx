@@ -502,7 +502,7 @@ describe('public submission form', () => {
     Object.values(validValues).forEach((value, index) => fireEvent.change(controls[index], { target: { value } }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
 
-    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', validValues, null));
+    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', validValues, null, '22-1001-001'));
   });
 
   it('does not resend restored retired response keys when an active answer is edited', async () => {
@@ -529,7 +529,7 @@ describe('public submission form', () => {
 
     await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
       documentPdf: 'https://drive.google.com/file/d/new-pdf/view'
-    }, 2));
+    }, 2, '22-1001-001'));
   });
 
   it('renders configured academic identity and persists editable Section while keeping roster identity out of response values', async () => {
@@ -595,7 +595,7 @@ describe('public submission form', () => {
       scope: 'scope-campus',
       readiness: 'ready',
       evidence: ['screenshots']
-    }, null));
+    }, null, '22-1001-001'));
   });
 
   it('does not require absent or optional academic name, team, or section fields on configured forms', async () => {
@@ -639,7 +639,7 @@ describe('public submission form', () => {
 
     await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
       summary: 'No extra identity requirements'
-    }, null));
+    }, null, '22-1001-001'));
   });
 
   it('accepts a manually entered required Section when the roster record has no section', async () => {
@@ -689,7 +689,7 @@ describe('public submission form', () => {
     await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
       sectionPresentation: 'G7',
       summary: 'Section entered manually'
-    }, null));
+    }, null, '22-1001-001'));
   });
 
   it('uses Team Code as a searchable roster filter and clears an incompatible selected student', async () => {
@@ -956,7 +956,7 @@ describe('public submission form', () => {
     expect(screen.queryByRole('heading', { name: /Response received|Response updated|No changes saved/i })).not.toBeInTheDocument();
   });
 
-  it('confirms a newly selected Student Number on the server before submitting', async () => {
+  it('sends the selected Student Number only with the successful submission request', async () => {
     renderForm();
     await selectStudent();
     fireEvent.change(screen.getByRole('textbox', { name: /PDF Drive Link/i }), {
@@ -964,8 +964,9 @@ describe('public submission form', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
 
-    await waitFor(() => expect(api.confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1001-001'));
-    expect(api.submitResponse).toHaveBeenCalled();
+    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith(
+      'workspace-it', 'deliv-srs', expect.any(Object), null, '22-1001-001'));
+    expect(api.confirmStudentAssociation).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -993,7 +994,7 @@ describe('public submission form', () => {
 
     expect(await screen.findByRole('heading', { name: expectedTitle })).toBeInTheDocument();
     expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', expect.any(Object),
-      overrides.updated || overrides.unchanged ? 1 : null);
+      overrides.updated || overrides.unchanged ? 1 : null, '22-1001-001');
     const successArtwork = screen.getByRole('img', { name: /WildTrack mascot celebrating a recorded submission/i });
     expect(successArtwork).toHaveStyle('background-image: url("/assets/Good%20Job.webp")');
     expect(successArtwork).toHaveStyle('background-size: auto 100%');

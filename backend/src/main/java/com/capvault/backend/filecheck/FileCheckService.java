@@ -116,7 +116,7 @@ public class FileCheckService {
                 "Not PDF",
                 "Upload the frozen PDF to Drive and submit that file's sharing link.",
                 responseMetadata
-            ));
+            ), metadata);
         }
         if (!metadata.canDownload()) {
             return persist(workspaceId, request, blocked(
@@ -126,7 +126,7 @@ public class FileCheckService {
                 "Download Disabled",
                 "Allow viewers to download the PDF, then run the check again.",
                 responseMetadata
-            ));
+            ), metadata);
         }
         if (metadata.size() != null && metadata.size() > driveProperties.maximumFileSizeBytes()) {
             return persist(workspaceId, request, blocked(
@@ -136,7 +136,7 @@ public class FileCheckService {
                 "File Too Large",
                 "Compress the PDF before submitting it.",
                 responseMetadata
-            ));
+            ), metadata);
         }
 
         byte[] bytes;
@@ -150,7 +150,7 @@ public class FileCheckService {
                 "Download Failed",
                 "Confirm the sharing and download permissions, then run the check again.",
                 responseMetadata
-            ));
+            ), metadata);
         }
 
         PdfInspection inspection = pdfInspector.inspect(bytes);
@@ -165,7 +165,7 @@ public class FileCheckService {
                     ? "Remove the PDF password and submit a readable copy."
                     : "Export the document as a new PDF and submit the replacement link.",
                 responseMetadata
-            ));
+            ), metadata);
         }
 
         DocumentTemplate template = templateService.find(workspaceId, request.deliverableKey(), request.fieldId());
@@ -178,7 +178,7 @@ public class FileCheckService {
             responseMetadata,
             inspection,
             comparison
-        ));
+        ), metadata);
     }
 
     private void validateFieldAssociation(UUID workspaceId, FileCheckRequest request) {
@@ -420,9 +420,18 @@ public class FileCheckService {
         FileCheckRequest request,
         FileCheckResponse response
     ) {
+        return persist(workspaceId, request, response, null);
+    }
+
+    private FileCheckResponse persist(
+        UUID workspaceId,
+        FileCheckRequest request,
+        FileCheckResponse response,
+        DriveFileMetadata observedMetadata
+    ) {
         try {
             String json = objectMapper.writeValueAsString(response);
-            FileCheckReport saved = repository.save(new FileCheckReport(workspaceId, request, response, json));
+            FileCheckReport saved = repository.save(new FileCheckReport(workspaceId, request, response, json, observedMetadata));
             FileCheckResponse withId = response.withId(saved.getId());
             return withId;
         } catch (JsonProcessingException exception) {

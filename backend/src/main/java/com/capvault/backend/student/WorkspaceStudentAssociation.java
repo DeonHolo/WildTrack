@@ -71,11 +71,11 @@ public class WorkspaceStudentAssociation {
     public String getAssuranceLevel() { return assuranceLevel; }
     public boolean isActive() { return active; }
     public void setActive(boolean active) { this.active = active; }
+    public void setGoogleEmail(String googleEmail) { this.googleEmail = googleEmail; }
     public void setStudentRecordId(UUID studentRecordId) { this.studentRecordId = studentRecordId; }
     public void setStudentNumber(String studentNumber) { this.studentNumber = studentNumber; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
 }
-
 

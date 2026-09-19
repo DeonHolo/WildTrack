@@ -1,24 +1,82 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
-  getStaffMonitoring: vi.fn()
+  getStaffMonitoring: vi.fn(),
+  getTemplates: vi.fn(),
+  getWorkspaceSources: vi.fn(),
+  previewSheetImportSource: vi.fn(),
+  applySheetImportPreview: vi.fn()
 }));
 const submission = vi.hoisted(() => ({ saveDeliverable: vi.fn() }));
 
 vi.mock('./api.js', () => ({
   createTrackerColumn: vi.fn(),
+  applySheetImportPreview: api.applySheetImportPreview,
   getStaffMonitoring: api.getStaffMonitoring,
-  getTemplates: vi.fn(),
-  getWorkspaceSources: vi.fn(),
+  getTemplates: api.getTemplates,
+  getWorkspaceSources: api.getWorkspaceSources,
   importSheetSource: vi.fn(),
+  previewSheetImportSource: api.previewSheetImportSource,
   updateTrackerColumn: vi.fn()
 }));
 
-vi.mock('./submissionClient.js', () => ({
-  saveDeliverable: submission.saveDeliverable
-}));
+vi.mock('./submissionClient.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, saveDeliverable: submission.saveDeliverable };
+});
 
-import { loadWorkspaceArchiveReadiness, publishSuggestedForms } from './workspaceAdminClient.js';
+import {
+  applyWorkspaceSheetPreview,
+  loadWorkspaceArchiveReadiness,
+  previewWorkspaceSheet,
+  publishSuggestedForms
+} from './workspaceAdminClient.js';
+
+describe('workspace re-import reconciliation client', () => {
+  beforeEach(() => {
+    api.previewSheetImportSource.mockReset();
+    api.applySheetImportPreview.mockReset();
+    api.getStaffMonitoring.mockReset().mockResolvedValue({
+      students: [], projects: [], trackerColumns: [], trackerRows: [], deliverables: [], responses: [], reviewStates: {}, fileChecks: {}
+    });
+    api.getTemplates.mockReset().mockResolvedValue([]);
+    api.getWorkspaceSources.mockReset().mockResolvedValue([]);
+  });
+
+  it('returns the read-only preview with a stable UI source label', async () => {
+    api.previewSheetImportSource.mockResolvedValue({ previewId: 'preview-1', changes: [] });
+    await expect(previewWorkspaceSheet('workspace-it', 'tracker', { sheetUrl: 'https://docs.google.com/test' }))
+      .resolves.toMatchObject({ previewId: 'preview-1', sourceKey: 'tracker', sourceLabel: 'Tracker' });
+    expect(api.previewSheetImportSource).toHaveBeenCalledWith(
+      'tracker',
+      { sheetUrl: 'https://docs.google.com/test' },
+      'workspace-it'
+    );
+  });
+
+  it('applies exactly the preview id and explicit conflict resolutions before reloading workspace data', async () => {
+    api.applySheetImportPreview.mockResolvedValue({
+      studentsFound: 1,
+      officialIdsFound: 1,
+      groupsFound: 0,
+      columnsFound: 2,
+      warnings: [],
+      deadlineSuggestions: [],
+      details: { metrics: { students: 1 }, detectedFields: ['Student Number'], missingFields: [], deadlineRows: 0 }
+    });
+    const result = await applyWorkspaceSheetPreview('workspace-it', 'teamFormation', 'preview-1', {
+      'student:one:studentName': 'LOCAL'
+    });
+    expect(api.applySheetImportPreview).toHaveBeenCalledWith(
+      'teamFormation',
+      'preview-1',
+      { 'student:one:studentName': 'LOCAL' },
+      'workspace-it'
+    );
+    expect(result).toMatchObject({ ok: true, importSummary: { sourceType: 'Team Formation', studentsFound: 1 } });
+    expect(api.getStaffMonitoring).toHaveBeenCalledWith('workspace-it');
+  });
+});
 
 describe('workspace archive readiness', () => {
   beforeEach(() => api.getStaffMonitoring.mockReset());
