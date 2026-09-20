@@ -227,7 +227,8 @@ class StdBenchmarkObservationExportTest {
             assertThat(row.get("human_label_review")).isEqualTo("PENDING");
             assertThat(row.get("human_label_reviewer")).isBlank();
         }
-        var assertions = parseCsv(Files.readString(base.resolve("atomic-assertions.csv")));
+        var assertions = parseCsv(Files.readString(base.resolve("atomic-assertions.csv")),
+            List.of("assertion_id", "fixture_id", "review_status", "reviewer", "reviewed_at"));
         assertThat(freeze.path("planned_atomic_assertions").asInt()).isEqualTo(assertions.size());
         for (Map<String, String> row : assertions) {
             assertThat(row.get("review_status")).isEqualTo("PENDING");
@@ -246,6 +247,11 @@ class StdBenchmarkObservationExportTest {
 
     /** Small RFC4180-compatible parser: quotes, commas, embedded newlines and blank trailing fields. */
     static List<Map<String, String>> parseCsv(String content) {
+        return parseCsv(content, List.of("fixture_id", "file", "human_label_review"));
+    }
+
+    /** Shared CSV decoder with file-specific required columns. Assertion CSV is NOT a fixture manifest. */
+    static List<Map<String, String>> parseCsv(String content, List<String> requiredColumns) {
         var rows = new ArrayList<List<String>>();
         var current = new ArrayList<String>();
         var buffer = new StringBuilder();
@@ -275,7 +281,7 @@ class StdBenchmarkObservationExportTest {
         assertThat(rows).isNotEmpty();
         List<String> header = rows.remove(0);
         assertThat(new HashSet<>(header)).hasSize(header.size());
-        assertThat(header).contains("fixture_id", "file", "human_label_review");
+        assertThat(header).containsAll(requiredColumns);
         var result = new ArrayList<Map<String, String>>();
         for (List<String> values : rows) {
             assertThat(values).as("Malformed manifest row").hasSize(header.size());
