@@ -1,3 +1,14 @@
 # Preserve byte-exact generated Goal 2 provider responses, source extracts and SHA-256 evidence
 # on Windows and Unix; newline conversion would invalidate recorded observation hashes.
 docs/capstone-2-build/benchmarks/std/results/goal2-20260921/** -text
+
+# Preserve exact recorded Gemini HTTP and v4 production-review output bytes for
+# the distinct sanitized SRS follow-up; normal source/Markdown still use text rules.
+docs/capstone-2-build/benchmarks/srs/results/srs-followup-20260921/SRS-*/raw-provider-response.json -text
+docs/capstone-2-build/benchmarks/srs/results/srs-followup-20260921/SRS-*/raw-report.json -text
+docs/capstone-2-build/benchmarks/srs/results/srs-followup-20260921/SRS-*/production-filtered-report.json -text
+
+# The pre-call SRS frozen key fingerprints these exact UTF-8 source bytes.
+docs/capstone-2-build/benchmarks/srs/manifest.json -text
+docs/capstone-2-build/benchmarks/srs/SOURCE_PROOF.md -text
+docs/capstone-2-build/benchmarks/srs/SRS_AI_INSTRUCTIONS.txt -text

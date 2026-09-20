@@ -1,0 +1,21 @@
+{
+  "type": "SANITIZED_SRS_SEPARATE_FOLLOWUP_REFERENCE",
+  "scope": "Six controlled fixtures derived from owner-provided PDFs; originals are neither transmitted nor published",
+  "methodology": "PROJECT_DEFINED_REFERENCE_AI_ASSISTED",
+  "frozen_at": "2026-09-20T18:19:55.129Z",
+  "app_commit": "c70bf7d3885a7710f67b4502c644c0938e2ef69d",
+  "prompt_version": "see app source at app_commit",
+  "model": "gemini-3.1-flash-lite",
+  "reference_sha256": "b167a9495fb0677d2957c51094959f372c9742791e971b0c120dc9f5c771835f",
+  "manifest_sha256": "3bdd3c48c631c021f622729a4ccc4ae941e184c21a30dd1b81d5c9c583337945",
+  "instructions_sha256": "684548f17c272058649cb6b6776749912741e69669f151ddb6c8fa2065498f9e",
+  "template_sha256": "71e7fe59438eb364d5bb923ce42074df63feca4c1105c06cf6c67717a78e3aaf",
+  "fixture_sha256": {
+    "SRS-01": "71e7fe59438eb364d5bb923ce42074df63feca4c1105c06cf6c67717a78e3aaf",
+    "SRS-02": "f0accbf85ece38f3aa8588b432cf9362c306c86dd3362abf3f5f8c9e00cc9b7d",
+    "SRS-03": "34171a8e207f1538e07ac58a19c8badc546d25fea2e840590e32ed0c830d2e48",
+    "SRS-04": "80b044f6133e0ca660687303058843dd6b53a4207d182b818b5a303a3caa4d91",
+    "SRS-05": "12e2af487502349ecb32ea4697583677776cf1e9dde8e4bb9e3bb099a96d34d5",
+    "SRS-06": "1ebd81de0141ed36906d2dd0f4d3880acb068cdef9317da26255502cd75c48a6"
+  }
+}

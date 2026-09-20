@@ -1,0 +1,12 @@
+Software Requirements Specification
+Table of Contents
+1. Overview
+2. Request Processing
+2.1 Validation Rules
+2.2 Recovery Rules
+1. Overview
+This fictional system describes local queue handling and does not represent a student submission.
+2. Request Processing
+The demonstration processes sample queue requests using only invented data.
+2.2 Recovery Rules
+The sample system permits retry after a synthetic transient failure.

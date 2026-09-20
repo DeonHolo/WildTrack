@@ -215,11 +215,12 @@ class AiReviewDeduplicationTest {
                 "Submit the final Refactored SPMP PDF.")),
             List.of(), "Add Project Scope."));
 
-        var rejected = run(first);
+        var guarded = run(first);
 
-        assertThat(rejected.status()).isEqualTo("UNCERTAIN");
-        assertThat(rejected.failureCode()).isEqualTo("INVALID_RESPONSE");
-        assertThat(rejected.report()).isNull();
+        assertThat(guarded.status()).isEqualTo("COMPLETED");
+        assertThat(guarded.report().missingRequiredSections()).isEmpty();
+        assertThat(guarded.report().summary()).doesNotContain("Project Scope");
+        assertThat(guarded.report().suggestedAction()).doesNotContain("Project Scope");
     }
 
     @Test void explicitlyNamedInstructionCanAuthorizeAMissingRequiredSection() {

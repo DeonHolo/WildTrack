@@ -16,6 +16,7 @@ const MANIFEST_PATH = path.join(HERE, 'manifest.csv');
 const HASHES_PATH = path.join(HERE, 'fixture-hashes.sha256');
 const PROTOCOL_PATH = path.join(HERE, 'GOAL2_REFERENCE_CHECKLIST.md');
 const INSTRUCTIONS_PATH = path.join(HERE, 'STD_AI_INSTRUCTIONS.txt');
+const ARCHIVES_PATH = path.join(HERE, 'archives');
 const MODEL = 'gemini-3.1-flash-lite';
 const PROMPT_VERSION = 'wildtrack-academic-review-v3';
 const KEY_METHOD = 'PROJECT_DEFINED_REFERENCE_AI_ASSISTED';
@@ -35,8 +36,26 @@ function fileWithinRoot(relativeOrAbsolute, base, description) {
     `Missing or outside-repository ${description}: ${relativeOrAbsolute}`);
   return absolute;
 }
+function referenceSources(options) {
+  // Goal 1 expands the living manifest/hash list; archived Goal 2 evidence must
+  // be replayed against its own exact, verified pre-run reference bytes instead.
+  if (!options.sourceSnapshot) return {
+    checklist: CHECKLIST_PATH, manifest: MANIFEST_PATH, hashes: HASHES_PATH,
+    instructions: INSTRUCTIONS_PATH, protocol: PROTOCOL_PATH
+  };
+  const directory = path.resolve(options.sourceSnapshot);
+  failUnless(directory.startsWith(ARCHIVES_PATH + path.sep) && fs.existsSync(directory)
+    && fs.statSync(directory).isDirectory(),
+  'Historical Goal 2 source snapshot must be an existing STD benchmark archive directory');
+  const file = name => fileWithinRoot(name, directory, `archived Goal 2 ${name}`);
+  return {
+    checklist: file('ai-checklist.csv'), manifest: file('manifest.csv'),
+    hashes: file('fixture-hashes.sha256'), instructions: file('STD_AI_INSTRUCTIONS.txt'),
+    protocol: file('GOAL2_REFERENCE_CHECKLIST.md')
+  };
+}
 function loadPreparedChecklist(options) {
-  const checklist = options.checklist ?? readCsv(CHECKLIST_PATH);
+  const checklist = options.checklist ?? readCsv(options.sources.checklist);
   const rows = getUnique(checklist, 'decision_id', 'Goal 2 reference checklist decision');
   const grouped = new Map(PILOT.map(id => [id, []]));
   for (const row of rows.values()) {
@@ -55,12 +74,12 @@ function validateFrozenKey(record, authority, options) {
   const key = record.frozen_key;
   if (!key) return false;
   const required = {
-    checklist_sha256: sha256(CHECKLIST_PATH),
-    manifest_sha256: sha256(MANIFEST_PATH),
+    checklist_sha256: sha256(options.sources.checklist),
+    manifest_sha256: sha256(options.sources.manifest),
     template_sha256: authority.templateHash,
-    fixture_hashes_sha256: sha256(HASHES_PATH),
-    instructions_sha256: sha256(INSTRUCTIONS_PATH),
-    protocol_sha256: sha256(PROTOCOL_PATH)
+    fixture_hashes_sha256: sha256(options.sources.hashes),
+    instructions_sha256: sha256(options.sources.instructions),
+    protocol_sha256: sha256(options.sources.protocol)
   };
   for (const [name, expected] of Object.entries(required)) {
     failUnless(key[name] === expected, `Frozen Goal 2 key mismatch at ${name}; do not change references after provider attempts`);
@@ -165,11 +184,12 @@ function inventory(run, report, fixture, seen) {
   return { total, traceable, unassessable, requiredStructuredClaims: required.length };
 }
 function score(record, options = {}) {
-  const authority = fixtureAuthority();
+  const sources = referenceSources(options);
+  const authority = fixtureAuthority({ manifestPath: sources.manifest, hashListPath: sources.hashes });
   failUnless(record && record.schema_version === 2 && record.methodology === KEY_METHOD &&
     Array.isArray(record.runs), 'Goal 2 run record needs schema_version=2 and project-defined reference methodology');
-  const { grouped } = loadPreparedChecklist(options);
-  const frozen = validateFrozenKey(record, authority, options);
+  const { grouped } = loadPreparedChecklist({ ...options, sources });
+  const frozen = validateFrozenKey(record, authority, { ...options, sources });
   const keyed = getUnique(record.runs, 'fixture_id', 'Goal 2 run fixture');
   for (const id of keyed.keys()) failUnless(PILOT.includes(id), `Unplanned Goal 2 fixture: ${id}`);
   const tally = Object.fromEntries(OUTCOMES.map(status => [status, 0]));
@@ -177,7 +197,7 @@ function score(record, options = {}) {
   let correct = 0; let decisionCount = 0; let unassessableDecisions = 0;
   let claims = 0; let traces = 0; let unassessableClaims = 0; let fullyAudited = 0;
   const inputPath = options.inputPath || path.join(HERE, 'ai-run-record.template.json');
-  const instructions = fs.existsSync(INSTRUCTIONS_PATH) ? fs.readFileSync(INSTRUCTIONS_PATH, 'utf8') : '';
+  const instructions = fs.existsSync(sources.instructions) ? fs.readFileSync(sources.instructions, 'utf8') : '';
   for (const id of PILOT) {
     const run = keyed.get(id) || { fixture_id: id, outcome: 'not_attempted' };
     failUnless(OUTCOMES.includes(run.outcome), `Invalid ${id} attempt outcome: ${run.outcome}`);
@@ -260,9 +280,14 @@ function cli(argv) {
   try {
     const index = argv.indexOf('--record');
     const outputIndex = argv.indexOf('--output');
-    failUnless(index > 0 && argv[index + 1], 'Usage: node score-ai.cjs --record <actual-run-record.json> [--output <report.json>]');
+    const snapshotIndex = argv.indexOf('--source-snapshot');
+    failUnless(index > 0 && argv[index + 1],
+      'Usage: node score-ai.cjs --record <actual-run-record.json> [--source-snapshot <verified-archive-directory>] [--output <report.json>]');
+    failUnless(snapshotIndex < 0 || argv[snapshotIndex + 1], '--source-snapshot requires an existing archive directory');
     const inputPath = path.resolve(argv[index + 1]);
-    const report = score(JSON.parse(fs.readFileSync(inputPath, 'utf8')), { inputPath });
+    const report = score(JSON.parse(fs.readFileSync(inputPath, 'utf8')), {
+      inputPath, sourceSnapshot: snapshotIndex < 0 ? null : argv[snapshotIndex + 1]
+    });
     const json = JSON.stringify(report, null, 2) + '\n';
     if (outputIndex > 0) {
       failUnless(argv[outputIndex + 1] && !fs.existsSync(argv[outputIndex + 1]),

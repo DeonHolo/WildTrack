@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"summary\": \"The submitted Software Requirements Specification (SRS) for the QueueLab project is complete and aligns with the provided template structure. All required sections are present and contain substantive content.\",\n  \"suggestedAction\": \"No further action is required as the document satisfies the template requirements.\",\n  \"findings\": [],\n  \"missingRequiredSections\": []\n}",
+            "thoughtSignature": "EnEKbwFpFH0TLuy8ZL1wo2q31ahsLJNsjeuw5PvczVmdBbsL5Tr24TSSzh36fJ0o870KhhewLXPhAlWgZUhTTGDST3T7tLFW8e+8Ya6lWequocZezFiQ5YqpaPseOvsJQ16Cshwxz3t/vcw4qY/WlTKVpA=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 3758,
+    "candidatesTokenCount": 77,
+    "totalTokenCount": 3835,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 2162
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1596
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.1-flash-lite",
+  "responseId": "LiSwatOTHKyE1e8Po-egkAQ"
+}

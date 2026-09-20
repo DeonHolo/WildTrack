@@ -1,0 +1,17 @@
+{
+  "summary" : "Document evidence: Section 2.4 contains a placeholder instead of project-specific requirements. Document evidence: Section 3.2 contains a placeholder instead of project-specific requirements.",
+  "findings" : [ {
+    "issue" : "Section 2.4 contains a placeholder instead of project-specific requirements.",
+    "source" : "DOCUMENT",
+    "evidence" : "Page 2, Section 2.4: 'PLACEHOLDER: This section still needs substantive project-specific requirements.'",
+    "requirement" : ""
+  }, {
+    "issue" : "Section 3.2 contains a placeholder instead of project-specific requirements.",
+    "source" : "DOCUMENT",
+    "evidence" : "Page 3, Section 3.2: 'PLACEHOLDER: This section still needs substantive project-specific requirements.'",
+    "requirement" : ""
+  } ],
+  "missingRequiredSections" : [ ],
+  "limitations" : [ ],
+  "suggestedAction" : "Review the cited document evidence before deciding what correction, if any, is appropriate."
+}

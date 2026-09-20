@@ -1,0 +1,14 @@
+Software Requirements Specification
+Table of Contents
+3. Integration Requirements ....................... 2
+3.1 Local Interfaces ............................. 2
+3.1.1 Hardware interfaces ........................ 2
+3.1.2 Software interfaces ........................ 2
+3. Integration Requirements
+The fictional service documents its integration boundary.
+3.1 Local Interfaces
+This section contains two concrete interface descriptions.
+3.1.1 Hardware interfaces
+No special devices are required in this synthetic environment.
+3.1.2 Software interfaces
+A local queue API accepts one JSON request per example operation.

@@ -1,0 +1,14 @@
+Software Requirements Specification
+Table of Contents
+1. Overview
+2. Request Processing
+2.1 Validation Rules
+2.2 Recovery Rules
+2.1 Validation Rules
+2.2 Recovery Rules
+1. Overview
+This controlled synthetic source has duplicated contents entries but no actual Validation Rules body.
+2. Request Processing
+The sample body discusses request handling only.
+2.2 Recovery Rules
+The sample system returns an error for failed requests.

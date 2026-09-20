@@ -35,6 +35,17 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         demonstration values are examples to replace, not the requested project's identity or required factual values.
         Never compare the submitted project's name against a sample name from the template. Before reporting a required
         section as missing, inspect the attached PDF and do not report it missing when that body section is present.
+        Treat headings as present regardless of equivalent numbering, unnumbered spelling, or PDF text extraction
+        line breaks. A table-of-contents mention alone does not prove a body section exists; a present heading with
+        incomplete prose is not an absent heading. A request for particular content is not an instruction to add
+        a separately named required section; do not invent headings such as "Supporting Evidence" from a requirement
+        merely to supply evidence. An official-template example project name does not define the student's identity.
+        An explicit synthetic/sample label alone does not mean the document is the wrong deliverable: distinguish
+        actual document type and body relevance from whether the synthetic fixture demonstrates real-world testing.
+        Do not call every section blank or every passage irrelevant if meaningful project-specific content exists.
+        If a requirement is conditional (for example, document incidents when actual outcomes differ), first
+        establish that its condition is met before alleging noncompliance. Do not prescribe an extra obligation
+        in the summary or suggested action that is absent from the validated structured findings.
         The summary and suggested action may only synthesize the grounded findings and supplied review limitations;
         they must not introduce new mandatory requirements. Use empty arrays when appropriate. Distinguish an absent
         requirement from evidence you could not inspect. Do not invent citations or claim you checked external

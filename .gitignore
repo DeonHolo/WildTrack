@@ -29,3 +29,7 @@ frontend/playwright-report/
 .agents/
 .codex/
 AGENTS.md
+
+# Owner-provided private SRS references in the older STD fixture folder;
+# derived, fully fictional publishable fixtures live separately under benchmarks/srs.
+docs/capstone-2-build/benchmarks/std/fixtures/SRS*.pdf

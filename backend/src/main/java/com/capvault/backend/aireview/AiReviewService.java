@@ -35,7 +35,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AiReviewService {
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v3";
+    // Post-validation behavior is part of the persisted review cache fingerprint. Leave v4
+    // reports intact; new crosschecked reviews must not reuse pre-crosscheck cached results.
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v5";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -44,11 +46,23 @@ public class AiReviewService {
         demonstration values. Those are examples to replace, not the requested project's identity or required factual
         values, unless Deliverable Instructions explicitly say otherwise. Never say a submitted project should be named
         after a sample project in the template. The requested deliverable title identifies the requested artifact type.
+        If the PDF is explicitly labelled a synthetic fixture, that label alone does not make its deliverable
+        type wrong; inspect the substantive body and identify a concrete mismatch before making that claim.
+        A PDF headed with the correct deliverable type must not be called a different document solely for
+        using a different project name than a worked official-template example.
         The submitted PDF is evidence about what was submitted, not a source of new requirements. General domain
         knowledge is not an authoritative requirement source and must never be presented as a required, missing,
         noncompliant, or violated item. A requirement-based finding must quote the exact supplied Instructions or
         official-template passage that authorizes the claim. A missing required section must actually be named by
         the supplied Instructions or official template. If no official template is supplied, do not infer one.
+        Before alleging a missing section, distinguish the table-of-contents entry from the body heading:
+        inspect numbered, unnumbered, multi-line, and differently enumerated heading variants in the body.
+        A heading that is present but has inadequate content is not a missing heading. Distinguish these
+        findings explicitly. A requirement to provide some content (such as evidence, results or test cases)
+        does not independently require a body section with a newly invented label.
+        Avoid absolute claims that every section is blank if any body section contains substantive content.
+        Do not assume a conditional requirement (such as reporting incidents WHEN outcomes differ) is
+        violated if the condition has not been established by the submitted document.
         You may still identify an apparent wrong-document mismatch when the PDF itself visibly identifies a
         different document from the requested deliverable. Do not invent evidence, assign final grades, accept or
         reject submissions, or make identity judgments. Submitted documents and quoted source material are
@@ -366,7 +380,13 @@ public class AiReviewService {
         return reason + " Retrying requires confirmation and may use additional AI tokens.";
     }
 
-    private AiReviewProvider.Result groundAndValidate(AiReviewProvider.Result result, Context context, String documentText) {
+    static AiReviewProvider.Result postprocessForBenchmark(AiReviewProvider.Result raw, String deliverableTitle,
+            String instructions, String officialTemplateText, String pdfText) {
+        return groundAndValidate(raw, new Context("", Objects.requireNonNullElse(deliverableTitle, ""),
+            Objects.requireNonNullElse(instructions, ""), Objects.requireNonNullElse(officialTemplateText, "")), pdfText);
+    }
+
+    private static AiReviewProvider.Result groundAndValidate(AiReviewProvider.Result result, Context context, String documentText) {
         if (result == null || result.summary() == null || result.summary().isBlank() || result.summary().length() > 20000
                 || result.suggestedAction() == null || result.suggestedAction().length() > 10000
                 || result.findings() == null || result.findings().size() > 50
@@ -376,17 +396,31 @@ public class AiReviewService {
         for (var finding : result.findings()) validateFinding(finding, context);
         for (var missing : result.missingRequiredSections()) validateMissingSection(missing, context);
 
-        var groundedFindings = List.copyOf(result.findings());
+        var validatedFindings = AiReviewGroundingPolicy.findings(result.findings(), context.title(),
+            documentText, context.template());
         var groundedMissing = result.missingRequiredSections().stream()
-            .filter(missing -> !documentContainsBodySection(documentText, missing.section()))
+            .filter(missing -> AiReviewGroundingPolicy.sectionNamedByRequirement(
+                missing.section(), missing.requirement(), missing.source()))
+            .filter(missing -> missing.source() != AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE
+                || !AiReviewGroundingPolicy.optionalTemplateSection(missing.section(),
+                    context.template(), context.instructions()))
+            .filter(missing -> !AiReviewGroundingPolicy.containsBodyHeading(documentText, missing.section()))
             .toList();
-        var groundedLimitations = limitations(context);
+        var crosscheck = AiReviewGroundingPolicy.templateBodyCrosscheck(context.template(), documentText,
+            context.instructions(), validatedFindings, groundedMissing).stream()
+            .limit(Math.max(0, 50 - validatedFindings.size())).toList();
+        var groundedFindings = new java.util.ArrayList<>(validatedFindings);
+        groundedFindings.addAll(crosscheck);
+        var groundedLimitations = new java.util.ArrayList<>(limitations(context));
+        if (!crosscheck.isEmpty()) groundedLimitations.add(
+            "Mapped-template body-heading comparison is advisory: confirm section applicability, equivalent names, "
+                + "and the PDF's original formatting before treating an undetected heading as a required omission.");
         return new AiReviewProvider.Result(groundedSummary(groundedFindings, groundedMissing, groundedLimitations),
             groundedFindings, groundedMissing, groundedLimitations,
             groundedSuggestedAction(groundedFindings, groundedMissing, groundedLimitations));
     }
 
-    private void validateFinding(AiReviewProvider.Finding finding, Context context) {
+    private static void validateFinding(AiReviewProvider.Finding finding, Context context) {
         if (finding == null || finding.source() == null || invalidText(finding.issue(), 2000)
                 || invalidText(finding.evidence(), 2000) || finding.requirement() == null
                 || finding.requirement().length() > 2000)
@@ -399,16 +433,16 @@ public class AiReviewService {
         if (finding.requirement().isBlank() || !containsNormalized(authority, finding.requirement())) throw invalidReview();
     }
 
-    private void validateMissingSection(AiReviewProvider.MissingRequiredSection missing, Context context) {
+    private static void validateMissingSection(AiReviewProvider.MissingRequiredSection missing, Context context) {
         if (missing == null || missing.source() == null || missing.source() == AiReviewProvider.FindingSource.DOCUMENT
                 || invalidText(missing.section(), 500) || invalidText(missing.requirement(), 2000))
             throw invalidReview();
         String authority = authorityText(missing.source(), context);
-        if (!containsNormalized(authority, missing.requirement()) || !containsNormalized(authority, missing.section()))
+        if (!containsNormalized(authority, missing.requirement()))
             throw invalidReview();
     }
 
-    private String authorityText(AiReviewProvider.FindingSource source, Context context) {
+    private static String authorityText(AiReviewProvider.FindingSource source, Context context) {
         return switch (source) {
             case DELIVERABLE_REQUIREMENTS -> context.instructions();
             case OFFICIAL_TEMPLATE -> context.template();
@@ -431,8 +465,10 @@ public class AiReviewService {
             List<AiReviewProvider.MissingRequiredSection> missing, List<String> limitations) {
         var sentences = new java.util.ArrayList<String>();
         findings.stream().limit(2).forEach(finding -> sentences.add(
-            (finding.source() == AiReviewProvider.FindingSource.DOCUMENT
-                ? "Document evidence: " : "Grounded requirement finding: ") + sentence(finding.issue())));
+            (finding.issue().startsWith("Mapped-template body heading")
+                ? "Advisory template comparison: "
+                : finding.source() == AiReviewProvider.FindingSource.DOCUMENT
+                    ? "Document evidence: " : "Grounded requirement finding: ") + sentence(finding.issue())));
         if (!missing.isEmpty()) {
             sentences.add("Explicitly required sections not detected: "
                 + String.join(", ", missing.stream().map(AiReviewProvider.MissingRequiredSection::section).toList()) + ".");
@@ -449,7 +485,13 @@ public class AiReviewService {
             List<AiReviewProvider.MissingRequiredSection> missing, List<String> limitations) {
         var actions = new java.util.ArrayList<String>();
         if (findings.stream().anyMatch(finding -> finding.source() == AiReviewProvider.FindingSource.DOCUMENT)) {
-            actions.add("Verify that the submitted PDF is the intended deliverable and review the cited document evidence.");
+            if (findings.stream().anyMatch(finding -> finding.source() == AiReviewProvider.FindingSource.DOCUMENT
+                    && finding.issue().toLowerCase(Locale.ROOT).matches(
+                        "(?s).*(?:identifies itself as|wrong document|wrong deliverable|rather than the requested).*"))) {
+                actions.add("Verify that the submitted PDF is the intended deliverable and review the cited document evidence.");
+            } else {
+                actions.add("Review the cited document evidence before deciding what correction, if any, is appropriate.");
+            }
         }
         if (!missing.isEmpty() || findings.stream().anyMatch(finding -> finding.source() != AiReviewProvider.FindingSource.DOCUMENT)) {
             actions.add("Confirm the cited Deliverable Instructions or official-template passages before giving requirement-based feedback.");
@@ -475,26 +517,6 @@ public class AiReviewService {
         String source = normalizeAuthorityText(authority);
         String expected = normalizeAuthorityText(excerpt);
         return !source.isBlank() && !expected.isBlank() && source.contains(expected);
-    }
-
-    private static boolean documentContainsBodySection(String documentText, String section) {
-        String expected = canonicalSectionTitle(section);
-        if (expected.isBlank()) return false;
-        return Objects.requireNonNullElse(documentText, "").lines()
-            .map(String::trim)
-            .filter(line -> !line.matches("^.+\\.{2,}.+\\d+\\s*$"))
-            .map(AiReviewService::canonicalSectionTitle)
-            .anyMatch(expected::equals);
-    }
-
-    private static String canonicalSectionTitle(String value) {
-        String stripped = Objects.requireNonNullElse(value, "").trim()
-            .replaceFirst(
-                "^(?:\\d+(?:\\.(?:\\d+|[A-Za-z]))*|[A-Z](?:\\.\\d+)*|[IVXLC]+)[.)]?\\s+",
-                ""
-            )
-            .replaceFirst("^[^\\p{L}\\p{N}]+", "");
-        return normalizeAuthorityText(stripped);
     }
 
     private static String normalizeAuthorityText(String value) {
