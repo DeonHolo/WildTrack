@@ -1,14 +1,22 @@
 # Live progress and resume checkpoint
 
-Updated: 2026-09-19
-Mode: FULL SESSION EXECUTION — Prompt 2
-Current branch: wildtrack-rebrand
+Updated: 2026-09-21
+Mode: Document Check evidence, UX, and research measurement follow-up
+Current branch: feat/document-check-evidence-ux
 HEAD at full-session start: 77082c9faf23f49a97e95b001d88224eeea87324
 Full-session execution started from the current feature branch after Prompt 1/editor refinements were already integrated there.
 
 ## Next action
 
-Ticket 09 is implemented, locally mock-tested, committed as `a33e086`, pushed to `wildtrack-rebrand`, and available for review in PR #50. Live Google OAuth consent, eligible file permissions, restricted-scope verification and production release remain separate acceptance gates. Earlier Prompt 2 PR #48 was merged on 2026-09-19 by the repository owner; Ticket 09 is not part of that merged PR. Do not merge PR #50 or deploy without separate review.
+PR #50 (Ticket 09) was merged by the repository owner on 2026-09-20. Live Google OAuth consent, eligible file permissions, restricted-scope verification, and production release remain separate acceptance gates. Current follow-up changes are on `feat/document-check-evidence-ux` and require a new reviewable PR. Do not directly merge or deploy.
+
+## 2026-09-21 follow-up implementation checkpoint
+
+- On `feat/document-check-evidence-ux`, Document Check now records and shows expected body-heading match evidence, actual matched text, and extracted-text line numbers. A heading match does not prove meaningful content or academic correctness. Removed the prior eight-missing-heading truncation. Existing saved reports without detailed evidence remain readable.
+- Student, Admin and adviser checked-PDF actions use one Document Check dialog with Check result/File history tabs. An unchecked or Document Check-OFF PDF retains history-only access without a duplicate check action. Simplified review actions and submission timing UI, enlarged observed-history typography, regrouped Drive refresh, and corrected environment-versus-consent/revocation status copy. Backend lateness and file-history access controls were not changed.
+- Added hash-verified Goal 1 deterministic observation export and per-assertion scoring plus a fresh-provider-only, human-adjudicated Goal 2 scoring scaffold. Currently 11 of 25 required STD families and 16 provisional atomic Goal 1 assertions are prepared. Independent answer-key review remains PENDING, and no Goal 1 research accuracy result is claimed. Goal 2 has ten planned pilot fixtures, zero fresh provider runs, and no estimable agreement/claim-traceability scores. No paid-provider fallback, synthetic Gemini report, respondent data, or adviser approval was created.
+- Validation: backend affected test selection exited 0, benchmark scorer Node tests 8/8 passed, frontend focused Vitest 63/63 passed, Chromium history/browser 2/2 passed, production frontend build passed (existing Vite chunk advisory), package validator passed, and `git diff --check` exited 0 (Windows LF/CRLF notices only). Live production OAuth authorization and release have not been verified or performed.
+- After commit `232331d841f74b411e804895b72cf566d0d06a2f`, a clean-source SHA-labeled STD probe recorded 16/16 matching and completed provisional assertions across eleven prepared families; see `benchmarks/std/probe-232331d841f74b411e804895b72cf566d0d06a2f*`. Report remains `PROVISIONAL_NOT_OBJECTIVE_1_RESULT` because 14 planned families/variants and independently reviewed pre-run labels are missing. This synthetic subset is not the final SMART Goal 1 accuracy result.
 
 ## Initial unrelated/pre-existing state
 
@@ -27,7 +35,7 @@ Preserve them. A current git status is required; these notes are not a complete 
 | 06 Cross-semester account binding and Admin recovery | completed | none; schedule after 01 |
 | 07 Correct effective lateness and unchanged saves | completed | none; schedule after 01 |
 | 08 Observed document history and editor metadata | completed | 07 completed |
-| 09 Delegated Drive history across same-file submissions | implemented locally; live Google acceptance pending | 08 complete; live consent/restricted-scope readiness pending |
+| 09 Delegated Drive history across same-file submissions | merged via PR #50; live Google acceptance pending | live consent/restricted-scope readiness pending |
 | 10 STD benchmark and targeted checker improvements | prepared-local; human/provider evidence pending | 01; final evidence needs human review + configured free-tier provider |
 | 11 Validation artifacts and traceability | prepared-local; real-data analysis pending | 01; empirical analysis needs actual collected data |
 | 12 Integrated verification and continuation closeout | completed (full local mode) | local implementation complete; 09/10/11 external evidence remains explicit |

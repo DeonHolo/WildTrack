@@ -3138,6 +3138,52 @@ textarea:not(.mantine-Input-input):focus {
   margin: 0 22px 18px;
 }
 
+.document-check-history-panel .observed-file-history-entry {
+  border-left: 3px solid var(--border);
+  padding: 8px 0 10px 14px;
+}
+
+.observed-file-history-identifier {
+  overflow-wrap: anywhere;
+}
+
+.document-check-evidence {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.document-check-evidence details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.document-check-evidence summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.document-check-evidence p {
+  margin: 10px 0;
+  line-height: 1.5;
+}
+
+.document-check-evidence ul {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.document-check-evidence li span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
 .wt-ai-review-dialog {
   max-height: 90vh;
 }

@@ -39,6 +39,46 @@ mvn -q "-Dtest=TemplateComparatorTest,StdBenchmarkFixtureTest" test
 
 `deterministic-observations.csv` preserves the 2026-09-19 local probe output. It is an observation record, not an independently reviewed benchmark pass rate.
 
+## Automated Goal 1 scoring
+
+`atomic-assertions.csv` defines 16 provisional atomic expectations over the 11 prepared PDFs, including eleven readability assertions, three template-like indicators and two Test Approach body-heading omissions. It deliberately excludes semantic content/filler judgments from deterministic scoring. Add the remaining fourteen case families and all required split/paired variants before evaluating the proposed Goal 1 threshold over the full planned set. The script explicitly checks the separate corrupt/non-PDF STD-15 cases, password/oversize STD-17 cases, both STD-19 requirement conditions and paired STD-25 outcomes. Add rows for every applicable technical assertion before the evaluation run, including applicable failure and access cases. Freeze the completed answer key before collecting the scoring observations.
+
+Run the small Node regression suite from the repository root:
+
+```powershell
+node --test docs/capstone-2-build/benchmarks/std/score-benchmark.test.cjs
+```
+
+`StdBenchmarkObservationExportTest` invokes the actual backend `PdfInspector` and `TemplateComparator`. An ordinary test run skips export. An explicit export requires a matching 40-character Git HEAD and no tracked changes in production Document Check files. It refuses to replace an existing observation file. **The development checkout currently has uncommitted checker changes**, so run the exporter only after those changes are reviewed and committed to the feature branch. With the checker files committed, run this from the repository root, choosing a new filename for each run:
+
+```powershell
+Push-Location backend
+$benchmarkRevision = (git rev-parse HEAD).Trim()
+mvn -q "-Dtest=StdBenchmarkObservationExportTest" "-Dbenchmark.app.commit=$benchmarkRevision" "-Dbenchmark.observations.output=../docs/capstone-2-build/benchmarks/std/probe-$benchmarkRevision.csv" test
+Pop-Location
+node docs/capstone-2-build/benchmarks/std/score-deterministic.cjs --observations "docs/capstone-2-build/benchmarks/std/probe-$benchmarkRevision.csv" --output "docs/capstone-2-build/benchmarks/std/probe-$benchmarkRevision-score.json"
+```
+
+The exporter records per-fixture SHA-256, template SHA-256, HEAD SHA, UTC timestamp, classification/error and clean production-checker status. The scorer verifies fixture/template hashes, rejects duplicate fixture IDs and incorrect provenance, keeps every scheduled assertion in the accuracy denominator when an observation fails or is absent, and groups confusion matrices by the meaning of each binary indicator. It reports `null` when precision, recall, false-positive rate or false-negative rate has a zero denominator. Inspect the per-assertion outcomes and errors rather than reporting one synthetic subset score as general Document Check performance.
+
+`PROVISIONAL_NOT_OBJECTIVE_1_RESULT` is a hard research gate: all 25 case families, required variants, complete frozen atomic assertions and independently verified labels **dated before** the scoring observations must be present before treating output as a research score. An independent teammate must inspect the PDF and authority without looking at the checker outcome, then set `human_label_review=VERIFIED`, `human_label_reviewer`, `human_label_reviewed_at` on its manifest row and `review_status=VERIFIED`, `reviewer`, `reviewed_at` for each atomic assertion. Preserve the earlier pending/review history and version the key if correcting an expectation after observation. The generated score is still scoped to these synthetic STD fixtures.
+
+## Automated Goal 2 scoring
+
+`ai-checklist.csv` contains eleven proposed binary issue/clean decisions across the ten planned pilot fixtures. All independent human label-review fields remain `PENDING`. The evaluator `score-ai.cjs` does **not** invoke Gemini or manufacture reviewer judgments. It reads a separately preserved, human-adjudicated run record, checks the frozen fixture and answer-key hashes, verifies on-disk raw report hashes, and calculates results only from documented fresh provider reports with cache status `MISS`.
+
+```powershell
+node docs/capstone-2-build/benchmarks/std/score-ai.cjs --record docs/capstone-2-build/benchmarks/std/ai-run-record.template.json
+```
+
+This planning-template command shows ten `not_attempted` outcomes, fresh-run coverage `0/10`, and `null` decision-agreement and claim-traceability rates. **It is not evidence of an attempted provider run.** Before a real pilot, an independent human reviewer must verify every checklist decision against the submitted PDF and exact supplied STD template/instructions without inspecting AI Review output. Record their identity and review timestamp in `ai-checklist.csv`; review the relevant `manifest.csv` labels similarly. Preserve a timestamped frozen key with the SHA-256 of `ai-checklist.csv`, `manifest.csv`, the official template and a `frozen_at` instant after label verification and before any provider attempt. The evaluator rejects a successful-run claim if this evidence is missing or modified.
+
+For an actual attempt, copy the planning template to a new run record and replace its fixture outcome with `fresh_success`, `cache_hit`, `quota_failure`, `provider_failure`, `transport_failure` or `invalid_response`, preserving each planned fixture ID. Record `attempted_at`, `fixture_sha256`, `template_sha256` and `app_commit` for each attempt. Nonfresh outcomes need an explicit `reason` and never enter content denominators. For a fresh success record `cache_status: "MISS"`, `provider`, `model`, `provider_request_id`, `prompt_version`, `report_path` and `report_sha256`; save the raw provider report at that path relative to the run record. Preserve the actual provider request and cache evidence separately so a reviewer can verify freshness. Do not make an automatic retry or switch to a paid provider.
+
+For each fresh report, a human reviewer fills `decisions` with one entry per frozen `decision_id`: `observed: "present"|"absent"|"unassessable"`, `reviewer_id`, ISO `reviewed_at`, `evidence_reference` pointing into the raw report and `notes`. Independently inventory **every** substantive report claim as a separate `claims` entry with `claim_id`, `text`, `substantive: true`, `source_kind: "pdf"|"official_template"|"deliverable_instructions"|"unsupported"`, `traceable` boolean, `report_reference`, `notes`, reviewer identity/time and (for a traceable claim) precise `source_reference` and `source_excerpt`. Add `claim_inventory_review: { "complete": true, "report_sha256": "<raw report hash>", "reviewer_id": "<reviewer>", "reviewed_at": "<ISO timestamp>" }` only after checking the entire report against that inventory. A claim that invents an absent official-template requirement is unsupported, even if a model presents it confidently. For STD-18, the no-template condition prohibits treating the official template as mapped authority.
+
+The AI scorer preserves the fixed attempt denominator of ten, reports nonfresh/failed attempts by outcome, excludes unassessable decisions from the adjudicable-decision denominator, and uses `null` when no substantive finding claims exist. A report with zero claims must not be described as having 100% claim traceability. An automated score cannot independently determine whether a natural-language claim has valid source evidence: the required independent human adjudication is what makes this traceability measure interpretable.
+
 ## Scoring boundary
 
 - Deterministic Document Check observations can be run locally and recorded with exact denominators.

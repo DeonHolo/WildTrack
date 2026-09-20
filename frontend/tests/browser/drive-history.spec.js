@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { installApiFixtures } from './api-fixtures.js';
 
-test('student history refresh picks up a later same-file owner grant without leaking identity', async ({ page }) => {
-  const fixture = await installApiFixtures(page, { role: 'student', connected: true, submitted: true });
+test('checked PDF has one Document Check entry with both tabs and refreshes shared history without exposing identity', async ({ page }) => {
+  const fixture = await installApiFixtures(page, { role: 'student', connected: true, submitted: true, checkedPdf: true });
   let ownerAuthorized = false;
   const historyCalls = [];
 
@@ -39,13 +39,17 @@ test('student history refresh picks up a later same-file owner grant without lea
   await page.goto('/student');
   await expect(page.getByRole('button', { name: 'Allow Drive history' })).toBeVisible();
   await page.getByRole('button', { name: 'Skip for now' }).click();
-  await page.getByRole('button', { name: 'File history' }).first().click();
+  await expect(page.getByRole('button', { name: 'File history' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'View Document Check' }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByText('Drive metadata permission has not been granted for this file.')).toBeVisible();
+  await expect(dialog.getByRole('tab', { name: 'Check result' })).toBeVisible();
+  await expect(dialog.getByRole('tab', { name: 'File history' })).toBeVisible();
+  await dialog.getByRole('tab', { name: 'File history' }).click();
+  await expect(dialog.getByText('No eligible submitter has yet authorized this file.')).toBeVisible();
 
   // The owner of the same file connects after this viewer's response was saved.
   ownerAuthorized = true;
-  await dialog.getByRole('button', { name: 'Refresh from Google Drive' }).click();
+  await dialog.getByRole('button', { name: 'Refresh history' }).click();
   await expect(dialog.getByRole('group', { name: 'Drive revision 1 on page 1' })).toBeVisible();
   await expect(dialog).not.toContainText(/Private Owner|Private Editor|private-owner@example\.test/);
   await dialog.getByRole('tab', { name: 'Check result' }).click();
@@ -57,5 +61,17 @@ test('student history refresh picks up a later same-file owner grant without lea
       responseId: 'response-1', fieldId: 'field-document-pdf'
     });
   }
+  fixture.assertRequestsHandled();
+});
+
+test('PDF with Document Check disabled still opens its own history without a misleading check result', async ({ page }) => {
+  const fixture = await installApiFixtures(page, { role: 'student', connected: true, submitted: true, documentCheckPolicy: 'OFF' });
+  await page.goto('/student');
+  await expect(page.getByRole('button', { name: 'View Document Check' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'File history' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('File history', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('tab', { name: 'Check result' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Refresh history' })).toBeVisible();
   fixture.assertRequestsHandled();
 });

@@ -2444,6 +2444,11 @@
   min-height: 42px;
 }
 
+.wt-review-artifact-actions {
+  border-top: 1px solid var(--wt-border);
+  padding-top: 10px;
+}
+
 .wt-review-detail-section {
   display: grid;
   gap: 10px;

@@ -677,6 +677,7 @@ export function ReviewPage() {
         response={checkDialogResponse && checkDialogReport ? { ...checkDialogResponse, documentCheck: checkDialogReport, fileCheckStatus: checkDialogReport.status } : checkDialogResponse}
         observedHistory={checkDialogHistory}
         initialTab={checkDialogTarget?.initialTab || 'result'}
+        historyOnly={checkDialogTarget?.initialTab === 'history' && !checkDialogReport}
         historyTarget={activeWorkspaceId && checkDialogResponse?.id && checkDialogFieldKey ? {
           workspaceId: activeWorkspaceId,
           responseId: checkDialogResponse.id,

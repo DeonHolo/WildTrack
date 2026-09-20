@@ -82,19 +82,21 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                           onClick={() => setActiveCheck({
                             response: row.response,
                             documentCheck: row.documentCheck,
-                            fileLink: row.link
+                            fileLink: row.link,
+                            fieldId: row.artifacts?.[0]?.fieldId
                           })}
                         >
                           View Document Check
                         </Button>
                       ) : null}
-                      {!hasMultipleArtifacts && row.artifacts?.[0]?.drivePdf ? (
+                      {!hasMultipleArtifacts && row.artifacts?.[0]?.drivePdf && !row.documentCheck ? (
                         <Button variant="subtle" size="compact-sm" color="wildtrackMaroon" onClick={() => setActiveCheck({
                           response: row.response,
                           documentCheck: row.documentCheck,
                           fileLink: row.artifacts[0].value,
                           fieldId: row.artifacts[0].fieldId,
-                          initialTab: 'history'
+                          initialTab: 'history',
+                          historyOnly: true
                         })}>File history</Button>
                       ) : null}
                       {row.feedback ? (
@@ -210,23 +212,28 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                         variant="subtle"
                         size="compact-sm"
                         color="wildtrackMaroon"
-                        onClick={() => setActiveCheck({
-                          response: activeArtifacts.response,
-                          documentCheck: artifact.documentCheck,
-                          fileLink: artifact.value
-                        })}
+                        onClick={() => {
+                          setActiveCheck({
+                            response: activeArtifacts.response,
+                            documentCheck: artifact.documentCheck,
+                            fileLink: artifact.value,
+                            fieldId: artifact.fieldId
+                          });
+                          setActiveArtifacts(null);
+                        }}
                       >
                         View Document Check
                       </Button>
                     ) : null}
-                    {artifact.drivePdf ? (
+                    {artifact.drivePdf && !artifact.documentCheck ? (
                       <Button variant="subtle" size="compact-sm" color="wildtrackMaroon" onClick={() => {
                         setActiveCheck({
                           response: activeArtifacts.response,
                           documentCheck: artifact.documentCheck,
                           fileLink: artifact.value,
                           fieldId: artifact.fieldId,
-                          initialTab: 'history'
+                          initialTab: 'history',
+                          historyOnly: true
                         });
                         setActiveArtifacts(null);
                       }}>File history</Button>
@@ -251,6 +258,7 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
         documentCheck={activeCheck?.documentCheck || null}
         fileLink={activeCheck?.fileLink || ''}
         initialTab={activeCheck?.initialTab || 'result'}
+        historyOnly={Boolean(activeCheck?.historyOnly)}
         historyTarget={activeCheck?.fieldId && workspaceId && activeCheck?.response?.id ? {
           workspaceId, responseId: activeCheck.response.id, fieldId: activeCheck.fieldId
         } : null}

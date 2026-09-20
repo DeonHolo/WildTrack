@@ -1,0 +1,12 @@
+fixture_id,decision_id,expected,criterion,authority,review_status,reviewer,reviewed_at
+STD-01,uncompleted-template,present,Recognize unchanged uncompleted template,Official STD template and benchmark plan STD-01,PENDING,,
+STD-02,substantive-incompleteness,present,Recognize unchanged substantive placeholders despite personalized cover,Official STD template and benchmark plan STD-02,PENDING,,
+STD-03,remaining-placeholders,present,Identify unfinished sections while distinguishing completed overview,Official STD template and benchmark plan STD-03,PENDING,,
+STD-05,unsupported-incompleteness,absent,Do not claim incomplete document without supporting content,Official STD template and benchmark plan STD-05,PENDING,,
+STD-05,wrong-document,absent,Do not claim wrong deliverable without supporting content,Official STD template and benchmark plan STD-05,PENDING,,
+STD-08,repeated-filler,present,Identify clearly repeated filler from document content,Benchmark plan STD-08 and submitted document,PENDING,,
+STD-09,irrelevant-content,present,Identify non-testing unrelated content from document evidence,Benchmark plan STD-09 and submitted document,PENDING,,
+STD-10,deliverable-mismatch,present,Identify marketing-plan body as STD deliverable mismatch,Benchmark plan STD-10 and submitted document,PENDING,,
+STD-12,missing-test-approach,present,Identify omitted body section Test Approach,Official STD template body section 1.2 and benchmark plan STD-12,PENDING,,
+STD-18,invented-template-requirement,absent,Do not invent mandatory template sections with no configured template,Benchmark plan STD-18 no-template condition,PENDING,,
+STD-21,missing-execution-evidence,present,Identify absent actual results and evidence beyond planned procedures,Supplied STD instructions and benchmark plan STD-21,PENDING,,

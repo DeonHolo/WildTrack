@@ -23,6 +23,7 @@ import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DocumentCheckPolicy;
 import com.capvault.backend.drivehistory.auth.DelegatedDriveAccessService;
 import com.capvault.backend.drivehistory.auth.DelegatedDriveGateway;
+import com.capvault.backend.drivehistory.auth.DelegatedDriveException;
 import com.capvault.backend.drivehistory.auth.DriveRevisionMetadata;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseRepository;
@@ -138,6 +139,30 @@ class SharedDriveHistoryServiceTest {
 
         assertThat(result.status()).isEqualTo("NOT_CONNECTED");
         assertThat(result.revisions()).isEmpty();
+    }
+
+    @Test
+    void unavailableConfigurationDoesNotIncorrectlyBlameUnconnectedFileOwner() {
+        when(access.isConfigured()).thenReturn(false);
+
+        SharedDriveHistoryView result = history.forSubmission(workspaceId, viewerSubmission.getId(),
+            "pdf-field-id", null, http);
+
+        assertThat(result.status()).isEqualTo("UNAVAILABLE");
+        assertThat(result.coverageMessage()).contains("WildTrack environment", "administrator")
+            .doesNotContain("owner", "consent");
+    }
+
+    @Test
+    void revokedGoogleGrantIsReportedAsReconnectionRatherThanServerConfigurationFailure() {
+        when(gateway.revisions(eq("owner-secret-token"), eq("shared-PDF-id"), nullable(String.class), eq(50)))
+            .thenThrow(new DelegatedDriveException(DelegatedDriveException.Reason.AUTH_REVOKED));
+
+        SharedDriveHistoryView result = history.forSubmission(workspaceId, viewerSubmission.getId(),
+            "pdf-field-id", null, http);
+
+        assertThat(result.status()).isEqualTo("NOT_CONNECTED");
+        assertThat(result.coverageMessage()).contains("revoked", "reconnect");
     }
 
     @Test

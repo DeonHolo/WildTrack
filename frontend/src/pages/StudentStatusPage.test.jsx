@@ -502,10 +502,6 @@ describe('student dashboard', () => {
     expect(framework).toHaveTextContent('Ready for review');
     expect(framework).toHaveTextContent('Framework PDF is readable and accessible.');
     expect(within(framework).getByRole('button', { name: 'View Document Check' })).toBeInTheDocument();
-    fireEvent.click(within(framework).getByRole('button', { name: 'View Document Check' }));
-    const checkDialog = await screen.findByRole('dialog', { name: /Document Check/i });
-    expect(checkDialog).toHaveTextContent('Framework PDF is readable and accessible.');
-    expect(within(checkDialog).queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
     expect(highlights).toHaveTextContent('Google Drive PDF');
     expect(highlights).toHaveTextContent('Not checked');
     expect(within(artifacts).getByRole('link', { name: 'Open Validation Response Sheet' })).toHaveAttribute(
@@ -516,6 +512,11 @@ describe('student dashboard', () => {
       'href',
       'https://drive.google.com/drive/folders/student-validation-evidence'
     );
+    fireEvent.click(within(framework).getByRole('button', { name: 'View Document Check' }));
+    const checkDialog = await screen.findByRole('dialog', { name: /Document Check/i });
+    expect(checkDialog).toHaveTextContent('Framework PDF is readable and accessible.');
+    expect(within(checkDialog).getByRole('tab', { name: 'File history' })).toBeInTheDocument();
+    expect(within(checkDialog).queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open file' })).not.toBeInTheDocument();
   });
 
@@ -605,7 +606,7 @@ describe('student dashboard', () => {
     expect(dialog).not.toHaveTextContent('Template coverage');
     expect(dialog).not.toHaveTextContent('Unchanged instructions');
     expect(dialog).toHaveTextContent('Risk management');
-    expect(within(dialog).queryByRole('tab', { name: 'File history' })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('tab', { name: 'File history' })).toBeInTheDocument();
     expect(dialog).not.toHaveTextContent('Last modified by');
     expect(dialog).toHaveTextContent('It does not grade your work or decide whether it is accepted.');
     expect(within(dialog).queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();

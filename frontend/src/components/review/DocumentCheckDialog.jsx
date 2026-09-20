@@ -13,6 +13,7 @@ export function DocumentCheckDialog({
   observedHistory = null,
   historyTarget = null,
   initialTab = 'result',
+  historyOnly = false,
   fileLink,
   open,
   onClose,
@@ -43,6 +44,9 @@ export function DocumentCheckDialog({
   }, [open, initialTab, response?.id, historyTarget?.fieldId]);
   if (!response) return null;
   const report = documentCheck || response.documentCheck;
+  const studentView = audience === 'student';
+  const showResult = !historyOnly;
+  const historyAvailable = Boolean(historyTarget && fileLink) || (!studentView && Boolean(observedHistory));
   const effectiveResponse = documentCheck ? { ...response, documentCheck } : response;
   const metadata = report?.metadata;
   const document = report?.document;
@@ -50,7 +54,6 @@ export function DocumentCheckDialog({
   const missingSections = report?.missingSections || [];
   const expectedSectionCount = comparison?.expectedTemplateHeadings?.length || 0;
   const detectedSectionCount = comparison?.detectedTemplateHeadings?.length || 0;
-  const studentView = audience === 'student';
   const currentStatus = documentCheckStatus(effectiveResponse);
   const successful = currentStatus === 'Ready for review';
   const latestObservation = studentView ? null : observedHistory?.observations?.[0];
@@ -58,9 +61,9 @@ export function DocumentCheckDialog({
 
   const title = (
     <div className="document-check-title">
-      <span>Document Check</span>
+      <span>{historyOnly ? 'File history' : 'Document Check'}</span>
       <h2>{metadata?.name || 'Submitted PDF'}</h2>
-      <p>{report?.checkedAt ? `Checked ${formatDateTime(report.checkedAt)}` : 'This document has not been checked yet.'}</p>
+      {!historyOnly ? <p>{report?.checkedAt ? `Checked ${formatDateTime(report.checkedAt)}` : 'This document has not been checked yet.'}</p> : null}
     </div>
   );
 
@@ -79,15 +82,15 @@ export function DocumentCheckDialog({
       closeButtonProps={{ 'aria-label': 'Close Document Check details' }}
     >
       {error ? <Alert color="red" role="alert">{error}</Alert> : null}
-      <Tabs value={tab} onChange={setTab} className="document-check-tabs">
-        {(!studentView || (historyTarget && fileLink)) ? (
+      <Tabs value={historyOnly ? 'history' : tab} onChange={setTab} className="document-check-tabs">
+        {showResult && historyAvailable ? (
           <Tabs.List>
             <Tabs.Tab value="result">Check result</Tabs.Tab>
             <Tabs.Tab value="history">File history</Tabs.Tab>
           </Tabs.List>
         ) : null}
 
-        <Tabs.Panel value="result" pt={studentView ? 0 : 'md'}>
+        {showResult ? <Tabs.Panel value="result" pt={studentView ? 0 : 'md'}>
           <div className={'document-check-overview ' + (report?.redFlags?.length ? 'attention' : '')}>
             {successful && !report?.redFlags?.length ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
             <div>
@@ -145,12 +148,15 @@ export function DocumentCheckDialog({
                     <div><span>Not detected</span><strong>{missingSections.length}</strong></div>
                   </div>
                 ) : null}
-                <div className="document-check-findings">
-                  <h4>{missingSections.length ? 'Expected body sections not detected' : 'Structure result'}</h4>
-                  {missingSections.length ? (
-                    <ul>{missingSections.map((section) => <li key={section}>{section}</li>)}</ul>
-                  ) : <p>No expected body sections were flagged as missing.</p>}
-                </div>
+                {!comparison?.sectionEvidence?.length ? (
+                  <div className="document-check-findings">
+                    <h4>{missingSections.length ? 'Expected body sections not detected' : 'Structure result'}</h4>
+                    {missingSections.length ? (
+                      <ul>{missingSections.map((section) => <li key={section}>{section}</li>)}</ul>
+                    ) : <p>No expected body sections were flagged as missing.</p>}
+                  </div>
+                ) : null}
+                <TemplateSectionEvidence comparison={comparison} />
                 {comparison.appearsTemplateOnly ? (
                   <Alert color="orange" mt="sm" title="Document still looks largely like the blank template">
                     Large portions of the official template appear unchanged. Treat this as a review signal, not a grade or completion percentage.
@@ -181,19 +187,12 @@ export function DocumentCheckDialog({
               ? 'Document Check checks whether your PDF can be accessed and read and, when an official template is available, compares its structure. It does not grade your work or decide whether it is accepted.'
               : 'Document Check verifies file access and readability, then compares deterministic template structure when an official template is available. It does not grade the submission or replace staff review.'}
           </div>
-        </Tabs.Panel>
+        </Tabs.Panel> : null}
 
-        {(!studentView || (historyTarget && fileLink)) ? (
+        {historyAvailable ? (
           <Tabs.Panel value="history" pt="md">
             <div className="document-check-history-panel">
-              {tab === 'history' && historyTarget && fileLink ? (
-                <Button type="button" variant="secondary" disabled={Boolean(sharedHistory?.loading)}
-                  onClick={() => {
-                    setSharedHistory({ key: targetKey, loading: true, data: null });
-                    setHistoryRefresh(value => value + 1);
-                  }}>Refresh from Google Drive</Button>
-              ) : null}
-              {tab === 'history' && historyTarget && fileLink ? (
+              {(tab === 'history' || historyOnly) && historyTarget && fileLink ? (
                 <SubmittedFileHistory
                   key={`${historyTarget.workspaceId}:${historyTarget.responseId}:${historyTarget.fieldId}:${historyRefresh}`}
                   workspaceId={historyTarget.workspaceId}
@@ -203,6 +202,11 @@ export function DocumentCheckDialog({
                   audience={audience}
                   initialHistory={sharedHistory?.key === targetKey ? sharedHistory?.data : null}
                   initialLoading={Boolean(open && (!sharedHistory || sharedHistory.key !== targetKey || sharedHistory.loading))}
+                  onRefresh={() => {
+                    setSharedHistory({ key: targetKey, loading: true, data: null });
+                    setHistoryRefresh(value => value + 1);
+                  }}
+                  refreshing={Boolean(sharedHistory?.loading)}
                 />
               ) : !studentView ? <ObservedFileHistory history={observedHistory} /> : null}
             </div>
@@ -222,6 +226,34 @@ export function DocumentCheckDialog({
         <Button type="button" onClick={onClose} disabled={rechecking}>Done</Button>
       </footer>
     </Modal>
+  );
+}
+
+function TemplateSectionEvidence({ comparison }) {
+  const entries = Array.isArray(comparison?.sectionEvidence) ? comparison.sectionEvidence : [];
+  const legacyDetected = comparison?.detectedTemplateHeadings || [];
+  const detected = entries.length ? entries.filter(item => item.status === 'DETECTED') : legacyDetected.map(expectedHeading => ({ expectedHeading }));
+  const missing = entries.filter(item => item.status === 'NOT_DETECTED');
+  if (!detected.length && !missing.length) return null;
+  return (
+    <div className="document-check-evidence">
+      <details>
+        <summary>Detected sections ({detected.length})</summary>
+        <p className="muted-copy">A detected heading matches the expected template structure. It does not verify the section's content or quality. Line numbers refer to extracted text, not PDF pages.</p>
+        <ul>{detected.map((item, index) => (
+          <li key={`${item.expectedHeading}-${index}`}>
+            <strong>{item.expectedHeading}</strong>
+            {item.matchedLine ? <span>Matched text: {item.matchedLine}</span> : null}
+            {Number.isInteger(item.extractedTextLine) && item.extractedTextLine > 0 ? <span>Extracted text line {item.extractedTextLine}</span> : null}
+          </li>
+        ))}</ul>
+      </details>
+      {missing.length ? <details open>
+        <summary>Sections not detected ({missing.length})</summary>
+        <p className="muted-copy">These expected heading lines were not found by the structure check. Generic template headings such as “Module 1” may have been replaced by project-specific titles. A heading that was not detected does not prove its section or content is absent. Review the actual PDF.</p>
+        <ul>{missing.map((item, index) => <li key={`${item.expectedHeading}-${index}`}>{item.expectedHeading}</li>)}</ul>
+      </details> : null}
+    </div>
   );
 }
 

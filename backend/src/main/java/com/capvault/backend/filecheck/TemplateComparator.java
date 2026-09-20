@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
@@ -43,15 +42,18 @@ public class TemplateComparator {
             .filter(line -> normalizedSubmission.contains(normalize(line)))
             .count();
         List<String> expectedHeadings = structuralHeadings(templateText);
-        List<String> detectedHeadings = expectedHeadings.stream()
-            .filter(heading -> bodyContainsHeading(submittedText, heading))
+        List<TemplateComparison.SectionEvidence> sectionEvidence = expectedHeadings.stream()
+            .map(heading -> headingEvidence(submittedText, heading))
             .toList();
-        Set<String> detectedNormalized = detectedHeadings.stream()
-            .map(TemplateComparator::normalize)
-            .collect(Collectors.toCollection(LinkedHashSet::new));
-        List<String> missingHeadings = expectedHeadings.stream()
-            .filter(heading -> !detectedNormalized.contains(normalize(heading)))
-            .limit(8)
+        List<String> detectedHeadings = sectionEvidence.stream()
+            .filter(evidence -> "DETECTED".equals(evidence.status()))
+            .map(TemplateComparison.SectionEvidence::expectedHeading)
+            .toList();
+        // Preserve every finding. The previous eight-item cap made displayed
+        // missing-section counts incorrect for templates with larger gaps.
+        List<String> missingHeadings = sectionEvidence.stream()
+            .filter(evidence -> "NOT_DETECTED".equals(evidence.status()))
+            .map(TemplateComparison.SectionEvidence::expectedHeading)
             .toList();
         boolean templateOnly = coverage >= properties.templateCoverageThreshold()
             && addedRatio <= properties.maximumAddedContentRatio();
@@ -64,7 +66,8 @@ public class TemplateComparator {
             missingHeadings,
             templateOnly,
             expectedHeadings,
-            detectedHeadings
+            detectedHeadings,
+            sectionEvidence
         );
     }
 
@@ -133,14 +136,20 @@ public class TemplateComparator {
         return List.copyOf(result);
     }
 
-    private static boolean bodyContainsHeading(String text, String expectedHeading) {
+    private static TemplateComparison.SectionEvidence headingEvidence(String text, String expectedHeading) {
         String expected = normalize(expectedHeading);
-        if (expected.isBlank()) return false;
-        return (text == null ? "" : text).lines()
-            .map(String::trim)
-            .filter(line -> !isTocEntry(line))
-            .map(TemplateComparator::canonicalHeadingLine)
-            .anyMatch(expected::equals);
+        if (!expected.isBlank()) {
+            List<String> lines = (text == null ? "" : text).lines().toList();
+            for (int index = 0; index < lines.size(); index++) {
+                String line = lines.get(index).trim();
+                if (line.isBlank() || isTocEntry(line)) continue;
+                if (expected.equals(canonicalHeadingLine(line))) {
+                    return new TemplateComparison.SectionEvidence(
+                        expectedHeading, "DETECTED", line, index + 1, "NORMALIZED_EXACT");
+                }
+            }
+        }
+        return new TemplateComparison.SectionEvidence(expectedHeading, "NOT_DETECTED", null, null, null);
     }
 
     private static boolean isTocEntry(String line) {
