@@ -1,0 +1,11 @@
+Software Requirements Specification
+Table of Contents
+1. Overview ...................................... 2
+2. Required Capabilities ......................... 3
+2.1 Queue Safety ................................. 3
+1. Overview
+This fictional example describes an offline request queue.
+2. Required Capabilities
+All mandatory functions described here are controlled synthetic requirements.
+2.1 Queue Safety
+The queue SHALL reject an empty request label.

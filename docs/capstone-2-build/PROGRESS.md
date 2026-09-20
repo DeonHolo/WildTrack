@@ -1,14 +1,21 @@
 # Live progress and resume checkpoint
 
 Updated: 2026-09-21
-Mode: Sanitized owner-source-derived SRS live follow-up and AI Review grounding hardening
+Mode: Frozen v4 sanitized SRS provider pilot and separate v5 offline production regression
 Current branch: wildtrack-rebrand
 HEAD at full-session start: 77082c9faf23f49a97e95b001d88224eeea87324
 Full-session execution started from the current feature branch after Prompt 1/editor refinements were already integrated there.
 
 ## Next action
 
-PR #50, PR #51 and PR #52 have been merged by the repository owner. The owner explicitly requested resuming on `wildtrack-rebrand`; it was fast-forwarded to merged `main` commit `c156ce9` before the new v4 AI Review work. Current SRS follow-up results and fixes are on `wildtrack-rebrand`; submit through a PR, do not directly merge `main` or deploy. The distinct six-case SRS follow-up identified two still-missed mandatory-looking template body-section omissions, despite successful post-filter suppression of the old STD false alarms. Preserve the frozen first STD pilot unchanged, and assess a generalizable explicit-template/body-section comparison without hard-coding the two SRS examples. Collect real questionnaire/Goal 3 data separately. Goal 1 still needs its remaining case families/variants and genuinely independent expected-label verification.
+PR #50, PR #51 and PR #52 have been merged by the repository owner. The owner explicitly requested resuming on `wildtrack-rebrand`; it was fast-forwarded to merged `main` commit `c156ce9` before the v4 AI Review work. SRS follow-up fixes and evidence are proposed through open PR #53 (`wildtrack-rebrand` to `main`); do not directly merge `main` or deploy. The frozen v4 six-case provider pilot missed two template body headings (SRS-04/SRS-05). The v5 generalizable mapped-template/body crosscheck now reports both as **advisories in offline replay** of saved v4 raw reports; no new provider generation or retrospective revision of the original result occurred. Preserve the frozen first STD pilot unchanged; broader prospectively frozen evaluation is still needed before claiming SMART Goal 2 targets. Collect real questionnaire/Goal 3 data separately. Goal 1 still needs remaining case families/variants and independently reviewed expected labels.
+
+## 2026-09-21 — v5 structural advisory crosscheck, verified offline
+
+- Production `AiReviewService.groundAndValidate` compares numbered template **body** headings with actual submitted PDF **body** headings, excluding TOC-only appearances and explicit optional/conditional headings. It adds bounded, source-quoted *not detected; confirm applicability* findings instead of claiming every template heading is mandatory; fails closed for ambiguous structures. Provider-proposed optional template omissions are also filtered. Cache/prompt fingerprint v5 segregates changed results from saved v4 reports.
+- Combined backend postprocessing/provider/synthetic-PDF and six-case frozen raw-report replay suites exited 0. New fictional QueueBoard cases test repeated/leaderless TOCs, two-page PDF extraction, numbered heading alternatives, absent subsection with adjacent present ones, optional exclusions and missing authority. One separately scoped instruction-only automatic heading-discovery test is intentionally disabled; live SRS generation was **not** opted in. The frozen v4 six-report evidence verifier reproduced its unchanged 4/6 screen and package validator passed.
+- A separate broad `mvn -q test` run was **not green**: 311 tests, four errors and six skips. All four errors occur in `CanonicalResponseServiceTest` response-submission setup because workspace Student Number lookup fails. The focused SRS/AI Review suite passed; do not describe the full backend test suite as passing without resolving these separate errors.
+- `benchmarks/srs/V5_OFFLINE_REPLAY.md` records the exact test selector and limits. This is an after-the-fact engineering regression, not a new six-request Gemini experiment, a new independently adjudicated benchmark, a deployed-system test or evidence that original STD Goal 2 targets were met. Original source PDFs, original STD provider results and frozen v4 SRS report files remain untouched.
 
 ## 2026-09-21 — Actual sanitized SRS follow-up after production post-processing fix
 

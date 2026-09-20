@@ -1,0 +1,14 @@
+Software Requirements Specification
+Table of Contents
+1. Overview ....................................... 2
+2. Request Processing ............................. 3
+2.1 Validation Rules .............................. 3
+2.2 Recovery Rules ................................ 4
+1. Overview
+This controlled fictional QueueBoard document explains a local appointment queue.
+2. Request Processing
+The queue request pipeline validates input before allocating a synthetic slot.
+2.1 Validation Rules
+A valid request contains a nonempty display token.
+2.2 Recovery Rules
+When allocation fails, the sample system returns a retryable error without creating a slot.

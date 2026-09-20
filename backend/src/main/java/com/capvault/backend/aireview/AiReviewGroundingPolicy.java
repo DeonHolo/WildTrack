@@ -1,9 +1,11 @@
 package com.capvault.backend.aireview;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -12,6 +14,12 @@ import java.util.regex.Pattern;
  * establish academic correctness; when structure is ambiguous, avoid asserting that it is absent.
  */
 final class AiReviewGroundingPolicy {
+    private static final int MAX_TEMPLATE_ALERTS = 8;
+    private static final Pattern TEMPLATE_BODY_NUMBERED_HEADING = Pattern.compile(
+        "^(\\d+(?:\\.\\d+){0,5})[.)]?\\s+(.+)$");
+    private static final Pattern OPTIONAL_SECTION = Pattern.compile(
+        "(?i)\\b(?:optional|if applicable|when applicable|where applicable|as needed|"
+            + "not required|for reference only|example only|illustrative only)\\b");
     private static final Pattern TOC_LEADER = Pattern.compile("^.*[.·…]{3,}\\s*\\d+\\s*$");
     private static final Pattern NUMBERED_HEADING = Pattern.compile(
         "^(?:[A-Z](?:\\.\\d+)*|\\d+(?:\\.(?:\\d+|[A-Za-z]))*|[IVXLC]+)[.)]?\\s+(.+)$");
@@ -61,15 +69,163 @@ final class AiReviewGroundingPolicy {
             && normalized.matches("(?s).*(?:section|heading|chapter|subsection)\\b.*");
     }
 
+    /**
+     * Suppress a model's OFFICIAL_TEMPLATE "missing required section" when its own
+     * mapped authority explicitly identifies that very section as optional/conditional.
+     * This does not override an independent, explicit Deliverable Instructions obligation.
+     */
+    static boolean optionalTemplateSection(String section, String templateText, String instructions) {
+        if (templateText == null || templateText.isBlank()) return false;
+        String expected = canonical(section);
+        if (expected.isBlank()) return false;
+        var lines = Objects.requireNonNullElse(templateText, "").lines().map(String::trim).toList();
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            Matcher heading = TEMPLATE_BODY_NUMBERED_HEADING.matcher(line);
+            if (!heading.matches()) continue;
+            String sourceTitle = heading.group(2).replaceFirst(
+                "(?i)\\s*\\((?:optional|if applicable|when applicable|where applicable|as needed)\\)\\s*$", "").trim();
+            if (canonical(sourceTitle).equals(expected) && optionalHeading(line, expected, lines, i, instructions))
+                return true;
+        }
+        return false;
+    }
+
+    /**
+     * An advisory comparison only: a numbered heading in a mapped template does not establish
+     * that the corresponding section is mandatory for every project. Never add these observations
+     * to missingRequiredSections, which is reserved for independently supplied requirements.
+     *
+     * Both PDFs must have an unambiguous body region. At least one template section must actually
+     * be recognized in the submitted body, so a different document or an unparseable PDF is not
+     * flooded with template-based absence assertions. A TOC entry is never body evidence.
+     */
+    static List<AiReviewProvider.Finding> templateBodyCrosscheck(String templateText, String documentText,
+            String instructions, List<AiReviewProvider.Finding> accepted,
+            List<AiReviewProvider.MissingRequiredSection> acceptedMissing) {
+        if (templateText == null || templateText.isBlank() || documentText == null || documentText.isBlank()
+                || templateText.length() > 300_000 || documentText.length() > 1_000_000) return List.of();
+        var template = layout(templateText, true);
+        var document = layout(documentText, true);
+        if (!template.reliableBody() || !document.reliableBody()) return List.of();
+
+        var expected = new ArrayList<TemplateHeading>();
+        var deduplicated = new HashSet<String>();
+        for (int i = 0; i < template.lines().size(); i++) {
+            if (!template.inBody(i)) continue;
+            String line = template.lines().get(i);
+            Matcher heading = TEMPLATE_BODY_NUMBERED_HEADING.matcher(line);
+            if (!heading.matches()) continue;
+            String name = heading.group(2).trim();
+            String canonical = canonical(name);
+            if (name.length() > 100 || name.split("\\s+").length > 10 || canonical.length() < 4
+                    || line.contains("...") || line.contains("…")
+                    || !deduplicated.add(canonical) || optionalHeading(line, canonical, template.lines(), i, instructions))
+                continue;
+            // The exact numbered source line is a conservative, auditable template-body quote.
+            expected.add(new TemplateHeading(line, canonical));
+        }
+        if (expected.size() < 2) return List.of();
+        // A recognizable shared body heading confirms comparable structure. A wrong-document
+        // submission should instead receive its own document-identity review, not bulk template alerts.
+        long overlap = expected.stream().filter(head ->
+            containsBodyHeading(documentText, head.quote())).count();
+        if (overlap == 0) return List.of();
+
+        var existingSections = new HashSet<String>();
+        for (var missing : acceptedMissing) existingSections.add(canonical(missing.section()));
+        for (var finding : accepted) {
+            if (finding.source() == AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE
+                    && finding.issue().contains("Mapped-template body heading")) {
+                existingSections.add(canonical(finding.requirement()));
+            }
+        }
+        var warnings = new ArrayList<AiReviewProvider.Finding>();
+        for (var head : expected) {
+            if (containsBodyHeading(documentText, head.quote()) || existingSections.contains(head.title())) continue;
+            if (accepted.stream().anyMatch(finding -> ABSENCE.matcher(finding.issue()).find()
+                    && normalize(finding.issue()).contains(head.title()))) continue;
+            String quoted = head.quote();
+            warnings.add(new AiReviewProvider.Finding(
+                "Mapped-template body heading '" + quoted + "' was not detected in the submitted PDF body; "
+                    + "confirm applicability and equivalent headings before requesting a change.",
+                AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
+                "Mapped official-template body heading: " + quoted
+                    + ". No matching body heading detected in submitted PDF text; a Table of Contents entry alone is insufficient.",
+                quoted));
+            if (warnings.size() == MAX_TEMPLATE_ALERTS) break;
+        }
+        return List.copyOf(warnings);
+    }
+
+    private record TemplateHeading(String quote, String title) { }
+
+    private static boolean optionalHeading(String heading, String canonical, List<String> lines,
+            int lineIndex, String instructions) {
+        if (OPTIONAL_SECTION.matcher(heading).find()) return true;
+        // An optional/conditional annotation immediately beneath a heading applies to that
+        // section. Ordinary illustrative body prose is not automatically an optional marker.
+        for (int i = lineIndex + 1; i < Math.min(lines.size(), lineIndex + 3); i++) {
+            String next = lines.get(i);
+            if (next.isBlank()) continue;
+            if (OPTIONAL_SECTION.matcher(next).find())
+                return true;
+            break;
+        }
+        String scope = normalize(instructions);
+        if (scope.matches("(?s).*(?:all|every) (?:template )?sections? (?:are|is) optional.*"))
+            return true;
+        // Only close, explicit instruction-level section annotations are interpreted as optional.
+        int mention = scope.indexOf(canonical);
+        while (mention >= 0) {
+            String before = scope.substring(Math.max(0, mention - 45), mention);
+            String after = scope.substring(mention + canonical.length(),
+                Math.min(scope.length(), mention + canonical.length() + 45));
+            if (before.matches("(?s).*\\boptional\\s+(?:section\\s+)?$")
+                    || after.matches("(?s)^\\s+(?:section\\s+)?(?:is|are)?\\s*optional\\b.*"))
+                return true;
+            mention = scope.indexOf(canonical, mention + canonical.length());
+        }
+        return false;
+    }
+
     static boolean containsBodyHeading(String pdfText, String section) {
         String expected = canonical(section);
         if (expected.isBlank()) return false;
+        // When filtering a model-proposed missing section, prefer not to call a potentially
+        // present heading missing. For *new* automatic absence advisories, use stricter body
+        // boundary confidence in templateBodyCrosscheck above.
+        var region = layout(pdfText, false);
+        var lines = region.lines();
+        if (!region.reliableBody()) return false;
+        for (int i = 0; i < lines.size(); i++) {
+            if (!region.inBody(i)) continue;
+            String line = lines.get(i);
+            if (line.isBlank() || TOC_LEADER.matcher(line).matches()) continue;
+            if (headingMatches(line, expected)) return true;
+            // PDF text extraction can split a heading number and its title across lines.
+            if (line.matches("^(?:\\d+(?:\\.\\d+)*|[A-Z](?:\\.\\d+)*)[.)]?$")) {
+                for (int next = i + 1; next < Math.min(i + 3, lines.size()); next++) {
+                    if (region.inBody(next) && headingMatches(lines.get(next), expected)) return true;
+                    if (!lines.get(next).isBlank()) break;
+                }
+            }
+        }
+        return false;
+    }
+
+    private record Layout(List<String> lines, int toc, int tocEnd, boolean reliableBody) {
+        boolean inBody(int index) { return toc < 0 || index < toc || index > tocEnd; }
+    }
+
+    private static Layout layout(String pdfText, boolean requireProvenBodyBoundary) {
         var lines = Objects.requireNonNullElse(pdfText, "").lines().map(String::trim).toList();
         int toc = -1;
         for (int i = 0; i < lines.size(); i++) {
             if (normalize(lines.get(i)).equals("table of contents")) { toc = i; break; }
         }
         int tocEnd = toc;
+        boolean reliable = toc < 0;
         if (toc >= 0) {
             for (int i = toc + 1; i < lines.size(); i++) {
                 if (TOC_LEADER.matcher(lines.get(i)).matches()) tocEnd = i;
@@ -81,36 +237,44 @@ final class AiReviewGroundingPolicy {
             // heading listed in that TOC is then repeated when the actual body begins.
             // Find that repeated heading as an independent body anchor rather than treating
             // every leaderless TOC line as a real body section.
-            if (tocEnd == toc) {
-                for (int entry = toc + 1; entry < lines.size(); entry++) {
-                    String first = lines.get(entry);
-                    if (first.isBlank()) continue;
-                    if (first.length() > 100 || first.split("\\s+").length > 10) break;
-                    String anchor = canonical(first);
-                    if (anchor.isBlank() || !headingMatches(first, anchor)) continue;
-                    for (int body = entry + 1; body < lines.size(); body++) {
-                        if (headingMatches(lines.get(body), anchor) && !lines.get(body).equalsIgnoreCase("table of contents")) {
-                            tocEnd = body - 1;
-                            break;
-                        }
+            for (int entry = toc + 1; entry < lines.size(); entry++) {
+                String first = lines.get(entry);
+                if (first.isBlank()) continue;
+                if (first.length() > 100 || first.split("\\s+").length > 10) break;
+                // A TOC may include dotted page leaders or plain headings. Strip only
+                // the dotted page reference when identifying the repeated body anchor.
+                String tocHeading = first.replaceFirst("\\s*[.·…]{3,}\\s*\\d+\\s*$", "").trim();
+                String anchor = canonical(tocHeading);
+                if (anchor.isBlank() || !headingMatches(tocHeading, anchor)) continue;
+                for (int body = entry + 1; body < lines.size(); body++) {
+                    if (headingMatches(lines.get(body), anchor)
+                            && !lines.get(body).equalsIgnoreCase("table of contents")
+                            && (!requireProvenBodyBoundary || convincingBodyAnchor(lines, toc, body))) {
+                        tocEnd = body - 1;
+                        reliable = true;
+                        break;
                     }
-                    if (tocEnd > toc) break;
                 }
+                if (reliable) break;
             }
         }
-        for (int i = 0; i < lines.size(); i++) {
-            String line = lines.get(i);
-            if (line.isBlank() || TOC_LEADER.matcher(line).matches()) continue;
-            // Change History and other actual front-matter headings can precede the TOC.
-            if (toc >= 0 && i >= toc && i <= tocEnd) continue;
-            if (headingMatches(line, expected)) return true;
-            // PDF text extraction can split a heading number and its title across lines.
-            if (line.matches("^(?:\\d+(?:\\.\\d+)*|[A-Z](?:\\.\\d+)*)[.)]?$")) {
-                for (int next = i + 1; next < Math.min(i + 3, lines.size()); next++) {
-                    if (headingMatches(lines.get(next), expected)) return true;
-                    if (!lines.get(next).isBlank()) break;
-                }
-            }
+        return new Layout(lines, toc, tocEnd, reliable);
+    }
+
+    private static boolean convincingBodyAnchor(List<String> lines, int toc, int candidate) {
+        // A duplicate entry *inside the TOC* is not evidence that the body began. A repeated
+        // heading must either have following substantive prose or a preceding PDF page header.
+        // Empty headings with neither signal remain ambiguous and cannot authorize auto-add.
+        for (int next = candidate + 1; next < Math.min(lines.size(), candidate + 4); next++) {
+            String text = lines.get(next);
+            if (text.isBlank()) continue;
+            if (TOC_LEADER.matcher(text).matches() || TEMPLATE_BODY_NUMBERED_HEADING.matcher(text).matches())
+                return false;
+            if (text.length() >= 25 && text.split("\\s+").length >= 5) return true;
+            break;
+        }
+        for (int before = Math.max(toc + 1, candidate - 4); before < candidate; before++) {
+            if (normalize(lines.get(before)).matches("document version(?: \\d+)+")) return true;
         }
         return false;
     }

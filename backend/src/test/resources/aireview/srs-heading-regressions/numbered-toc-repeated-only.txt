@@ -1,0 +1,14 @@
+Software Requirements Specification
+Table of Contents
+1. Overview ....................................... 2
+2. Request Processing ............................. 3
+2.1 Validation Rules .............................. 3
+2.2 Recovery Rules ................................ 4
+2.1 Validation Rules .............................. 9
+2.2 Recovery Rules ................................ 9
+1. Overview
+QueueBoard is an entirely fictional local queue used only for an offline regression test.
+2. Request Processing
+The synthetic request processor stores no real user data.
+2.2 Recovery Rules
+When a queue request fails, the synthetic system returns an error.

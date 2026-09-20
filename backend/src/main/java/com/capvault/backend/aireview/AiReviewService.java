@@ -35,7 +35,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AiReviewService {
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v4";
+    // Post-validation behavior is part of the persisted review cache fingerprint. Leave v4
+    // reports intact; new crosschecked reviews must not reuse pre-crosscheck cached results.
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v5";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -394,14 +396,25 @@ public class AiReviewService {
         for (var finding : result.findings()) validateFinding(finding, context);
         for (var missing : result.missingRequiredSections()) validateMissingSection(missing, context);
 
-        var groundedFindings = AiReviewGroundingPolicy.findings(result.findings(), context.title(),
+        var validatedFindings = AiReviewGroundingPolicy.findings(result.findings(), context.title(),
             documentText, context.template());
         var groundedMissing = result.missingRequiredSections().stream()
             .filter(missing -> AiReviewGroundingPolicy.sectionNamedByRequirement(
                 missing.section(), missing.requirement(), missing.source()))
+            .filter(missing -> missing.source() != AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE
+                || !AiReviewGroundingPolicy.optionalTemplateSection(missing.section(),
+                    context.template(), context.instructions()))
             .filter(missing -> !AiReviewGroundingPolicy.containsBodyHeading(documentText, missing.section()))
             .toList();
-        var groundedLimitations = limitations(context);
+        var crosscheck = AiReviewGroundingPolicy.templateBodyCrosscheck(context.template(), documentText,
+            context.instructions(), validatedFindings, groundedMissing).stream()
+            .limit(Math.max(0, 50 - validatedFindings.size())).toList();
+        var groundedFindings = new java.util.ArrayList<>(validatedFindings);
+        groundedFindings.addAll(crosscheck);
+        var groundedLimitations = new java.util.ArrayList<>(limitations(context));
+        if (!crosscheck.isEmpty()) groundedLimitations.add(
+            "Mapped-template body-heading comparison is advisory: confirm section applicability, equivalent names, "
+                + "and the PDF's original formatting before treating an undetected heading as a required omission.");
         return new AiReviewProvider.Result(groundedSummary(groundedFindings, groundedMissing, groundedLimitations),
             groundedFindings, groundedMissing, groundedLimitations,
             groundedSuggestedAction(groundedFindings, groundedMissing, groundedLimitations));
@@ -452,8 +465,10 @@ public class AiReviewService {
             List<AiReviewProvider.MissingRequiredSection> missing, List<String> limitations) {
         var sentences = new java.util.ArrayList<String>();
         findings.stream().limit(2).forEach(finding -> sentences.add(
-            (finding.source() == AiReviewProvider.FindingSource.DOCUMENT
-                ? "Document evidence: " : "Grounded requirement finding: ") + sentence(finding.issue())));
+            (finding.issue().startsWith("Mapped-template body heading")
+                ? "Advisory template comparison: "
+                : finding.source() == AiReviewProvider.FindingSource.DOCUMENT
+                    ? "Document evidence: " : "Grounded requirement finding: ") + sentence(finding.issue())));
         if (!missing.isEmpty()) {
             sentences.add("Explicitly required sections not detected: "
                 + String.join(", ", missing.stream().map(AiReviewProvider.MissingRequiredSection::section).toList()) + ".");

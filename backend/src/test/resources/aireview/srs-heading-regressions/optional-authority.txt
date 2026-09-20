@@ -1,0 +1,14 @@
+Software Requirements Specification
+Table of Contents
+1. Overview ...................................... 2
+2. Required Capabilities ......................... 3
+2.1 Queue Safety ................................. 3
+2.2 Illustrations (Optional) ...................... 4
+1. Overview
+This fictional example specifies safe local processing for a sample queue.
+2. Required Capabilities
+Requirements in this chapter apply only to the fictional sample.
+2.1 Queue Safety
+The queue SHALL reject an empty request label.
+2.2 Illustrations (Optional)
+Optional section. The author may add decorative figures if relevant, but the body may omit this subsection.

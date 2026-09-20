@@ -1,0 +1,14 @@
+Software Requirements Specification
+Table of Contents
+1. Overview ....................................... 2
+2. Request Processing ............................. 3
+2.1 Validation Rules .............................. 3
+2.2 Recovery Rules ................................ 4
+1. Overview
+A synthetic standalone example for heading-variant testing.
+2. Request Processing
+The queue validates local test values.
+II. Validation Rules
+Reject blank request labels before storing them.
+2.2. Recovery Rules
+Return a controlled error when the queue is temporarily unavailable.

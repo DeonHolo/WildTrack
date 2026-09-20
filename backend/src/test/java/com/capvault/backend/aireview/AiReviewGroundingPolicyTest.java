@@ -167,7 +167,8 @@ class AiReviewGroundingPolicyTest {
         var filtered = AiReviewService.postprocessForBenchmark(
             review(List.of(absolute, partialIssue), List.of(), "Everything is blank.", "Replace entire file."),
             "Software Test Document", "", TEMPLATE, partial);
-        assertThat(filtered.findings()).containsExactly(partialIssue);
+        assertThat(filtered.findings()).contains(partialIssue);
+        assertThat(filtered.findings()).noneMatch(f -> f.issue().contains("consists entirely"));
         assertThat(filtered.summary()).doesNotContain("entirely");
     }
 

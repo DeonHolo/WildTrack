@@ -1,0 +1,17 @@
+Software Requirements Specification
+Table of Contents
+3. Integration Requirements ....................... 2
+3.1 Local Interfaces ............................. 2
+3.1.1 Hardware interfaces ........................ 2
+3.1.2 Software interfaces ........................ 2
+3.1.3 Communications interfaces ................... 3
+3. Integration Requirements
+The fictional QueueBoard application uses only locally controlled connections.
+3.1 Local Interfaces
+The following subsections describe separate interface classes.
+3.1.1 Hardware interfaces
+No dedicated devices are required in the synthetic scenario.
+3.1.2 Software interfaces
+A simulated queue endpoint accepts JSON records.
+3.1.3 Communications interfaces
+The browser exchanges data with the local queue endpoint.
