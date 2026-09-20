@@ -1,0 +1,4 @@
+Requested deliverable: Software Test Document (STD).
+NO official template is mapped for this controlled fictional sample.
+This condition explicitly requires a BODY section named "Test Approach" in the submitted STD, describing which hypothetical queue checks are planned. A Table of Contents mention or a passing reference elsewhere is insufficient. Other headings are not mandatory unless independently specified here.
+All example outputs are synthetic: do not infer that real testing occurred, demand unsupplied real-world evidence, or invent further required headings.

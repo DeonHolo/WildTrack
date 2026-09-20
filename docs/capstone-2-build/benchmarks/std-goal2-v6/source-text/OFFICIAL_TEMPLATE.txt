@@ -1,0 +1,38 @@
+Software Test Document
+Project: SampleHarbor | Synthetic case: G2-00 controlled template
+SYNTHETIC FICTIONAL BENCHMARK. These example plans, expected outputs and scripted results are
+NOT records of executed software tests or student work.
+Table of Contents
+1. Introduction ............................. 2
+1.1 System Overview ............................. 2
+1.2 Test Approach ............................. 2
+2. Test Plan ............................. 2
+2.1 Included Features ............................. 2
+2.2 Optional Illustration (Optional) ............................. 2
+3. Test Cases ............................. 2
+3.1 Inputs ............................. 2
+3.2 Expected Outputs ............................. 2
+3.3 Procedure ............................. 2
+4. Sample Observations ............................. 2
+1. Introduction
+TEMPLATE EXAMPLE for sample project SampleHarbor, not a required submission identity.
+1.1 System Overview
+PLACEHOLDER: Add an illustrative overview of the actual fictional project.
+1.2 Test Approach
+PLACEHOLDER: Describe the hypothetical planned checks in this required body section.
+2. Test Plan
+PLACEHOLDER: Define the fictional test scope.
+2.1 Included Features
+PLACEHOLDER: Identify the feature being illustrated.
+2.2 Optional Illustration (Optional)
+Optional only: decorative image; this subsection may be omitted.
+3. Test Cases
+PLACEHOLDER: Add fictional cases.
+3.1 Inputs
+PLACEHOLDER: Add sample input values.
+3.2 Expected Outputs
+PLACEHOLDER: Add hypothetical expected outcomes.
+3.3 Procedure
+PLACEHOLDER: Add hypothetical steps.
+4. Sample Observations
+PLACEHOLDER: Clearly identify invented illustrative observations.

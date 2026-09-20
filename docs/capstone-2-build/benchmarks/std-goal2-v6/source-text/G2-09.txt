@@ -1,0 +1,12 @@
+Software Test Document
+Project: QueueBoard | Synthetic case: G2-09
+SYNTHETIC FICTIONAL BENCHMARK. These example plans, expected outputs and scripted results are
+NOT records of executed software tests or student work.
+Purpose of Checks
+This fictional STD outlines planned QueueBoard acceptance and blank-input checks. No production software
+was exercised.
+Inputs
+DEMO-A and an empty example label.
+Illustrative Outcomes
+Expected OPEN slot for DEMO-A and REJECT_EMPTY for blank label. These results are purely scripted
+examples.

@@ -1,0 +1,15 @@
+Software Test Document
+Project: QueueBoard | Synthetic case: G2-10
+SYNTHETIC FICTIONAL BENCHMARK. These example plans, expected outputs and scripted results are
+NOT records of executed software tests or student work.
+Table of Contents
+1. Summary ............................. 2
+2. Example Inputs ............................. 2
+3. Expected Outcomes ............................. 2
+1. Summary
+This fictional QueueBoard STD contains illustrative goals but deliberately omits the Test Approach body
+section.
+2. Example Inputs
+The hypothetical request value is DEMO-A.
+3. Expected Outcomes
+The fictional response should contain a new example queue slot.
