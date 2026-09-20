@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"summary\": \"The submitted Software Requirements Specification (SRS) consists entirely of placeholder text and lacks project-specific content. All required sections defined in the official template are present in the document body, but none contain substantive information.\",\n  \"suggestedAction\": \"Replace all placeholder text throughout the document with project-specific requirements, descriptions, and technical details as outlined in the official template.\",\n  \"findings\": [\n    {\n      \"evidence\": \"Pages 1-3, all sections.\",\n      \"issue\": \"The document contains only placeholder text and lacks substantive project-specific information.\",\n      \"source\": \"DOCUMENT\",\n      \"requirement\": \"\"\n    }\n  ],\n  \"missingRequiredSections\": []\n}",
+            "thoughtSignature": "EnEKbwFpFH0T6bc/ytzawGvzrywXcvWlJ735b2Ob2d1XzDklC5w5WzX3MYP2BOvmG2fsSJeCMTIFCC2IJNeKuaB+Xhe/xW/8dW6f550102ms3ET6Y+9b1OL7gFHu4FEJnTwOViR3yv86RP8ak3sRcnzCSw=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 3758,
+    "candidatesTokenCount": 155,
+    "totalTokenCount": 3913,
+    "promptTokensDetails": [
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1596
+      },
+      {
+        "modality": "TEXT",
+        "tokenCount": 2162
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.1-flash-lite",
+  "responseId": "6COwau7xPMPY2roPs_mHwAY"
+}

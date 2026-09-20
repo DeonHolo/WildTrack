@@ -1,14 +1,22 @@
 # Live progress and resume checkpoint
 
 Updated: 2026-09-21
-Mode: SMART Goal 2 source-defined live provider pilot and evidence closeout
-Current branch: feat/smart-goal-2-evaluation
+Mode: Sanitized owner-source-derived SRS live follow-up and AI Review grounding hardening
+Current branch: wildtrack-rebrand
 HEAD at full-session start: 77082c9faf23f49a97e95b001d88224eeea87324
 Full-session execution started from the current feature branch after Prompt 1/editor refinements were already integrated there.
 
 ## Next action
 
-PR #50 (Ticket 09) and PR #51 (Document Check evidence/UX and benchmark scaffold) were merged by the repository owner. The current Goal 2 experiment and methodology implementation are on `feat/smart-goal-2-evaluation` and require a separate feature-branch PR; do not directly merge or deploy. Goal 2 provider benchmarking is completed locally, but the observed project-defined agreement and traceability rates did not meet the proposed targets. Collect real questionnaire/Goal 3 data separately. Goal 1 still needs its remaining case families/variants and genuine independent expected-label verification before a full research result can be claimed.
+PR #50, PR #51 and PR #52 have been merged by the repository owner. The owner explicitly requested resuming on `wildtrack-rebrand`; it was fast-forwarded to merged `main` commit `c156ce9` before the new v4 AI Review work. Current SRS follow-up results and fixes are on `wildtrack-rebrand`; submit through a PR, do not directly merge `main` or deploy. The distinct six-case SRS follow-up identified two still-missed mandatory-looking template body-section omissions, despite successful post-filter suppression of the old STD false alarms. Preserve the frozen first STD pilot unchanged, and assess a generalizable explicit-template/body-section comparison without hard-coding the two SRS examples. Collect real questionnaire/Goal 3 data separately. Goal 1 still needs its remaining case families/variants and genuinely independent expected-label verification.
+
+## 2026-09-21 — Actual sanitized SRS follow-up after production post-processing fix
+
+- Inspected the owner's original 7-page SRS template and populated 43-page student SRS **locally** for generic chapter/section structure; the private PDFs were left in their original directory and explicitly ignored by Git. Six generated, newly authored, fictional three-page SRS fixtures and a synthetic template stand-in are in `benchmarks/srs/`. Neither original PDF, its contents, team/student names, or original project text were sent to Gemini or committed.
+- Production `AiReviewService` prompt/grounding safeguards updated to v4: clearer section/TOC authority boundaries, conservative suppression of demonstrably false missing headings and wholly invented named requirements, filtering sample-template identity/synthetic-type misclassification and overbroad absolute-placeholder claims, safe summary/action generated only from remaining findings. The post-processing used by the test invokes the identical production `groundAndValidate` code. Fix and test-source code revision `c70bf7d3885a7710f67b4502c644c0938e2ef69d` is committed on `wildtrack-rebrand`.
+- SRS case expectations, mapped safe template, instructions, six PDF hashes and app revision frozen at `2026-09-20T18:19:55.129Z`, **before** the first SRS provider request. Six one-shot live Gemini calls (v4) all returned HTTP 200 and actual raw reports; original raw provider JSON and production-filtered reports are separately preserved under `benchmarks/srs/results/srs-followup-20260921/` with a credential scan and SHA-256 verification.
+- Four of six predeclared synthetic SRS engineering conditions were observed: blank template, populated synthetic section recognition, two specifically incomplete sections, and malicious embedded fake requirement not promoted to authority. **SRS-04 and SRS-05 were not detected**: Gemini incorrectly omitted two genuinely missing template body-section findings (one TOC-only, one absent from both body and contents). The production filter removed unsupported positive "all sections present" model summaries but cannot create a finding the provider did not emit. This is separate from the earlier STD Goal 2 benchmark and is **not** a replacement 85%/90% academic result or independent validation.
+- Offline checks: six fixture PDFs/manifest and source-safety tests 8/8 pass; v4 policy, real saved STD-provider post-processing, synthetic PDFBox SRS structural regression, and existing provider/deduplication backend checks pass. Retain the original STD 7/10 reference agreement, 24/43 traceable claims, one HTTP 503, and the still-unmet proposed Goal 2 targets unmodified.
 
 ## 2026-09-21 — Goal 2 actual project-reference pilot
 

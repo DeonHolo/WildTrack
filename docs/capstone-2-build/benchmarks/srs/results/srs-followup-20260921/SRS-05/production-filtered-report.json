@@ -1,0 +1,7 @@
+{
+  "summary" : "The AI review returned no grounded findings from the submitted PDF or supplied requirement sources.",
+  "findings" : [ ],
+  "missingRequiredSections" : [ ],
+  "limitations" : [ ],
+  "suggestedAction" : "Review the PDF manually before giving feedback or making a decision."
+}

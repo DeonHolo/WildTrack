@@ -1,0 +1,12 @@
+{
+  "summary" : "Document evidence: The document is a synthetic fixture intended for benchmarking purposes.",
+  "findings" : [ {
+    "issue" : "The document is a synthetic fixture intended for benchmarking purposes.",
+    "source" : "DOCUMENT",
+    "evidence" : "Page 1, header: 'SYNTHETIC NON-STUDENT BENCHMARK. Fictional QueueLab requirements; not actual student work or operational evidence.'",
+    "requirement" : ""
+  } ],
+  "missingRequiredSections" : [ ],
+  "limitations" : [ ],
+  "suggestedAction" : "Review the cited document evidence before deciding what correction, if any, is appropriate."
+}

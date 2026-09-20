@@ -1,0 +1,12 @@
+{
+  "summary" : "Document evidence: The document contains only placeholder text and lacks substantive project-specific information.",
+  "findings" : [ {
+    "issue" : "The document contains only placeholder text and lacks substantive project-specific information.",
+    "source" : "DOCUMENT",
+    "evidence" : "Pages 1-3, all sections.",
+    "requirement" : ""
+  } ],
+  "missingRequiredSections" : [ ],
+  "limitations" : [ ],
+  "suggestedAction" : "Review the cited document evidence before deciding what correction, if any, is appropriate."
+}
