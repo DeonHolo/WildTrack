@@ -13,6 +13,10 @@ const folder = path.join(source, 'fixtures');
 const metadata = JSON.parse(fs.readFileSync(path.join(source, 'goal1-condition-authority.json'), 'utf8'));
 const allManifest = fs.readFileSync(path.join(source, 'manifest.csv'), 'utf8');
 const allHashes = fs.readFileSync(path.join(source, 'fixture-hashes.sha256'), 'utf8');
+// This is the last committed pre-expansion source revision. Using HEAD would
+// compare the current enlarged catalog against itself after the new fixtures
+// are committed, erasing our ability to verify the eleven frozen old entries.
+const PRE_GOAL1_BASELINE = '70fbf3a057b09a88fe165eece819dc4348a6fc9c';
 
 function invoke(exe,args,opts={}) {
   const out = spawnSync(exe,args,{
@@ -22,7 +26,7 @@ function invoke(exe,args,opts={}) {
   return out.stdout;
 }
 function old(name) {
-  return invoke('git',['show','HEAD:docs/capstone-2-build/benchmarks/std/'+name]);
+  return invoke('git',['show',PRE_GOAL1_BASELINE+':docs/capstone-2-build/benchmarks/std/'+name]);
 }
 function csv(line) {
   const result=[];let token='';let quoted=false;

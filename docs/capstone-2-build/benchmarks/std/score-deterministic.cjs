@@ -200,7 +200,9 @@ function score(observations, assertions = readCsv(ASSERTIONS), options = {}) {
       failUnless(item.file_size_bytes && Number.isSafeInteger(Number(item.file_size_bytes))
         && Number(item.file_size_bytes) >= 0,
       `Observation ${id}: fixture physical byte length missing`);
-      const physicalSize = require('node:fs').statSync(path.resolve(__dirname, fixtures.get(id).file)).size;
+      // fixtureAuthority publishes paths relative to the repository root, not this
+      // scorer's directory. Verify the actual PDF at that canonical root path.
+      const physicalSize = fs.statSync(path.resolve(REPO_ROOT, fixtures.get(id).file)).size;
       failUnless(Number(item.file_size_bytes) === physicalSize,
         `Observation ${id}: actual fixture size cannot be replaced by simulated gateway metadata`);
       if (scope.includes('FILECHECK_GATEWAY_MOCK')) {

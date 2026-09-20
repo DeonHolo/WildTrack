@@ -51,6 +51,24 @@ test('missing fixture observations stay in the denominator without inventing a c
   assert.equal(result.gate.verified_pre_run_reference_freeze, false);
 });
 
+test('scorer validates measured fixture size relative to repository root rather than scorer directory', () => {
+  const fixture = fixtures.get('STD-01');
+  const actualBytes = fs.statSync(path.resolve(directory, '../../../..', fixture.file)).size;
+  const row = observation('STD-01', {
+    measurement_scope: 'PDF_TEMPLATE_ISOLATED',
+    benchmark_run_mode: 'DEVELOPMENT',
+    reference_freeze_sha256: '',
+    file_size_bytes: String(actualBytes),
+    template_mapped: 'true'
+  });
+  const report = scoreDeterministic([row]);
+  assert.equal(report.assertions.find(item => item.assertion_id === 'STD-01-readable').status,
+    'COMPLETED');
+  assert.equal(report.status, 'PROVISIONAL_NOT_OBJECTIVE_1_RESULT');
+  assert.throws(() => scoreDeterministic([{ ...row, file_size_bytes: String(actualBytes + 1) }]),
+    /actual fixture size cannot be replaced/);
+});
+
 test('an execution error is counted as zero correct and zero completed for that fixture', () => {
   const result = scoreDeterministic([observation('STD-01', { observation_status: 'ERROR', check_error: 'Parser failure' })]);
   assert.deepEqual(result.assertions.filter(r => r.fixture_id === 'STD-01').map(r => r.status),
