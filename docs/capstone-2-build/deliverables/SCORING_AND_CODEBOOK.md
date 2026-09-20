@@ -196,6 +196,8 @@ If Limit to 1 response cannot be used:
 
 Technical checker evidence comes from the frozen benchmark manifest, not the Google Form.
 
+Goal 1's expected classifications are **researcher/project-defined, source-grounded and AI-assisted**, without mandatory independent human review or any claim of independently established ground truth. The 25-family/30-condition synthetic benchmark schedules 52 technical binary assertions. A separately timestamped reference freeze must precede its designated scored run; the earlier development 52/52 agreement is not a blinded or prospectively frozen outcome. PDF extraction/template comparison with disclosed simulated Drive gateway branches provides component-level evidence, not full real-provider end-to-end accuracy. Do not treat the component score alone as attainment of the proposed end-to-end 90% target.
+
 For Document Check:
 
 - N_DC = all applicable scheduled atomic assertions with frozen ground truth across the 25 STD case families and their documented variants.
@@ -210,7 +212,7 @@ Do not collapse technical access/readability checks and content/template indicat
 
 ## Objective 2 technical denominator
 
-The proposed AI pilot has ten planned **synthetic STD** fixture attempts: STD-01, STD-02, STD-03, STD-05, STD-08, STD-09, STD-10, STD-12, STD-18, and STD-21. Its comparison standard is a **researcher/project-defined, PDF-grounded reference checklist** prepared through AI-assisted review of the actual extracted PDF source texts and supplied authority, with eleven decisions, evidence excerpts and rationales recorded in `ai-checklist.csv`. No user-performed manual PDF audit or independent human reviewer is claimed. The prepared reference is **not independently validated ground truth**; its dated run-level freeze fingerprint must precede official provider observations. Goal 1's separate independent label-verification requirement is unchanged.
+The proposed AI pilot has ten planned **synthetic STD** fixture attempts: STD-01, STD-02, STD-03, STD-05, STD-08, STD-09, STD-10, STD-12, STD-18, and STD-21. Its comparison standard is a **researcher/project-defined, PDF-grounded reference checklist** prepared through AI-assisted review of the actual extracted PDF source texts and supplied authority, with eleven decisions, evidence excerpts and rationales recorded in `ai-checklist.csv`. No user-performed manual PDF audit or independent human reviewer is claimed. The prepared reference is **not independently validated ground truth**; its dated run-level freeze fingerprint must precede official provider observations. Goal 1 likewise uses a project-defined source-backed reference rather than mandatory human label verification.
 
 The official pilot runner exercises the provider-backed **AI Review component** (`GeminiAiReviewProvider.review` with `AiReviewService.SYSTEM_INSTRUCTION` and the configured model/format), **not** the full deployed Admin/Drive/cache/UI path or `AiReviewService.groundAndValidate` post-filter. Label denominators and report-claim evidence describe this component and cannot be extrapolated to full production end-to-end behavior.
 

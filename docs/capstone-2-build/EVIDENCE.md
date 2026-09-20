@@ -2,6 +2,11 @@
 
 Append concise entries; never replace failed results with passing summaries.
 
+## 2026-09-21 — Goal 1 project-defined reference, without mandatory human audit
+
+- The researcher chose to omit mandatory independent teammate review of the 25-family deterministic STD reference. The actual benchmark expectations remain PDF/template/explicit-instructions grounded and AI-assisted; the human review fields remain `PENDING` and blank, with no fictitious reviewer, approval, sign-off or retrospective assertion that review happened. `benchmarks/std/GOAL1_PROJECT_REFERENCE_PROTOCOL.md` defines the reference, denominator, freeze, scope and limitations.
+- The existing 30-condition/52-assertion development probe predates this method's source/code lock and remains **DEVELOPMENT** evidence. The separate create-only project-defined freeze tool and guarded exporter/scorer now require the exact frozen input, code and scoring hashes before any separately designated run. They do not treat local Drive gateway mocks as evidence of actual provider permissions, a genuinely oversized file or full end-to-end Document Check accuracy. Waiving a reviewer alone does not establish the proposed end-to-end 90% outcome.
+
 ## 2026-09-21 — SMART Goal 1 Document Check full fixture and scoring preparation
 
 - Completed a **newly prepared, not independently reviewed** synthetic STD technical benchmark catalog spanning all 25 planned case families and required split/paired variants: 30 manifest conditions, including 18 new fictional input files and 19 new condition rows appended without changing the original 11 conditions, original STD PDFs or official STD template bytes. `atomic-assertions.csv` defines 52 draft technical assertions with every reviewer field `PENDING`; unsupported semantic-quality, actual test-execution and real Drive claims are excluded from the deterministic numerator. New PDFBox checks distinguish valid graphics-only, corrupt/non-PDF and genuinely encrypted files; STD-06 has a same-text differently formatted control; STD-19 shares identical PDF bytes across two distinct supplied-instruction conditions. Source catalog, controls and new-only creation process: `benchmarks/std/GOAL1_ADDITIONAL_FIXTURES.md`, `goal1-condition-authority.json` and `goal1-additional-fixtures.test.cjs`.

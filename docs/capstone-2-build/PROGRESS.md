@@ -8,6 +8,8 @@ Full-session execution started from the current feature branch after Prompt 1/ed
 
 ## Next action
 
+**Current Goal 1 method:** project/researcher-defined, PDF- and template-grounded technical reference prepared with AI assistance; a mandatory independent human label review is **not required or claimed**. The 25-family/30-condition, 52-assertion development run remains historical and cannot be rebranded as independently validated, blindly held-out or prospectively frozen. The source, hash, implementation and scorer must be committed and then frozen before any distinct reference-based evaluation. Existing synthetic PDF component and mocked Drive metadata branches do **not** establish the proposed full provider-backed end-to-end 90% outcome. `benchmarks/std/GOAL1_PROJECT_REFERENCE_PROTOCOL.md` governs this scoped work.
+
 PR #50, PR #51 and PR #52 have been merged by the repository owner; open PR #53 tracks `wildtrack-rebrand` to `main`. Remain on `wildtrack-rebrand`; do not directly merge `main` or deploy. After the frozen v4 SRS AI Review pilot and v5 offline fix, the owner prioritized **SMART Goal 1**. All 25 STD family fixtures/required variants are now prepared as 30 conditions with 52 draft technical expected classifications. The required independent teammate review, authentic source/reference freeze and formal scored full-provider study have NOT occurred. A separately versioned DEVELOPMENT-only isolated/mock observation probe may be run, but is not final Objective 1 accuracy. Preserve both previous AI studies unchanged; collect real Goal 3 student data separately.
 
 ## 2026-09-21 — Objective 1 expanded synthetic STD technical benchmark preparation

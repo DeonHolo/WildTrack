@@ -193,13 +193,13 @@ test('simulated size, MIME and filename signals require actual FileCheckService 
   assert.equal(classify('filename_ignored', { ...filename, filecheck_status: 'BLOCKED' }).status, 'NOT_MEASURED');
 });
 
-test('claimed freeze cannot convert pending unreviewed Goal 1 labels into a research result', () => {
+test('historical development output and unrelated Goal 2 key cannot become a frozen Goal 1 result', () => {
   const pending = scoreDeterministic([observation('STD-01')]);
   assert.equal(pending.gate.independent_human_labels_verified_before_run, false);
   assert.equal(pending.gate.verified_pre_run_reference_freeze, false);
   assert.throws(() => scoreDeterministic([], deterministicAssertions, {
     freezePath: path.join(directory, 'results', 'goal2-20260921', 'frozen-key.json')
-  }), /Invalid Goal 1 reference freeze status\/type/);
+  }), /Expected a transparently project-defined Goal 1 reference/);
   assert.equal(pending.status, 'PROVISIONAL_NOT_OBJECTIVE_1_RESULT');
 });
 
