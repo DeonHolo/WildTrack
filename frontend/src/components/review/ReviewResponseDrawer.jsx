@@ -45,6 +45,7 @@ export function ReviewResponseDrawer({
   checkError = '',
   onClose,
   onDocumentCheck,
+  onFileHistory,
   onViewAiReview,
   onAiReview,
   onAccept,
@@ -99,6 +100,7 @@ export function ReviewResponseDrawer({
                 field={field}
                 checking={checkingFields.has(artifactKey(response.id, field))}
                 onDocumentCheck={() => onDocumentCheck?.(field)}
+                onFileHistory={() => onFileHistory?.(field)}
                 onViewAiReview={() => onViewAiReview?.(field)}
                 onAiReview={() => onAiReview?.(field)}
               />
@@ -141,7 +143,7 @@ export function ReviewResponseDrawer({
   );
 }
 
-function ArtifactCard({ response, field, checking, onDocumentCheck, onViewAiReview, onAiReview }) {
+function ArtifactCard({ response, field, checking, onDocumentCheck, onFileHistory, onViewAiReview, onAiReview }) {
   const value = String(response.values?.[field.id] || '').trim();
   const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
   const report = artifactDocumentCheck(response, field);
@@ -168,6 +170,9 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onViewAiRevi
               size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
               {artifactOpenLabel(field)}
             </Button>
+            {field.type === 'drive' ? (
+              <Button variant="light" color="wildtrackMaroon" size="xs" onClick={onFileHistory}>File history</Button>
+            ) : null}
           </Group>
         ) : <StatusIndicator status="No file link" />}
 

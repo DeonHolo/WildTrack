@@ -12,7 +12,7 @@ const FILTERS = [
   { label: 'Submitted', value: 'submitted' },
 ];
 
-export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
+export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studentNumber }) {
   const [filter, setFilter] = useState('all');
   const [activeFeedback, setActiveFeedback] = useState(null);
   const [activeCheck, setActiveCheck] = useState(null);
@@ -87,6 +87,15 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
                         >
                           View Document Check
                         </Button>
+                      ) : null}
+                      {!hasMultipleArtifacts && row.artifacts?.[0]?.drivePdf ? (
+                        <Button variant="subtle" size="compact-sm" color="wildtrackMaroon" onClick={() => setActiveCheck({
+                          response: row.response,
+                          documentCheck: row.documentCheck,
+                          fileLink: row.artifacts[0].value,
+                          fieldId: row.artifacts[0].fieldId,
+                          initialTab: 'history'
+                        })}>File history</Button>
                       ) : null}
                       {row.feedback ? (
                         <Button variant="subtle" size="compact-sm" color="wildtrackMaroon" onClick={() => setActiveFeedback(row)}>
@@ -210,6 +219,18 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
                         View Document Check
                       </Button>
                     ) : null}
+                    {artifact.drivePdf ? (
+                      <Button variant="subtle" size="compact-sm" color="wildtrackMaroon" onClick={() => {
+                        setActiveCheck({
+                          response: activeArtifacts.response,
+                          documentCheck: artifact.documentCheck,
+                          fileLink: artifact.value,
+                          fieldId: artifact.fieldId,
+                          initialTab: 'history'
+                        });
+                        setActiveArtifacts(null);
+                      }}>File history</Button>
+                    ) : null}
                   </Group>
                   {artifact.reviewablePdf ? (
                     <Text size="xs" c="dimmed">
@@ -229,6 +250,10 @@ export function StudentDeliverableList({ rows, workspaceKey, studentNumber }) {
         response={activeCheck?.response || null}
         documentCheck={activeCheck?.documentCheck || null}
         fileLink={activeCheck?.fileLink || ''}
+        initialTab={activeCheck?.initialTab || 'result'}
+        historyTarget={activeCheck?.fieldId && workspaceId && activeCheck?.response?.id ? {
+          workspaceId, responseId: activeCheck.response.id, fieldId: activeCheck.fieldId
+        } : null}
         audience="student"
         allowRecheck={false}
       />

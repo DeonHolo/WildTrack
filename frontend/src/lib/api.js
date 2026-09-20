@@ -52,6 +52,31 @@ export async function getCurrentSession() {
   return request('/auth/session');
 }
 
+// Delegated Drive metadata is separate from Google ID-token sign-in.
+export function getDriveHistoryConsentStatus() {
+  return request('/drive-history/auth/status');
+}
+
+export function startDriveHistoryConsent() {
+  const query = new URLSearchParams(window.location.search);
+  query.delete('driveHistory');
+  const returnTo = `${window.location.pathname}${query.toString() ? `?${query}` : ''}`;
+  window.location.assign(`${API_BASE_URL}/drive-history/auth/start?returnTo=${encodeURIComponent(returnTo)}`);
+}
+
+export function disconnectDriveHistoryConsent() {
+  return request('/drive-history/auth/disconnect', { method: 'POST' });
+}
+
+export function getSubmittedFileHistory(workspaceId, responseId, fieldId, pageToken = '') {
+  if (!workspaceId || !responseId || !fieldId) {
+    throw new Error('Choose a submitted file to view its history.');
+  }
+  const query = new URLSearchParams({ workspaceId, responseId, fieldId });
+  if (pageToken) query.set('pageToken', pageToken);
+  return request(`/drive-history?${query.toString()}`);
+}
+
 export async function logout() {
   return request('/auth/logout', { method: 'POST' });
 }

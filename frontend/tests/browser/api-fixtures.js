@@ -59,6 +59,14 @@ export async function installApiFixtures(page, {
     calls.push({ method, path, workspaceId: url.searchParams.get('workspaceId'), body: request.postDataJSON() });
     const reply = (json, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
     if (method === 'GET' && path === '/auth/session') return reply(identity);
+    if (method === 'GET' && path === '/drive-history/auth/status') {
+      return reply({ configured: false, connected: false, message: 'Mock browser fixture has no live Google consent.' });
+    }
+    if (method === 'GET' && path === '/drive-history') {
+      return reply({ sourceLabel: 'Google Drive revision metadata', status: 'NOT_CONNECTED',
+        revisions: [], nextPageToken: null, historyMayBeIncomplete: true,
+        coverageMessage: 'No Google Drive grant is connected in the browser fixture.' });
+    }
     if (method === 'GET' && path.startsWith('/public/forms/')) {
       expect(path).toBe(`/public/forms/${workspace.publicKey}/${deliverable.slug}`);
       return reply({ workspace, deliverable });

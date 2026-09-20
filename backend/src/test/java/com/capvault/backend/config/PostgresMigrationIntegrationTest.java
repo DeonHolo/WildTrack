@@ -27,7 +27,7 @@ class PostgresMigrationIntegrationTest {
             MigrateResult firstMigration = flyway.migrate();
 
             assertThat(firstMigration.migrationsExecuted).isPositive();
-            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("25");
+            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("26");
             assertThat(tableExists(dataSource, "domain_audit_events")).isTrue();
             assertThat(tableExists(dataSource, "response_tracker_outbox")).isTrue();
             assertThat(tableExists(dataSource, "archive_records")).isTrue();
@@ -35,6 +35,12 @@ class PostgresMigrationIntegrationTest {
             assertThat(tableExists(dataSource, "wildtrack_sessions")).isTrue();
             assertThat(tableExists(dataSource, "form_responses")).isTrue();
             assertThat(tableExists(dataSource, "response_feedback")).isTrue();
+            assertThat(tableExists(dataSource, "drive_history_oauth_grants")).isTrue();
+            assertThat(tableExists(dataSource, "drive_history_oauth_states")).isTrue();
+            assertThat(columnExists(dataSource, "drive_history_oauth_grants", "encrypted_refresh_token")).isTrue();
+            assertThat(columnExists(dataSource, "drive_history_oauth_grants", "revoked_at")).isTrue();
+            assertThat(columnExists(dataSource, "drive_history_oauth_states", "session_hash")).isTrue();
+            assertThat(columnExists(dataSource, "drive_history_oauth_states", "nonce_hash")).isTrue();
             assertThat(columnExists(dataSource, "student_identity_conflicts", "decided_at")).isTrue();
             assertThat(columnExists(dataSource, "academic_student_records", "team_formation_code")).isTrue();
             assertThat(columnExists(dataSource, "academic_student_records", "software_title")).isTrue();

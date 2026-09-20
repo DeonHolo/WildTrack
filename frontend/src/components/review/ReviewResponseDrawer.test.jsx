@@ -52,6 +52,8 @@ describe('ReviewResponseDrawer submission artifacts', () => {
     expect(await screen.findByText('Submission artifacts')).toBeInTheDocument();
     expect(screen.getByText('Validation Form')).toBeInTheDocument();
     expect(screen.getByText('Framework PDF')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'File history' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check document' })).not.toBeInTheDocument();
     expect(screen.queryByText('Student Number')).not.toBeInTheDocument();
     expect(screen.queryByText('Student Name')).not.toBeInTheDocument();
     expect(screen.queryByText('Team Code')).not.toBeInTheDocument();

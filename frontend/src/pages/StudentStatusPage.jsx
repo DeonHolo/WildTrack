@@ -209,7 +209,7 @@ export function StudentStatusPage() {
         project={project}
         adviserLabel={adviserLabel}
       />
-      <StudentDeliverableList rows={deliverableRows} workspaceKey={workspaceKey} studentNumber={student.studentNumber} />
+      <StudentDeliverableList rows={deliverableRows} workspaceId={activeWorkspaceId} workspaceKey={workspaceKey} studentNumber={student.studentNumber} />
       <StudentProgressPanel activeColumns={activeColumns} student={student} />
     </DashboardContainer>
   );
@@ -385,6 +385,8 @@ function buildStudentArtifacts(deliverable, response) {
     const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
     return {
       key: field.definitionId || field.id,
+      fieldId: field.definitionId || field.id,
+      drivePdf: field.type === 'drive',
       label: field.label || field.id || 'Submission artifact',
       typeLabel: submissionFieldTypeLabel(field),
       value,

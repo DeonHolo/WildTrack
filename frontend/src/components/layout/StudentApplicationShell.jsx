@@ -3,6 +3,7 @@ import { SignOut } from '@phosphor-icons/react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { WildTrackBrand } from './WildTrackBrand.jsx';
+import { DriveHistoryAccountAccess } from '../auth/DriveHistoryAccountAccess.jsx';
 
 export function StudentApplicationShell({ children }) {
   const navigate = useNavigate();
@@ -36,6 +37,7 @@ export function StudentApplicationShell({ children }) {
             {activeAccount ? (
               <>
                 <Text className="wt-student-email" size="xs" c="dimmed">{activeAccount.email}</Text>
+                <DriveHistoryAccountAccess />
                 <Button variant="default" leftSection={<SignOut size={17} />} onClick={logout}>Log out</Button>
               </>
             ) : isAccessRoute ? null : (

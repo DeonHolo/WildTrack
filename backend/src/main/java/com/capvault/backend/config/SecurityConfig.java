@@ -61,6 +61,7 @@ public class SecurityConfig {
             .cors(Customizer.withDefaults())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/health/live", "/api/health/ready", "/api/auth/session", SIGN_IN_PATH, "/api/public/forms/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/drive-history/auth/callback").permitAll()
                 .requestMatchers("/api/file-checks/**").hasAnyRole("ADMIN", "ADVISER")
                 .requestMatchers(HttpMethod.POST,
                     "/api/workspaces",
