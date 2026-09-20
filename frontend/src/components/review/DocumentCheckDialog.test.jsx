@@ -94,8 +94,8 @@ describe('DocumentCheck shared submitted-file metadata', () => {
       .mockResolvedValueOnce(sharedHistory);
     show({ audience: 'student', initialTab: 'history' });
     const dialog = screen.getByRole('dialog');
-    expect(await within(dialog).findByText('Drive metadata permission has not been granted for this file.')).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Refresh from Google Drive' }));
+    expect(await within(dialog).findByText(/No submitter of this file currently has usable Drive history access/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Refresh history' }));
     expect(await within(dialog).findByRole('group', { name: 'Drive revision 1 on page 1' })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('tab', { name: 'Check result' }));
     await waitFor(() => expect(within(dialog).getByText('Created time').parentElement).not.toHaveTextContent('Unavailable'));

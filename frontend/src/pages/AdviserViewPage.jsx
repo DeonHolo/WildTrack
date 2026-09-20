@@ -563,6 +563,7 @@ export function AdviserViewPage() {
         } : checkDialogResponse}
         observedHistory={checkDialogHistory}
         initialTab={checkDialogTarget?.initialTab || 'result'}
+        historyOnly={checkDialogTarget?.initialTab === 'history' && !checkDialogReport}
         historyTarget={activeWorkspaceId && checkDialogResponse?.id && checkDialogFieldKey ? {
           workspaceId: activeWorkspaceId,
           responseId: checkDialogResponse.id,
@@ -751,7 +752,7 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpe
               <Button component="a" href={makeDriveViewUrl(value)} target="_blank" rel="noreferrer" variant="default" size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
                 {artifactOpenLabel(field)}
               </Button>
-              {field.type === 'drive' ? (
+              {field.type === 'drive' && (!reviewablePdf || !check) ? (
                 <Button variant="light" color="wildtrackMaroon" size="xs" onClick={onOpenFileHistory}>File history</Button>
               ) : null}
             </Group>

@@ -1,0 +1,16 @@
+{
+  "_instructions": "PLANNING TEMPLATE ONLY. No AI provider call, cache lookup, or substantive human claim adjudication is represented here. Copy this file to a separately named run record before actual attempts. Preserve the original outcome for each of ten IDs.",
+  "schema_version": 1,
+  "runs": [
+    { "fixture_id": "STD-01", "outcome": "not_attempted" },
+    { "fixture_id": "STD-02", "outcome": "not_attempted" },
+    { "fixture_id": "STD-03", "outcome": "not_attempted" },
+    { "fixture_id": "STD-05", "outcome": "not_attempted" },
+    { "fixture_id": "STD-08", "outcome": "not_attempted" },
+    { "fixture_id": "STD-09", "outcome": "not_attempted" },
+    { "fixture_id": "STD-10", "outcome": "not_attempted" },
+    { "fixture_id": "STD-12", "outcome": "not_attempted" },
+    { "fixture_id": "STD-18", "outcome": "not_attempted" },
+    { "fixture_id": "STD-21", "outcome": "not_attempted" }
+  ]
+}

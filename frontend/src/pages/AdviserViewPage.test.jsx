@@ -330,7 +330,7 @@ describe('adviser My advised teams review', () => {
     fireEvent.click(within(dialog).getByRole('tab', { name: 'File history' }));
     expect(screen.getByText('WildTrack observed file history')).toBeInTheDocument();
     expect(screen.getByText(/only file states WildTrack observed/i)).toBeInTheDocument();
-    expect(screen.getByText(/Older Google Drive revision history is unavailable/i)).toBeInTheDocument();
+    expect(screen.getByText(/Google Drive revision metadata, when authorized and available/i)).toBeInTheDocument();
     expect(screen.getByText('Content changed')).toBeInTheDocument();
     expect(screen.getByText(/Modified by editor@example.com/)).toHaveTextContent('Google Drive File metadata');
   });

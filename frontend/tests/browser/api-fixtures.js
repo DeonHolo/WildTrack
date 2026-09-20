@@ -5,6 +5,8 @@ export async function installApiFixtures(page, {
   role = 'student',
   connected = false,
   submitted = false,
+  checkedPdf = false,
+  documentCheckPolicy = 'AUTO',
   program = 'IT',
   formStatus = 'PUBLISHED',
   templates = []
@@ -30,7 +32,7 @@ export async function installApiFixtures(page, {
     updatedAt: '2026-04-01T08:00:00',
     fields: [{
       id: 'field-document-pdf', fieldKey: 'documentPdf', label: 'PDF Drive Link', helpText: '', fieldType: 'DRIVE_PDF',
-      required: true, displayOrder: 0, documentCheckPolicy: 'AUTO', aiReviewEnabled: true, active: true, options: []
+      required: true, displayOrder: 0, documentCheckPolicy, aiReviewEnabled: true, active: true, options: []
     }]
   };
   const deliverables = [deliverable, { ...deliverable, id: 'deliverable-sdd', slug: 'week-10-sdd', title: 'Software Design Document', trackerColumnKey: 'SDD' }];
@@ -40,6 +42,14 @@ export async function installApiFixtures(page, {
   const timestamp = '2026-04-17T09:00:00Z';
   let association = connected ? { ...student, assuranceLevel: 'SELF_DECLARED' } : null;
   let response = submitted ? makeResponse({ documentPdf: 'https://drive.google.com/file/d/browser-pdf/view' }) : null;
+  const checkedReport = {
+    id: 'check-browser-1', responseId: 'response-1', fieldId: 'field-document-pdf',
+    sourceUrl: 'https://drive.google.com/file/d/browser-pdf/view',
+    sourceResponseUpdatedAt: timestamp, checkedAt: timestamp, status: 'COMPLETED',
+    attentionRequired: false, summary: 'Submitted PDF is accessible and readable.', flags: [],
+    metadata: { name: 'Browser SRS.pdf', canDownload: true, mimeType: 'application/pdf' },
+    document: { readable: true, pageCount: 5 }
+  };
   let draft = null;
   let deliverableRevision = 0;
   const unexpected = [];
@@ -217,7 +227,8 @@ export async function installApiFixtures(page, {
     if (path === '/workspace/students/dashboard' && method === 'GET') return reply({
       association, rosterOptions: [student], students: association ? [student] : [],
       projects: association ? projects : [], trackerColumns: columns, trackerRows: association ? rows : [],
-      deliverables, responses, reviewStates: {}, fileChecks: {}
+      deliverables, responses, reviewStates: {}, fileChecks: {},
+      fileChecksByField: checkedPdf && response ? { [response.id]: { 'field-document-pdf': checkedReport } } : {}
     });
     if (path === '/monitoring' && method === 'GET') return reply({ students: [student], projects, trackerColumns: columns, trackerRows: rows, deliverables, responses, reviewStates: Object.fromEntries(responses.map(item => [item.id, { feedback: [], acceptance: null }])), fileChecks: {}, teamCodes: [student.teamCode], allTeams: role === 'admin' });
     const collections = { '/students': [student], '/projects': projects, '/tracker/columns': columns, '/tracker/rows': rows, '/deliverables': deliverables, '/templates': templates, '/workspace/responses/my-team': responses,

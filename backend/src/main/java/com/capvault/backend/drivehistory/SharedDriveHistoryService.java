@@ -113,7 +113,8 @@ public class SharedDriveHistoryService {
             : resolveCursor(pageToken, session.googleSubject(), target.getId(), selected.fieldId(), fileId);
         if (!access.isConfigured()) {
             return SharedDriveHistoryView.unavailable("UNAVAILABLE",
-                "Google Drive revision history is not configured. WildTrack's Document Check still works.", fileId);
+                "Drive revision history is not enabled in this WildTrack environment yet. "
+                + "A WildTrack administrator needs to finish enabling it. Document Check remains available.", fileId);
         }
 
         // Subject preference avoids trying other people's tokens for a file the
@@ -139,6 +140,7 @@ public class SharedDriveHistoryService {
         }
         boolean attempted = false;
         boolean permissionDenied = false;
+        boolean revokedAccess = false;
         for (String subject : candidates) {
             Optional<String> token = access.accessTokenForSubject(subject);
             if (token.isEmpty()) continue;
@@ -178,7 +180,10 @@ public class SharedDriveHistoryService {
             } catch (DelegatedDriveException failure) {
                 switch (failure.reason()) {
                     case PERMISSION_DENIED -> permissionDenied = true;
-                    case AUTH_REVOKED -> access.markRevoked(subject);
+                    case AUTH_REVOKED -> {
+                        access.markRevoked(subject);
+                        revokedAccess = true;
+                    }
                     case PROVIDER_UNAVAILABLE -> {
                         return SharedDriveHistoryView.unavailable("UNAVAILABLE",
                             "Google Drive history could not be retrieved right now. Try again later.", fileId);
@@ -190,9 +195,14 @@ public class SharedDriveHistoryService {
             return SharedDriveHistoryView.unavailable("PERMISSION_DENIED",
                 "Connected submitters do not currently have sufficient Google Drive permission to read revisions of this file.", fileId);
         }
+        if (revokedAccess) {
+            return SharedDriveHistoryView.unavailable("NOT_CONNECTED",
+                "Previously connected Drive history access has expired or was revoked. "
+                + "An eligible submitter can reconnect Drive history access in WildTrack.", fileId);
+        }
         return SharedDriveHistoryView.unavailable(attempted ? "UNAVAILABLE" : "NOT_CONNECTED",
-            "No submitter of this exact file currently has a usable Drive history authorization. "
-            + "The owner or an editor can grant access when they sign in to WildTrack.", fileId);
+            "No eligible submitter of this exact PDF currently has usable Drive history access. "
+            + "A submitter with permission to view its revisions can connect Drive history in WildTrack.", fileId);
     }
 
     private String issueCursor(String providerToken, String viewer, UUID responseId,

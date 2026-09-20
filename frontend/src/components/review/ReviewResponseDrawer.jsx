@@ -170,15 +170,15 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onFileHistor
               size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
               {artifactOpenLabel(field)}
             </Button>
-            {field.type === 'drive' ? (
-              <Button variant="light" color="wildtrackMaroon" size="xs" onClick={onFileHistory}>File history</Button>
+              {field.type === 'drive' && (!reviewablePdf || !report) ? (
+                <Button variant="light" color="wildtrackMaroon" size="xs" onClick={onFileHistory}>File history</Button>
             ) : null}
           </Group>
         ) : <StatusIndicator status="No file link" />}
 
         {reviewablePdf ? (
           <>
-            <Group gap="xs" wrap="wrap">
+            <Group gap="xs" wrap="wrap" className="wt-review-artifact-actions">
               <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<MagnifyingGlass size={15} />}
                 loading={checking} disabled={!value} onClick={onDocumentCheck}>
                 {isArtifactDocumentCheckCurrent(response, field) ? 'View Document Check' : field.documentCheckPolicy === 'MANUAL' ? 'Check document' : 'Check again'}

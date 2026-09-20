@@ -2,6 +2,7 @@ package com.capvault.backend.filecheck;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 class TemplateComparatorTest {
@@ -104,6 +105,50 @@ class TemplateComparatorTest {
         assertThat(result.missingTemplateHeadings())
             .contains("TEST APPROACH")
             .doesNotContain("INTRODUCTION");
+        assertThat(result.sectionEvidence()).filteredOn(evidence -> "INTRODUCTION".equals(evidence.expectedHeading()))
+            .singleElement().satisfies(evidence -> {
+                assertThat(evidence.status()).isEqualTo("DETECTED");
+                assertThat(evidence.matchedLine()).isEqualTo("1. INTRODUCTION");
+                assertThat(evidence.extractedTextLine()).isEqualTo(5);
+                assertThat(evidence.matchMethod()).isEqualTo("NORMALIZED_EXACT");
+            });
+        assertThat(result.sectionEvidence()).filteredOn(evidence -> "TEST APPROACH".equals(evidence.expectedHeading()))
+            .singleElement().satisfies(evidence -> {
+                assertThat(evidence.status()).isEqualTo("NOT_DETECTED");
+                assertThat(evidence.matchedLine()).isNull();
+                assertThat(evidence.extractedTextLine()).isNull();
+                assertThat(evidence.matchMethod()).isNull();
+            });
+    }
+
+    @Test
+    void exposesEveryMissingSectionRatherThanTruncatingResultsAtEight() {
+        StringBuilder template = new StringBuilder();
+        for (int number = 1; number <= 12; number++) {
+            template.append(number).append(". Section ").append(number).append("\n");
+        }
+
+        TemplateComparison result = comparator.compare(template.toString(), "1. Section 1\nActual body content");
+
+        assertThat(result.expectedTemplateHeadings()).hasSize(12);
+        assertThat(result.detectedTemplateHeadings()).containsExactly("Section 1");
+        assertThat(result.missingTemplateHeadings()).hasSize(11);
+        assertThat(result.sectionEvidence()).hasSize(12);
+    }
+
+    @Test
+    void savedReportsFromBeforeHeadingEvidenceRemainReadable() throws Exception {
+        String priorReport = """
+            {"available":true,"templateCoverage":0.42,"addedContentRatio":0.8,
+             "unchangedInstructionCount":0,"missingTemplateHeadings":["Test Approach"],
+             "appearsTemplateOnly":false,"expectedTemplateHeadings":["Introduction","Test Approach"],
+             "detectedTemplateHeadings":["Introduction"]}
+            """;
+
+        TemplateComparison result = new ObjectMapper().readValue(priorReport, TemplateComparison.class);
+
+        assertThat(result.sectionEvidence()).isEmpty();
+        assertThat(result.detectedTemplateHeadings()).containsExactly("Introduction");
     }
 
     @Test
