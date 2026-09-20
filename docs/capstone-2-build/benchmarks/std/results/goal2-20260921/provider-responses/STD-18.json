@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"summary\": \"The submitted Software Test Document (STD) is a synthetic benchmark fixture intended for testing the submission workflow. It explicitly states that validation evidence and actual execution results are not included in the document.\",\n  \"suggestedAction\": \"Ensure that the final submission includes all required validation evidence and actual execution results as expected for a complete Software Test Document.\",\n  \"findings\": [\n    {\n      \"requirement\": \"\",\n      \"evidence\": \"Page 1, section 'Unfinished material'\",\n      \"issue\": \"The document explicitly states that validation evidence and actual execution results are not supplied.\",\n      \"source\": \"DOCUMENT\"\n    }\n  ],\n  \"missingRequiredSections\": []\n}",
+            "thoughtSignature": "EnEKbwFpFH0TP/NYuNSnvxn3E/wZLruB6R3nBEj8wV+AxBpIQAL4kC9lfLwu5l9oBUmKdvna3FgOYMd3uCS+d9PbycOHV91HiiVhxCxMKonAu0T0AX7cSs9LONcXkIjmvVp4O/IFNGJK5QpUnwO0Rfjr5g=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 1313,
+    "candidatesTokenCount": 151,
+    "totalTokenCount": 1464,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 781
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 532
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.1-flash-lite",
+  "responseId": "jBuwatWdBseUvr0PlpqOgQ4"
+}

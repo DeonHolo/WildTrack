@@ -105,3 +105,26 @@ test('empty or duplicated AI run IDs fail without creating a plausible ten-attem
   plan.runs.push({ fixture_id: 'STD-24', outcome: 'not_attempted' });
   assert.throws(() => scoreAi(plan), /Unplanned Goal 2 fixture/);
 });
+
+test('the immutable real Goal 2 pilot preserves fixed attempts and conservative claim denominators', () => {
+  const inputPath = path.join(directory, 'results', 'goal2-20260921', 'ai-run-record.json');
+  const record = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+  const result = scoreAi(record, { inputPath });
+  assert.equal(result.status, 'PROJECT_REFERENCE_AUDIT_COMPLETE');
+  assert.deepEqual(result.fresh_run_coverage, { numerator: 9, denominator: 10, value: 0.9 });
+  assert.equal(result.attempt_outcomes.outcome_unknown, 1);
+  assert.deepEqual(result.checklist_agreement, { numerator: 7, denominator: 10, value: 0.7 });
+  assert.equal(result.gate.fixed_reference_decisions, 11);
+  assert.equal(result.claim_traceability.numerator, 24);
+  assert.equal(result.claim_traceability.denominator, 43);
+  assert.equal(result.unassessable_claims, 4);
+  assert.equal(result.unsupported_claims, 15);
+  assert.match(result.limitations.join(' '), /no independent human verification/);
+  const tampered = structuredClone(record);
+  tampered.runs.find(r => r.fixture_id === 'STD-01').report_sha256 = '0'.repeat(64);
+  assert.throws(() => scoreAi(tampered, { inputPath }), /report hash mismatch/);
+  const inventedSource = structuredClone(record);
+  inventedSource.runs.find(r => r.fixture_id === 'STD-01').claims
+    .find(c => c.traceable === true).source_excerpt = 'This invented requirement is not in any supplied authority';
+  assert.throws(() => scoreAi(inventedSource, { inputPath }), /source_excerpt not found/);
+});

@@ -1,0 +1,27 @@
+{
+  "status": "FROZEN",
+  "methodology": "PROJECT_DEFINED_REFERENCE_AI_ASSISTED",
+  "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+  "model": "gemini-3.1-flash-lite",
+  "prompt_version": "wildtrack-academic-review-v3",
+  "frozen_at": "2026-09-20T17:42:05.313Z",
+  "checklist_sha256": "29316334895009fbc39686c12af00a6aa853cfae1ed68e01bbcf6fe78fdfc323",
+  "manifest_sha256": "0960bb623cf4755f85156fa794a6a2c1326f2be0bb6501f40a3965b865b4a8c4",
+  "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+  "fixture_hashes_sha256": "b9afa1828816961a02e83d2ede099364c362f983e071695c5aba888deebf2003",
+  "instructions_sha256": "841c1fa9fe40bbd94f747899f339e35f233f2aab8a6938f97f9af7e93c63b18a",
+  "protocol_sha256": "5f2914a7ffe4069f6fa7eefee0502f3fad4b55c28093bb8040815bb500be6ad9",
+  "planned_fixtures": [
+    "STD-01",
+    "STD-02",
+    "STD-03",
+    "STD-05",
+    "STD-08",
+    "STD-09",
+    "STD-10",
+    "STD-12",
+    "STD-18",
+    "STD-21"
+  ],
+  "reference_method_note": "Project-defined source checklist prepared with ChatGPT assistance. No independent human verification is asserted."
+}

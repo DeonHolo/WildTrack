@@ -1,0 +1,12 @@
+{
+  "summary" : "The submitted Software Test Document (STD) is a synthetic benchmark fixture intended for testing the submission workflow. It explicitly states that validation evidence and actual execution results are not included in the document.",
+  "findings" : [ {
+    "issue" : "The document explicitly states that validation evidence and actual execution results are not supplied.",
+    "source" : "DOCUMENT",
+    "evidence" : "Page 1, section 'Unfinished material'",
+    "requirement" : ""
+  } ],
+  "missingRequiredSections" : [ ],
+  "limitations" : [ "No official template was supplied, so compliance with a specific template structure was not assessed." ],
+  "suggestedAction" : "Ensure that the final submission includes all required validation evidence and actual execution results as expected for a complete Software Test Document."
+}

@@ -1,0 +1,3 @@
+# Preserve byte-exact generated Goal 2 provider responses, source extracts and SHA-256 evidence
+# on Windows and Unix; newline conversion would invalidate recorded observation hashes.
+docs/capstone-2-build/benchmarks/std/results/goal2-20260921/** -text

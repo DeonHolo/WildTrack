@@ -1,0 +1,227 @@
+{
+  "type": "STD_SYNTHETIC_GOAL2_PROJECT_DEFINED_REFERENCE_EVALUATION",
+  "status": "PROJECT_REFERENCE_AUDIT_COMPLETE",
+  "limitations": [
+    "Project-defined checklist with ChatGPT assistance; no independent human verification",
+    "Controlled synthetic STD fixtures only, not a population of actual student submissions",
+    "Grounding judgments are source-audited but not externally validated; questionnaire ratings do not measure this goal"
+  ],
+  "gate": {
+    "planned_attempts": 10,
+    "frozen_reference_verified": true,
+    "source_review_method": "PROJECT_DEFINED_REFERENCE_AI_ASSISTED",
+    "complete_report_audits": 9,
+    "fresh_reports": 9,
+    "fixed_reference_decisions": 11
+  },
+  "attempt_outcomes": {
+    "not_attempted": 0,
+    "fresh_success": 9,
+    "cache_hit": 0,
+    "quota_failure": 0,
+    "provider_failure": 0,
+    "transport_failure": 0,
+    "invalid_response": 0,
+    "outcome_unknown": 1
+  },
+  "fresh_run_coverage": {
+    "numerator": 9,
+    "denominator": 10,
+    "value": 0.9
+  },
+  "checklist_agreement": {
+    "numerator": 7,
+    "denominator": 10,
+    "value": 0.7
+  },
+  "unassessable_decisions": 0,
+  "claim_traceability": {
+    "numerator": 24,
+    "denominator": 43,
+    "value": 0.5581395348837209
+  },
+  "unassessable_claims": 4,
+  "unsupported_claims": 15,
+  "fixture_results": [
+    {
+      "fixture_id": "STD-01",
+      "outcome": "fresh_success",
+      "scheduled_decisions": 1,
+      "decisions": [
+        {
+          "decision_id": "uncompleted-template",
+          "expected": "present",
+          "observed": "present",
+          "matches_reference": true,
+          "report_reference": "summary",
+          "notes": "The report explicitly calls the file a template shell; findings[0] confirms it identifies the uncompleted source. The summary's 'for SchedEase' project-identity wording is separately audited as unsupported because that name is leftover template header text, not the filled project name."
+        }
+      ],
+      "audited_claims": 5,
+      "verified_claims": 4,
+      "outstanding_audit": false
+    },
+    {
+      "fixture_id": "STD-02",
+      "outcome": "fresh_success",
+      "scheduled_decisions": 1,
+      "decisions": [
+        {
+          "decision_id": "substantive-incompleteness",
+          "expected": "present",
+          "observed": "present",
+          "matches_reference": true,
+          "report_reference": "findings[0]",
+          "notes": "The report identifies the blank substantive body despite the personalized WildTrack cover, matching the reference issue. It also wrongly lists five already-present headings as missing required sections; these independent unsupported claims do not negate the observed incompleteness detection."
+        }
+      ],
+      "audited_claims": 8,
+      "verified_claims": 3,
+      "outstanding_audit": false
+    },
+    {
+      "fixture_id": "STD-03",
+      "outcome": "fresh_success",
+      "scheduled_decisions": 1,
+      "decisions": [
+        {
+          "decision_id": "remaining-placeholders",
+          "expected": "present",
+          "observed": "absent",
+          "matches_reference": false,
+          "report_reference": "findings[0]",
+          "notes": "The frozen criterion requires identifying unfinished sections WHILE distinguishing the completed overview. The report asserts the document consists 'entirely' of headings/placeholders and claims no project content; it does not recognize the meaningful populated System Overview at STD-03.txt lines 23-26. It flags residual omissions but fails this combined distinction decision. Treat this as disagreement with the project-defined reference, not as proof that the remaining sections are complete."
+        }
+      ],
+      "audited_claims": 5,
+      "verified_claims": 0,
+      "outstanding_audit": false
+    },
+    {
+      "fixture_id": "STD-05",
+      "outcome": "fresh_success",
+      "scheduled_decisions": 2,
+      "decisions": [
+        {
+          "decision_id": "unsupported-incompleteness",
+          "expected": "absent",
+          "observed": "present",
+          "matches_reference": false,
+          "report_reference": "summary",
+          "notes": "The report makes an overall incompleteness/requirements-failure judgment of the intentionally synthetic complete-structure fixture, in part because it lacks evidence of REAL executed student-project tests. The frozen benchmark expects no unsupported incompleteness allegation for this controlled synthetic example. Absence of real execution evidence is factually disclosed by the PDF and requested for an actual student submission, so the reference condition and production submission standard must not be silently conflated; the narrower source-backed absence claims are audited separately."
+        },
+        {
+          "decision_id": "wrong-document",
+          "expected": "absent",
+          "observed": "present",
+          "matches_reference": false,
+          "report_reference": "findings[0]",
+          "notes": "The report explicitly labels this a synthetic benchmark fixture 'not a functional Software Test Document for the student's project' and calls for replacement. Although its synthetic identity is true, it has actual STD structure and controlled case/procedure/result content; interpreting the expected synthetic benchmark document as the wrong deliverable fails the frozen clean-document criterion. This does not certify it as a real student's completed STD."
+        }
+      ],
+      "audited_claims": 3,
+      "verified_claims": 2,
+      "outstanding_audit": false
+    },
+    {
+      "fixture_id": "STD-08",
+      "outcome": "fresh_success",
+      "scheduled_decisions": 1,
+      "decisions": [
+        {
+          "decision_id": "repeated-filler",
+          "expected": "present",
+          "observed": "present",
+          "matches_reference": true,
+          "report_reference": "findings[0]",
+          "notes": "The report identifies placeholder filler throughout substantive body sections. The actual STD-08 extracted PDF repeats the same self-described sample-filler sentence in introduction, test plan, cases and appendix. This matches the frozen repeated-filler criterion independently of the report's other claims."
+        }
+      ],
+      "audited_claims": 5,
+      "verified_claims": 5,
+      "outstanding_audit": false
+    },
+    {
+      "fixture_id": "STD-09",
+      "outcome": "fresh_success",
+      "scheduled_decisions": 1,
+      "decisions": [
+        {
+          "decision_id": "irrelevant-content",
+          "expected": "present",
+          "observed": "present",
+          "matches_reference": true,
+          "report_reference": "findings[0]",
+          "notes": "The provider identifies garden, travel, bakery, and reading-group material in sections that should discuss software testing. The extracted PDF confirms that those body sections contain unrelated coherent prose. Its stronger claim that all sections are nonsensical is unsupported because the introduction describes WildTrack; the narrower frozen irrelevant-content decision is nevertheless present."
+        }
+      ],
+      "audited_claims": 5,
+      "verified_claims": 3,
+      "outstanding_audit": false
+    },
+    {
+      "fixture_id": "STD-10",
+      "outcome": "fresh_success",
+      "scheduled_decisions": 1,
+      "decisions": [
+        {
+          "decision_id": "deliverable-mismatch",
+          "expected": "present",
+          "observed": "present",
+          "matches_reference": true,
+          "report_reference": "findings[0]",
+          "notes": "The first provider finding identifies the marketing-campaign body as a mismatch with the requested Software Test Document. The extracted PDF repeats the marketing description across the STD body sections even though its heading and introduction identify an STD/WildTrack."
+        }
+      ],
+      "audited_claims": 6,
+      "verified_claims": 4,
+      "outstanding_audit": false
+    },
+    {
+      "fixture_id": "STD-12",
+      "outcome": "fresh_success",
+      "scheduled_decisions": 1,
+      "decisions": [
+        {
+          "decision_id": "missing-test-approach",
+          "expected": "present",
+          "observed": "present",
+          "matches_reference": true,
+          "report_reference": "missingRequiredSections[0]",
+          "notes": "The report expressly flags the absent 1.2 Test Approach body section and separately notes the misleading Table of Contents entry. STD-12.txt has Test Approach in the TOC, followed by a body that goes directly from 1.1 System Overview to 1.3 Definitions and Acronyms. The official STD-01 template explicitly contains a 1.2 Test Approach body heading."
+        }
+      ],
+      "audited_claims": 3,
+      "verified_claims": 2,
+      "outstanding_audit": false
+    },
+    {
+      "fixture_id": "STD-18",
+      "outcome": "fresh_success",
+      "scheduled_decisions": 1,
+      "decisions": [
+        {
+          "decision_id": "invented-template-requirement",
+          "expected": "absent",
+          "observed": "absent",
+          "matches_reference": true,
+          "report_reference": "limitations[0]",
+          "notes": "The provider explicitly states that no official template was supplied, its findings array contains only a DOCUMENT observation, and missingRequiredSections is empty. The report does not invent a mandatory template heading. Its suggestedAction nevertheless assumes mandatory evidence requirements without a supplied source; that distinct unsupported obligation is inventoried separately and is not a template-section finding."
+        }
+      ],
+      "audited_claims": 3,
+      "verified_claims": 1,
+      "outstanding_audit": false
+    },
+    {
+      "fixture_id": "STD-21",
+      "outcome": "outcome_unknown",
+      "scheduled_decisions": 1,
+      "decisions": [],
+      "audited_claims": 0,
+      "verified_claims": 0,
+      "outstanding_audit": false,
+      "reason": "PROVIDER_OUTCOME_UNKNOWN"
+    }
+  ]
+}

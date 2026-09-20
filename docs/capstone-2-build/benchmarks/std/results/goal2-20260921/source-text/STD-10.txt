@@ -1,0 +1,77 @@
+Software Test Document 
+WildTrack | Synthetic benchmark fixture | STD-10_wrong-document 
+Synthetic benchmark fixture. Content below is controlled test material, not evidence that real software 
+testing occurred. 
+Table of Contents 
+1. Introduction ........................................ 2 
+1.1. System Overview .................................. 2 
+1.2. Test Approach .................................... 2 
+1.3. Definitions and Acronyms ......................... 2 
+2. Test Plan ........................................... 3 
+2.1 Features to be Tested .............................. 3 
+2.2 Features not to be Tested .......................... 3 
+3.3 Testing Tools and Environment ...................... 3 
+3. Test Cases .......................................... 4 
+Appendix (Test Logs) ................................... 5 
+1. Introduction 
+WildTrack is a capstone submission workflow that lets configured students submit link-based deliverables, lets 
+advisers review responses and Document Check findings, and lets Admin users manage academic workflow 
+configuration. 
+1.1. System Overview 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+1.2. Test Approach 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+1.3. Definitions and Acronyms 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+2. Test Plan 
+The following feature scope and environment are frozen for this synthetic benchmark fixture. 
+2.1 Features to be Tested 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+2.2 Features not to be Tested 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+3.3 Testing Tools and Environment 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+3. Test Cases 
+Controlled Test Case 1 
+3.1.1 Purpose 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+3.1.2 Inputs 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+3.1.3 Expected Outputs & Pass/Fail Criteria 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+3.1.4 Test Procedure 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+Appendix (Test Logs) 
+The synthetic test log below separates expected outcomes from controlled fixture observations. 
+A.1 Log for Test 1 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+A.2 Test Results 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior. 
+A.3 Incident Report 
+This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, 
+influencer outreach, brand slogans, posting schedules, and campaign engagement targets. It does not 
+describe software testing, test execution, or WildTrack system behavior.

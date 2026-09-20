@@ -19,6 +19,7 @@ const INSTRUCTIONS_PATH = path.join(HERE, 'STD_AI_INSTRUCTIONS.txt');
 const MODEL = 'gemini-3.1-flash-lite';
 const PROMPT_VERSION = 'wildtrack-academic-review-v3';
 const KEY_METHOD = 'PROJECT_DEFINED_REFERENCE_AI_ASSISTED';
+const NO_TEMPLATE_INSTRUCTIONS = 'Review this submitted Software Test Document and report observations supported by the PDF. No official template is supplied.';
 
 function timestamp(value, description) {
   failUnless(typeof value === 'string' && Number.isFinite(Date.parse(value)), description);
@@ -78,6 +79,15 @@ function checkedEvidence(filePath, hash, inputPath, label) {
   failUnless(sha256(file) === hash.toLowerCase(), `${label} hash mismatch: ${filePath}`);
   return file;
 }
+function sourceText(id, inputPath) {
+  const candidates = [
+    path.join(path.dirname(inputPath), 'source-text', id + '.txt'),
+    path.join(ROOT, '.scratch/capstone-2-session/goal2-reference-extracted-text', id + '.txt')
+  ];
+  const match = candidates.find(file => fs.existsSync(file) && fs.statSync(file).isFile());
+  failUnless(match, `${id}: text extracted from frozen source PDF is missing (run StdAiReferenceTextExportTest)`);
+  return fs.readFileSync(match, 'utf8');
+}
 function inventory(run, report, fixture, seen) {
   failUnless(run.claim_inventory && run.claim_inventory.complete === true &&
     run.claim_inventory.method === 'PROJECT_SOURCE_AUDIT' &&
@@ -96,16 +106,20 @@ function inventory(run, report, fixture, seen) {
   // and not simply a restatement of an already indexed finding; disclose that choice in claim_inventory.notes.
   failUnless(run.claim_inventory.notes && run.claim_inventory.notes.trim(),
     `${run.fixture_id}: inventory notes must account for summary and suggestedAction`);
+  failUnless(/summary/i.test(run.claim_inventory.notes) && /suggestedAction/i.test(run.claim_inventory.notes),
+    `${run.fixture_id}: complete claim inventory must account for summary and suggestedAction explicitly`);
   let total = 0; let traceable = 0; let unassessable = 0;
   for (const claim of claims.values()) {
     failUnless(claim.substantive === true && claim.text && claim.report_reference &&
       claim.notes && claim.audit_method === 'PROJECT_SOURCE_AUDIT',
     `${run.fixture_id} ${claim.claim_id}: missing substantive claim and method evidence`);
     const match = claim.report_reference.match(/^(findings|missingRequiredSections)\[(\d+)\]$/);
+    let structured = null;
     if (match) {
       const item = report[match[1]]?.[Number(match[2])];
       failUnless(item && (claim.text === item.issue || claim.text === item.section),
         `${run.fixture_id} ${claim.claim_id}: claim text does not match raw report at ${claim.report_reference}`);
+      structured = item;
     } else {
       failUnless(['summary', 'suggestedAction'].includes(claim.report_reference) &&
         normalized(report[claim.report_reference]).includes(normalized(claim.text)),
@@ -115,12 +129,14 @@ function inventory(run, report, fixture, seen) {
       `${run.fixture_id} ${claim.claim_id}: unknown source kind`);
     failUnless([true, false, null].includes(claim.traceable),
       `${run.fixture_id} ${claim.claim_id}: traceable must be true/false/null`);
+    // The benchmark denominator is ALL substantive emitted claims, including uncertain ones.
+    // Dropping unassessable claims would quietly inflate an apparent grounding rate.
+    total++;
     if (claim.traceable === null) {
       failUnless(claim.source_kind === 'unassessable', `${run.fixture_id}: unassessable claim has wrong source_kind`);
       unassessable++;
       continue;
     }
-    total++;
     if (claim.traceable === true) {
       failUnless(claim.source_kind !== 'unsupported' && claim.source_kind !== 'unassessable' &&
         claim.source_excerpt && claim.source_reference,
@@ -131,6 +147,16 @@ function inventory(run, report, fixture, seen) {
         claim.source_kind === 'official_template' ? seen.templateText : seen.instructions;
       failUnless(normalized(document).includes(normalized(claim.source_excerpt)),
         `${run.fixture_id} ${claim.claim_id}: quoted source_excerpt not found in the declared input authority`);
+      if (structured) {
+        const requiredSource = { DOCUMENT: 'pdf', OFFICIAL_TEMPLATE: 'official_template',
+          DELIVERABLE_REQUIREMENTS: 'deliverable_instructions' }[structured.source];
+        failUnless(requiredSource === claim.source_kind,
+          `${run.fixture_id} ${claim.claim_id}: claimed supported source contradicts the actual model finding type`);
+        if (structured.source !== 'DOCUMENT') {
+          failUnless(structured.requirement && normalized(document).includes(normalized(structured.requirement)),
+            `${run.fixture_id} ${claim.claim_id}: quoted mandatory requirement not found in supplied authority`);
+        }
+      }
       traceable++;
     } else {
       failUnless(claim.source_kind === 'unsupported', `${run.fixture_id} ${claim.claim_id}: unsupported claim mislabeled`);
@@ -152,8 +178,6 @@ function score(record, options = {}) {
   let claims = 0; let traces = 0; let unassessableClaims = 0; let fullyAudited = 0;
   const inputPath = options.inputPath || path.join(HERE, 'ai-run-record.template.json');
   const instructions = fs.existsSync(INSTRUCTIONS_PATH) ? fs.readFileSync(INSTRUCTIONS_PATH, 'utf8') : '';
-  const templateText = fs.existsSync(path.join(ROOT, '.scratch/capstone-2-session/goal2-reference-extracted-text/STD-01.txt'))
-    ? fs.readFileSync(path.join(ROOT, '.scratch/capstone-2-session/goal2-reference-extracted-text/STD-01.txt'), 'utf8') : '';
   for (const id of PILOT) {
     const run = keyed.get(id) || { fixture_id: id, outcome: 'not_attempted' };
     failUnless(OUTCOMES.includes(run.outcome), `Invalid ${id} attempt outcome: ${run.outcome}`);
@@ -199,10 +223,9 @@ function score(record, options = {}) {
         observed: item.observed, matches_reference: item.observed === 'unassessable' ? null :
           item.observed === reference.expected, report_reference: item.report_reference, notes: item.notes });
     }
-    const fixtureTextPath = path.join(ROOT, '.scratch/capstone-2-session/goal2-reference-extracted-text', id + '.txt');
-    failUnless(fs.existsSync(fixtureTextPath), `${id}: extracted source text missing for claim provenance checks`);
     const audit = inventory(run, report, authority.fixtures.get(id), {
-      fixtureText: fs.readFileSync(fixtureTextPath, 'utf8'), templateText, instructions
+      fixtureText: sourceText(id, inputPath), templateText: sourceText('STD-01', inputPath),
+      instructions: id === 'STD-18' ? NO_TEMPLATE_INSTRUCTIONS : instructions
     });
     fullyAudited++;
     claims += audit.total; traces += audit.traceable; unassessableClaims += audit.unassessable;
@@ -229,7 +252,7 @@ function score(record, options = {}) {
     unassessable_decisions: unassessableDecisions,
     claim_traceability: metric(traces, claims),
     unassessable_claims: unassessableClaims,
-    unsupported_claims: claims - traces,
+    unsupported_claims: claims - traces - unassessableClaims,
     fixture_results: rows
   };
 }

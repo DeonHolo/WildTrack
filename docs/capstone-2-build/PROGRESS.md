@@ -1,14 +1,22 @@
 # Live progress and resume checkpoint
 
 Updated: 2026-09-21
-Mode: Document Check evidence, UX, and research measurement follow-up
-Current branch: feat/document-check-evidence-ux
+Mode: SMART Goal 2 source-defined live provider pilot and evidence closeout
+Current branch: feat/smart-goal-2-evaluation
 HEAD at full-session start: 77082c9faf23f49a97e95b001d88224eeea87324
 Full-session execution started from the current feature branch after Prompt 1/editor refinements were already integrated there.
 
 ## Next action
 
-PR #50 (Ticket 09) was merged by the repository owner on 2026-09-20. Live Google OAuth consent, eligible file permissions, restricted-scope verification, and production release remain separate acceptance gates. Current follow-up changes are on `feat/document-check-evidence-ux` and require a new reviewable PR. Do not directly merge or deploy.
+PR #50 (Ticket 09) and PR #51 (Document Check evidence/UX and benchmark scaffold) were merged by the repository owner. The current Goal 2 experiment and methodology implementation are on `feat/smart-goal-2-evaluation` and require a separate feature-branch PR; do not directly merge or deploy. Goal 2 provider benchmarking is completed locally, but the observed project-defined agreement and traceability rates did not meet the proposed targets. Collect real questionnaire/Goal 3 data separately. Goal 1 still needs its remaining case families/variants and genuine independent expected-label verification before a full research result can be claimed.
+
+## 2026-09-21 — Goal 2 actual project-reference pilot
+
+- User approved replacing mandatory independent human review **for Goal 2 only** with a transparently project-defined, ChatGPT-assisted, source-backed reference checklist. The revised research documents do not claim independent human verification or adviser endorsement, and the change is retained in this evidence chronology; Goal 1 independent-review requirements are unchanged.
+- Extracted and inspected ten actual frozen STD PDF source texts, documented source excerpts/rationales for eleven binary reference decisions, committed provider-runner/reference tools as `ff941de81ae37bb5588a4987462c49ae8bf29611`, and froze the real checklist/manifest/template/fixture/instructions/protocol hashes at `2026-09-20T17:42:05.313Z` before the first official provider call. A separate out-of-pilot STD-24 smoke had succeeded earlier and was not counted.
+- Ten first attempts used the actual `GeminiAiReviewProvider` with the production model/prompt and one request per case. Nine yielded fresh structured reports; STD-21 returned HTTP 503 with outcome unknown and was **not retried**. The runner is a provider-backed component test, not the full Admin/Drive/cache/UI or production post-grounding path.
+- Completed a documented project/AI-assisted source audit of all nine fresh reports and all 43 distinct substantive findings/claims. Actual frozen-reference checklist agreement: **7/10 = 70%** of the ten available fresh-report decisions (eleven scheduled across all ten attempts). Source-supported claims: **24/43 = 55.8%**, with **15 unsupported and four unassessable** claims included conservatively in the denominator. Fresh-run coverage: **9/10 = 90%**. The proposed 85% agreement and 90% traceability targets were not met; these are synthetic STD project-reference results, not independently established model accuracy.
+- Portable exact source/response hashes, sanitized genuine raw Gemini responses, frozen key, one-attempt transport evidence, all decisions/claim audits, machine-readable score and plain-language limitation report are in `docs/capstone-2-build/benchmarks/std/results/goal2-20260921/`. Local Gemini key remains in ignored `.env.smart-goal-2`, and sensitive local error bodies were not published. A private saved raw source audit and first-attempt ledger remain in ignored `.scratch/capstone-2-session/goal2/`.
 
 ## 2026-09-21 follow-up implementation checkpoint
 
