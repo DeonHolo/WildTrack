@@ -1,6 +1,6 @@
 # WildTrack MVP Validation Framework and Model
 
-**Status:** proposed GQM-based evaluation design. This artifact is not adviser-approved and contains no fabricated participant or benchmark results.
+**Status:** proposed GQM-based evaluation design, not adviser-approved. Goal 1's component evidence and Goal 2's technical pilot exist, but participant/Goal 3 results remain uncollected. Goal 1 scope was amended after the component run; see `GOAL1_SCOPE_AMENDMENT_20260921.md`.
 
 ## Evaluation model
 
@@ -27,7 +27,7 @@ Primary GQM source: Victor R. Basili, *Software Modeling and Measurement: The Go
 
 | Objective | Operational question | Primary construct | Primary evidence | Primary metric |
 |---|---|---|---|---|
-| 1. Document Check accuracy | Do applicable deterministic assertions match the frozen expected results across controlled STD/PDF fixtures? | deterministic checker correctness | frozen fixture manifest + Document Check run logs | assertion accuracy, execution coverage, FP/FN and precision/recall where defined |
+| 1. Document Check component classifications | Do the production PDF inspector/template comparator and declared simulated gateway branches match the frozen source-grounded project-defined STD fixture labels? | controlled component classification agreement (not live Drive or general academic accuracy) | frozen 25-family/30-condition, 52-assertion project-reference run + dated scope-amendment record | 52/52 = 100% agreement and 52/52 coverage; clarified threshold >=90%; per-signal errors reported separately |
 | 2. AI Review grounded-content screening | Does AI Review identify frozen content issues without inventing requirements, and are substantive claims traceable to the submitted PDF or configured authority? | grounded content-screening correctness | frozen fresh-run pilot + claim-provenance adjudication | decision agreement, traceability, fresh-run coverage, unsupported-claim count |
 | 3. Student submission transaction correctness | Does WildTrack correctly reject the prescribed invalid attempt, save the valid response under the correct student record, and preserve the intended revision? | transaction correctness | controlled Refactored SRS T1/T2 task log + WildTrack readback/system evidence | STU_TXN_accuracy = C_STU_TXN / N_STU_TXN; working target >= 95% |
 
@@ -70,7 +70,7 @@ Sir Ralph Laviste's September 14 consultation is the primary Admin/beneficiary q
 ## Evidence separation
 
 ```text
-Objective 1 -> Document Check fixture evidence
+Objective 1 -> frozen project-defined Document Check component evidence; scope clarified after the run
 Objective 2 -> AI Review fresh-run fixture evidence
 Objective 3 -> Student T1/T2 task + system/readback evidence
 Questionnaire -> Supporting role feedback only
@@ -89,7 +89,7 @@ This separation prevents opinion ratings from being misreported as technical acc
 
 ## Approval and completion boundaries
 
-- GQM and the numerical targets remain proposed until the course-required adviser/framework endorsement is actually obtained.
-- No participant result, benchmark pass rate or objective success claim exists until real data/runs are completed.
+- GQM and the owner's post-benchmark Goal 1 component-scope clarification remain subject to course-required adviser/framework endorsement.
+- The component run's 52/52 matching classifications meet the clarified numerical target **within that project-defined scope**; this is not independent accuracy or a retrospective pass of the original broader end-to-end objective. Do not claim participant or Goal 3 success before collection.
 - Live Google Drive delegated history is optional and separate from this model. Its local access plan does not constitute authorization or implementation.
 - Final Highlights must report actual denominators, failures, exclusions and limitations rather than only whether a target was met.

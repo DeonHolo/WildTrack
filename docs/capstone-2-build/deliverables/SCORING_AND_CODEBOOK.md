@@ -1,6 +1,6 @@
 # Scoring and codebook
 
-**Status:** freeze this codebook and the Objective 3 task protocol before real collection. It defines proposed scoring/cleaning rules and contains no participant or benchmark results.
+**Status:** freeze this codebook and the Objective 3 task protocol before real participant collection. Goal 1 component and Goal 2 technical evidence already exists; no participant/Goal 3 results are asserted. Goal 1's component-scope clarification was approved by the owner after its recorded run and remains subject to adviser/framework endorsement.
 
 ## Evidence streams
 
@@ -196,7 +196,7 @@ If Limit to 1 response cannot be used:
 
 Technical checker evidence comes from the frozen benchmark manifest, not the Google Form.
 
-Goal 1's expected classifications are **researcher/project-defined, source-grounded and AI-assisted**, without mandatory independent human review or any claim of independently established ground truth. The 25-family/30-condition synthetic benchmark schedules 52 technical binary assertions. A separately timestamped reference freeze must precede its designated scored run; the earlier development 52/52 agreement is not a blinded or prospectively frozen outcome. PDF extraction/template comparison with disclosed simulated Drive gateway branches provides component-level evidence, not full real-provider end-to-end accuracy. Do not treat the component score alone as attainment of the proposed end-to-end 90% target.
+Goal 1's expected classifications are **researcher/project-defined, source-grounded and AI-assisted**, without mandatory independent human review or independently established ground truth. The 25-family/30-condition synthetic benchmark schedules 52 technical binary assertions. The separately timestamped project-reference freeze preceded the designated 52/52 scored run; the earlier development 52/52 agreement remains historical, and the synthetic fixture population was already familiar before the new run. PDF inspection/template comparison and disclosed simulated Drive gateway branches provide **component-level** evidence. Following the owner's explicit **post-benchmark scope clarification** (see `GOAL1_SCOPE_AMENDMENT_20260921.md`), the primary Goal 1 metric and >=90% threshold apply to this controlled project-reference **component** result only, not live Google Drive transport or general real-document accuracy. The frozen result's historical not-end-to-end status and unmodified original objective remain documented.
 
 For Document Check:
 
@@ -207,6 +207,7 @@ For Document Check:
 - N_DC_completed counts assertions that produced a classification. DC_coverage = N_DC_completed / N_DC.
 - For binary flags where positive/negative labels are meaningful, compute TP, TN, FP, FN, precision, recall, false-positive rate, and false-negative rate. A metric with a zero denominator is not estimable.
 - Keep per-assertion expected label, observed label/evidence, result, execution error, fixture hash, app version, and notes.
+- Report the already recorded 52/52 = 100% agreement and 52/52 = 100% coverage against the clarified >=90% component benchmark threshold; flag that the objective's scope was clarified **after** those observations. Do not recalculate or relabel any frozen score as an independently validated or end-to-end success. Existing live check screenshots, if available, may illustrate integration but do not enter N_DC or create a separate Goal 1 pass requirement.
 
 Do not collapse technical access/readability checks and content/template indicators into one unlabeled confusion matrix if their labels mean different things.
 

@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | Consultation: SMART goals should drive framework/instrument | define measurable objectives before collection | 01 | SMART_OBJECTIVES.md; FRAMEWORK_AND_EVIDENCE_PLAN.md; SCORING_AND_CODEBOOK.md | prepared; adviser/framework endorsement still external |
 | Consultation: ordinary usability/SUS is not one of the three primary goals | keep opinion ratings supporting only | 01,11 | QUESTIONNAIRE.md separates role feedback from objective scoring | implemented in research packet |
-| Consultation: technical truthfulness/access/PDF integrity/readable text matter | deterministic Document Check benchmark | 10 | existing FileCheckService tests; frozen benchmark still pending Ticket 10 | open |
+| Owner 2026-09-21 post-benchmark scope clarification: Document Check component classifications | controlled source-frozen project-reference PDF/template benchmark; no additional live Drive-path accuracy requirement | 10 | 25 families / 30 conditions / 52/52 matching assertions; `GOAL1_SCOPE_AMENDMENT_20260921.md` and unchanged frozen result package | revised component target reached; academic endorsement pending |
 | Consultation: wrong deliverable/filler matter, but system should not grade academic correctness | grounded AI Review/content-screening benchmark | 10 | AI grounding/no-template protections already implemented; controlled pilot pending | open |
 | Owner decision: Objective 3 is student submission transaction correctness | frozen T1/T2 against Refactored SRS | 01,11 | current protocol in framework/codebook; live participant evidence pending | protocol prepared |
 | Owner decision: T1/T2 are system/task evidence, not Google Form self-report | keep task log separate from questionnaire | 01,11 | QUESTIONNAIRE.md + VALIDATION_RESPONSE_SHEET_SCHEMA.md | prepared |
@@ -19,7 +19,7 @@
 | No-op saves must not create fake lateness/revisions | meaningful-change timestamp semantics | 07 | existing no-op response behavior partly covered; full lateness slice pending | pending |
 | File/check observation must not be sold as complete Drive history | source-labeled WildTrack-observed versions | 08 | depends on Ticket 07 | pending |
 | Older Drive history requires genuine delegated permission | optional OAuth integration, pasted links preserved | 09 | DRIVE_HISTORY_ACCESS_PLAN.md | prepared-local; owner authorization required |
-| Controlled technical benchmark must preserve failures/quota cases | frozen Document Check + AI Review fixture runs | 10 | benchmark plan exists; execution pending | pending |
+| Controlled technical benchmark must preserve failures/quota cases | frozen Document Check component and distinct AI Review fixture runs | 10 | Goal 1 component 52/52 coverage; Goal 2 v6 new cohort 9/10 fresh, one recorded 503, 9/9 agreement and 10/11 claim traceability; original Goal 2 v3 results retained | completed within stated technical scopes; original broader outcomes not retroactively claimed |
 | Validation package needs auditable evidence organization | response schema, manifest, highlights, traceability | 11 | Ticket 11 local preparation files | in progress |
 | Full session must close with integrated regression/security review | verify all completed slices without pretending external work is done | 12 | editor-mode closeout exists; full-mode closeout pending | pending |
 
