@@ -200,7 +200,7 @@ Goal 1's expected classifications are **researcher/project-defined, source-groun
 
 For Document Check:
 
-- N_DC = all applicable scheduled atomic assertions with frozen ground truth across the 25 STD case families and their documented variants.
+- N_DC = all applicable scheduled atomic assertions with project-defined, source-grounded **expected classifications** frozen before the designated run across the 25 STD case families and their documented variants; the reference is not independently validated ground truth.
 - C_DC = assertions whose observed classification matches the expected classification.
 - DC_accuracy = C_DC / N_DC.
 - A run-time or access failure that prevents a scheduled classification remains in N_DC and does not count as correct.
