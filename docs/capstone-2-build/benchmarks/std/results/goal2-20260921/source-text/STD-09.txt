@@ -1,0 +1,64 @@
+Software Test Document 
+WildTrack | Synthetic benchmark fixture | STD-09_varied-irrelevant 
+Synthetic benchmark fixture. Content below is controlled test material, not evidence that real software 
+testing occurred. 
+Table of Contents 
+1. Introduction ........................................ 2 
+1.1. System Overview .................................. 2 
+1.2. Test Approach .................................... 2 
+1.3. Definitions and Acronyms ......................... 2 
+2. Test Plan ........................................... 3 
+2.1 Features to be Tested .............................. 3 
+2.2 Features not to be Tested .......................... 3 
+3.3 Testing Tools and Environment ...................... 3 
+3. Test Cases .......................................... 4 
+Appendix (Test Logs) ................................... 5 
+1. Introduction 
+WildTrack is a capstone submission workflow that lets configured students submit link-based deliverables, lets 
+advisers review responses and Document Check findings, and lets Admin users manage academic workflow 
+configuration. 
+1.1. System Overview 
+The campus garden program coordinates seed exchanges, composting schedules, shaded seating, volunteer 
+watering rotations, and seasonal planting workshops for neighborhood participants. 
+1.2. Test Approach 
+A fictional travel club compares ferry timetables, museum opening hours, food-market routes, luggage limits, 
+and weekend itineraries for visitors planning an island trip. 
+1.3. Definitions and Acronyms 
+An imaginary bakery tracks flour deliveries, oven temperatures, packaging designs, loyalty cards, storefront 
+promotions, and daily pastry inventory for its retail operations. 
+2. Test Plan 
+The following feature scope and environment are frozen for this synthetic benchmark fixture. 
+2.1 Features to be Tested 
+A reading group organizes monthly novels, discussion prompts, room reservations, lending copies, guest 
+speakers, and attendance reminders for community members. 
+2.2 Features not to be Tested 
+The campus garden program coordinates seed exchanges, composting schedules, shaded seating, volunteer 
+watering rotations, and seasonal planting workshops for neighborhood participants. 
+3.3 Testing Tools and Environment 
+A fictional travel club compares ferry timetables, museum opening hours, food-market routes, luggage limits, 
+and weekend itineraries for visitors planning an island trip. 
+3. Test Cases 
+Controlled Test Case 1 
+3.1.1 Purpose 
+An imaginary bakery tracks flour deliveries, oven temperatures, packaging designs, loyalty cards, storefront 
+promotions, and daily pastry inventory for its retail operations. 
+3.1.2 Inputs 
+A reading group organizes monthly novels, discussion prompts, room reservations, lending copies, guest 
+speakers, and attendance reminders for community members. 
+3.1.3 Expected Outputs & Pass/Fail Criteria 
+The campus garden program coordinates seed exchanges, composting schedules, shaded seating, volunteer 
+watering rotations, and seasonal planting workshops for neighborhood participants. 
+3.1.4 Test Procedure 
+A fictional travel club compares ferry timetables, museum opening hours, food-market routes, luggage limits, 
+and weekend itineraries for visitors planning an island trip. 
+Appendix (Test Logs) 
+The synthetic test log below separates expected outcomes from controlled fixture observations. 
+A.1 Log for Test 1 
+An imaginary bakery tracks flour deliveries, oven temperatures, packaging designs, loyalty cards, storefront 
+promotions, and daily pastry inventory for its retail operations. 
+A.2 Test Results 
+A reading group organizes monthly novels, discussion prompts, room reservations, lending copies, guest 
+speakers, and attendance reminders for community members. 
+A.3 Incident Report 
+The campus garden program coordinates seed exchanges, composting schedules, shaded seating, volunteer 
+watering rotations, and seasonal planting workshops for neighborhood participants.

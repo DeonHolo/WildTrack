@@ -1,0 +1,126 @@
+{
+  "type": "GOAL2_ACTUAL_PROVIDER_TRANSPORT_EVIDENCE",
+  "note": "Actual HTTP statuses and Google responseId values. A responseId is NOT falsely described as an HTTP request-header ID. No retries; private error bodies are not published.",
+  "rows": [
+    {
+      "fixture_id": "STD-01",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:42:20.383241300Z",
+      "finished_at": "2026-09-20T17:42:25.434651300Z",
+      "http_status": 200,
+      "generation_requests_sent": 1,
+      "provider_response_id": "_RqwarLkGdndvr0PgKu_4Q0",
+      "provider_request_id_header": null,
+      "request_payload_sha256": "9751cf044c97c0ef52c7c3e7da1aef51b5be685641537b7cfd6c2a7c7e811f13",
+      "attempt_summary_sha256": "e8e48160f60b6085964fc918787aabb34da55195b09e00fa2db21053bb5e1f4a"
+    },
+    {
+      "fixture_id": "STD-02",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:42:46.875450100Z",
+      "finished_at": "2026-09-20T17:42:51.615142700Z",
+      "http_status": 200,
+      "generation_requests_sent": 1,
+      "provider_response_id": "FxuwasGQMNeRvr0PntfxuAE",
+      "provider_request_id_header": null,
+      "request_payload_sha256": "a41cdb994f167919df2e04ea68fb9c995afe8911d9eff261f742c4c8b1e13d7a",
+      "attempt_summary_sha256": "ecdec86aafef0ca5a26d204e46765d1081c8ab613ccfbb449637eb89c503a76c"
+    },
+    {
+      "fixture_id": "STD-03",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:43:07.605406700Z",
+      "finished_at": "2026-09-20T17:43:11.997947200Z",
+      "http_status": 200,
+      "generation_requests_sent": 1,
+      "provider_response_id": "LBuwaoC4IJ_YrfcPx8O4iAI",
+      "provider_request_id_header": null,
+      "request_payload_sha256": "a9bec4b16aec987641006c019fe36bafd496ee28cc4b08589e0973c87ed936ec",
+      "attempt_summary_sha256": "0ac142b84eeb9184abe9dcf8c195694042d31e94369b503ef852be43d7dcfb14"
+    },
+    {
+      "fixture_id": "STD-05",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:43:19.232587400Z",
+      "finished_at": "2026-09-20T17:43:27.831040500Z",
+      "http_status": 200,
+      "generation_requests_sent": 1,
+      "provider_response_id": "OBuwaoihCLrnrfcP3p-qyA8",
+      "provider_request_id_header": null,
+      "request_payload_sha256": "70451901ed6b549d0e4511c08cb24104dbdc819dafed3d0b09673bcf9e10994e",
+      "attempt_summary_sha256": "d5d27889ffd2a88413cfb0b8a6ceca33afb2e458fd7989ab16241a861bc82fbb"
+    },
+    {
+      "fixture_id": "STD-08",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:43:34.873989100Z",
+      "finished_at": "2026-09-20T17:43:42.031410900Z",
+      "http_status": 200,
+      "generation_requests_sent": 1,
+      "provider_response_id": "RxuwaoXHLJ-T1e8PwuHnqAQ",
+      "provider_request_id_header": null,
+      "request_payload_sha256": "c6baed66a8274d71fd19a5d1a4150cdc7acc2dde5d90179002283a8ec0208aea",
+      "attempt_summary_sha256": "e4e7bdbc9c3c5679aebf52c5abfa77c303215077876f11a07824fc0411fdf2c9"
+    },
+    {
+      "fixture_id": "STD-09",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:43:57.259666400Z",
+      "finished_at": "2026-09-20T17:44:03.550675900Z",
+      "http_status": 200,
+      "generation_requests_sent": 1,
+      "provider_response_id": "Xhuwatb5BsWX9tMP5bfk-AQ",
+      "provider_request_id_header": null,
+      "request_payload_sha256": "29db0050d83385b9926c75b5a91e854eeca30b45bc4886c486a41e63a794fb96",
+      "attempt_summary_sha256": "fc4076b5e721cbba48af319b2fbaf048950b2c50f9f26afdd97b65483003e253"
+    },
+    {
+      "fixture_id": "STD-10",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:44:10.375900700Z",
+      "finished_at": "2026-09-20T17:44:16.566583800Z",
+      "http_status": 200,
+      "generation_requests_sent": 1,
+      "provider_response_id": "axuwauyWGufbrfcPwe3FuAY",
+      "provider_request_id_header": null,
+      "request_payload_sha256": "afb60dc27bf83c973b64f8ed164a36c05dc5f6479ce70cc3a449dc579b637f1b",
+      "attempt_summary_sha256": "eaab9598b0935eaf18483fbf1a6e917060c882f7c74624f422b69da17de9addb"
+    },
+    {
+      "fixture_id": "STD-12",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:44:23.520719700Z",
+      "finished_at": "2026-09-20T17:44:27.732452700Z",
+      "http_status": 200,
+      "generation_requests_sent": 1,
+      "provider_response_id": "eBuwatuWFuju1e8PyISU2Q8",
+      "provider_request_id_header": null,
+      "request_payload_sha256": "a0208db9ba095e84f0d976be4b25b08d0c5738e9e76d2a9a0e161690c3b1a078",
+      "attempt_summary_sha256": "52db5916341010117ecb98f711a01d12e939dc61c13bbbfd1b1e32d183bd29bf"
+    },
+    {
+      "fixture_id": "STD-18",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:44:43.294978900Z",
+      "finished_at": "2026-09-20T17:44:47.070781900Z",
+      "http_status": 200,
+      "generation_requests_sent": 1,
+      "provider_response_id": "jBuwatWdBseUvr0PlpqOgQ4",
+      "provider_request_id_header": null,
+      "request_payload_sha256": "b28172af4e78beeb4adfd39e9fddfcefcf10cd2d49c7af2e2d7e1e201c928fc7",
+      "attempt_summary_sha256": "186c8f07e31bd07c5c0c770908ef3e2fd443934a480a17cb63f350bb867cd160"
+    },
+    {
+      "fixture_id": "STD-21",
+      "outcome": "outcome_unknown",
+      "attempted_at": "2026-09-20T17:44:53.947784800Z",
+      "finished_at": "2026-09-20T17:44:56.630214Z",
+      "http_status": 503,
+      "generation_requests_sent": 1,
+      "provider_response_id": null,
+      "provider_request_id_header": null,
+      "request_payload_sha256": "a6868091db0998e19c545b4c8022931abc20f382ae1ab6a7c8cc5e6cc2b45549",
+      "attempt_summary_sha256": "bc2adfe679bda147db7ea0a2ef9151d47b08102cf76505f4eee2849931d07179"
+    }
+  ]
+}

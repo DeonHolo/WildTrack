@@ -210,18 +210,37 @@ Do not collapse technical access/readability checks and content/template indicat
 
 ## Objective 2 technical denominator
 
-The frozen AI pilot has ten planned fixture attempts: STD-01, STD-02, STD-03, STD-05, STD-08, STD-09, STD-10, STD-12, STD-18, and STD-21.
+The proposed AI pilot has ten planned **synthetic STD** fixture attempts: STD-01, STD-02, STD-03, STD-05, STD-08, STD-09, STD-10, STD-12, STD-18, and STD-21. Its comparison standard is a **researcher/project-defined, PDF-grounded reference checklist** prepared through AI-assisted review of the actual extracted PDF source texts and supplied authority, with eleven decisions, evidence excerpts and rationales recorded in `ai-checklist.csv`. No user-performed manual PDF audit or independent human reviewer is claimed. The prepared reference is **not independently validated ground truth**; its dated run-level freeze fingerprint must precede official provider observations. Goal 1's separate independent label-verification requirement is unchanged.
+
+The official pilot runner exercises the provider-backed **AI Review component** (`GeminiAiReviewProvider.review` with `AiReviewService.SYSTEM_INSTRUCTION` and the configured model/format), **not** the full deployed Admin/Drive/cache/UI path or `AiReviewService.groundAndValidate` post-filter. Label denominators and report-claim evidence describe this component and cannot be extrapolated to full production end-to-end behavior.
+
+### Reference preparation and provenance
+
+1. The prepared `ai-checklist.csv` records **eleven** source-grounded project-defined issue-present/absent decisions, with fixture/decision ID, expected decision, `reference_source`, `reference_excerpt`, `reference_rationale`, `reference_method=PROJECT_AI_ASSISTED_PDF_AND_AUTHORITY_REVIEW` and `reference_status=FROZEN_PROJECT_DEFINED`. These fields reflect an AI-assisted project review of actual extracted PDF source texts and applicable instructions/template, **not** independent human verification or a recorded manual user audit. Preserve any uncertainty and source limitation. A contents-page heading does not demonstrate body completion; STD-18 has **no** mapped official template and cannot support a mandatory-template finding.
+2. Before seeing the **official ten-fixture provider observations**, preserve the prepared checklist/manifest and their hashes, all ten fixture hashes, template hash, `instructions_sha256`, `protocol_sha256`, app commit/prompt/model configuration, real run-level `frozen_at` timestamp, and any already-known development/smoke exposures. A CSV reference status is not proof of a completed run-level frozen key. A past development smoke output, if any, is not part of the scored ten-case pilot; do not represent the project reference preparation as fully blind to material already seen.
+3. Preserve any correction after the freeze as an explicitly dated, versioned post-observation amendment with rationale; do not silently change expected decisions after inspecting a report to improve agreement. An unresolved expectation or unsupported authority must be reported as uncertain/unassessable, not assumed correct.
+4. The Goal 2 score is **agreement with the frozen researcher checklist**, not independently established AI accuracy. Do not present it as external validation or a pass rate for actual student STDs.
+
+### Provider and per-claim adjudication
+
+Attempt each of the ten fixtures **once** on the free tier. Record each attempted fixture, real timestamp, app/model/prompt version, fresh/cache state, provider request and raw-report evidence, fixture/template hash, and specific failure reason as applicable. A cache hit is not a fresh provider run. Do not retry, choose the best response, or switch to paid calls to complete coverage. Maintain a separate record of report-judgment uncertainty and any known reviewer exposure.
+
+For **every substantive report claim**, retain a distinct claim ID, verbatim or sufficiently specific report passage and pointer, source kind (`pdf`, `official_template`, `deliverable_instructions`, or `unsupported`), precise source location/excerpt where supported, explanation of the claimed inference and requirement provenance, reviewer type/identity/time, and one of supported, unsupported, or uncertain. Document-grounded observations may report facts; a requirement violation must cite a requirement actually supplied to this AI Review configuration. Count only source-supported claims in C_AI_TRACE; report uncertain/insufficiently evidenced claims separately and do not count them as supported. Record the full-claim inventory check against the exact raw-report hash. The researcher performs the adjudication; AI may assist with locating passages but cannot self-certify its own claims. An empty claim inventory produces a not-estimable traceability rate, never 100%.
+
+Before treating a `score-ai.cjs` output as a valid Goal 2 result, verify that the executed scorer/run-record schema accepts `FROZEN_PROJECT_DEFINED` reference labels and researcher/AI-assisted claim audits **without** relying on Goal 1's `human_label_review` fields or representing them as independent verification. A legacy field or scorer message alone is not evidence that independent review occurred. Do not fabricate reviewer identities/times to bypass a scoring gate.
+
+### Computation and reporting
 
 - N_AI_ATTEMPT = 10.
 - N_AI_FRESH_OK = fixture attempts that produce a fresh successful AI Review report. AI_fresh_coverage = N_AI_FRESH_OK / 10.
-- N_AI_DEC = adjudicable expected checklist decisions from fresh successful reports.
+- N_AI_DEC = adjudicable frozen checklist decisions assessed in fresh successful reports, with unassessable decisions and their reasons separately counted.
 - C_AI_DEC = those decisions that match the frozen expected decision.
-- AI_decision_agreement = C_AI_DEC / N_AI_DEC.
-- N_AI_CLAIM = substantive finding claims emitted by fresh successful reports.
-- C_AI_TRACE = those claims traceable to the submitted PDF or an exact supplied deliverable-instruction/template authority.
+- `checklist_agreement` = C_AI_DEC / N_AI_DEC (agreement with the researcher-defined reference, **not** independently verified accuracy).
+- N_AI_CLAIM = all distinct substantive finding claims emitted by fresh successful reports, including unsupported and uncertain claims.
+- C_AI_TRACE = those claims supported by auditable passages in the submitted PDF or exact supplied deliverable-instruction/template authority; document uncertainties and unsupported claims separately.
 - AI_claim_traceability = C_AI_TRACE / N_AI_CLAIM.
 
-Cache hits, quota failures, provider failures, invalid responses, and no-report outcomes do not enter N_AI_DEC or N_AI_CLAIM because no fresh report was available to score. They remain visible in the fixed N_AI_ATTEMPT = 10 coverage denominator and separate outcome counts.
+Cache hits, quota failures, provider/transport failures, invalid responses, and no-report outcomes do not enter N_AI_DEC or N_AI_CLAIM because no fresh report was available to score. They remain in the fixed N_AI_ATTEMPT = 10 coverage denominator and separate outcome counts. If N_AI_DEC or N_AI_CLAIM is zero, its rate is **not estimable**. Report both proposed thresholds (85% agreement and 90% traceability) only with numerators, denominators, case-level evidence, and limitations; neither threshold establishes independent or generalizable AI accuracy.
 
 ## Missing-response and route rules
 

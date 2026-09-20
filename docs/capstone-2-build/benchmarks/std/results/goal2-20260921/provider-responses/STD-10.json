@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"summary\": \"The submitted document is a synthetic benchmark fixture that does not contain actual software testing content for the WildTrack system. The document fails to provide the required test cases, execution evidence, or traceability to system requirements.\",\n  \"suggestedAction\": \"Replace the document content with actual software testing documentation for the WildTrack system, ensuring all sections defined in the official template are populated with relevant test data and evidence.\",\n  \"findings\": [\n    {\n      \"evidence\": \"Pages 1-3\",\n      \"issue\": \"The document content is a synthetic benchmark fixture describing a fictional social-media marketing campaign rather than the WildTrack system.\",\n      \"source\": \"DOCUMENT\",\n      \"requirement\": \"\"\n    },\n    {\n      \"evidence\": \"Pages 1-3\",\n      \"issue\": \"The document fails to trace the relationship between updated SRS, system features, test cases, test execution, and test results.\",\n      \"source\": \"DELIVERABLE_REQUIREMENTS\",\n      \"requirement\": \"Trace the relationship: Updated SRS to System Features to Test Cases to Test Execution to Test Results.\"\n    },\n    {\n      \"evidence\": \"Pages 1-3\",\n      \"issue\": \"The document does not include test cases covering functional and non-functional requirements, nor does it include varied test scenarios such as invalid, boundary, or unauthorized access cases.\",\n      \"source\": \"DELIVERABLE_REQUIREMENTS\",\n      \"requirement\": \"Cover important functional and non-functional requirements where testing applies. Include appropriate valid, invalid, missing, boundary, incorrect-action, unauthorized-access, error, and other realistic cases, not only happy paths.\"\n    },\n    {\n      \"evidence\": \"Pages 1-3\",\n      \"issue\": \"The document does not distinguish between expected outputs and actual results, nor does it document incidents or resolutions.\",\n      \"source\": \"DELIVERABLE_REQUIREMENTS\",\n      \"requirement\": \"Distinguish expected outputs defined before execution from actual observed results; document incidents and resolutions when results differ.\"\n    },\n    {\n      \"evidence\": \"Pages 1-3\",\n      \"issue\": \"The document lacks supporting evidence such as screenshots, logs, or system outputs of actual systematic testing.\",\n      \"source\": \"DELIVERABLE_REQUIREMENTS\",\n      \"requirement\": \"Supply supporting screenshots, logs, recordings, system outputs, or other evidence of actual systematic testing.\"\n    }\n  ],\n  \"missingRequiredSections\": []\n}",
+            "thoughtSignature": "EnEKbwFpFH0TREyDLaNVRVLCajzuCGZNJ48TIyYtsK/Q/G2xnDEVUDYYstK/xsrZsv6EFaQ/OAusICfW545ggY/sPotz+EBc6Ey6VV+crM3jQlfFTZOME2qJXIbePv3SKfuwtcCvAsP6laoh1la7BCLuTQ=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 3313,
+    "candidatesTokenCount": 536,
+    "totalTokenCount": 3849,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1717
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1596
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.1-flash-lite",
+  "responseId": "axuwauyWGufbrfcPwe3FuAY"
+}

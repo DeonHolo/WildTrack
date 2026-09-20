@@ -76,12 +76,14 @@ test('the AI planning template reports no provider attempts and no estimable agr
   const result = scoreAi(plan);
   assert.equal(result.attempt_outcomes.not_attempted, 10);
   assert.deepEqual(result.fresh_run_coverage, { numerator: 0, denominator: 10, value: 0 });
-  assert.equal(result.decision_agreement.value, null);
+  assert.equal(result.checklist_agreement.value, null);
   assert.equal(result.claim_traceability.value, null);
-  assert.equal(result.status, 'AWAITING_INDEPENDENT_ANSWER_KEY_REVIEW');
+  assert.equal(result.status, 'NOT_FROZEN_NO_PROVIDER_RESULTS');
+  assert.equal(result.gate.fixed_reference_decisions, 11);
+  assert.match(result.limitations.join(' '), /no independent human verification/i);
 });
 
-test('a claimed fresh run cannot be scored with pending labels or invented report data', () => {
+test('a claimed official provider attempt cannot precede the frozen project-defined reference', () => {
   const plan = JSON.parse(fs.readFileSync(path.join(directory, 'ai-run-record.template.json'), 'utf8'));
   const run = plan.runs[0];
   Object.assign(run, {
@@ -89,20 +91,40 @@ test('a claimed fresh run cannot be scored with pending labels or invented repor
     fixture_sha256: fixtures.get('STD-01').sha256,
     template_sha256: templateHash, app_commit: '8b7b07fd7bf0ac691777f870409307758a065f05'
   });
-  assert.throws(() => scoreAi(plan), /independently verified human labels/);
+  assert.throws(() => scoreAi(plan), /frozen reference key/);
   run.outcome = 'cache_hit';
   run.reason = 'Server served an existing cached report';
-  const result = scoreAi(plan);
-  assert.equal(result.attempt_outcomes.cache_hit, 1);
-  assert.equal(result.fresh_run_coverage.numerator, 0);
-  assert.equal(result.decision_agreement.denominator, 0);
+  assert.throws(() => scoreAi(plan), /frozen reference key/);
 });
 
 test('empty or duplicated AI run IDs fail without creating a plausible ten-attempt score', () => {
   const plan = JSON.parse(fs.readFileSync(path.join(directory, 'ai-run-record.template.json'), 'utf8'));
   plan.runs.push({ fixture_id: 'STD-01', outcome: 'not_attempted' });
-  assert.throws(() => scoreAi(plan), /Duplicate AI run fixture/);
+  assert.throws(() => scoreAi(plan), /Duplicate Goal 2 run fixture/);
   plan.runs.pop();
   plan.runs.push({ fixture_id: 'STD-24', outcome: 'not_attempted' });
-  assert.throws(() => scoreAi(plan), /Unplanned AI fixture/);
+  assert.throws(() => scoreAi(plan), /Unplanned Goal 2 fixture/);
+});
+
+test('the immutable real Goal 2 pilot preserves fixed attempts and conservative claim denominators', () => {
+  const inputPath = path.join(directory, 'results', 'goal2-20260921', 'ai-run-record.json');
+  const record = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+  const result = scoreAi(record, { inputPath });
+  assert.equal(result.status, 'PROJECT_REFERENCE_AUDIT_COMPLETE');
+  assert.deepEqual(result.fresh_run_coverage, { numerator: 9, denominator: 10, value: 0.9 });
+  assert.equal(result.attempt_outcomes.outcome_unknown, 1);
+  assert.deepEqual(result.checklist_agreement, { numerator: 7, denominator: 10, value: 0.7 });
+  assert.equal(result.gate.fixed_reference_decisions, 11);
+  assert.equal(result.claim_traceability.numerator, 24);
+  assert.equal(result.claim_traceability.denominator, 43);
+  assert.equal(result.unassessable_claims, 4);
+  assert.equal(result.unsupported_claims, 15);
+  assert.match(result.limitations.join(' '), /no independent human verification/);
+  const tampered = structuredClone(record);
+  tampered.runs.find(r => r.fixture_id === 'STD-01').report_sha256 = '0'.repeat(64);
+  assert.throws(() => scoreAi(tampered, { inputPath }), /report hash mismatch/);
+  const inventedSource = structuredClone(record);
+  inventedSource.runs.find(r => r.fixture_id === 'STD-01').claims
+    .find(c => c.traceable === true).source_excerpt = 'This invented requirement is not in any supplied authority';
+  assert.throws(() => scoreAi(inventedSource, { inputPath }), /source_excerpt not found/);
 });

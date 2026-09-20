@@ -1,0 +1,926 @@
+{
+  "schema_version": 2,
+  "methodology": "PROJECT_DEFINED_REFERENCE_AI_ASSISTED",
+  "provenance": "One attempted provider request per frozen synthetic STD case, with immutable per-case evidence",
+  "frozen_key": {
+    "status": "FROZEN",
+    "methodology": "PROJECT_DEFINED_REFERENCE_AI_ASSISTED",
+    "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+    "model": "gemini-3.1-flash-lite",
+    "prompt_version": "wildtrack-academic-review-v3",
+    "frozen_at": "2026-09-20T17:42:05.313Z",
+    "checklist_sha256": "29316334895009fbc39686c12af00a6aa853cfae1ed68e01bbcf6fe78fdfc323",
+    "manifest_sha256": "0960bb623cf4755f85156fa794a6a2c1326f2be0bb6501f40a3965b865b4a8c4",
+    "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+    "fixture_hashes_sha256": "b9afa1828816961a02e83d2ede099364c362f983e071695c5aba888deebf2003",
+    "instructions_sha256": "841c1fa9fe40bbd94f747899f339e35f233f2aab8a6938f97f9af7e93c63b18a",
+    "protocol_sha256": "5f2914a7ffe4069f6fa7eefee0502f3fad4b55c28093bb8040815bb500be6ad9",
+    "planned_fixtures": [
+      "STD-01",
+      "STD-02",
+      "STD-03",
+      "STD-05",
+      "STD-08",
+      "STD-09",
+      "STD-10",
+      "STD-12",
+      "STD-18",
+      "STD-21"
+    ],
+    "reference_method_note": "Project-defined source checklist prepared with ChatGPT assistance. No independent human verification is asserted."
+  },
+  "frozen_key_sha256": "51285fb5361d8eec1ffd46251b9615333914719b95ca094a7539bd5dfa8678c4",
+  "runs": [
+    {
+      "fixture_id": "STD-01",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:42:20.383241300Z",
+      "fixture_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+      "provider": "Google Gemini",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_version": "wildtrack-academic-review-v3",
+      "cache_status": "MISS",
+      "provider_request_id": null,
+      "attempt_summary_sha256": "e8e48160f60b6085964fc918787aabb34da55195b09e00fa2db21053bb5e1f4a",
+      "generation_requests_sent": 1,
+      "notes": "Actual provider-side component run; production app cache and post-validation not exercised.",
+      "report_path": "reports/STD-01.json",
+      "report_sha256": "d8edd1cbd05626fbbbe102170ecd1d0bf21433a45cbfb1f497a0146a4178e5df",
+      "raw_response_path": "provider-responses/STD-01.json",
+      "raw_response_sha256": "10685ba33728bc231e8e96db27759860ec0a345c20eb7e561bfe26e0a9942121",
+      "raw_response_exact": true,
+      "decisions": [
+        {
+          "decision_id": "uncompleted-template",
+          "observed": "present",
+          "report_reference": "summary",
+          "notes": "The report explicitly calls the file a template shell; findings[0] confirms it identifies the uncompleted source. The summary's 'for SchedEase' project-identity wording is separately audited as unsupported because that name is leftover template header text, not the filled project name.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "STD-01-F0",
+          "text": "The document is a template shell and contains no actual project content, test cases, or test results.",
+          "substantive": true,
+          "report_reference": "findings[0]",
+          "source_kind": "pdf",
+          "traceable": true,
+          "source_reference": "goal2-reference-extracted-text/STD-01.txt, cover and body headings on source pages 4, 6, 7",
+          "source_excerpt": "Software Test Document \nfor \nInsert System Name",
+          "notes": "The source cover retains Insert System Name and the body has headings such as 3.n Case-n and A.2 Test Results with no filled project-specific test records. Scope 'no actual' to this blank template, not proof about an actual student project. SchedEase is only sample header text.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-01-F1",
+          "text": "There is no evidence of traceability between SRS, system features, test cases, and results.",
+          "substantive": true,
+          "report_reference": "findings[1]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 2 (requirement); goal2-reference-extracted-text/STD-01.txt, blank body Test Plan/Test Cases/Appendix",
+          "source_excerpt": "Trace the relationship: Updated SRS to System Features to Test Cases to Test Execution to Test Results.",
+          "notes": "The quoted requirement was supplied. Inspecting the entire 146-line source finds only empty 2.1 Features to be Tested, 3.n Case-n and A.2 Test Results placeholders rather than any actual SRS-feature-case-execution-result mapping. An instruction alone does not prove the PDF absence; that judgment also uses the source-wide PDF audit.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-01-F2",
+          "text": "No screenshots, logs, or other evidence of actual systematic testing are provided.",
+          "substantive": true,
+          "report_reference": "findings[2]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 6 (requirement); goal2-reference-extracted-text/STD-01.txt page 7 empty Appendix (Test Logs)",
+          "source_excerpt": "Supply supporting screenshots, logs, recordings, system outputs, or other evidence of actual systematic testing.",
+          "notes": "The exact supplied instruction requires evidence. The complete PDF ends with empty A.1 Log for Test n, A.2 Test Results and A.3 Incident Report headings and contains no filled screenshot, log content, recording or system-output evidence. The instruction is the authority, and the source-wide PDF audit establishes the absence in the submitted file, not whether real testing occurred outside it.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-01-F3",
+          "text": "The document provides only placeholders for test cases and results, failing to distinguish expected from actual outcomes.",
+          "substantive": true,
+          "report_reference": "findings[3]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 5 (requirement); goal2-reference-extracted-text/STD-01.txt source pages 6-7, 3.n.3 expected outputs and A.2 Test Results empty placeholders",
+          "source_excerpt": "Distinguish expected outputs defined before execution from actual observed results; document incidents and resolutions when results differ.",
+          "notes": "The quoted instruction requires expected-versus-actual distinction. The PDF shows placeholder headings for expected outputs/procedure with no values and Appendix A.2 Test Results without observations; the factual absence is independently checked in the PDF rather than inferred from the instruction alone.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-01-S0",
+          "text": "for SchedEase",
+          "substantive": true,
+          "report_reference": "summary",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "goal2-reference-extracted-text/STD-01.txt, cover 'Insert System Name' and recurring sample header 'SchedEase'",
+          "source_excerpt": "Insert System Name",
+          "notes": "The report promotes the template's leftover SchedEase header into the submitted project's identity. The cover explicitly retains Insert System Name and the official template's sample header does not establish a student's actual project name. Remaining summary incompleteness assertions duplicate findings[0]-[3].",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claim_inventory": {
+        "complete": true,
+        "method": "PROJECT_SOURCE_AUDIT",
+        "report_sha256": "d8edd1cbd05626fbbbe102170ecd1d0bf21433a45cbfb1f497a0146a4178e5df",
+        "notes": "Reviewed all four findings[0]-[3] and zero missingRequiredSections. Summary's SchedEase identity is separately inventoried as STD-01-S0 and unsupported; the rest of summary (uncompleted shell, missing test data/results/evidence/requirements) repeats those findings. suggestedAction requests filling the already-identified absent test cases, logs and results with actual data and introduces no additional unique substantive assertion. No limitations listed. This is an AI-assisted project source audit, not independent human verification."
+      },
+      "audit_origin": "ChatGPT-assisted project source audit; not independently human verified"
+    },
+    {
+      "fixture_id": "STD-02",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:42:46.875450100Z",
+      "fixture_sha256": "cd347ba6c9ad643be925b396f7e901bb39473a0e504141298e8b250adcef4ebf",
+      "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+      "provider": "Google Gemini",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_version": "wildtrack-academic-review-v3",
+      "cache_status": "MISS",
+      "provider_request_id": null,
+      "attempt_summary_sha256": "ecdec86aafef0ca5a26d204e46765d1081c8ab613ccfbb449637eb89c503a76c",
+      "generation_requests_sent": 1,
+      "notes": "Actual provider-side component run; production app cache and post-validation not exercised.",
+      "report_path": "reports/STD-02.json",
+      "report_sha256": "84d585b43314805c738a18e2cc6ce0ae14c56ae7f7cf52a0b0ed4f6c4160dcfb",
+      "raw_response_path": "provider-responses/STD-02.json",
+      "raw_response_sha256": "215f7b0da752071c7ca30346e57475ee417f1140655c5e0f74fac138784ce05f",
+      "raw_response_exact": true,
+      "decisions": [
+        {
+          "decision_id": "substantive-incompleteness",
+          "observed": "present",
+          "report_reference": "findings[0]",
+          "notes": "The report identifies the blank substantive body despite the personalized WildTrack cover, matching the reference issue. It also wrongly lists five already-present headings as missing required sections; these independent unsupported claims do not negate the observed incompleteness detection.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "STD-02-F0",
+          "text": "The document consists entirely of section headers and placeholders (e.g., '3.n Case-n') with no actual project content or test data provided.",
+          "substantive": true,
+          "report_reference": "findings[0]",
+          "source_kind": "pdf",
+          "traceable": true,
+          "source_reference": "goal2-reference-extracted-text/STD-02.txt, blank substantive body, Test Cases and Appendix",
+          "source_excerpt": "3. Test Cases \n3.n Case-n \n3.n.1 Purpose \n3.n.2 Inputs \n3.n.3 Expected Outputs & Pass/Fail Criteria \n3.n.4 Test Procedure",
+          "notes": "The source contains WildTrack on its cover/header, so 'entirely' and 'no actual project content' are accurate only for the substantive test-document body, which consists of unpopulated headings and template placeholders. Its literal cover identity is not a completed testing section.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-02-F1",
+          "text": "The document lacks any trace of the relationship between system features, test cases, and test execution results.",
+          "substantive": true,
+          "report_reference": "findings[1]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 2 (requirement); goal2-reference-extracted-text/STD-02.txt lines 30-48 empty feature/case/result headings",
+          "source_excerpt": "Trace the relationship: Updated SRS to System Features to Test Cases to Test Execution to Test Results.",
+          "notes": "The supplied instruction requires the trace. The complete 48-line PDF source lists feature/case/result headings but supplies no actual trace links or case executions; absence is established by source-wide PDF inspection, not solely by the normative instruction.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-02-F2",
+          "text": "No supporting evidence such as screenshots, logs, or system outputs are included in the submission.",
+          "substantive": true,
+          "report_reference": "findings[2]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 6 (requirement); goal2-reference-extracted-text/STD-02.txt lines 45-48 empty Appendix and source-wide inspection",
+          "source_excerpt": "Supply supporting screenshots, logs, recordings, system outputs, or other evidence of actual systematic testing.",
+          "notes": "The supplied instruction requires supporting evidence. The PDF has only empty Appendix (Test Logs), A.1 Log for Test n, A.2 Test Results and A.3 Incident Report headings with no filled log, screenshot, recording or system-output evidence; absence was checked against the entire PDF source.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-02-M0",
+          "text": "Change History",
+          "substantive": true,
+          "report_reference": "missingRequiredSections[0]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "goal2-reference-extracted-text/STD-02.txt line 7",
+          "source_excerpt": "Change History",
+          "notes": "False assertion that this required section is missing: Change History already exists as a front-matter heading before the Table of Contents, the same placement as the official template. It is blank, but a blank section is not an absent heading/section.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-02-M1",
+          "text": "1. Introduction",
+          "substantive": true,
+          "report_reference": "missingRequiredSections[1]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "goal2-reference-extracted-text/STD-02.txt line 22 (body), distinct from line 9 contents entry",
+          "source_excerpt": "1. Introduction",
+          "notes": "False missing-section assertion: the 1. Introduction heading is present in the actual body following the document-version header. Its substantive content is empty, not its heading absent.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-02-M2",
+          "text": "2. Test Plan",
+          "substantive": true,
+          "report_reference": "missingRequiredSections[2]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "goal2-reference-extracted-text/STD-02.txt line 29 (body)",
+          "source_excerpt": "2. Test Plan",
+          "notes": "False missing-section assertion: 2. Test Plan appears in the PDF body. Empty Feature subsections do not turn the heading into an absent section.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-02-M3",
+          "text": "3. Test Cases",
+          "substantive": true,
+          "report_reference": "missingRequiredSections[3]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "goal2-reference-extracted-text/STD-02.txt line 36 (body)",
+          "source_excerpt": "3. Test Cases",
+          "notes": "False missing-section assertion: 3. Test Cases appears in the body and is followed by placeholder case subheadings. The lack of actual test cases is a supported incompleteness finding, but not a missing-heading finding.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-02-M4",
+          "text": "Appendix (Test Logs)",
+          "substantive": true,
+          "report_reference": "missingRequiredSections[4]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "goal2-reference-extracted-text/STD-02.txt line 45 (body)",
+          "source_excerpt": "Appendix (Test Logs)",
+          "notes": "False missing-section assertion: Appendix (Test Logs) is an actual body heading, followed by empty Log/Test Results/Incident Report placeholders. Empty execution evidence is a different finding.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claim_inventory": {
+        "complete": true,
+        "method": "PROJECT_SOURCE_AUDIT",
+        "report_sha256": "84d585b43314805c738a18e2cc6ce0ae14c56ae7f7cf52a0b0ed4f6c4160dcfb",
+        "notes": "Audited all three findings and all five missingRequiredSections. Summary repeats the substantive blank-body, missing test case/execution/result and evidence findings; its WildTrack name is supported by the cover and not an additional deficit. suggestedAction restates those same deficits and instructions to populate them, without unique new factual/mandatory assertions. The report's five section-absence claims are independently inventoried as unsupported despite otherwise detecting the substantive incompleteness; the PDF has those body/front-matter headings but their contents are blank. AI-assisted project audit only, not independent human verification."
+      },
+      "audit_origin": "ChatGPT-assisted project source audit; not independently human verified"
+    },
+    {
+      "fixture_id": "STD-03",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:43:07.605406700Z",
+      "fixture_sha256": "d958c524d4f082520ba64df4a589b94b2820da36189e400ed0ab88640994107c",
+      "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+      "provider": "Google Gemini",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_version": "wildtrack-academic-review-v3",
+      "cache_status": "MISS",
+      "provider_request_id": null,
+      "attempt_summary_sha256": "0ac142b84eeb9184abe9dcf8c195694042d31e94369b503ef852be43d7dcfb14",
+      "generation_requests_sent": 1,
+      "notes": "Actual provider-side component run; production app cache and post-validation not exercised.",
+      "report_path": "reports/STD-03.json",
+      "report_sha256": "35e360ff3a632137738ff244bbb2884c423d593d7a661b6f5d9403b7064b652e",
+      "raw_response_path": "provider-responses/STD-03.json",
+      "raw_response_sha256": "1575d638eaaf48719ec2e1191cfec2a908e1a4cc17240f902adb301356f22e30",
+      "raw_response_exact": true,
+      "decisions": [
+        {
+          "decision_id": "remaining-placeholders",
+          "observed": "absent",
+          "report_reference": "findings[0]",
+          "notes": "The frozen criterion requires identifying unfinished sections WHILE distinguishing the completed overview. The report asserts the document consists 'entirely' of headings/placeholders and claims no project content; it does not recognize the meaningful populated System Overview at STD-03.txt lines 23-26. It flags residual omissions but fails this combined distinction decision. Treat this as disagreement with the project-defined reference, not as proof that the remaining sections are complete.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "STD-03-F0",
+          "text": "The document consists entirely of section headers and placeholders (e.g., '3.n Case-n') and does not contain any actual test case definitions or execution results.",
+          "substantive": true,
+          "report_reference": "findings[0]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "goal2-reference-extracted-text/STD-03.txt lines 23-28 (meaningful overview and blank following sections), lines 39-51 (case/result placeholders)",
+          "source_excerpt": "WildTrack is a capstone submission workflow that lets configured students submit link-based deliverables",
+          "notes": "The document is NOT 'entirely' headings/placeholders: the System Overview has project-specific substantive prose. Lack of filled test cases and execution results is true, but the exact compound finding wrongly erases the meaningful overview; do not give full support to this categorical claim or quietly rewrite its wording. The model also omits the critical distinction in the frozen checklist.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-03-F1",
+          "text": "The 'Change History' section is listed in the Table of Contents but is absent from the document body.",
+          "substantive": true,
+          "report_reference": "findings[1]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "goal2-reference-extracted-text/STD-03.txt line 7 (front matter before Table of Contents line 8); official STD-01 template lines 31 and 41 use the same front-matter position",
+          "source_excerpt": "Change History",
+          "notes": "The PDF contains Change History as a front-matter heading before the Table of Contents, matching official template placement. Its content is unfilled, but the claim asserts an absent section, not an empty one; no source evidence supports that absence. The report additionally misstates placement by saying the only heading is in the Table of Contents.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-03-M0",
+          "text": "Test Cases",
+          "substantive": true,
+          "report_reference": "missingRequiredSections[0]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "goal2-reference-extracted-text/STD-03.txt lines 39-44, Test Cases body heading with template-only subheadings",
+          "source_excerpt": "3. Test Cases",
+          "notes": "The actual Test Cases body section is present; its case definitions are empty placeholders. A section's lack of meaningful case content is a supported substantive defect, but the model's missingRequiredSections entry falsely labels the section itself absent.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-03-M1",
+          "text": "Test Execution and Results",
+          "substantive": true,
+          "report_reference": "missingRequiredSections[1]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 5 requires distinguish expected/actual outcomes; official STD-01 template includes Appendix (Test Logs) and A.2 Test Results but not a mandated heading 'Test Execution and Results'",
+          "source_excerpt": "A.2 Test Results",
+          "notes": "Actual observed results are substantively absent in the fixture, but no supplied instruction or mapped official template requires a section literally called Test Execution and Results. The report presents that invented heading as a missing REQUIRED section. Source excerpt is the actual template alternative, not proof for the model's new mandatory heading.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-03-M2",
+          "text": "Supporting Evidence",
+          "substantive": true,
+          "report_reference": "missingRequiredSections[2]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 6 requires supporting screenshots/logs/recordings/system outputs; official STD-01 template has Appendix (Test Logs), not a mandated section 'Supporting Evidence'",
+          "source_excerpt": "Appendix (Test Logs)",
+          "notes": "Evidence is substantively absent, but the provided instructions require evidence, not a literal mandatory section named Supporting Evidence. The official template has an Appendix (Test Logs) section already present in STD-03. The model's missing REQUIRED heading is invented; absence of evidence should have been recorded separately.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claim_inventory": {
+        "complete": true,
+        "method": "PROJECT_SOURCE_AUDIT",
+        "report_sha256": "35e360ff3a632137738ff244bbb2884c423d593d7a661b6f5d9403b7064b652e",
+        "notes": "Audited both findings[0]-[1] and all three missingRequiredSections. summary repeats findings[0] and the actual blank test-case/result/evidence body, including its erroneous overgeneralization that only headings/placeholders are present; there is no distinct new assertion. suggestedAction requests filling those same missing test cases, test logs, screenshots and incident reports under supplied instructions; it introduces no additional unique factual claim or new required named section. The critical unrecognized completed System Overview is preserved in finding[0]'s unsupported rationale and the observed checklist disagreement. Project AI-assisted source audit, not independent human verification."
+      },
+      "audit_origin": "ChatGPT-assisted project source audit; not independently human verified"
+    },
+    {
+      "fixture_id": "STD-05",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:43:19.232587400Z",
+      "fixture_sha256": "1d08677fd8b8de9927b37136590bbb63491073bbdf1d0001d6c568b0354f2d02",
+      "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+      "provider": "Google Gemini",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_version": "wildtrack-academic-review-v3",
+      "cache_status": "MISS",
+      "provider_request_id": null,
+      "attempt_summary_sha256": "d5d27889ffd2a88413cfb0b8a6ceca33afb2e458fd7989ab16241a861bc82fbb",
+      "generation_requests_sent": 1,
+      "notes": "Actual provider-side component run; production app cache and post-validation not exercised.",
+      "report_path": "reports/STD-05.json",
+      "report_sha256": "e6f0cbe2cf8df2a10c0fd68530ec5028c50dc58975950c272c5677cefe5453e0",
+      "raw_response_path": "provider-responses/STD-05.json",
+      "raw_response_sha256": "0cbe41f467cc3f12adde878abad119a713cb8ee837090db31ca55ed9249e6dc8",
+      "raw_response_exact": true,
+      "decisions": [
+        {
+          "decision_id": "unsupported-incompleteness",
+          "observed": "present",
+          "report_reference": "summary",
+          "notes": "The report makes an overall incompleteness/requirements-failure judgment of the intentionally synthetic complete-structure fixture, in part because it lacks evidence of REAL executed student-project tests. The frozen benchmark expects no unsupported incompleteness allegation for this controlled synthetic example. Absence of real execution evidence is factually disclosed by the PDF and requested for an actual student submission, so the reference condition and production submission standard must not be silently conflated; the narrower source-backed absence claims are audited separately.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "decision_id": "wrong-document",
+          "observed": "present",
+          "report_reference": "findings[0]",
+          "notes": "The report explicitly labels this a synthetic benchmark fixture 'not a functional Software Test Document for the student's project' and calls for replacement. Although its synthetic identity is true, it has actual STD structure and controlled case/procedure/result content; interpreting the expected synthetic benchmark document as the wrong deliverable fails the frozen clean-document criterion. This does not certify it as a real student's completed STD.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "STD-05-F0",
+          "text": "The submitted document is a synthetic benchmark fixture, not a functional Software Test Document for the student's project.",
+          "substantive": true,
+          "report_reference": "findings[0]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "goal2-reference-extracted-text/STD-05.txt lines 1-4 (controlled synthetic disclosure), lines 24-27 Test Approach, 43-68 Test Cases and Appendix",
+          "source_excerpt": "WildTrack | Synthetic benchmark fixture | STD-05_meaningful-complete",
+          "notes": "It IS explicitly synthetic, but the second half of this exact compound claim, that it is not a functional STD for the student's project, is not an assessable defect in a benchmark where no real student's project or live test results are supplied. The source has STD-specific test approach, case purpose/inputs/expected results/procedure and illustrative controlled log. The model promotes the intentionally disclosed synthetic provenance into a wrong-deliverable allegation; full claim is not supportable as a benchmark finding. Do not pretend that this synthetic document is genuine real testing.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-05-F1",
+          "text": "The document does not demonstrate a trace from an updated SRS to system features and test cases.",
+          "substantive": true,
+          "report_reference": "findings[1]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 2 (requirement); goal2-reference-extracted-text/STD-05.txt lines 34-36 and 43-57 list features and a controlled test case but contain no actual updated SRS reference/mapping",
+          "source_excerpt": "Trace the relationship: Updated SRS to System Features to Test Cases to Test Execution to Test Results.",
+          "notes": "The configured instruction genuinely demands updated-SRS-to-test-results traceability. The complete controlled PDF contains a features list and one test case but no updated SRS IDs/document trace, so the narrower observation is supportable for an actual submission. However, this fixture deliberately contains self-contained synthetic content with no external student SRS/SDD; do not transform this narrow omission into proof that the benchmark's synthetic 'complete' case is the wrong deliverable.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-05-F2",
+          "text": "The document lacks actual evidence of systematic testing such as screenshots, logs, or system outputs.",
+          "substantive": true,
+          "report_reference": "findings[2]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 6 (requirement); goal2-reference-extracted-text/STD-05.txt lines 3-4 and 58-68 expressly mark the log and observations synthetic, not actual WildTrack execution",
+          "source_excerpt": "Supply supporting screenshots, logs, recordings, system outputs, or other evidence of actual systematic testing.",
+          "notes": "Actual real-world testing evidence is expressly not claimed by this controlled fixture. Its Appendix contains only an illustrative synthetic log and observation, not validated real execution; the source and configured instruction support the narrow absence. The model should nonetheless distinguish a synthetic benchmark specimen from a real student submission when making an overall clean/defective judgment.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claim_inventory": {
+        "complete": true,
+        "method": "PROJECT_SOURCE_AUDIT",
+        "report_sha256": "e6f0cbe2cf8df2a10c0fd68530ec5028c50dc58975950c272c5677cefe5453e0",
+        "notes": "Audited all three findings[0]-[2] and zero missingRequiredSections. summary restates finding[0]'s synthetic-not-project-specific allegation and findings[1]-[2]'s absent updated-SRS mapping/real execution evidence, adding no unique factual assertion. suggestedAction asks to replace the synthetic content and supply the same actual SRS/result trace and concrete screenshot/log evidence; it is derivative of findings[0]-[2], not a new independent claim. The mixture of unsupported full wrong-document judgment and source-backed narrow real-submission omissions is disclosed rather than manipulating the frozen reference or declaring the synthetic fixture actual executed testing. This is project AI-assisted source adjudication, not independent human verification."
+      },
+      "audit_origin": "ChatGPT-assisted project source audit; not independently human verified"
+    },
+    {
+      "fixture_id": "STD-08",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:43:34.873989100Z",
+      "fixture_sha256": "53f5e0a85e67725c63fc22d15e380a1f5a11e500450cbae878aa62ceb6c02c4d",
+      "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+      "provider": "Google Gemini",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_version": "wildtrack-academic-review-v3",
+      "cache_status": "MISS",
+      "provider_request_id": null,
+      "attempt_summary_sha256": "e4e7bdbc9c3c5679aebf52c5abfa77c303215077876f11a07824fc0411fdf2c9",
+      "generation_requests_sent": 1,
+      "notes": "Actual provider-side component run; production app cache and post-validation not exercised.",
+      "report_path": "reports/STD-08.json",
+      "report_sha256": "8a796da3c563d1874df15b2965744ef81b24268b45cca0af42c7852381a51075",
+      "raw_response_path": "provider-responses/STD-08.json",
+      "raw_response_sha256": "f4855b6019b61fa7f458f091c58abb7fea7ad4ad326f8a00e09491d566060675",
+      "raw_response_exact": true,
+      "decisions": [
+        {
+          "decision_id": "repeated-filler",
+          "observed": "present",
+          "report_reference": "findings[0]",
+          "notes": "The report identifies placeholder filler throughout substantive body sections. The actual STD-08 extracted PDF repeats the same self-described sample-filler sentence in introduction, test plan, cases and appendix. This matches the frozen repeated-filler criterion independently of the report's other claims.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "STD-08-F0",
+          "text": "The document contains only placeholder filler text and lacks actual project-specific content.",
+          "substantive": true,
+          "report_reference": "findings[0]",
+          "source_kind": "pdf",
+          "traceable": true,
+          "source_reference": "goal2-reference-extracted-text/STD-08.txt lines 16-22, 23-36, 44-77, 79-134",
+          "source_excerpt": "This section contains sample filler content repeated for layout only and does not provide a concrete test fact, \ntrace, result, or evidence.",
+          "notes": "The repeated exact sentence fills all substantive sections. The cover names WildTrack as the fixture identity, but this is not project-specific testing content; read 'only' as referring to the document's substantive body rather than denying headings/cover text exist.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-08-F1",
+          "text": "The document fails to trace the relationship between the SRS, system features, test cases, and test results.",
+          "substantive": true,
+          "report_reference": "findings[1]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 2 (requirement); goal2-reference-extracted-text/STD-08.txt source-wide repeated filler across Test Plan, Test Cases and Appendix",
+          "source_excerpt": "Trace the relationship: Updated SRS to System Features to Test Cases to Test Execution to Test Results.",
+          "notes": "The instruction explicitly demands SRS-to-result traceability. All actual body positions that would contain a mapping instead repeat filler with no feature/case/result identifiers or links; source-wide PDF inspection supports the absence, not the instruction alone.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-08-F2",
+          "text": "The document does not include test cases covering functional and non-functional requirements.",
+          "substantive": true,
+          "report_reference": "findings[2]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 3 (requirement); goal2-reference-extracted-text/STD-08.txt lines 72-106 Test Cases body",
+          "source_excerpt": "Cover important functional and non-functional requirements where testing applies.",
+          "notes": "The supplied instruction qualifies coverage by where testing applies. In the source, the Test Cases/Purpose/Inputs/Expected Outputs/Procedure subsections all contain repeated filler and no functional or non-functional case definition. Do not infer that every possible test category applies to every real project.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-08-F3",
+          "text": "The document lacks evidence of actual systematic testing, such as screenshots or logs.",
+          "substantive": true,
+          "report_reference": "findings[3]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt line 6 (requirement); goal2-reference-extracted-text/STD-08.txt lines 107-134 Appendix/Log/Results/Incident sections",
+          "source_excerpt": "Supply supporting screenshots, logs, recordings, system outputs, or other evidence of actual systematic testing.",
+          "notes": "The required evidence source is configured. The entire appendix, including Log for Test 1 and Test Results, repeats text explicitly saying it supplies no concrete test fact/trace/result/evidence, rather than containing screenshots, logs or genuine system outputs.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-08-M0",
+          "text": "Change History",
+          "substantive": true,
+          "report_reference": "missingRequiredSections[0]",
+          "source_kind": "official_template",
+          "traceable": true,
+          "source_reference": "goal2-reference-extracted-text/STD-01.txt lines 31 and 43 (official template front matter/contents); goal2-reference-extracted-text/STD-08.txt all 134 lines contain no Change History heading",
+          "source_excerpt": "Change History",
+          "notes": "The mapped official template contains Change History as a distinct front-matter section, while complete extracted STD-08 text lacks that heading. This supports the narrowly reported missing template section; the generic deliverable instructions do not independently mandate filled change-history entries, and the absence is not proof of poor testing evidence beyond the other findings.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claim_inventory": {
+        "complete": true,
+        "method": "PROJECT_SOURCE_AUDIT",
+        "report_sha256": "8a796da3c563d1874df15b2965744ef81b24268b45cca0af42c7852381a51075",
+        "notes": "Audited all four findings[0]-[3] and the single missingRequiredSections[0]. summary restates the repeated-filler finding and the missing traceability, functional/nonfunctional cases and execution evidence; 'entirely' is scoped to the substantive body and not an additional unsupported assertion about the cover. suggestedAction derives from the same filler/trace/case/evidence defects and the configured updated-SRS/SDD instructions, introducing no unique new factual finding. The required source excerpt for Change History is from the mapped official template, whereas its absence was checked against the full STD-08 source. AI-assisted project source audit only, not independent human verification."
+      },
+      "audit_origin": "ChatGPT-assisted project source audit; not independently human verified"
+    },
+    {
+      "fixture_id": "STD-09",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:43:57.259666400Z",
+      "fixture_sha256": "4880e0cbf3f6a77f202a1946e8703f56fcfe33a9c7ae7a6c0389c2a17d63c99b",
+      "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+      "provider": "Google Gemini",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_version": "wildtrack-academic-review-v3",
+      "cache_status": "MISS",
+      "provider_request_id": null,
+      "attempt_summary_sha256": "fc4076b5e721cbba48af319b2fbaf048950b2c50f9f26afdd97b65483003e253",
+      "generation_requests_sent": 1,
+      "notes": "Actual provider-side component run; production app cache and post-validation not exercised.",
+      "report_path": "reports/STD-09.json",
+      "report_sha256": "723ba0c20cbd73738b1383da5992d73c191524d6bae21f203cbf1503b079a4f4",
+      "raw_response_path": "provider-responses/STD-09.json",
+      "raw_response_sha256": "dcfa5b73af53d13dc249d99dba49b7f1568143807ac4d3143d6e1430720542ce",
+      "raw_response_exact": true,
+      "decisions": [
+        {
+          "decision_id": "irrelevant-content",
+          "observed": "present",
+          "report_reference": "findings[0]",
+          "notes": "The provider identifies garden, travel, bakery, and reading-group material in sections that should discuss software testing. The extracted PDF confirms that those body sections contain unrelated coherent prose. Its stronger claim that all sections are nonsensical is unsupported because the introduction describes WildTrack; the narrower frozen irrelevant-content decision is nevertheless present.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "STD-09-finding-0",
+          "text": "The submitted document contains irrelevant, nonsensical content across all sections, failing to describe the actual system under test.",
+          "substantive": true,
+          "report_reference": "findings[0]",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "",
+          "source_excerpt": "",
+          "notes": "The System Overview, Test Approach, test-case bodies and logs contain coherent but irrelevant garden/travel/bakery/reading-group descriptions; calling them nonsensical is unsupported. The Introduction explicitly describes WildTrack, contradicting 'across all sections' and a total failure to describe the system. The entire exact claim is too broad although irrelevant-content detection is present.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-09-finding-1",
+          "text": "The document fails to trace the relationship between the SRS, system features, test cases, and results, as the content provided is entirely unrelated to the system.",
+          "substantive": true,
+          "report_reference": "findings[1]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD-09.txt, Test Cases / 3.1.3 Expected Outputs & Pass/Fail Criteria, lines 40-50; STD_AI_INSTRUCTIONS.txt, line 2",
+          "source_excerpt": "Trace the relationship: Updated SRS to System Features to Test Cases to Test Execution to Test Results.",
+          "notes": "The source excerpt is the exact configured traceability requirement. The PDF instead populates its expected-output section with unrelated garden text without mapping a WildTrack feature/SRS requirement to test results. The introductory paragraph is about WildTrack, so 'content provided is entirely unrelated' overstates the entire document; the claimed lack of traceability is grounded in the actual test-case/result body.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-09-finding-2",
+          "text": "No realistic test cases are provided; the document contains only a single placeholder test case with irrelevant content.",
+          "substantive": true,
+          "report_reference": "findings[2]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt, line 4; STD-09.txt, 3. Test Cases and 3.1.1 Purpose through 3.1.4 Test Procedure, lines 40-53",
+          "source_excerpt": "Include appropriate valid, invalid, missing, boundary, incorrect-action, unauthorized-access, error, and other realistic cases, not only happy paths.",
+          "notes": "The source excerpt quotes the configured realistic-case requirement. The only named test-case entry in the PDF is 'Controlled Test Case 1', and its purpose, inputs, expected output and procedure contain unrelated bakery/reading-group/garden/travel prose rather than an executable test case.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-09-finding-3",
+          "text": "The document does not distinguish between expected outputs and actual results, nor does it document incidents or resolutions.",
+          "substantive": true,
+          "report_reference": "findings[3]",
+          "source_kind": "unassessable",
+          "traceable": null,
+          "source_reference": "",
+          "source_excerpt": "",
+          "notes": "The expected-output and test-result bodies contain unrelated garden and reading-group prose, supporting the missing meaningful expected-versus-actual distinction. The report also implies incidents/resolutions must be documented regardless of whether a test mismatch occurred. The supplied instruction conditions incident documentation on actual results differing from expected results, and this PDF provides no assessable actual test outcome. The combined claim cannot be wholly marked supported or wholly disproved.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-09-finding-4",
+          "text": "The document provides no evidence of actual systematic testing, such as screenshots, logs, or system outputs.",
+          "substantive": true,
+          "report_reference": "findings[4]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD-09.txt, Appendix (Test Logs), A.1 Log for Test 1 and A.2 Test Results, lines 54-61; STD_AI_INSTRUCTIONS.txt, line 6",
+          "source_excerpt": "Supply supporting screenshots, logs, recordings, system outputs, or other evidence of actual systematic testing.",
+          "notes": "The source excerpt quotes the exact configured evidence requirement. The nominal log section contains bakery text and the results section contains unrelated reading-group text, without test observations or attached execution evidence. This assesses evidence within the submitted controlled PDF, not any unseen external artifact.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claim_inventory": {
+        "complete": true,
+        "method": "PROJECT_SOURCE_AUDIT",
+        "report_sha256": "723ba0c20cbd73738b1383da5992d73c191524d6bae21f203cbf1503b079a4f4",
+        "notes": "Reviewed the complete exact five findings, empty missingRequiredSections and the full summary and suggestedAction against STD-09.txt and the actually supplied STD instructions. The summary's broad 'entirely irrelevant, nonsensical' wording is a restatement of findings[0], whose overreach is marked unsupported; its traceability, coverage and evidence statements restate findings[1], [2] and [4]. The suggestedAction calls for replacing the irrelevant body, tracing tests and providing evidence, restating findings[0]-[4] without a unique substantive factual assertion. No additional summary/action claim was double-counted. This is project AI-assisted source auditing, not independent human review."
+      },
+      "audit_origin": "ChatGPT-assisted project source audit; not independently human verified"
+    },
+    {
+      "fixture_id": "STD-10",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:44:10.375900700Z",
+      "fixture_sha256": "75a520f606b9301453652e0075ce68a7a4ed6c8f8d634f59b3ce9f6f5a54963c",
+      "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+      "provider": "Google Gemini",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_version": "wildtrack-academic-review-v3",
+      "cache_status": "MISS",
+      "provider_request_id": null,
+      "attempt_summary_sha256": "eaab9598b0935eaf18483fbf1a6e917060c882f7c74624f422b69da17de9addb",
+      "generation_requests_sent": 1,
+      "notes": "Actual provider-side component run; production app cache and post-validation not exercised.",
+      "report_path": "reports/STD-10.json",
+      "report_sha256": "d364cc9ced814dacd4bd97247c3fea70d7151b2d54f7c5930e8ad400c824158e",
+      "raw_response_path": "provider-responses/STD-10.json",
+      "raw_response_sha256": "21d1f638f51456b5f151af9b40e84e6b1b672cc2bf863895fddafc70cfc83519",
+      "raw_response_exact": true,
+      "decisions": [
+        {
+          "decision_id": "deliverable-mismatch",
+          "observed": "present",
+          "report_reference": "findings[0]",
+          "notes": "The first provider finding identifies the marketing-campaign body as a mismatch with the requested Software Test Document. The extracted PDF repeats the marketing description across the STD body sections even though its heading and introduction identify an STD/WildTrack.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "STD-10-finding-0",
+          "text": "The document content is a synthetic benchmark fixture describing a fictional social-media marketing campaign rather than the WildTrack system.",
+          "substantive": true,
+          "report_reference": "findings[0]",
+          "source_kind": "pdf",
+          "traceable": true,
+          "source_reference": "STD-10.txt, page 1, synthetic fixture label and 1.1 System Overview, lines 2-4 and 20-23",
+          "source_excerpt": "This section describes a fictional social-media marketing campaign: audience segmentation, ad impressions, influencer outreach, brand slogans, posting schedules, and campaign engagement targets.",
+          "notes": "The PDF explicitly labels itself a synthetic benchmark fixture and repeats the quoted marketing passage throughout test-related sections. The Introduction is about WildTrack, so the mismatch concerns the predominant substantive body, not every sentence.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-10-finding-1",
+          "text": "The document fails to trace the relationship between updated SRS, system features, test cases, test execution, and test results.",
+          "substantive": true,
+          "report_reference": "findings[1]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt, line 2; STD-10.txt, Test Cases through Test Results, lines 46-73",
+          "source_excerpt": "Trace the relationship: Updated SRS to System Features to Test Cases to Test Execution to Test Results.",
+          "notes": "The exact configured instruction requires the stated traceability. In the submitted PDF, purpose, inputs, expected outputs, test procedure and results all repeat fictional marketing prose, with no real mapping of SRS requirements to features, cases, execution and results.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-10-finding-2",
+          "text": "The document does not include test cases covering functional and non-functional requirements, nor does it include varied test scenarios such as invalid, boundary, or unauthorized access cases.",
+          "substantive": true,
+          "report_reference": "findings[2]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD_AI_INSTRUCTIONS.txt, lines 3-4; STD-10.txt, Test Cases, lines 46-63",
+          "source_excerpt": "Include appropriate valid, invalid, missing, boundary, incorrect-action, unauthorized-access, error, and other realistic cases, not only happy paths.",
+          "notes": "The actual supplied instructions ask for appropriate functional/non-functional coverage and realistic scenario variation. The PDF's sole generic test-case label and its purpose/inputs/procedure sections contain only marketing descriptions, so the specified software tests are absent.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-10-finding-3",
+          "text": "The document does not distinguish between expected outputs and actual results, nor does it document incidents or resolutions.",
+          "substantive": true,
+          "report_reference": "findings[3]",
+          "source_kind": "unassessable",
+          "traceable": null,
+          "source_reference": "",
+          "source_excerpt": "",
+          "notes": "Both Expected Outputs and Test Results contain the same marketing paragraph rather than a meaningful expected-versus-actual comparison. However, the supplied instructions require incident/resolution documentation when results differ; no actual executed result or mismatch can be established from this fixture. The blanket incidents/resolutions allegation overstates that conditional instruction, so the complete combined claim is uncertain.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-10-finding-4",
+          "text": "The document lacks supporting evidence such as screenshots, logs, or system outputs of actual systematic testing.",
+          "substantive": true,
+          "report_reference": "findings[4]",
+          "source_kind": "deliverable_instructions",
+          "traceable": true,
+          "source_reference": "STD-10.txt, A.1 Log for Test 1 and A.2 Test Results, lines 66-73; STD_AI_INSTRUCTIONS.txt, line 6",
+          "source_excerpt": "Supply supporting screenshots, logs, recordings, system outputs, or other evidence of actual systematic testing.",
+          "notes": "The source excerpt is the exact configured supporting-evidence requirement. The PDF's nominal log and results sections repeat a marketing paragraph rather than providing screenshots, technical logs, recordings or observable execution artifacts. The audit does not infer whether unrelated external evidence exists.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-10-action-0",
+          "text": "ensuring all sections defined in the official template are populated with relevant test data and evidence",
+          "substantive": true,
+          "report_reference": "suggestedAction",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "",
+          "source_excerpt": "",
+          "notes": "The official mapped template supplies section headings and examples, but the suggested action converts the entire template into an unconditional obligation to populate every section with test data and evidence. The supplied STD instructions call for appropriate applicable testing and evidence, not unconditional population of all template sections; the model did not identify an exact authority imposing this blanket rule. The remainder of suggestedAction (replace marketing material with software test documentation) is derivative of findings[0]-[4].",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claim_inventory": {
+        "complete": true,
+        "method": "PROJECT_SOURCE_AUDIT",
+        "report_sha256": "d364cc9ced814dacd4bd97247c3fea70d7151b2d54f7c5930e8ad400c824158e",
+        "notes": "Reviewed all five exact structured findings, the empty missingRequiredSections array, summary, limitations and suggestedAction against STD-10.txt, official STD-01 template text and configured STD instructions. The summary's benchmark/mismatch, absent test cases, traceability and evidence assertions restate findings[0]-[4]; the action's replace-marketing recommendation is likewise derivative. The additional blanket template-population obligation appears only in suggestedAction, so it is inventoried separately and marked unsupported. This is project AI-assisted source auditing, not independent human review."
+      },
+      "audit_origin": "ChatGPT-assisted project source audit; not independently human verified"
+    },
+    {
+      "fixture_id": "STD-12",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:44:23.520719700Z",
+      "fixture_sha256": "8d49964739548c36899606a01a260cf263881911da515f4363b180e1a84028c2",
+      "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+      "provider": "Google Gemini",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_version": "wildtrack-academic-review-v3",
+      "cache_status": "MISS",
+      "provider_request_id": null,
+      "attempt_summary_sha256": "52db5916341010117ecb98f711a01d12e939dc61c13bbbfd1b1e32d183bd29bf",
+      "generation_requests_sent": 1,
+      "notes": "Actual provider-side component run; production app cache and post-validation not exercised.",
+      "report_path": "reports/STD-12.json",
+      "report_sha256": "9ca482a9fb35d04d3353bd3c006940253cebbd86e52484a293508d5cc7c219b2",
+      "raw_response_path": "provider-responses/STD-12.json",
+      "raw_response_sha256": "f7b7ef984e14d192c57defa145f6df59366385b52dcb09323fea3098ab2e79cf",
+      "raw_response_exact": true,
+      "decisions": [
+        {
+          "decision_id": "missing-test-approach",
+          "observed": "present",
+          "report_reference": "missingRequiredSections[0]",
+          "notes": "The report expressly flags the absent 1.2 Test Approach body section and separately notes the misleading Table of Contents entry. STD-12.txt has Test Approach in the TOC, followed by a body that goes directly from 1.1 System Overview to 1.3 Definitions and Acronyms. The official STD-01 template explicitly contains a 1.2 Test Approach body heading.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "STD-12-finding-0",
+          "text": "The document lists '1.2. Test Approach' in the Table of Contents, but the section content is missing from the body of the document.",
+          "substantive": true,
+          "report_reference": "findings[0]",
+          "source_kind": "pdf",
+          "traceable": true,
+          "source_reference": "STD-12.txt, Table of Contents line 8 and body lines 20-24",
+          "source_excerpt": "1.3. Definitions and Acronyms",
+          "notes": "The contents page includes '1.2. Test Approach' but the body proceeds from 1.1 System Overview directly to the quoted 1.3 Definitions and Acronyms heading; no 1.2 Test Approach body heading or corresponding approach paragraph follows. A contents entry alone does not establish a present body section.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-12-missing-0",
+          "text": "1.2. Test Approach",
+          "substantive": true,
+          "report_reference": "missingRequiredSections[0]",
+          "source_kind": "official_template",
+          "traceable": true,
+          "source_reference": "Official STD-01.txt, body heading on original template page 4, line 78; STD-12.txt body lines 20-24",
+          "source_excerpt": "1.2. Test Approach",
+          "notes": "The official template actually contains the quoted body heading on page 4, independently of its Table of Contents entry. STD-12 retains the contents entry but omits the corresponding body section. The provider's requirement field quotes the template's TOC entry, which is a weak authority reference by itself; the separate real body heading in the official template supports this specific expected section.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-12-summary-0",
+          "text": "All other required sections and structural elements are present.",
+          "substantive": true,
+          "report_reference": "summary",
+          "source_kind": "unassessable",
+          "traceable": null,
+          "source_reference": "",
+          "source_excerpt": "",
+          "notes": "This is a distinct exhaustive claim about every other required structural element. The PDF contains many expected headings, but no exhaustive crosswalk of the exact template, its sample case numbering and any applicable instruction-defined structural requirements was established for this audit. An observed missing Test Approach alone does not prove that every other required element is present. Record this breadth as unassessable without inventing a positive compliance finding.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claim_inventory": {
+        "complete": true,
+        "method": "PROJECT_SOURCE_AUDIT",
+        "report_sha256": "9ca482a9fb35d04d3353bd3c006940253cebbd86e52484a293508d5cc7c219b2",
+        "notes": "Reviewed the complete report: one finding, one missingRequiredSections entry, summary, empty limitations and suggestedAction. The summary's first sentence repeats findings[0] and missingRequiredSections[0], while its distinct exhaustive 'All other required sections' assertion is inventoried as an unassessable summary claim. suggestedAction only repeats the supported request to add the absent Test Approach body section and introduces no other unique assertion. The official STD-01 template body heading was checked separately from the provider's TOC-based requirement quote. This is project AI-assisted source auditing, not independent human review."
+      },
+      "audit_origin": "ChatGPT-assisted project source audit; not independently human verified"
+    },
+    {
+      "fixture_id": "STD-18",
+      "outcome": "fresh_success",
+      "attempted_at": "2026-09-20T17:44:43.294978900Z",
+      "fixture_sha256": "51a531f2412f26ed3ac39a23648d75c2d2d8d9120212422593cb4c100f4527c2",
+      "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+      "provider": "Google Gemini",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_version": "wildtrack-academic-review-v3",
+      "cache_status": "MISS",
+      "provider_request_id": null,
+      "attempt_summary_sha256": "186c8f07e31bd07c5c0c770908ef3e2fd443934a480a17cb63f350bb867cd160",
+      "generation_requests_sent": 1,
+      "notes": "Actual provider-side component run; production app cache and post-validation not exercised.",
+      "report_path": "reports/STD-18.json",
+      "report_sha256": "2d024b04e0741b27a30a62e2b71fdaf0adc336bb231ba919481cbccb3c6ec18b",
+      "raw_response_path": "provider-responses/STD-18.json",
+      "raw_response_sha256": "cdf1f2943e70bcc0bbb26bfc1d6b7bbae4dd8e769d73a43b47296bbb66b946ff",
+      "raw_response_exact": true,
+      "decisions": [
+        {
+          "decision_id": "invented-template-requirement",
+          "observed": "absent",
+          "report_reference": "limitations[0]",
+          "notes": "The provider explicitly states that no official template was supplied, its findings array contains only a DOCUMENT observation, and missingRequiredSections is empty. The report does not invent a mandatory template heading. Its suggestedAction nevertheless assumes mandatory evidence requirements without a supplied source; that distinct unsupported obligation is inventoried separately and is not a template-section finding.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "STD-18-finding-0",
+          "text": "The document explicitly states that validation evidence and actual execution results are not supplied.",
+          "substantive": true,
+          "report_reference": "findings[0]",
+          "source_kind": "pdf",
+          "traceable": true,
+          "source_reference": "STD-18.txt, Unfinished material, lines 15-17",
+          "source_excerpt": "The remaining validation evidence and actual execution results are not supplied in this document.",
+          "notes": "The quoted passage is the exact submitted PDF statement. A document observation that the evidence/results are absent does not imply that any unmapped template or special assignment requirement exists.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-18-summary-0",
+          "text": "is a synthetic benchmark fixture intended for testing the submission workflow",
+          "substantive": true,
+          "report_reference": "summary",
+          "source_kind": "unassessable",
+          "traceable": null,
+          "source_reference": "",
+          "source_excerpt": "",
+          "notes": "The PDF identifies itself as a synthetic benchmark fixture and describes WildTrack as a capstone submission workflow, but does not explicitly say this particular STD fixture was intended to test the submission workflow. The combined purpose assertion cannot be fully supported by the supplied PDF or the actual generic instructions. The summary's separate statement that evidence and results are absent is derivative of findings[0].",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        },
+        {
+          "claim_id": "STD-18-action-0",
+          "text": "all required validation evidence and actual execution results as expected for a complete Software Test Document",
+          "substantive": true,
+          "report_reference": "suggestedAction",
+          "source_kind": "unsupported",
+          "traceable": false,
+          "source_reference": "",
+          "source_excerpt": "",
+          "notes": "The actual STD-18 input has no mapped official template and only the generic instruction 'Review this submitted Software Test Document and report observations supported by the PDF. No official template is supplied.' That instruction does not impose mandatory validation evidence or actual execution results as a completion criterion. The PDF declares the items absent, which supports a document fact but cannot itself establish a mandatory academic requirement. The suggested action elevates that absent content into an unsupported requirement.",
+          "audit_method": "PROJECT_SOURCE_AUDIT"
+        }
+      ],
+      "claim_inventory": {
+        "complete": true,
+        "method": "PROJECT_SOURCE_AUDIT",
+        "report_sha256": "2d024b04e0741b27a30a62e2b71fdaf0adc336bb231ba919481cbccb3c6ec18b",
+        "notes": "Reviewed the entire structured report: one exact DOCUMENT finding, empty missingRequiredSections, summary, limitations and suggestedAction. The summary's factual absence of evidence/results is derivative of findings[0], while its unsupported assertion about this fixture's specific intended purpose is inventoried separately as unassessable. suggestedAction adds a distinct unsupported mandatory-evidence/actual-results completion requirement, inventoried as its own claim; the no-template limitation is accurate and adds no further claim. STD-18 was assessed solely against its own PDF and the actual generic no-template instruction, with no official STD template or general STD assignment rubric attributed as authority. This is project AI-assisted source auditing, not independent human review."
+      },
+      "audit_origin": "ChatGPT-assisted project source audit; not independently human verified"
+    },
+    {
+      "fixture_id": "STD-21",
+      "outcome": "outcome_unknown",
+      "attempted_at": "2026-09-20T17:44:53.947784800Z",
+      "fixture_sha256": "01309403fcee696edb7b8d56beefd837d78f130d7980d9e77663bac081093ed4",
+      "template_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "app_commit": "ff941de81ae37bb5588a4987462c49ae8bf29611",
+      "provider": "Google Gemini",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_version": "wildtrack-academic-review-v3",
+      "cache_status": null,
+      "provider_request_id": null,
+      "attempt_summary_sha256": "bc2adfe679bda147db7ea0a2ef9151d47b08102cf76505f4eee2849931d07179",
+      "generation_requests_sent": 1,
+      "notes": "Actual provider-side component run; production app cache and post-validation not exercised.",
+      "reason": "PROVIDER_OUTCOME_UNKNOWN"
+    }
+  ]
+}

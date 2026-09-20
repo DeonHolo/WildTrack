@@ -1,0 +1,17 @@
+Software Test Document 
+WildTrack | Synthetic benchmark fixture | STD-18_incomplete-no-template 
+Synthetic benchmark fixture. Content below is controlled test material, not evidence that real software 
+testing occurred. 
+Software Test Document 
+WildTrack synthetic no-template pilot fixture 
+Overview 
+WildTrack is a capstone submission workflow that lets configured students submit link-based deliverables, lets 
+advisers review responses and Document Check findings, and lets Admin users manage academic workflow 
+configuration. 
+Planned checks 
+The synthetic test approach covers valid and invalid submissions, missing required values, access failures, 
+stale edits, authorization boundaries, and representative UI flows. Expected outcomes are defined before the 
+synthetic run and actual observations belong in the test log. 
+Unfinished material 
+The remaining validation evidence and actual execution results are not supplied in this document. No official 
+template is assumed by this fixture.

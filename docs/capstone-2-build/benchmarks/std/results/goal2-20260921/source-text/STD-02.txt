@@ -1,0 +1,48 @@
+CEBU INSTITUTE OF TECHNOLOGY 
+UNIVERSITY 
+COLLEGE OF COMPUTER STUDIES 
+Software Test Document 
+for 
+WildTrack 
+Change History 
+Table of Contents 
+1. Introduction ........................................ 2 
+1.1. System Overview .................................. 2 
+1.2. Test Approach .................................... 2 
+1.3. Definitions and Acronyms ......................... 2 
+2. Test Plan ........................................... 3 
+2.1 Features to be Tested .............................. 3 
+2.2 Features not to be Tested .......................... 3 
+3.3 Testing Tools and Environment ...................... 3 
+3. Test Cases .......................................... 4 
+Appendix (Test Logs) ................................... 5 
+Software Test Document 
+WildTrack 
+Document Version:1.0 
+1. Introduction 
+1.1. System Overview 
+1.2. Test Approach 
+1.3. Definitions and Acronyms 
+Software Test Document 
+WildTrack 
+Document Version:1.0 
+2. Test Plan 
+2.1 Features to be Tested 
+2.2 Features not to be Tested 
+3.3 Testing Tools and Environment 
+Software Test Document 
+WildTrack 
+Document Version:1.0 
+3. Test Cases 
+3.n Case-n 
+3.n.1 Purpose 
+3.n.2 Inputs 
+3.n.3 Expected Outputs & Pass/Fail Criteria 
+3.n.4 Test Procedure 
+Software Test Document 
+WildTrack 
+Document Version:1.0 
+Appendix (Test Logs) 
+A.1 Log for Test n 
+A.2 Test Results 
+A.3 Incident Report
