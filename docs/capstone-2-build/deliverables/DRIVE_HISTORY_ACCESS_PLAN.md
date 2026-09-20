@@ -1,6 +1,6 @@
 # Google Drive revision-history access and shared-file consent
 
-**Status:** owner authorized the additional delegated Drive metadata scope and the shared-file integration on 2026-09-19. Local implementation is in progress; focused mocked integration tests have passed, while later code changes require rerunning the final suites. Live Google consent, live revision retrieval, production OAuth readiness, and restricted-scope verification have not been established.
+**Status:** owner authorized the delegated Drive metadata scope and shared-file integration on 2026-09-19. Local implementation is committed and pushed for review in PR #50. Mocked backend, frontend and browser checks passed. Live Google consent, live revision retrieval, production OAuth readiness, and restricted-scope verification have not been established.
 
 ## Decision
 
