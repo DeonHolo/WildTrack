@@ -2,6 +2,13 @@
 
 Append concise entries; never replace failed results with passing summaries.
 
+## 2026-09-21 — Document Check evidence, UX, and technical measurement follow-up
+
+- Work began from merged PR #50 on branch `feat/document-check-evidence-ux`; code was committed as `232331d841f74b411e804895b72cf566d0d06a2f`. Backend now persists matched template-heading text, extracted-text line and exact-normalized method; frontend consolidates checked-PDF history tabs, preserves an unchecked history-only path, removes redundant timing expansion, improves history reading/refresh, and respects separate Google authorization statuses.
+- Backend initial `TemplateComparatorTest` failed because the new fixture asserted extracted-text line 4 instead of actual line 5; corrected assertion and reran successfully. Final affected Maven selection including `TemplateComparatorTest,StdBenchmarkFixtureTest,StdBenchmarkObservationExportTest,FileCheckServiceTest,FileCheckControllerTest,SharedDriveHistoryServiceTest,SharedDriveHistoryControllerTest,ObservedFileHistoryServiceTest,GoogleDelegatedDriveGatewayTest` exited 0. Frontend six focused Vitest suites passed 63/63, Chromium history/browser 2/2, production build passed with existing chunk-size advisory; Node benchmark tests 8/8 and package validator passed. `git diff --check` exited 0 with Windows line-ending notices only.
+- An initial dirty-source synthetic benchmark probe was discarded because it could not faithfully attribute the uncommitted comparator to prior HEAD. Following clean-source code commit `232331d841f74b411e804895b72cf566d0d06a2f`, the guarded observation exporter ran successfully, writing `benchmarks/std/probe-232331d841f74b411e804895b72cf566d0d06a2f.csv`, and deterministic scorer wrote the corresponding `-score.json`. Current subset: 11/25 planned families, 16/16 completed provisional assertions matching the proposed labels. Scorer status explicitly `PROVISIONAL_NOT_OBJECTIVE_1_RESULT`: fourteen families and required variants remain and independent pre-run human review is PENDING. This subset is not final research accuracy.
+- AI pilot: 0/10 fresh provider reports, no estimable agreement or traceability. `GEMINI_API_KEY` was not present in the local shell. No provider request, paid fallback, fabricated provider report, independently verified labels, adviser approval, production OAuth grant/consent verification, deployment, or real study responses occurred.
+
 ## 2026-09-19 — planning only
 
 - Read ask-matt, to-spec, to-tickets, implement, writing-for-agents, setup and handoff/questionnaire routing instructions.

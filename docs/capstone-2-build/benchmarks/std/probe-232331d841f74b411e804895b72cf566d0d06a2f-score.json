@@ -1,0 +1,387 @@
+{
+  "type": "STD_SYNTHETIC_DETERMINISTIC_ENGINEERING_SCORE",
+  "status": "PROVISIONAL_NOT_OBJECTIVE_1_RESULT",
+  "gate": {
+    "planned_case_families": 25,
+    "prepared_case_families": 11,
+    "manifest_case_families": 11,
+    "full_case_family_coverage": false,
+    "independent_human_labels_verified_before_run": false,
+    "required_split_or_paired_variants": [
+      "STD-15-corrupt",
+      "STD-15-non-pdf",
+      "STD-17-password",
+      "STD-17-oversized",
+      "STD-19-with-requirement",
+      "STD-19-without-requirement",
+      "STD-25-unexplained",
+      "STD-25-resolved"
+    ],
+    "missing_required_variants": [
+      "STD-15-corrupt",
+      "STD-15-non-pdf",
+      "STD-17-password",
+      "STD-17-oversized",
+      "STD-19-with-requirement",
+      "STD-19-without-requirement",
+      "STD-25-unexplained",
+      "STD-25-resolved"
+    ],
+    "missing_planned_case_families": [
+      "STD-04",
+      "STD-06",
+      "STD-07",
+      "STD-11",
+      "STD-13",
+      "STD-14",
+      "STD-15",
+      "STD-16",
+      "STD-17",
+      "STD-19",
+      "STD-20",
+      "STD-22",
+      "STD-23",
+      "STD-25"
+    ]
+  },
+  "denominators": {
+    "frozen_applicable_assertions": 16,
+    "completed_assertions": 16,
+    "failed_or_unassessable_assertions": 0
+  },
+  "assertion_accuracy": {
+    "numerator": 16,
+    "denominator": 16,
+    "value": 1
+  },
+  "execution_coverage": {
+    "numerator": 16,
+    "denominator": 16,
+    "value": 1
+  },
+  "confusion_by_signal": {
+    "readable": {
+      "TP": 11,
+      "TN": 0,
+      "FP": 0,
+      "FN": 0,
+      "unassessable": 0,
+      "precision": {
+        "numerator": 11,
+        "denominator": 11,
+        "value": 1
+      },
+      "recall": {
+        "numerator": 11,
+        "denominator": 11,
+        "value": 1
+      },
+      "false_positive_rate": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "false_negative_rate": {
+        "numerator": 0,
+        "denominator": 11,
+        "value": 0
+      }
+    },
+    "template_only": {
+      "TP": 2,
+      "TN": 1,
+      "FP": 0,
+      "FN": 0,
+      "unassessable": 0,
+      "precision": {
+        "numerator": 2,
+        "denominator": 2,
+        "value": 1
+      },
+      "recall": {
+        "numerator": 2,
+        "denominator": 2,
+        "value": 1
+      },
+      "false_positive_rate": {
+        "numerator": 0,
+        "denominator": 1,
+        "value": 0
+      },
+      "false_negative_rate": {
+        "numerator": 0,
+        "denominator": 2,
+        "value": 0
+      }
+    },
+    "missing_heading:Test Approach": {
+      "TP": 2,
+      "TN": 0,
+      "FP": 0,
+      "FN": 0,
+      "unassessable": 0,
+      "precision": {
+        "numerator": 2,
+        "denominator": 2,
+        "value": 1
+      },
+      "recall": {
+        "numerator": 2,
+        "denominator": 2,
+        "value": 1
+      },
+      "false_positive_rate": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "false_negative_rate": {
+        "numerator": 0,
+        "denominator": 2,
+        "value": 0
+      }
+    }
+  },
+  "assertions": [
+    {
+      "assertion_id": "STD-01-readable",
+      "fixture_id": "STD-01",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "observation_timestamp": "2026-09-20T16:40:17.096521Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-02-readable",
+      "fixture_id": "STD-02",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "cd347ba6c9ad643be925b396f7e901bb39473a0e504141298e8b250adcef4ebf",
+      "observation_timestamp": "2026-09-20T16:40:17.138322200Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-03-readable",
+      "fixture_id": "STD-03",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "d958c524d4f082520ba64df4a589b94b2820da36189e400ed0ab88640994107c",
+      "observation_timestamp": "2026-09-20T16:40:17.167202Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-05-readable",
+      "fixture_id": "STD-05",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "1d08677fd8b8de9927b37136590bbb63491073bbdf1d0001d6c568b0354f2d02",
+      "observation_timestamp": "2026-09-20T16:40:17.207784200Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-08-readable",
+      "fixture_id": "STD-08",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "53f5e0a85e67725c63fc22d15e380a1f5a11e500450cbae878aa62ceb6c02c4d",
+      "observation_timestamp": "2026-09-20T16:40:17.266059800Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-09-readable",
+      "fixture_id": "STD-09",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "4880e0cbf3f6a77f202a1946e8703f56fcfe33a9c7ae7a6c0389c2a17d63c99b",
+      "observation_timestamp": "2026-09-20T16:40:17.294061800Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-10-readable",
+      "fixture_id": "STD-10",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "75a520f606b9301453652e0075ce68a7a4ed6c8f8d634f59b3ce9f6f5a54963c",
+      "observation_timestamp": "2026-09-20T16:40:17.329612100Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-12-readable",
+      "fixture_id": "STD-12",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "8d49964739548c36899606a01a260cf263881911da515f4363b180e1a84028c2",
+      "observation_timestamp": "2026-09-20T16:40:17.359431800Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-18-readable",
+      "fixture_id": "STD-18",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "51a531f2412f26ed3ac39a23648d75c2d2d8d9120212422593cb4c100f4527c2",
+      "observation_timestamp": "2026-09-20T16:40:17.367016600Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-21-readable",
+      "fixture_id": "STD-21",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "01309403fcee696edb7b8d56beefd837d78f130d7980d9e77663bac081093ed4",
+      "observation_timestamp": "2026-09-20T16:40:17.393422900Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-24-readable",
+      "fixture_id": "STD-24",
+      "signal": "readable",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "7eb748bea9a85679da773831ccded55ac006c048e0d6e1161dbf4af55224fdfe",
+      "observation_timestamp": "2026-09-20T16:40:17.416771800Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-01-template",
+      "fixture_id": "STD-01",
+      "signal": "template_only",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "de2826f3164c091ac5c73ba0cb22cd043fbf649d2831c94dbbcd443425dc416d",
+      "observation_timestamp": "2026-09-20T16:40:17.096521Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-02-template",
+      "fixture_id": "STD-02",
+      "signal": "template_only",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "cd347ba6c9ad643be925b396f7e901bb39473a0e504141298e8b250adcef4ebf",
+      "observation_timestamp": "2026-09-20T16:40:17.138322200Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-05-template",
+      "fixture_id": "STD-05",
+      "signal": "template_only",
+      "expected": false,
+      "observed": false,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TN",
+      "detail": "",
+      "fixture_sha256": "1d08677fd8b8de9927b37136590bbb63491073bbdf1d0001d6c568b0354f2d02",
+      "observation_timestamp": "2026-09-20T16:40:17.207784200Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-12-heading",
+      "fixture_id": "STD-12",
+      "signal": "missing_heading:Test Approach",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "8d49964739548c36899606a01a260cf263881911da515f4363b180e1a84028c2",
+      "observation_timestamp": "2026-09-20T16:40:17.359431800Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    },
+    {
+      "assertion_id": "STD-24-heading",
+      "fixture_id": "STD-24",
+      "signal": "missing_heading:Test Approach",
+      "expected": true,
+      "observed": true,
+      "status": "COMPLETED",
+      "matches_expected": true,
+      "confusion": "TP",
+      "detail": "",
+      "fixture_sha256": "7eb748bea9a85679da773831ccded55ac006c048e0d6e1161dbf4af55224fdfe",
+      "observation_timestamp": "2026-09-20T16:40:17.416771800Z",
+      "app_commit": "232331d841f74b411e804895b72cf566d0d06a2f",
+      "human_label_review": "PENDING"
+    }
+  ]
+}
