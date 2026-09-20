@@ -178,9 +178,9 @@ class StdBenchmarkObservationExportTest {
     }
 
     /**
-     * In OFFICIAL mode, refuse to create observations unless the *actual* review freeze
-     * and every authorized source byte were locked BEFORE this run. This verifies provenance
-     * and declared reviewer records, not the real-world independence of a named reviewer.
+     * In OFFICIAL mode, refuse to create observations unless the project-defined
+     * source reference and every authorized source byte were locked BEFORE this run.
+     * No independent human review or live Google Drive access is claimed.
      * A DEVELOPMENT mode export remains possible without masquerading as a frozen research run.
      */
     private static String validateOfficialPreRunFreeze(Path root, List<Fixture> fixtures,
@@ -193,7 +193,10 @@ class StdBenchmarkObservationExportTest {
             .as("Goal 1 freeze key must be an existing repository file").isTrue();
         JsonNode freeze = new ObjectMapper().readTree(Files.readAllBytes(file));
         assertThat(freeze.path("type").asText()).isEqualTo("GOAL1_PRE_RUN_PROJECT_REFERENCE_FREEZE");
-        assertThat(freeze.path("status").asText()).isEqualTo("FROZEN_GOAL_1");
+        assertThat(freeze.path("status").asText()).isEqualTo("FROZEN_GOAL_1_PROJECT_DEFINED");
+        assertThat(freeze.path("methodology").asText())
+            .isEqualTo("RESEARCHER_DEFINED_PDF_AND_AUTHORITY_CHECKLIST_AI_ASSISTED");
+        assertThat(freeze.path("independent_human_review").asBoolean()).isFalse();
         assertThat(freeze.path("app_commit").asText()).isEqualToIgnoringCase(commit);
         Instant frozenAt = Instant.parse(freeze.path("frozen_at").asText());
         assertThat(frozenAt).as("Freeze must precede every measurement").isBefore(Instant.now());
@@ -203,7 +206,8 @@ class StdBenchmarkObservationExportTest {
             "atomic_assertions_sha256", "atomic-assertions.csv",
             "fixture_hashes_sha256", "fixture-hashes.sha256",
             "condition_authority_sha256", "goal1-condition-authority.json",
-            "deterministic_scorer_sha256", "score-deterministic.cjs");
+            "deterministic_scorer_sha256", "score-deterministic.cjs",
+            "reference_protocol_sha256", "GOAL1_PROJECT_REFERENCE_PROTOCOL.md");
         for (var entry : files.entrySet()) {
             assertThat(freeze.path(entry.getKey()).asText()).as(
                 "Source/score/labels drifted since Goal 1 freeze: " + entry.getValue())
@@ -217,35 +221,37 @@ class StdBenchmarkObservationExportTest {
         for (Fixture fixture : fixtures) {
             assertThat(fixtureHashes.path(fixture.id()).asText()).isEqualTo(fixture.sha256());
         }
-        Path attestation = root.resolve(freeze.path("review_attestation_path").asText()).normalize();
-        assertThat(attestation.startsWith(root) && Files.isRegularFile(attestation))
-            .as("Actual independent reviewer attestation must exist before OFFICIAL run").isTrue();
-        assertThat(freeze.path("independent_review_attestation_sha256").asText())
-            .isEqualTo(sha256(Files.readAllBytes(attestation)));
+        assertThat(freeze.hasNonNull("independent_review_attestation_sha256")).isFalse();
+        assertThat(freeze.hasNonNull("review_attestation_path")).isFalse();
         for (Map<String, String> row : parseCsv(Files.readString(base.resolve("manifest.csv")))) {
-            assertThat(row.get("human_label_review")).isEqualTo("VERIFIED");
-            assertThat(row.get("human_label_reviewer")).isNotBlank();
-            assertThat(Instant.parse(row.get("human_label_reviewed_at"))).isBeforeOrEqualTo(frozenAt);
+            assertThat(row.get("human_label_review")).isEqualTo("PENDING");
+            assertThat(row.get("human_label_reviewer")).isBlank();
         }
-        var assertions = parseCsv(Files.readString(base.resolve("atomic-assertions.csv")));
+        var assertions = parseCsv(Files.readString(base.resolve("atomic-assertions.csv")),
+            List.of("assertion_id", "fixture_id", "review_status", "reviewer", "reviewed_at"));
         assertThat(freeze.path("planned_atomic_assertions").asInt()).isEqualTo(assertions.size());
         for (Map<String, String> row : assertions) {
-            assertThat(row.get("review_status")).isEqualTo("VERIFIED");
-            assertThat(row.get("reviewer")).isNotBlank();
-            assertThat(Instant.parse(row.get("reviewed_at"))).isBeforeOrEqualTo(frozenAt);
+            assertThat(row.get("review_status")).isEqualTo("PENDING");
+            assertThat(row.get("reviewer")).isBlank();
         }
         String changed = git(root, "status", "--porcelain", "--untracked-files=no", "--",
             "docs/capstone-2-build/benchmarks/std/manifest.csv",
             "docs/capstone-2-build/benchmarks/std/atomic-assertions.csv",
             "docs/capstone-2-build/benchmarks/std/fixture-hashes.sha256",
             "docs/capstone-2-build/benchmarks/std/goal1-condition-authority.json",
-            "docs/capstone-2-build/benchmarks/std/score-deterministic.cjs");
+            "docs/capstone-2-build/benchmarks/std/score-deterministic.cjs",
+            "docs/capstone-2-build/benchmarks/std/GOAL1_PROJECT_REFERENCE_PROTOCOL.md");
         assertThat(changed).as("Official Goal 1 references must be committed and unchanged").isBlank();
         return sha256(Files.readAllBytes(file));
     }
 
     /** Small RFC4180-compatible parser: quotes, commas, embedded newlines and blank trailing fields. */
     static List<Map<String, String>> parseCsv(String content) {
+        return parseCsv(content, List.of("fixture_id", "file", "human_label_review"));
+    }
+
+    /** Shared CSV decoder with file-specific required columns. Assertion CSV is NOT a fixture manifest. */
+    static List<Map<String, String>> parseCsv(String content, List<String> requiredColumns) {
         var rows = new ArrayList<List<String>>();
         var current = new ArrayList<String>();
         var buffer = new StringBuilder();
@@ -275,7 +281,7 @@ class StdBenchmarkObservationExportTest {
         assertThat(rows).isNotEmpty();
         List<String> header = rows.remove(0);
         assertThat(new HashSet<>(header)).hasSize(header.size());
-        assertThat(header).contains("fixture_id", "file", "human_label_review");
+        assertThat(header).containsAll(requiredColumns);
         var result = new ArrayList<Map<String, String>>();
         for (List<String> values : rows) {
             assertThat(values).as("Malformed manifest row").hasSize(header.size());

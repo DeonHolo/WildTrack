@@ -1,6 +1,6 @@
-# Goal 1: independent expected-label review and evaluation freeze
+# Optional independent expected-label audit (not a Goal 1 prerequisite)
 
-**Status: preparation only.** This protocol applies only to Objective 1, the deterministic Document Check benchmark. The research document requires a real teammate, independent of the person who authored the answer key, to inspect each applicable expected classification **without seeing the corresponding checker observation**. No teammate identity, review timestamp, pre-run freeze, or official accuracy score has been recorded here.
+**Optional quality check.** The currently designated Goal 1 method is the project-defined, PDF-grounded reference in `GOAL1_PROJECT_REFERENCE_PROTOCOL.md`, without a mandatory independent teammate. This older checklist describes how to obtain *additional* independent assurance if desired; no reviewer identity, review timestamp or human approval has been collected or claimed.
 
 ## Source materials and scope
 
@@ -29,4 +29,4 @@
 | Disagreements and how each was resolved | PENDING |
 | New official benchmark pre-run freeze time and commit | PENDING |
 
-**No official Goal 1 result is permitted while these entries are pending.** Goal 2's separately approved researcher/AI-assisted checklist does not remove the independent-review condition from Goal 1. The project-defined 90% target remains proposed rather than achieved or adviser-approved.
+**These optional fields remain PENDING.** A project-defined evaluation can proceed without them, subject to its own prospective freeze and explicit component-versus-live-provider scope. The proposed 90% target is not automatically achieved or adviser-approved by omitting a reviewer.

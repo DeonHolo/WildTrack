@@ -61,6 +61,21 @@ class StdBenchmarkObservationExportContractTest {
     }
 
     @Test
+    void officialFreezeReadsAssertionColumnsWithoutMistakingThemForManifestColumns() {
+        var assertions = StdBenchmarkObservationExportTest.parseCsv(
+            "assertion_id,fixture_id,signal,expected,authority,review_status,reviewer,reviewed_at\n"
+                + "STD-01-readable,STD-01,readable,true,official-template,PENDING,,\n",
+            List.of("assertion_id", "fixture_id", "review_status", "reviewer", "reviewed_at"));
+        assertThat(assertions).hasSize(1);
+        assertThat(assertions.get(0)).containsEntry("assertion_id", "STD-01-readable")
+            .containsEntry("review_status", "PENDING");
+        org.junit.jupiter.api.Assertions.assertThrows(AssertionError.class, () ->
+            StdBenchmarkObservationExportTest.parseCsv(
+                "assertion_id,fixture_id\nSTD-01-readable,STD-01\n",
+                List.of("assertion_id", "fixture_id", "review_status")));
+    }
+
+    @Test
     void validatesEachOfTheManifestFixturesAgainstActualFrozenHashListWithoutRunningChecks() throws Exception {
         var catalog = StdBenchmarkObservationExportTest.frozenFixtures(repositoryRoot());
         assertThat(catalog).hasSizeGreaterThanOrEqualTo(25);

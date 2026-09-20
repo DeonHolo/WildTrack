@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { readCsv, failUnless, fixtureAuthority, labelsReviewed, metric, getUnique, sha256 } = require('./score-lib.cjs');
+const { readCsv, failUnless, fixtureAuthority, metric, getUnique, sha256 } = require('./score-lib.cjs');
 
 const ASSERTIONS = path.join(__dirname, 'atomic-assertions.csv');
 const REQUIRED_FAMILIES = 25;
@@ -23,13 +23,16 @@ const REPO_ROOT = path.resolve(BENCHMARK, '../../../..');
 
 function preRunFreeze(options, observations, assertions, fixtures, templateHash) {
   if (!options.freezePath) return { valid: false, frozen_at: null,
-    detail: 'No real independently reviewed pre-run Goal 1 frozen-key.json supplied; engineering-only diagnostic' };
+    detail: 'No prospectively frozen project-defined Goal 1 reference supplied; development-only diagnostic' };
   const keyPath = path.resolve(options.freezePath);
   failUnless(keyPath.startsWith(REPO_ROOT + path.sep) && fs.existsSync(keyPath),
     'Goal 1 freeze key must be an existing file inside the repository');
   const frozen = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
   failUnless(frozen.type === 'GOAL1_PRE_RUN_PROJECT_REFERENCE_FREEZE'
-    && frozen.status === 'FROZEN_GOAL_1', 'Invalid Goal 1 reference freeze status/type');
+    && frozen.status === 'FROZEN_GOAL_1_PROJECT_DEFINED'
+    && frozen.methodology === 'RESEARCHER_DEFINED_PDF_AND_AUTHORITY_CHECKLIST_AI_ASSISTED'
+    && frozen.independent_human_review === false,
+  'Expected a transparently project-defined Goal 1 reference; independent review is not claimed');
   const at = Date.parse(frozen.frozen_at || '');
   failUnless(Number.isFinite(at), 'Goal 1 freeze must have a valid frozen_at timestamp');
   const referenceSha = sha256(keyPath);
@@ -38,7 +41,8 @@ function preRunFreeze(options, observations, assertions, fixtures, templateHash)
     ['atomic_assertions_sha256', 'atomic-assertions.csv'],
     ['fixture_hashes_sha256', 'fixture-hashes.sha256'],
     ['condition_authority_sha256', 'goal1-condition-authority.json'],
-    ['deterministic_scorer_sha256', 'score-deterministic.cjs']
+    ['deterministic_scorer_sha256', 'score-deterministic.cjs'],
+    ['reference_protocol_sha256', 'GOAL1_PROJECT_REFERENCE_PROTOCOL.md']
   ];
   for (const [key, name] of frozenHashes) {
     failUnless(/^[0-9a-f]{64}$/i.test(frozen[key] || '')
@@ -48,12 +52,8 @@ function preRunFreeze(options, observations, assertions, fixtures, templateHash)
   failUnless(frozen.template_sha256 === templateHash, 'Goal 1 freeze official-template hash mismatch');
   failUnless(/^[0-9a-f]{40}$/i.test(frozen.app_commit || ''),
     'Goal 1 freeze missing production source commit');
-  const attestationPath = path.resolve(REPO_ROOT, frozen.review_attestation_path || '');
-  failUnless(attestationPath.startsWith(REPO_ROOT + path.sep)
-    && fs.existsSync(attestationPath)
-    && /^[0-9a-f]{64}$/i.test(frozen.independent_review_attestation_sha256 || '')
-    && sha256(attestationPath) === frozen.independent_review_attestation_sha256,
-  'Goal 1 freeze independent-review attestation file missing or changed');
+  failUnless(!frozen.independent_review_attestation_sha256 && !frozen.review_attestation_path,
+    'Project-defined reference must not invent a human attestation');
   failUnless(frozen.planned_case_families === 25
     && frozen.planned_fixture_conditions === fixtures.size
     && frozen.planned_atomic_assertions === assertions.length,
@@ -63,15 +63,12 @@ function preRunFreeze(options, observations, assertions, fixtures, templateHash)
     'Goal 1 freeze fixture hash map incomplete');
   for (const [id, item] of fixtures) {
     failUnless(sourceFixtureHashes[id] === item.sha256, `Goal 1 freeze fixture ${id} changed`);
-    failUnless(item.human_label_review === 'VERIFIED' && item.human_label_reviewer
-      && Number.isFinite(Date.parse(item.human_label_reviewed_at))
-      && Date.parse(item.human_label_reviewed_at) <= at,
-    `Goal 1 freeze lacks independent pre-run manifest review for ${id}`);
+    failUnless(item.human_label_review === 'PENDING' && !item.human_label_reviewer,
+      `Goal 1 project reference must not impersonate a reviewer for ${id}`);
   }
   for (const a of assertions) {
-    failUnless(a.review_status === 'VERIFIED' && a.reviewer
-      && Number.isFinite(Date.parse(a.reviewed_at)) && Date.parse(a.reviewed_at) <= at,
-    `Goal 1 freeze lacks independently reviewed assertion ${a.assertion_id}`);
+    failUnless(a.review_status === 'PENDING' && !a.reviewer,
+      `Goal 1 project reference must not impersonate an independent reviewer: ${a.assertion_id}`);
   }
   for (const row of observations) {
     failUnless(row.benchmark_run_mode === 'OFFICIAL'
@@ -82,7 +79,8 @@ function preRunFreeze(options, observations, assertions, fixtures, templateHash)
     failUnless(Date.parse(row.measured_at) > at,
       `Observation ${row.fixture_id}: recorded before reference freeze`);
   }
-  return { valid: true, frozen_at: frozen.frozen_at, detail: 'Reference source SHA and pre-run UTC order checked; actual reviewer independence must still be authenticated' };
+  return { valid: true, frozen_at: frozen.frozen_at,
+    detail: 'Project-defined expected labels, source SHA and prospective UTC order verified. No independent adjudication is claimed.' };
 }
 
 function sourceScope(row) {
@@ -263,15 +261,6 @@ function score(observations, assertions = readCsv(ASSERTIONS), options = {}) {
     group.false_positive_rate = metric(group.FP, group.FP + group.TN);
     group.false_negative_rate = metric(group.FN, group.FN + group.TP);
   }
-  const allLabelsReviewed = labelsReviewed(assertions, 'deterministic');
-  const allFixtureLabelsReviewed = [...fixtures.values()].every(item => item.human_label_review === 'VERIFIED'
-    && item.human_label_reviewer && !Number.isNaN(Date.parse(item.human_label_reviewed_at)));
-  const preRunKey = allLabelsReviewed && allFixtureLabelsReviewed && assertions.every(item => {
-    const observation = observationMap.get(item.fixture_id);
-    const fixture = fixtures.get(item.fixture_id);
-    return !observation || (Date.parse(item.reviewed_at) <= Date.parse(observation.measured_at)
-      && Date.parse(fixture.human_label_reviewed_at) <= Date.parse(observation.measured_at));
-  });
   const freeze = preRunFreeze(options, observations, assertions, fixtures, templateHash);
   const absentVariants = REQUIRED_VARIANTS.filter(id => !fixtures.has(id) || !assertions.some(a => a.fixture_id === id));
   const missingFamilyLabels = Array.from({ length: REQUIRED_FAMILIES }, (_, i) =>
@@ -281,30 +270,33 @@ function score(observations, assertions = readCsv(ASSERTIONS), options = {}) {
   const allPlannedCases = missingFamilyLabels.length === 0 && absentVariants.length === 0
     && unassertedManifestFixtures.length === 0;
   // All scheduled attempts can be complete even when the production checker cannot classify
-  // some assertions. Those failures remain *inside* the primary denominator and may yield
-  // a legitimate below-target research result after provenance/human gates are met.
+  // some assertions. Those failures remain *inside* the denominator.
   const completeExecution = allPlannedCases && missingObservedFixtures.length === 0
     && observations.length === fixtures.size && assertions.length > 0;
   const providerEndToEnd = observations.length > 0 && observations.every(row =>
     sourceScope(row) === 'FILECHECK_LIVE_PROVIDER' && row.provider_evidence_verified === 'true');
-  const finalGate = allPlannedCases && preRunKey && freeze.valid
-    && completeExecution && providerEndToEnd;
+  const scopedGate = allPlannedCases && freeze.valid && completeExecution;
+  const endToEndGate = scopedGate && providerEndToEnd;
   return {
     type: 'STD_SYNTHETIC_DETERMINISTIC_ENGINEERING_SCORE',
-    status: finalGate ? 'ELIGIBLE_FOR_RESEARCH_REVIEW' : 'PROVISIONAL_NOT_OBJECTIVE_1_RESULT',
+    status: endToEndGate ? 'PROJECT_DEFINED_END_TO_END_RESULT_REQUIRES_ACADEMIC_INTERPRETATION'
+      : scopedGate ? 'PROJECT_DEFINED_COMPONENT_RESULT_NOT_END_TO_END_GOAL_1'
+      : 'PROVISIONAL_NOT_OBJECTIVE_1_RESULT',
     scope: 'OFFLINE_PDF_INSPECTOR_TEMPLATE_COMPARATOR_WITH_EXPLICIT_GATEWAY_SIMULATION',
     limitations: [
       'Local PDF bytes do not establish Drive permission, sharing, metadata MIME, or provider size.',
       'Simulated FileCheckService gateway branches test production code behavior against mocked metadata/errors, not a real permission-denied or oversized Drive file.',
       'Component assertion agreement is not the SMART Goal 1 end-to-end Document Check accuracy result.',
-      'Reviewer metadata requires authentic independent verification before a research claim.'
+      'The project-defined answer key was prepared with AI assistance and is not independently adjudicated; previously used development fixtures are not unseen test data.'
     ],
     gate: {
       planned_case_families: REQUIRED_FAMILIES, prepared_case_families: families.size,
       manifest_case_families: manifestFamilies.size,
       observed_case_families: observationFamilies.size,
       full_case_family_coverage: allPlannedCases,
-      independent_human_labels_verified_before_run: preRunKey,
+      independent_human_labels_verified_before_run: false,
+      project_defined_reference_method: 'RESEARCHER_DEFINED_PDF_AND_AUTHORITY_CHECKLIST_AI_ASSISTED',
+      project_defined_scoped_evaluation_complete: scopedGate,
       verified_pre_run_reference_freeze: freeze.valid,
       reference_frozen_at: freeze.frozen_at,
       reference_freeze_detail: freeze.detail,
