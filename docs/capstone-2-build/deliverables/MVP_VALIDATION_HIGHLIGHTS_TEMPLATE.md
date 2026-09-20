@@ -17,7 +17,7 @@ Role-specific questionnaire feedback is descriptive supporting evidence and does
 - Unique consenting questionnaire participants: `[pending real data]`
 - Eligible students completing Objective 3 tasks: `[pending real data]`
 - Adviser respondents: `[pending real data]`
-- Admin/beneficiary evidence: Sir Ralph Laviste September 14 consultation, plus `[any real supplemental follow-up if collected]`
+- Sole planned Admin/beneficiary: **Sir Ralph Laviste**, represented by **one** genuine September 14 consultation; its four source-linked qualitative findings appear in `MVP_VALIDATION_HIGHLIGHTS_DRAFT.md`. Other teacher/adviser/user perspectives in that conversation are from the same person, not additional participants. Any later follow-up: `[include only if genuinely collected]`.
 - Document Check component benchmark: 25 families / 30 conditions; 52/52 recorded classifications matched the frozen project-defined reference.
 - AI Review new v6 follow-up: 10/10 cases attempted once; 9/10 fresh final reports; one HTTP 503, not retried.
 
@@ -85,7 +85,7 @@ Do not describe these ratings as measured technical accuracy, usability speed or
 
 ## 7. Consultation evidence
 
-Summarize Sir Ralph's September 14 feedback as a qualitative Admin/beneficiary/teacher perspective. Keep direct transcript-supported findings distinct from later team decisions such as the 30-person plan, exact thresholds and final Objective 3 protocol.
+Use the four already transcribed and attributed consultation findings in `MVP_VALIDATION_HIGHLIGHTS_DRAFT.md` (configurable forms, student-record privacy, meaningful document-content filtering, and document change/history visibility), each with exact source Part/line references. Sir Ralph is the **one** planned Admin/beneficiary; his teacher/adviser and user perspectives are not extra participants or separate questionnaire rows. Keep his actual comments distinct from later team decisions such as the 30-person plan, exact thresholds and final Objective 3 protocol. The consultation is not post-implementation approval or Goal 3 system evidence.
 
 ## 8. Findings, limitations and next actions
 

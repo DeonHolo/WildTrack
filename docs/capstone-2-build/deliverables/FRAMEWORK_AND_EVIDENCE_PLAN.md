@@ -59,7 +59,7 @@ The evidence boundaries are:
 - Objective 3 is scored from their controlled WildTrack task results, not from survey agreement;
 - Document Check and AI Review accuracy come from controlled synthetic PDF fixtures, not from the 30-person questionnaire;
 - student/adviser/Admin questionnaire responses provide descriptive MVP validation findings;
-- Sir Ralph Laviste's September 14 consultation is one real qualitative consultation source, not a fabricated Google Form row;
+- The owner identifies Sir Ralph Laviste as the **sole planned Admin/beneficiary participant**. His September 14 consultation is **one real qualitative Admin contribution**, which includes teacher/adviser and prospective-user perspectives. The transcript's actual findings and exact Part/line references are recorded in `FRAMEWORK_AND_MODEL.md` and `MVP_VALIDATION_HIGHLIGHTS_DRAFT.md`; the same person is not split into separate teacher, user and Admin participants or turned into a fabricated Google Form row. Count him among unique consenting study participants only with genuine applicable consent/eligibility evidence;
 - because Sir Ralph is the sole Admin/beneficiary for this validation context and explicitly framed the consultation transcript as his Admin-side input, use that transcript as the primary Admin/beneficiary qualitative evidence. Do not count him again as a second Admin participant merely because the Google Form also contains an Admin route. The Admin form route remains optional/supplemental if the study team later needs a structured follow-up from him;
 - no timed observation or learnability-speed claim is required.
 

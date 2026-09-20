@@ -72,5 +72,5 @@ Do not put Student Number, Google subject, email or full participant name in fil
 
 - Raw Student Number/account evidence and raw questionnaire exports are restricted team/research data.
 - Cleaned analysis replaces direct student identity with `task_observation_id`/`survey_row_id`.
-- Sir Ralph's real consultation transcript can be referenced as Admin/beneficiary qualitative evidence but must not be converted into a synthetic survey row.
+- Sir Ralph is the owner's **sole planned Admin/beneficiary participant**; his real September 14 consultation is one qualitative contribution, even though he speaks from teacher/adviser, prospective-user and beneficiary viewpoints. Four directly attributed findings with transcript Part/line references are in the Framework and Highlights Markdown drafts. Do not convert the transcript into a synthetic survey row, count one person more than once, or represent the early consultation as approval of subsequent implementation.
 - Do not commit raw participant evidence to the repository merely because this manifest is version controlled.
