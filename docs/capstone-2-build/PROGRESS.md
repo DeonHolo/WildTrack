@@ -1,14 +1,20 @@
 # Live progress and resume checkpoint
 
 Updated: 2026-09-21
-Mode: Frozen v4 sanitized SRS provider pilot and separate v5 offline production regression
+Mode: Objective 1 full STD benchmark preparation, distinct from frozen AI Review studies
 Current branch: wildtrack-rebrand
 HEAD at full-session start: 77082c9faf23f49a97e95b001d88224eeea87324
 Full-session execution started from the current feature branch after Prompt 1/editor refinements were already integrated there.
 
 ## Next action
 
-PR #50, PR #51 and PR #52 have been merged by the repository owner. The owner explicitly requested resuming on `wildtrack-rebrand`; it was fast-forwarded to merged `main` commit `c156ce9` before the v4 AI Review work. SRS follow-up fixes and evidence are proposed through open PR #53 (`wildtrack-rebrand` to `main`); do not directly merge `main` or deploy. The frozen v4 six-case provider pilot missed two template body headings (SRS-04/SRS-05). The v5 generalizable mapped-template/body crosscheck now reports both as **advisories in offline replay** of saved v4 raw reports; no new provider generation or retrospective revision of the original result occurred. Preserve the frozen first STD pilot unchanged; broader prospectively frozen evaluation is still needed before claiming SMART Goal 2 targets. Collect real questionnaire/Goal 3 data separately. Goal 1 still needs remaining case families/variants and independently reviewed expected labels.
+PR #50, PR #51 and PR #52 have been merged by the repository owner; open PR #53 tracks `wildtrack-rebrand` to `main`. Remain on `wildtrack-rebrand`; do not directly merge `main` or deploy. After the frozen v4 SRS AI Review pilot and v5 offline fix, the owner prioritized **SMART Goal 1**. All 25 STD family fixtures/required variants are now prepared as 30 conditions with 52 draft technical expected classifications. The required independent teammate review, authentic source/reference freeze and formal scored full-provider study have NOT occurred. A separately versioned DEVELOPMENT-only isolated/mock observation probe may be run, but is not final Objective 1 accuracy. Preserve both previous AI studies unchanged; collect real Goal 3 student data separately.
+
+## 2026-09-21 — Objective 1 expanded synthetic STD technical benchmark preparation
+
+- Added 18 new fictional STD PDFs/negative files and 19 new planned conditions to the original 11 without modifying the original source template, previously frozen STD/Gemini fixture bytes, or completed historical reports. Includes a same-content reformatted/control pair, actual encrypted/corrupt/non-PDF negatives, and two no-template conditions with the exact same PDF and distinct instruction texts. `manifest.csv` now has 30 conditions spanning all 25 planned STD families; `atomic-assertions.csv` has 52 draft source-based technical signal expectations with reviewer status `PENDING` throughout. No semantic completeness or actual execution claims are silently scored as deterministic PDF validity.
+- The opt-in exporter reads actual production `PdfInspector`/`TemplateComparator` results and exercises selected production `FileCheckService` branches against declared simulated Drive metadata/exceptions. The inaccessible-file case is **not proof of a live Google Drive permission error**, the oversized-file mock uses a small reference PDF, and filename/MIME cases are mocked gateway behavior. Actual live Drive, current deployed full request path and academic accuracy remain unmeasured. Signed independent review and a prospectively frozen key are required for OFFICIAL mode; the independent-review protocol and create-only freeze tool are prepared but **not executed**.
+- Original Goal 2 ten-fixture pilot sources were recovered as a byte-identical, SHA-checked archive from their actual pre-run Git commit. The historical source-backed scorer reproduced the published 9/10 fresh, 7/10 agreement and 24/43 supported claims byte-for-byte using explicit `--source-snapshot`, without modifying older records or invoking Gemini. The evolving Goal 1 catalog cannot silently replace the older Goal 2 frozen authority.
 
 ## 2026-09-21 — v5 structural advisory crosscheck, verified offline
 

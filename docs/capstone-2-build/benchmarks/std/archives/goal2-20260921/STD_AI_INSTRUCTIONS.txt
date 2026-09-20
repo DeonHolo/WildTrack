@@ -1,0 +1,6 @@
+Individual submission; based on updated SRS and SDD.
+Trace the relationship: Updated SRS to System Features to Test Cases to Test Execution to Test Results.
+Cover important functional and non-functional requirements where testing applies.
+Include appropriate valid, invalid, missing, boundary, incorrect-action, unauthorized-access, error, and other realistic cases, not only happy paths.
+Distinguish expected outputs defined before execution from actual observed results; document incidents and resolutions when results differ.
+Supply supporting screenshots, logs, recordings, system outputs, or other evidence of actual systematic testing.

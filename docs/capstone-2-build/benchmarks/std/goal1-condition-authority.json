@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "kind": "GOAL1_PLANNED_INPUTS_NOT_OBSERVATIONS",
+  "human_label_review": "PENDING",
+  "notes": "All examples are wholly fictional; actual Drive access, metadata and test outcomes are not claimed by this catalog.",
+  "conditions": [
+    {
+      "fixture_id": "STD-11",
+      "file": "fixtures/STD-11_misleading-filename.pdf",
+      "template_mapped": true,
+      "mock_type": "FILECHECK_GATEWAY_METADATA_MOCK",
+      "mock_filename": "HolidayRecipes.txt",
+      "mock_mime_type": "application/pdf",
+      "mock_can_download": true,
+      "status": "NOT_EXERCISED",
+      "limitation": "The actual locally authored PDF filename is descriptive; a separate gateway metadata mock is needed to test a misleading Drive filename."
+    },
+    {
+      "fixture_id": "STD-16",
+      "file": "fixtures/STD-16_access-mock-reference.pdf",
+      "template_mapped": true,
+      "mock_type": "FILECHECK_GATEWAY_MOCK",
+      "mock_operation": "GoogleDriveGateway.getMetadata(reference)",
+      "mock_exception": "GoogleDriveUnavailableException",
+      "expected_flag": "Inaccessible",
+      "status": "NOT_EXERCISED",
+      "limitation": "The local PDF is valid and accessible. No real Drive refusal occurred."
+    },
+    {
+      "fixture_id": "STD-17-oversized",
+      "file": "fixtures/STD-17-oversized-metadata-reference.pdf",
+      "template_mapped": true,
+      "mock_type": "FILECHECK_GATEWAY_MOCK",
+      "mock_operation": "GoogleDriveGateway.getMetadata(reference)",
+      "mock_mime_type": "application/pdf",
+      "mock_can_download": true,
+      "mock_metadata_size_expression": "GoogleDriveProperties.maximumFileSizeBytes() + 1",
+      "expected_flag": "File Too Large",
+      "status": "NOT_EXERCISED",
+      "limitation": "Reference PDF is small; metadata greater than 25 MB must be mocked in the backend. No genuine oversized file or Drive measurement was made."
+    },
+    {
+      "fixture_id": "STD-19-without-requirement",
+      "file": "fixtures/STD-19_incomplete-base.pdf",
+      "sha256": "6f4e5a00ea3564fb63eb6fdf9bdfd4d978b54e6f77e03b5d895dadd460025be7",
+      "template_mapped": false,
+      "instructions": "Review the supplied Software Test Document using only document evidence; no mandatory Test Approach section is specified for this condition.",
+      "expected_authority": "No mapped template; generic document-evidence instruction only.",
+      "human_label_review": "PENDING"
+    },
+    {
+      "fixture_id": "STD-19-with-requirement",
+      "file": "fixtures/STD-19_incomplete-base.pdf",
+      "sha256": "6f4e5a00ea3564fb63eb6fdf9bdfd4d978b54e6f77e03b5d895dadd460025be7",
+      "template_mapped": false,
+      "instructions": "The submitted Software Test Document must include a Test Approach section in the document body. A Table of Contents entry alone does not satisfy this requirement.",
+      "expected_authority": "The supplied instructions explicitly require a Test Approach body section.",
+      "human_label_review": "PENDING"
+    }
+  ]
+}

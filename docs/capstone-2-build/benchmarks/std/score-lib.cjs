@@ -61,9 +61,14 @@ function sha256(filename) {
   return crypto.createHash('sha256').update(fs.readFileSync(filename)).digest('hex');
 }
 
-function fixtureAuthority() {
+function fixtureAuthority(options = {}) {
+  // The living Goal 1 catalog grows after the separately frozen Goal 2 pilot.
+  // A historical run may select a byte-verified archive of its original manifest
+  // and hash list; all PDF paths still resolve against the original benchmark dir.
+  const manifestPath = options.manifestPath || path.join(__dirname, 'manifest.csv');
+  const hashListPath = options.hashListPath || path.join(__dirname, 'fixture-hashes.sha256');
   const hashes = new Map();
-  const hashLines = fs.readFileSync(path.join(__dirname, 'fixture-hashes.sha256'), 'utf8')
+  const hashLines = fs.readFileSync(hashListPath, 'utf8')
     .trim().split(/\r?\n/);
   for (const line of hashLines) {
     const match = line.match(/^([0-9a-f]{64})\s{2}(.+)$/i);
@@ -77,7 +82,7 @@ function fixtureAuthority() {
   }
   const templateHash = hashes.get('docs/STD TEMPLATE.pdf');
   failUnless(templateHash, 'Missing frozen official template hash');
-  const manifest = readCsv(path.join(__dirname, 'manifest.csv'));
+  const manifest = readCsv(manifestPath);
   const fixtures = new Map();
   for (const item of manifest) {
     failUnless(/^STD-\d{2}(?:-[a-z0-9-]+)?$/.test(item.fixture_id), `Invalid fixture ID: ${item.fixture_id}`);
