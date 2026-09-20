@@ -18,6 +18,7 @@ import { StudentStatusPage } from '../pages/StudentStatusPage.jsx';
 import { TrackerPage } from '../pages/TrackerPage.jsx';
 import { WorkspacePage } from '../pages/WorkspacePage.jsx';
 import { ValidationStudyPage } from '../pages/ValidationStudyPage.jsx';
+import { DriveHistoryConsent } from '../components/auth/DriveHistoryConsent.jsx';
 
 export default function App() {
   return (
@@ -89,6 +90,7 @@ export default function App() {
         )} />
         <Route path="*" element={<RoleHomeRedirect />} />
       </Routes>
+      <DriveHistoryConsent />
       <DevelopmentRolePreview enabled={import.meta.env.DEV} />
     </WorkspaceSessionProvider>
   );

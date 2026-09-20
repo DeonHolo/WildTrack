@@ -43,6 +43,7 @@ vi.mock('../hooks/useWorkspaceResource.js', () => ({
 
 vi.mock('../lib/api.js', () => ({
   getIdentityConflicts: vi.fn().mockResolvedValue([]),
+  getSubmittedFileHistory: vi.fn().mockResolvedValue({ status: 'UNAVAILABLE', revisions: [], historyMayBeIncomplete: true }),
   getAiReviewStatus: (...args) => workflow.getAiReviewStatus(...args)
 }));
 

@@ -36,6 +36,15 @@ capvault:
     maximum-added-content-ratio: ${CAPVAULT_FILE_CHECK_MAX_ADDED_RATIO:0.25}
 
 wildtrack:
+  drive-history:
+    oauth:
+      enabled: ${WILDTRACK_DRIVE_HISTORY_OAUTH_ENABLED:false}
+      client-id: ${WILDTRACK_DRIVE_HISTORY_CLIENT_ID:${WILDTRACK_GOOGLE_CLIENT_ID:}}
+      client-secret: ${WILDTRACK_DRIVE_HISTORY_CLIENT_SECRET:}
+      redirect-uri: ${WILDTRACK_DRIVE_HISTORY_REDIRECT_URI:http://localhost:8080/api/drive-history/auth/callback}
+      frontend-origin: ${WILDTRACK_DRIVE_HISTORY_RETURN_ORIGIN:http://localhost:5173}
+      encryption-key-base64: ${WILDTRACK_DRIVE_HISTORY_ENCRYPTION_KEY_BASE64:}
+      secure-cookie: ${WILDTRACK_DRIVE_HISTORY_SECURE_COOKIE:false}
   gemini:
     api-key: ${GEMINI_API_KEY:}
     minimum-interval-seconds: ${WILDTRACK_GEMINI_MINIMUM_INTERVAL_SECONDS:15}

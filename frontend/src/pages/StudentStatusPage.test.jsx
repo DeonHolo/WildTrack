@@ -269,7 +269,9 @@ vi.mock('../hooks/useWorkspaceResource.js', () => ({
 
 vi.mock('../lib/api.js', () => ({
   disconnectStudentAssociation: vi.fn().mockResolvedValue({}),
-  confirmStudentAssociation: vi.fn()
+  confirmStudentAssociation: vi.fn(),
+  getDriveHistoryConsentStatus: vi.fn().mockResolvedValue({ configured: false, connected: false }),
+  getSubmittedFileHistory: vi.fn().mockResolvedValue({ status: 'UNAVAILABLE', revisions: [] })
 }));
 
 function dashboardTree() {

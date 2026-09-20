@@ -44,6 +44,11 @@ capvault:
     allowed-origins: ${CAPVAULT_CORS_ALLOWED_ORIGINS:https://wildtrack.dev,https://www.wildtrack.dev}
 
 wildtrack:
+  drive-history:
+    oauth:
+      secure-cookie: true
+      redirect-uri: ${WILDTRACK_DRIVE_HISTORY_REDIRECT_URI:https://wildtrack.dev/api/drive-history/auth/callback}
+      frontend-origin: ${WILDTRACK_DRIVE_HISTORY_RETURN_ORIGIN:https://wildtrack.dev}
   google:
     identity:
       enabled: true

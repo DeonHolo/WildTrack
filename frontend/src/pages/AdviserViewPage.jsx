@@ -255,6 +255,15 @@ export function AdviserViewPage() {
     }
   }
 
+  function openFileHistory(field) {
+    if (!selectedResponse || !field || !isCurrentScope()) return;
+    setCheckDialogTarget({
+      responseId: selectedResponse.id,
+      targetKey: artifactTargetKey(selectedResponse.id, field),
+      initialTab: 'history'
+    });
+  }
+
   async function checkPendingResponses() {
     if (!selectedRow || !isCurrentScope()) return;
     const candidates = selectedRow.responses.flatMap((response) => (
@@ -528,6 +537,7 @@ export function AdviserViewPage() {
                   onFeedbackChange={setFeedback}
                   onSubmitFeedback={submitFeedback}
                   onOpenDocumentCheck={openDocumentCheck}
+                  onOpenFileHistory={openFileHistory}
                   onCheckPending={checkPendingResponses}
                   onAccept={confirmAccept}
                   onRevoke={confirmRevoke}
@@ -552,6 +562,12 @@ export function AdviserViewPage() {
           fileCheckStatus: checkDialogReport.status
         } : checkDialogResponse}
         observedHistory={checkDialogHistory}
+        initialTab={checkDialogTarget?.initialTab || 'result'}
+        historyTarget={activeWorkspaceId && checkDialogResponse?.id && checkDialogFieldKey ? {
+          workspaceId: activeWorkspaceId,
+          responseId: checkDialogResponse.id,
+          fieldId: checkDialogFieldKey
+        } : null}
         fileLink={checkDialogField ? checkDialogResponse?.values?.[checkDialogField.id] : ''}
         rechecking={checkDialogField ? checkingIds.has(artifactTargetKey(checkDialogResponse?.id, checkDialogField)) : false}
         error={checkDialogField && feedbackError?.targetKey === artifactTargetKey(checkDialogResponse?.id, checkDialogField) ? feedbackError?.message : ''}
@@ -575,6 +591,7 @@ function SelectedGroupOutput({
   onFeedbackChange,
   onSubmitFeedback,
   onOpenDocumentCheck,
+  onOpenFileHistory,
   onCheckPending,
   onAccept,
   onRevoke
@@ -642,6 +659,7 @@ function SelectedGroupOutput({
                   response={response}
                   checking={checkingFields.has(artifactTargetKey(response.id, field))}
                   onOpenDocumentCheck={() => onOpenDocumentCheck(field)}
+                  onOpenFileHistory={() => onOpenFileHistory(field)}
                 />
               ))}
             </Stack>
@@ -699,7 +717,7 @@ function SelectedGroupOutput({
   );
 }
 
-function AdviserArtifact({ field, response, checking, onOpenDocumentCheck }) {
+function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpenFileHistory }) {
   const value = String(response.values?.[field.id] || '').trim();
   const isLink = /^https?:\/\//i.test(value);
   const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
@@ -733,6 +751,9 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck }) {
               <Button component="a" href={makeDriveViewUrl(value)} target="_blank" rel="noreferrer" variant="default" size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
                 {artifactOpenLabel(field)}
               </Button>
+              {field.type === 'drive' ? (
+                <Button variant="light" color="wildtrackMaroon" size="xs" onClick={onOpenFileHistory}>File history</Button>
+              ) : null}
             </Group>
           ) : <Text size="sm">{value}</Text>
         ) : <Text size="sm" c="dimmed">No value submitted for this artifact.</Text>}

@@ -652,6 +652,11 @@ export function ReviewPage() {
         checkError={checkError?.targetKey?.startsWith(`${selectedResponse?.id}:`) ? checkError?.message : ''}
         onClose={() => setSelectedResponseId('')}
         onDocumentCheck={(field) => openOrRunDocumentCheck(selectedResponse, field)}
+        onFileHistory={(field) => setCheckDialogTarget({
+          responseId: selectedResponse.id,
+          fieldId: field.definitionId || field.id,
+          initialTab: 'history'
+        })}
         onViewAiReview={(field) => setAiReportDialogTarget({
           responseId: selectedResponse.id,
           fieldId: field.definitionId || field.id
@@ -671,6 +676,12 @@ export function ReviewPage() {
         open={Boolean(checkDialogResponse)}
         response={checkDialogResponse && checkDialogReport ? { ...checkDialogResponse, documentCheck: checkDialogReport, fileCheckStatus: checkDialogReport.status } : checkDialogResponse}
         observedHistory={checkDialogHistory}
+        initialTab={checkDialogTarget?.initialTab || 'result'}
+        historyTarget={activeWorkspaceId && checkDialogResponse?.id && checkDialogFieldKey ? {
+          workspaceId: activeWorkspaceId,
+          responseId: checkDialogResponse.id,
+          fieldId: checkDialogFieldKey
+        } : null}
         fileLink={checkDialogField ? checkDialogResponse?.values?.[checkDialogField.id] : ''}
         rechecking={checkDialogField ? checkingIds.has(artifactTargetKey(checkDialogResponse?.id, checkDialogField)) : false}
         error={checkDialogField && checkError?.targetKey === artifactTargetKey(checkDialogResponse?.id, checkDialogField) ? checkError?.message : ''}

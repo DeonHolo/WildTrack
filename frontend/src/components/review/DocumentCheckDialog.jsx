@@ -1,13 +1,18 @@
 import { Alert, Badge, Modal, Tabs } from '@mantine/core';
+import { useEffect, useState } from 'react';
 import { ArrowSquareOut, CheckCircle, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
 import { Button, StatusIndicator } from '../ui.jsx';
 import { formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 import { ObservedFileHistory } from './ObservedFileHistory.jsx';
+import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
+import { getSubmittedFileHistory } from '../../lib/api.js';
 
 export function DocumentCheckDialog({
   response,
   documentCheck = null,
   observedHistory = null,
+  historyTarget = null,
+  initialTab = 'result',
   fileLink,
   open,
   onClose,
@@ -17,6 +22,25 @@ export function DocumentCheckDialog({
   audience = 'staff',
   allowRecheck = true
 }) {
+  const [tab, setTab] = useState(initialTab);
+  const [sharedHistory, setSharedHistory] = useState(null);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  const targetKey = historyTarget ? `${historyTarget.workspaceId}:${historyTarget.responseId}:${historyTarget.fieldId}` : '';
+  useEffect(() => {
+    if (!open || !historyTarget?.workspaceId || !historyTarget?.responseId || !historyTarget?.fieldId || !fileLink) {
+      setSharedHistory(null);
+      return undefined;
+    }
+    let active = true;
+    setSharedHistory({ key: targetKey, loading: true, data: null });
+    getSubmittedFileHistory(historyTarget.workspaceId, historyTarget.responseId, historyTarget.fieldId)
+      .then(data => { if (active) setSharedHistory({ key: targetKey, loading: false, data }); })
+      .catch(() => { if (active) setSharedHistory({ key: targetKey, loading: false, data: null }); });
+    return () => { active = false; };
+  }, [open, targetKey, fileLink, historyRefresh]);
+  useEffect(() => {
+    if (open) setTab(initialTab);
+  }, [open, initialTab, response?.id, historyTarget?.fieldId]);
   if (!response) return null;
   const report = documentCheck || response.documentCheck;
   const effectiveResponse = documentCheck ? { ...response, documentCheck } : response;
@@ -30,6 +54,7 @@ export function DocumentCheckDialog({
   const currentStatus = documentCheckStatus(effectiveResponse);
   const successful = currentStatus === 'Ready for review';
   const latestObservation = studentView ? null : observedHistory?.observations?.[0];
+  const sharedMetadata = sharedHistory?.key === targetKey && open ? sharedHistory?.data?.fileMetadata : null;
 
   const title = (
     <div className="document-check-title">
@@ -54,8 +79,8 @@ export function DocumentCheckDialog({
       closeButtonProps={{ 'aria-label': 'Close Document Check details' }}
     >
       {error ? <Alert color="red" role="alert">{error}</Alert> : null}
-      <Tabs defaultValue="result" className="document-check-tabs">
-        {!studentView ? (
+      <Tabs value={tab} onChange={setTab} className="document-check-tabs">
+        {(!studentView || (historyTarget && fileLink)) ? (
           <Tabs.List>
             <Tabs.Tab value="result">Check result</Tabs.Tab>
             <Tabs.Tab value="history">File history</Tabs.Tab>
@@ -86,12 +111,18 @@ export function DocumentCheckDialog({
                 ready={Number(document?.extractedCharacterCount) > 0}
                 neutral
               />
-              <CheckFact label="Drive modified" value={metadata?.modifiedTime ? formatDateTime(metadata.modifiedTime) : 'Not available'} ready={Boolean(metadata?.modifiedTime)} neutral />
+              <CheckFact label="Drive modified when checked" value={metadata?.modifiedTime ? formatDateTime(metadata.modifiedTime) : 'Not available'} ready={Boolean(metadata?.modifiedTime)} neutral />
+              {sharedMetadata?.lastModifiedTime ? (
+                <CheckFact label="Latest Drive modified (Google metadata)" value={formatDateTime(sharedMetadata.lastModifiedTime)} ready neutral />
+              ) : null}
+              {studentView ? (
+                <CheckFact label="Created time" value={sharedMetadata?.createdTime ? formatDateTime(sharedMetadata.createdTime) : 'Unavailable'} ready={Boolean(sharedMetadata?.createdTime)} neutral />
+              ) : null}
               {!studentView ? (
                 <>
-                  <CheckFact label="Created time" value={latestObservation?.driveCreatedTime ? formatDateTime(latestObservation.driveCreatedTime) : 'Unavailable'} ready={Boolean(latestObservation?.driveCreatedTime)} neutral />
-                  <CheckFact label="Drive owner" value={latestObservation?.driveOwner || 'Unavailable'} ready={Boolean(latestObservation?.driveOwner)} neutral />
-                  <CheckFact label="Last modified by" value={latestObservation?.modifiedBy || 'Unavailable'} ready={Boolean(latestObservation?.modifiedBy && latestObservation.modifiedBy !== 'Unavailable')} neutral />
+                  <CheckFact label="Created time" value={sharedMetadata?.createdTime || latestObservation?.driveCreatedTime ? formatDateTime(sharedMetadata?.createdTime || latestObservation?.driveCreatedTime) : 'Unavailable'} ready={Boolean(sharedMetadata?.createdTime || latestObservation?.driveCreatedTime)} neutral />
+                  <CheckFact label="Drive owner" value={sharedMetadata?.driveOwner || (latestObservation?.driveOwner !== 'Unavailable' ? latestObservation?.driveOwner : null) || 'Unavailable'} ready={Boolean(sharedMetadata?.driveOwner || (latestObservation?.driveOwner !== 'Unavailable' && latestObservation?.driveOwner))} neutral />
+                  <CheckFact label="Last modified by" value={sharedMetadata?.lastModifiedBy || (latestObservation?.modifiedBy !== 'Unavailable' ? latestObservation?.modifiedBy : null) || 'Unavailable'} ready={Boolean(sharedMetadata?.lastModifiedBy || (latestObservation?.modifiedBy !== 'Unavailable' && latestObservation?.modifiedBy))} neutral />
                 </>
               ) : null}
             </div>
@@ -152,10 +183,28 @@ export function DocumentCheckDialog({
           </div>
         </Tabs.Panel>
 
-        {!studentView ? (
+        {(!studentView || (historyTarget && fileLink)) ? (
           <Tabs.Panel value="history" pt="md">
             <div className="document-check-history-panel">
-              <ObservedFileHistory history={observedHistory} />
+              {tab === 'history' && historyTarget && fileLink ? (
+                <Button type="button" variant="secondary" disabled={Boolean(sharedHistory?.loading)}
+                  onClick={() => {
+                    setSharedHistory({ key: targetKey, loading: true, data: null });
+                    setHistoryRefresh(value => value + 1);
+                  }}>Refresh from Google Drive</Button>
+              ) : null}
+              {tab === 'history' && historyTarget && fileLink ? (
+                <SubmittedFileHistory
+                  key={`${historyTarget.workspaceId}:${historyTarget.responseId}:${historyTarget.fieldId}:${historyRefresh}`}
+                  workspaceId={historyTarget.workspaceId}
+                  responseId={historyTarget.responseId}
+                  fieldId={historyTarget.fieldId}
+                  observedHistory={observedHistory}
+                  audience={audience}
+                  initialHistory={sharedHistory?.key === targetKey ? sharedHistory?.data : null}
+                  initialLoading={Boolean(open && (!sharedHistory || sharedHistory.key !== targetKey || sharedHistory.loading))}
+                />
+              ) : !studentView ? <ObservedFileHistory history={observedHistory} /> : null}
             </div>
           </Tabs.Panel>
         ) : null}

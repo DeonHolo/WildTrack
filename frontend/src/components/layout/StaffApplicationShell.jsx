@@ -33,6 +33,7 @@ import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../../hooks/useApplicationRole.js';
 import { clearStoredPreviewRole } from '../../hooks/usePreviewRole.js';
 import { WildTrackBrand } from './WildTrackBrand.jsx';
+import { DriveHistoryAccountAccess } from '../auth/DriveHistoryAccountAccess.jsx';
 
 const ADMIN_GROUPS = [
   {
@@ -147,6 +148,7 @@ export function StaffApplicationShell({ children }) {
               <Text component="strong" size="sm" fw={750}>{accountName}</Text>
               <Text size="xs" c="dimmed">{accountRole}</Text>
             </div>
+            <DriveHistoryAccountAccess />
             <Button
               className="wt-staff-logout"
               variant="default"
