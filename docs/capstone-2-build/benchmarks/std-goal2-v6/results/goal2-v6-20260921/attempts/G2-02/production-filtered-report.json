@@ -1,0 +1,12 @@
+{
+  "summary" : "Grounded requirement finding: The required section '1.2 Test Approach' is missing from the body of the document.",
+  "findings" : [ {
+    "issue" : "The required section '1.2 Test Approach' is missing from the body of the document.",
+    "source" : "DELIVERABLE_REQUIREMENTS",
+    "evidence" : "The document body skips from section 1.1 to section 2.",
+    "requirement" : "The section named \"1.2 Test Approach\" MUST appear as a BODY heading with a substantive description of the planned example checks; a Table of Contents entry does not satisfy the body requirement."
+  } ],
+  "missingRequiredSections" : [ ],
+  "limitations" : [ ],
+  "suggestedAction" : "Confirm the cited Deliverable Instructions or official-template passages before giving requirement-based feedback."
+}

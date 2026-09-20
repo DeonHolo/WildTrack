@@ -1,0 +1,16 @@
+{
+  "summary" : "Document evidence: The document content describes a marketing campaign plan for a bakery instead of a software test document. Explicitly required sections not detected: 1.2 Test Approach.",
+  "findings" : [ {
+    "issue" : "The document content describes a marketing campaign plan for a bakery instead of a software test document.",
+    "source" : "DOCUMENT",
+    "evidence" : "Page 2, Section 1: 'Marketing Campaign Plan: develop a fictional advertising calendar for a bakery opening and target brand impressions, not software test cases.'",
+    "requirement" : ""
+  } ],
+  "missingRequiredSections" : [ {
+    "section" : "1.2 Test Approach",
+    "source" : "DELIVERABLE_REQUIREMENTS",
+    "requirement" : "The section named \"1.2 Test Approach\" MUST appear as a BODY heading with a substantive description of the planned example checks"
+  } ],
+  "limitations" : [ ],
+  "suggestedAction" : "Review the cited document evidence before deciding what correction, if any, is appropriate. Confirm the cited Deliverable Instructions or official-template passages before giving requirement-based feedback."
+}

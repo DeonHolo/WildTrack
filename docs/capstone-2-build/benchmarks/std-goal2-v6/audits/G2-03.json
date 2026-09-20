@@ -1,0 +1,59 @@
+{
+  "fixture_id": "G2-03",
+  "final_report_sha256": "218d3276b635edae293dd3137798baa014796272151a922da8473204fd7b56df",
+  "decisions": [
+    {
+      "decision_id": "toc-only-not-body",
+      "observed": "present",
+      "report_reference": "findings[0]",
+      "notes": "The exact identified FINAL report claim matches the pre-run case-specific controlled document condition and its separately frozen authority.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT"
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "G2-03-findings_0_",
+      "report_reference": "findings[0]",
+      "text": "The section '1.2 Test Approach' is listed in the Table of Contents but is missing from the body of the document.",
+      "substantive": true,
+      "source_status": "SOURCE_SUPPORTED",
+      "source_kind": "pdf",
+      "source_excerpt": "1.2 Test Approach ............................. 2",
+      "source_reference": "source-text/G2-03.txt",
+      "source_assessment": "The PDF contains this entry in the Table of Contents, but its complete body transitions from 1.1 System Overview directly to 2. Test Plan. The finding correctly distinguishes a TOC-only heading from the missing body section.",
+      "notes": "Project AI-assisted post-run assessment of the entire fictional PDF and applicable authority, not a provider-quote auto-match or independent reviewer signoff.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+      "absence_audit": {
+        "full_document_examined": true,
+        "notes": "Checked the entire PDFBox-extracted G2-03 document including Table of Contents and all body headings. The substantive body does not contain a standalone Test Approach heading; this is not inferred solely from the source excerpt."
+      }
+    }
+  ],
+  "claim_inventory": {
+    "complete": true,
+    "final_report_sha256": "218d3276b635edae293dd3137798baa014796272151a922da8473204fd7b56df",
+    "method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+    "narrative_segments": {
+      "summary": [
+        {
+          "start": 0,
+          "end": 131,
+          "text": "Document evidence: The section '1.2 Test Approach' is listed in the Table of Contents but is missing from the body of the document.",
+          "classification": "DERIVATIVE",
+          "derivative_of": "G2-03-findings_0_",
+          "notes": "This narrative sentence directly reproduces an already individually source-audited structured claim and adds no separate factual obligation."
+        }
+      ],
+      "suggestedAction": [
+        {
+          "start": 0,
+          "end": 91,
+          "text": "Review the cited document evidence before deciding what correction, if any, is appropriate.",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        }
+      ]
+    },
+    "notes": "Individually examined every final structured claim, every summary sentence and every suggestedAction sentence against the complete source; duplicate summary references are derivative and generic action text is not a novel source claim."
+  }
+}

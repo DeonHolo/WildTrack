@@ -1,0 +1,56 @@
+{
+  "fixture_id": "G2-06",
+  "final_report_sha256": "9c24c7ba20243a7ecb420ee02a8e6a132b527c7d7db5e1b76aa57a9464cdd6d5",
+  "decisions": [
+    {
+      "decision_id": "sample-name-not-mandatory",
+      "observed": "absent",
+      "report_reference": "full_report",
+      "full_report_examined": true,
+      "notes": "Examined every final finding, missingRequiredSection, summary and suggestedAction; none asserts the prohibited case-specific missing/mandatory section or example-identity requirement.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT"
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "G2-06-findings_0_",
+      "report_reference": "findings[0]",
+      "text": "The section 1.2 Test Approach is present and contains substantive content.",
+      "substantive": true,
+      "source_status": "SOURCE_SUPPORTED",
+      "source_kind": "deliverable_instructions",
+      "source_excerpt": "The section named \"1.2 Test Approach\" MUST appear as a BODY heading with a substantive description of the planned example checks",
+      "source_reference": "STD_V6_INSTRUCTIONS.txt",
+      "source_assessment": "The complete PDF contains the real 1.2 Test Approach body heading followed by distinct planned checks for valid input, blank input, capacity and coordinator closure. This narrow positive description does not require the student project to match the fictional template sample name.",
+      "notes": "Project AI-assisted post-run assessment of the entire fictional PDF and applicable authority, not a provider-quote auto-match or independent reviewer signoff.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT"
+    }
+  ],
+  "claim_inventory": {
+    "complete": true,
+    "final_report_sha256": "9c24c7ba20243a7ecb420ee02a8e6a132b527c7d7db5e1b76aa57a9464cdd6d5",
+    "method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+    "narrative_segments": {
+      "summary": [
+        {
+          "start": 0,
+          "end": 104,
+          "text": "Grounded requirement finding: The section 1.2 Test Approach is present and contains substantive content.",
+          "classification": "DERIVATIVE",
+          "derivative_of": "G2-06-findings_0_",
+          "notes": "This narrative sentence directly reproduces an already individually source-audited structured claim and adds no separate factual obligation."
+        }
+      ],
+      "suggestedAction": [
+        {
+          "start": 0,
+          "end": 114,
+          "text": "Confirm the cited Deliverable Instructions or official-template passages before giving requirement-based feedback.",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        }
+      ]
+    },
+    "notes": "Individually examined every final structured claim, every summary sentence and every suggestedAction sentence against the complete source; duplicate summary references are derivative and generic action text is not a novel source claim."
+  }
+}

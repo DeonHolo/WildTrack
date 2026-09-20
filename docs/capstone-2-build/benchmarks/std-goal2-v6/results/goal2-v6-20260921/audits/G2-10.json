@@ -1,0 +1,105 @@
+{
+  "fixture_id": "G2-10",
+  "final_report_sha256": "f7c4ad8f9866142cb52003e5a40fd0440c802188beb3403364565293aa3ee1d5",
+  "decisions": [
+    {
+      "decision_id": "no-template-explicit-body-requirement",
+      "observed": "present",
+      "report_reference": "missingRequiredSections[0]",
+      "notes": "The exact identified FINAL report claim matches the pre-run case-specific controlled document condition and its separately frozen authority.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT"
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "G2-10-findings_0_",
+      "report_reference": "findings[0]",
+      "text": "The document explicitly states that it omits the required Test Approach body section.",
+      "substantive": true,
+      "source_status": "SOURCE_SUPPORTED",
+      "source_kind": "pdf",
+      "source_excerpt": "This fictional QueueBoard STD contains illustrative goals but deliberately omits the Test Approach body section.",
+      "source_reference": "source-text/G2-10.txt",
+      "source_assessment": "The PDF itself expressly describes its Test Approach body omission. The full extracted body consists of Summary, Example Inputs and Expected Outcomes and contains no standalone Test Approach body heading; the statement is grounded in the provided file.",
+      "notes": "Project AI-assisted post-run assessment of the entire fictional PDF and applicable authority, not a provider-quote auto-match or independent reviewer signoff.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+      "absence_audit": {
+        "full_document_examined": true,
+        "notes": "Checked the entire PDFBox-extracted G2-10 document including Table of Contents and all body headings. The substantive body does not contain a standalone Test Approach heading; this is not inferred solely from the source excerpt."
+      }
+    },
+    {
+      "claim_id": "G2-10-missingRequiredSections_0_",
+      "report_reference": "missingRequiredSections[0]",
+      "text": "Test Approach",
+      "substantive": true,
+      "source_status": "SOURCE_SUPPORTED",
+      "source_kind": "deliverable_instructions",
+      "source_excerpt": "This condition explicitly requires a BODY section named \"Test Approach\" in the submitted STD",
+      "source_reference": "NO_TEMPLATE_EXPLICIT_INSTRUCTIONS.txt",
+      "source_assessment": "The case-specific no-template instructions independently and explicitly require the Test Approach body heading. Examination of the complete submitted PDF finds only Summary, Example Inputs and Expected Outcomes, so the omission is source-supported without inventing a mapped template.",
+      "notes": "Project AI-assisted post-run assessment of the entire fictional PDF and applicable authority, not a provider-quote auto-match or independent reviewer signoff.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+      "absence_audit": {
+        "full_document_examined": true,
+        "notes": "Checked the entire PDFBox-extracted G2-10 document including Table of Contents and all body headings. The substantive body does not contain a standalone Test Approach heading; this is not inferred solely from the source excerpt."
+      }
+    }
+  ],
+  "claim_inventory": {
+    "complete": true,
+    "final_report_sha256": "f7c4ad8f9866142cb52003e5a40fd0440c802188beb3403364565293aa3ee1d5",
+    "method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+    "narrative_segments": {
+      "summary": [
+        {
+          "start": 0,
+          "end": 105,
+          "text": "Document evidence: The document explicitly states that it omits the required Test Approach body section. ",
+          "classification": "DERIVATIVE",
+          "derivative_of": "G2-10-findings_0_",
+          "notes": "This narrative sentence directly reproduces an already individually source-audited structured claim and adds no separate factual obligation."
+        },
+        {
+          "start": 105,
+          "end": 163,
+          "text": "Explicitly required sections not detected: Test Approach. ",
+          "classification": "DERIVATIVE",
+          "derivative_of": "G2-10-missingRequiredSections_0_",
+          "notes": "This narrative sentence directly reproduces an already individually source-audited structured claim and adds no separate factual obligation."
+        },
+        {
+          "start": 163,
+          "end": 264,
+          "text": "No official template was supplied, so compliance with a specific template structure was not assessed.",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        }
+      ],
+      "suggestedAction": [
+        {
+          "start": 0,
+          "end": 92,
+          "text": "Review the cited document evidence before deciding what correction, if any, is appropriate. ",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        },
+        {
+          "start": 92,
+          "end": 207,
+          "text": "Confirm the cited Deliverable Instructions or official-template passages before giving requirement-based feedback. ",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        },
+        {
+          "start": 207,
+          "end": 332,
+          "text": "If a specific template structure is required, add the official template or state the requirement in Deliverable Instructions.",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        }
+      ]
+    },
+    "notes": "Individually examined every final structured claim, every summary sentence and every suggestedAction sentence against the complete source; duplicate summary references are derivative and generic action text is not a novel source claim."
+  }
+}

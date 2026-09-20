@@ -58,8 +58,11 @@ function auditFor(value = report()) {
   };
 }
 
-test('before any actual frozen v6 request, fixed ten-case denominator exists but NO fabricated score', () => {
-  const result = score();
+test('on an explicitly empty staging root, the fixed cohort cannot fabricate a provider score', () => {
+  // After a real run, the default attempts directory legitimately contains
+  // immutable claims. Keep the negative control isolated without deleting or
+  // rewriting any actual attempts or changing the frozen scorer itself.
+  const result = score({ attemptsDir: path.join(HERE, 'test-nonexistent-empty-attempts-root') });
   assert.equal(result.status, 'NOT_FROZEN_NO_PROVIDER_RESULTS');
   assert.deepEqual(result.fresh_run_coverage, { numerator: 0, denominator: 10, value: 0 });
   assert.deepEqual(result.attempted_case_coverage, { numerator: 0, denominator: 10, value: 0 });

@@ -1,0 +1,12 @@
+{
+  "summary" : "Document evidence: The document is explicitly identified as a synthetic fictional benchmark and does not represent executed software tests. No official template was supplied, so compliance with a specific template structure was not assessed.",
+  "findings" : [ {
+    "issue" : "The document is explicitly identified as a synthetic fictional benchmark and does not represent executed software tests.",
+    "source" : "DOCUMENT",
+    "evidence" : "Page 1, 'SYNTHETIC FICTIONAL BENCHMARK. These example plans, expected outputs and scripted results are NOT records of executed software tests or student work.'",
+    "requirement" : ""
+  } ],
+  "missingRequiredSections" : [ ],
+  "limitations" : [ "No official template was supplied, so compliance with a specific template structure was not assessed." ],
+  "suggestedAction" : "Review the cited document evidence before deciding what correction, if any, is appropriate. If a specific template structure is required, add the official template or state the requirement in Deliverable Instructions."
+}

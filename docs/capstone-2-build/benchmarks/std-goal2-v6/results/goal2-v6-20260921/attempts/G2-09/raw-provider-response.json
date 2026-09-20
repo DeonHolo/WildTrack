@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"suggestedAction\": \"The document is consistent with the requested Software Test Document (STD) deliverable. No further action is required.\",\n  \"summary\": \"The submitted document is a Software Test Document (STD) for the QueueBoard project. It provides a synthetic overview of planned test checks and illustrative outcomes.\",\n  \"missingRequiredSections\": [],\n  \"findings\": [\n    {\n      \"issue\": \"The document is explicitly identified as a synthetic fictional benchmark and does not represent executed software tests.\",\n      \"evidence\": \"Page 1, 'SYNTHETIC FICTIONAL BENCHMARK. These example plans, expected outputs and scripted results are NOT records of executed software tests or student work.'\",\n      \"requirement\": \"\",\n      \"source\": \"DOCUMENT\"\n    }\n  ]\n}",
+            "thoughtSignature": "EnEKbwFpFH0TToqOkPC47xdYj9y6/OxFR6UjLnoEYt5w1of4iKmQ8SZND9g85iJOY6dzNVYH16WGpFrbdLYSZhLcRGpWDPWrndrptN9z8K63XuD1Aq4HzQdxcm6o65EuhoTXEwbSvPRfZWlti3xNKL7how=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 1807,
+    "candidatesTokenCount": 172,
+    "totalTokenCount": 1979,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1275
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 532
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.1-flash-lite",
+  "responseId": "n0KwavCRA_if2roPgue8yQE"
+}

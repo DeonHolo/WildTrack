@@ -1,0 +1,199 @@
+{
+  "type": "GOAL2_V6_SEPARATE_SYNTHETIC_PRODUCTION_FILTERED_FOLLOWUP",
+  "status": "PROJECT_SOURCE_AUDIT_COMPLETE",
+  "reference_method": "PROJECT_AI_ASSISTED_PDF_AND_AUTHORITY_REVIEW",
+  "scope": "NEW controlled fictional STD provider + production v5 postprocessor; not original v3 STD pilot or real Drive/UI/cache",
+  "gate": {
+    "frozen_pre_run_reference_verified": true,
+    "frozen_at": "2026-09-20T20:29:34.283Z",
+    "app_commit": "3f71bf479f9c5b84a9de39f1feb9f1cb10780f59",
+    "fixed_case_denominator": 10,
+    "frozen_decision_denominator": 10,
+    "attempted": 10,
+    "fully_audited_fresh_reports": 9,
+    "audit_complete_for_all_fresh_reports": true,
+    "bounded_availability_stop_after_http_429_or_503": 2,
+    "observed_http_429_or_503": 1,
+    "no_independent_human_reference_claimed": true
+  },
+  "fresh_run_coverage": {
+    "numerator": 9,
+    "denominator": 10,
+    "value": 0.9
+  },
+  "attempted_case_coverage": {
+    "numerator": 10,
+    "denominator": 10,
+    "value": 1
+  },
+  "attempt_outcomes": {
+    "fresh_success": 9,
+    "not_attempted": 0,
+    "quota_failure": 0,
+    "provider_failure": 0,
+    "transport_failure": 0,
+    "invalid_response": 0,
+    "outcome_unknown": 1,
+    "production_postprocessing_rejected": 0
+  },
+  "checklist_agreement": {
+    "numerator": 9,
+    "denominator": 9,
+    "value": 1
+  },
+  "frozen_decision_coverage": {
+    "numerator": 9,
+    "denominator": 10,
+    "value": 0.9
+  },
+  "unassessable_decisions": 0,
+  "claim_traceability": {
+    "numerator": 10,
+    "denominator": 11,
+    "value": 0.9090909090909091
+  },
+  "unsupported_claims": 0,
+  "unassessable_claims": 1,
+  "case_results": [
+    {
+      "fixture_id": "G2-01",
+      "expected_decisions": 1,
+      "outcome": "fresh_success",
+      "decision_correct": 1,
+      "decision_adjudicable": 1,
+      "claim_supported": 0,
+      "claim_total": 0,
+      "audited": true,
+      "generation_requests_sent": 1,
+      "http_status": 200,
+      "provider_response_id": "PkKwaufWMouW9tMPneGuoAI"
+    },
+    {
+      "fixture_id": "G2-02",
+      "expected_decisions": 1,
+      "outcome": "fresh_success",
+      "decision_correct": 1,
+      "decision_adjudicable": 1,
+      "claim_supported": 1,
+      "claim_total": 1,
+      "audited": true,
+      "generation_requests_sent": 1,
+      "http_status": 200,
+      "provider_response_id": "VUKwav2tIvux2roP08OeuAw"
+    },
+    {
+      "fixture_id": "G2-03",
+      "expected_decisions": 1,
+      "outcome": "fresh_success",
+      "decision_correct": 1,
+      "decision_adjudicable": 1,
+      "claim_supported": 1,
+      "claim_total": 1,
+      "audited": true,
+      "generation_requests_sent": 1,
+      "http_status": 200,
+      "provider_response_id": "XkKwarOqL5qn1e8PzOCzoAM"
+    },
+    {
+      "fixture_id": "G2-04",
+      "expected_decisions": 1,
+      "outcome": "fresh_success",
+      "decision_correct": 1,
+      "decision_adjudicable": 1,
+      "claim_supported": 1,
+      "claim_total": 1,
+      "audited": true,
+      "generation_requests_sent": 1,
+      "http_status": 200,
+      "provider_response_id": "Z0Kwar-KJ8791e8P6NHb4AM"
+    },
+    {
+      "fixture_id": "G2-05",
+      "expected_decisions": 1,
+      "outcome": "outcome_unknown",
+      "decision_correct": null,
+      "decision_adjudicable": null,
+      "claim_supported": null,
+      "claim_total": null,
+      "audited": false,
+      "generation_requests_sent": 1,
+      "http_status": 503,
+      "provider_response_id": null,
+      "reason": "PROVIDER_OUTCOME_UNKNOWN"
+    },
+    {
+      "fixture_id": "G2-06",
+      "expected_decisions": 1,
+      "outcome": "fresh_success",
+      "decision_correct": 1,
+      "decision_adjudicable": 1,
+      "claim_supported": 1,
+      "claim_total": 1,
+      "audited": true,
+      "generation_requests_sent": 1,
+      "http_status": 200,
+      "provider_response_id": "f0KwarmXG7PZvr0PjYDVsQY"
+    },
+    {
+      "fixture_id": "G2-07",
+      "expected_decisions": 1,
+      "outcome": "fresh_success",
+      "decision_correct": 1,
+      "decision_adjudicable": 1,
+      "claim_supported": 2,
+      "claim_total": 2,
+      "audited": true,
+      "generation_requests_sent": 1,
+      "http_status": 200,
+      "provider_response_id": "iUKwasKFIvit2roPt77J8Aw"
+    },
+    {
+      "fixture_id": "G2-08",
+      "expected_decisions": 1,
+      "outcome": "fresh_success",
+      "decision_correct": 1,
+      "decision_adjudicable": 1,
+      "claim_supported": 1,
+      "claim_total": 2,
+      "audited": true,
+      "generation_requests_sent": 1,
+      "http_status": 200,
+      "provider_response_id": "lUKwavzuE-ij2roPqafzwAw"
+    },
+    {
+      "fixture_id": "G2-09",
+      "expected_decisions": 1,
+      "outcome": "fresh_success",
+      "decision_correct": 1,
+      "decision_adjudicable": 1,
+      "claim_supported": 1,
+      "claim_total": 1,
+      "audited": true,
+      "generation_requests_sent": 1,
+      "http_status": 200,
+      "provider_response_id": "n0KwavCRA_if2roPgue8yQE"
+    },
+    {
+      "fixture_id": "G2-10",
+      "expected_decisions": 1,
+      "outcome": "fresh_success",
+      "decision_correct": 1,
+      "decision_adjudicable": 1,
+      "claim_supported": 2,
+      "claim_total": 2,
+      "audited": true,
+      "generation_requests_sent": 1,
+      "http_status": 200,
+      "provider_response_id": "qUKwareSCaf91e8P1M7eyQQ"
+    }
+  ],
+  "limitations": [
+    "This is a NEW separately frozen ten-case synthetic STD follow-up; never replace original STD v3 7/10 or 24/43 metrics or its HTTP 503.",
+    "Checklist agreement uses only adjudicable, audited fresh FINAL reports; failed/unknown/no-request cases remain in fixed ten-case coverage.",
+    "Source claim labels are post-run AI-assisted PROJECT audit judgments, not mechanically proven semantic truth or independent human ground truth.",
+    "An exact source quote is necessary for SOURCE_SUPPORTED but alone insufficient; uncertain meaning must be marked UNASSESSABLE.",
+    "Empty claim denominator produces a null traceability value, never an automatic 100%.",
+    "A confirmed HTTP failure, provider timeout, malformed response, or crash is never replaced by a retry or invented final report.",
+    "No complete deployed Drive, form, student population, UI, cache, or real-world testing authenticity was evaluated."
+  ]
+}

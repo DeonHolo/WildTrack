@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"missingRequiredSections\": [],\n  \"findings\": [\n    {\n      \"requirement\": \"The section named \\\"1.2 Test Approach\\\" MUST appear as a BODY heading with a substantive description of the planned example checks; a Table of Contents entry does not satisfy the body requirement.\",\n      \"source\": \"DELIVERABLE_REQUIREMENTS\",\n      \"issue\": \"The required section '1.2 Test Approach' is missing from the body of the document.\",\n      \"evidence\": \"The document body skips from section 1.1 to section 2.\"\n    }\n  ],\n  \"suggestedAction\": \"Add the missing '1.2 Test Approach' section to the body of the document and provide a substantive description of the planned example checks as required by the deliverable instructions.\",\n  \"summary\": \"The submitted Software Test Document (STD) is missing the mandatory '1.2 Test Approach' section in the body. All other structural elements are present and consistent with the provided template.\"\n}",
+            "thoughtSignature": "EnEKbwFpFH0TP8ngsn5gzLkL3MGXtdm+4lOcbhRiKAFUr4EntgDTyi3qgBnjw6ER4SWd0/mKYbgyELUjuQ358CWnOCjvJ2dX5mlG4/7O5xP2LHxsAi9tm8GgNz7t3YYiYlIJiZYwdVn9q9OkynLP9tYHlQ=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 2990,
+    "candidatesTokenCount": 215,
+    "totalTokenCount": 3205,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1926
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1064
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.1-flash-lite",
+  "responseId": "VUKwav2tIvux2roP08OeuAw"
+}

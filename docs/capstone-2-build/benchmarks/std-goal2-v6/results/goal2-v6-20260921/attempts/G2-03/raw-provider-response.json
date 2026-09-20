@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"missingRequiredSections\": [],\n  \"findings\": [\n    {\n      \"source\": \"DOCUMENT\",\n      \"issue\": \"The section '1.2 Test Approach' is listed in the Table of Contents but is missing from the body of the document.\",\n      \"evidence\": \"Page 1 contains the Table of Contents entry for '1.2 Test Approach', but page 2 skips directly from '1.1 System Overview' to '2. Test Plan'.\",\n      \"requirement\": \"\"\n    }\n  ],\n  \"suggestedAction\": \"Include the missing '1.2 Test Approach' section in the body of the document with a substantive description of the planned example checks as required by the instructions.\",\n  \"summary\": \"The submitted Software Test Document (STD) is missing the required '1.2 Test Approach' section in the body, despite its inclusion in the Table of Contents. All other sections are present and contain illustrative content.\"\n}",
+            "thoughtSignature": "EnEKbwFpFH0TNgB8gr4xK0i5j6HR6GdjzG62I30T5SNoSKXxq59NC+kTpmwpWQ18IhIenKk/1vlKrkNyA41Ql843AhsppPFNfuWzEj2+VIWU8qdONh/Qo+MelBqp5Bx16xBOaYEE2mdCjv60zMegXyE8Ow=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 2990,
+    "candidatesTokenCount": 206,
+    "totalTokenCount": 3196,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1926
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1064
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.1-flash-lite",
+  "responseId": "XkKwarOqL5qn1e8PzOCzoAM"
+}

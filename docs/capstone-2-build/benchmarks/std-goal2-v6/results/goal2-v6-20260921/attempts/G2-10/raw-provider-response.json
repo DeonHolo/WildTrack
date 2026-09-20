@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"suggestedAction\": \"Include a body section titled \\\"Test Approach\\\" that describes the planned hypothetical queue checks to satisfy the deliverable requirements.\",\n  \"findings\": [\n    {\n      \"evidence\": \"Page 2, Section 1\",\n      \"issue\": \"The document explicitly states that it omits the required Test Approach body section.\",\n      \"source\": \"DOCUMENT\",\n      \"requirement\": \"\"\n    }\n  ],\n  \"missingRequiredSections\": [\n    {\n      \"requirement\": \"This condition explicitly requires a BODY section named \\\"Test Approach\\\" in the submitted STD, describing which hypothetical queue checks are planned.\",\n      \"section\": \"Test Approach\",\n      \"source\": \"DELIVERABLE_REQUIREMENTS\"\n    }\n  ],\n  \"summary\": \"The submitted Software Test Document (STD) is missing the mandatory \\\"Test Approach\\\" body section. The document itself acknowledges this omission.\"\n}",
+            "thoughtSignature": "EnEKbwFpFH0TfbFou0PVxfsaCyn68PLzR4dy8pzAofMSo0/ytcNnfg64q3oMar7ejyCEPSq5b2Krd5uzEuZHgqugafzNj9ZwAK3xhS2GFciMbcDB0pKhWQnTBM8rxbuMJ/DuNlmH6tKvX0yARcO46+edSA=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 2353,
+    "candidatesTokenCount": 200,
+    "totalTokenCount": 2553,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1289
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1064
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.1-flash-lite",
+  "responseId": "qUKwareSCaf91e8P1M7eyQQ"
+}
