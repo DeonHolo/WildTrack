@@ -76,12 +76,14 @@ test('the AI planning template reports no provider attempts and no estimable agr
   const result = scoreAi(plan);
   assert.equal(result.attempt_outcomes.not_attempted, 10);
   assert.deepEqual(result.fresh_run_coverage, { numerator: 0, denominator: 10, value: 0 });
-  assert.equal(result.decision_agreement.value, null);
+  assert.equal(result.checklist_agreement.value, null);
   assert.equal(result.claim_traceability.value, null);
-  assert.equal(result.status, 'AWAITING_INDEPENDENT_ANSWER_KEY_REVIEW');
+  assert.equal(result.status, 'NOT_FROZEN_NO_PROVIDER_RESULTS');
+  assert.equal(result.gate.fixed_reference_decisions, 11);
+  assert.match(result.limitations.join(' '), /no independent human verification/i);
 });
 
-test('a claimed fresh run cannot be scored with pending labels or invented report data', () => {
+test('a claimed official provider attempt cannot precede the frozen project-defined reference', () => {
   const plan = JSON.parse(fs.readFileSync(path.join(directory, 'ai-run-record.template.json'), 'utf8'));
   const run = plan.runs[0];
   Object.assign(run, {
@@ -89,20 +91,17 @@ test('a claimed fresh run cannot be scored with pending labels or invented repor
     fixture_sha256: fixtures.get('STD-01').sha256,
     template_sha256: templateHash, app_commit: '8b7b07fd7bf0ac691777f870409307758a065f05'
   });
-  assert.throws(() => scoreAi(plan), /independently verified human labels/);
+  assert.throws(() => scoreAi(plan), /frozen reference key/);
   run.outcome = 'cache_hit';
   run.reason = 'Server served an existing cached report';
-  const result = scoreAi(plan);
-  assert.equal(result.attempt_outcomes.cache_hit, 1);
-  assert.equal(result.fresh_run_coverage.numerator, 0);
-  assert.equal(result.decision_agreement.denominator, 0);
+  assert.throws(() => scoreAi(plan), /frozen reference key/);
 });
 
 test('empty or duplicated AI run IDs fail without creating a plausible ten-attempt score', () => {
   const plan = JSON.parse(fs.readFileSync(path.join(directory, 'ai-run-record.template.json'), 'utf8'));
   plan.runs.push({ fixture_id: 'STD-01', outcome: 'not_attempted' });
-  assert.throws(() => scoreAi(plan), /Duplicate AI run fixture/);
+  assert.throws(() => scoreAi(plan), /Duplicate Goal 2 run fixture/);
   plan.runs.pop();
   plan.runs.push({ fixture_id: 'STD-24', outcome: 'not_attempted' });
-  assert.throws(() => scoreAi(plan), /Unplanned AI fixture/);
+  assert.throws(() => scoreAi(plan), /Unplanned Goal 2 fixture/);
 });

@@ -1,6 +1,7 @@
 {
-  "_instructions": "PLANNING TEMPLATE ONLY. No AI provider call, cache lookup, or substantive human claim adjudication is represented here. Copy this file to a separately named run record before actual attempts. Preserve the original outcome for each of ten IDs.",
-  "schema_version": 1,
+  "_instructions": "PLANNING TEMPLATE ONLY. No AI provider call, cache lookup, or independent human review is represented here. Project-defined PDF-grounded references are documented in ai-checklist.csv. Copy this file to a separate run record and attach a real pre-run frozen_key before the first planned provider attempt. Preserve all ten scheduled fixtures and preserve failures.",
+  "schema_version": 2,
+  "methodology": "PROJECT_DEFINED_REFERENCE_AI_ASSISTED",
   "runs": [
     { "fixture_id": "STD-01", "outcome": "not_attempted" },
     { "fixture_id": "STD-02", "outcome": "not_attempted" },
