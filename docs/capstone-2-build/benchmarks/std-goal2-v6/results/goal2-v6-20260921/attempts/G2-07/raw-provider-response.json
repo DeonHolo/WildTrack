@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"suggestedAction\": \"The submitted document describes a marketing campaign plan rather than a software test document. Please revise the content to align with the structure and purpose of a Software Test Document as defined in the provided template.\",\n  \"summary\": \"The submitted document is a marketing campaign plan rather than a Software Test Document (STD). It fails to include the required test-related sections and does not address the software testing objectives specified in the instructions.\",\n  \"missingRequiredSections\": [\n    {\n      \"requirement\": \"The section named \\\"1.2 Test Approach\\\" MUST appear as a BODY heading with a substantive description of the planned example checks\",\n      \"source\": \"DELIVERABLE_REQUIREMENTS\",\n      \"section\": \"1.2 Test Approach\"\n    }\n  ],\n  \"findings\": [\n    {\n      \"issue\": \"The document content describes a marketing campaign plan for a bakery instead of a software test document.\",\n      \"evidence\": \"Page 2, Section 1: 'Marketing Campaign Plan: develop a fictional advertising calendar for a bakery opening and target brand impressions, not software test cases.'\",\n      \"requirement\": \"\",\n      \"source\": \"DOCUMENT\"\n    }\n  ]\n}",
+            "thoughtSignature": "EnEKbwFpFH0TRFNEGiVa82GOFBW71+GxGc5s03MDfJBEdL0Bl01txNOUuDmbZyS6TIouPaIZik7Sk38jF4j2U+G8cv9195ufGe+5czu6UbGdr0SZwKUo4aexHXk7XgXCYXaenD+y89rmMxuoTLsl2A2AYA=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 2990,
+    "candidatesTokenCount": 261,
+    "totalTokenCount": 3251,
+    "promptTokensDetails": [
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1064
+      },
+      {
+        "modality": "TEXT",
+        "tokenCount": 1926
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.1-flash-lite",
+  "responseId": "iUKwasKFIvit2roPt77J8Aw"
+}

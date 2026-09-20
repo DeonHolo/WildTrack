@@ -1,0 +1,42 @@
+Software Test Document
+Project: QueueBoard | Synthetic case: QueueBoard
+SYNTHETIC FICTIONAL BENCHMARK. These example plans, expected outputs and scripted results are
+NOT records of executed software tests or student work.
+Table of Contents
+1. Introduction ............................. 2
+1.1 System Overview ............................. 2
+2. Test Plan ............................. 2
+2.1 Included Features ............................. 2
+2.2 Optional Illustration (Optional) ............................. 2
+3. Test Cases ............................. 2
+3.1 Inputs ............................. 2
+3.2 Expected Outputs ............................. 2
+3.3 Procedure ............................. 2
+4. Sample Observations ............................. 2
+1. Introduction
+The QueueBoard demo is an imaginary queue for fictional workshop requests. No actual users or software
+execution are represented.
+1.1 System Overview
+QueueBoard assigns illustrative slots to an imaginary workshop attendee and permits an imaginary
+coordinator to close a slot.
+2. Test Plan
+The test scope covers the imagined request and close flows only. No production service or real user is under
+test.
+2.1 Included Features
+QB-F01 allocates a sample slot for a nonempty label. QB-F02 rejects blank input. QB-F03 rejects closure
+without coordinator privileges.
+2.2 Optional Illustration (Optional)
+Optional only: a small decorative diagram may be added but is not necessary to describe queue checks.
+3. Test Cases
+The fictional cases below compare predetermined expected outputs with clearly invented scripted examples.
+3.1 Inputs
+Case QB-T01: DEMO-A with zero open slots. Case QB-T02: blank label. All values are invented.
+3.2 Expected Outputs
+Before any hypothetical run: QB-T01 expects OPEN S-001; QB-T02 expects REJECT_EMPTY without
+creating a slot.
+3.3 Procedure
+In a hypothetical isolated queue, enter the sample input and compare the scripted response with the expected
+output.
+4. Sample Observations
+SCRIPTED EXAMPLE ONLY: QB-T01 actual OPEN S-001; QB-T02 actual REJECT_EMPTY. No real
+software was exercised.

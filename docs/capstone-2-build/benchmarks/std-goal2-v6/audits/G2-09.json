@@ -1,0 +1,70 @@
+{
+  "fixture_id": "G2-09",
+  "final_report_sha256": "97cc50682a592124cddb4e789635d2c020324cbb06a766a3a0969c545cad0b98",
+  "decisions": [
+    {
+      "decision_id": "no-template-no-invented-mandate",
+      "observed": "absent",
+      "report_reference": "full_report",
+      "full_report_examined": true,
+      "notes": "Examined every final finding, missingRequiredSection, summary and suggestedAction; none asserts the prohibited case-specific missing/mandatory section or example-identity requirement.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT"
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "G2-09-findings_0_",
+      "report_reference": "findings[0]",
+      "text": "The document is explicitly identified as a synthetic fictional benchmark and does not represent executed software tests.",
+      "substantive": true,
+      "source_status": "SOURCE_SUPPORTED",
+      "source_kind": "pdf",
+      "source_excerpt": "SYNTHETIC FICTIONAL BENCHMARK. These example plans, expected outputs and scripted results are NOT records of executed software tests or student work.",
+      "source_reference": "source-text/G2-09.txt",
+      "source_assessment": "The PDF itself expressly disclaims actual executed software tests or student work. The final observation repeats that stated limitation only and does not assert a missing official-template heading under the generic no-template instructions.",
+      "notes": "Project AI-assisted post-run assessment of the entire fictional PDF and applicable authority, not a provider-quote auto-match or independent reviewer signoff.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT"
+    }
+  ],
+  "claim_inventory": {
+    "complete": true,
+    "final_report_sha256": "97cc50682a592124cddb4e789635d2c020324cbb06a766a3a0969c545cad0b98",
+    "method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+    "narrative_segments": {
+      "summary": [
+        {
+          "start": 0,
+          "end": 140,
+          "text": "Document evidence: The document is explicitly identified as a synthetic fictional benchmark and does not represent executed software tests. ",
+          "classification": "DERIVATIVE",
+          "derivative_of": "G2-09-findings_0_",
+          "notes": "This narrative sentence directly reproduces an already individually source-audited structured claim and adds no separate factual obligation."
+        },
+        {
+          "start": 140,
+          "end": 241,
+          "text": "No official template was supplied, so compliance with a specific template structure was not assessed.",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        }
+      ],
+      "suggestedAction": [
+        {
+          "start": 0,
+          "end": 92,
+          "text": "Review the cited document evidence before deciding what correction, if any, is appropriate. ",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        },
+        {
+          "start": 92,
+          "end": 217,
+          "text": "If a specific template structure is required, add the official template or state the requirement in Deliverable Instructions.",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        }
+      ]
+    },
+    "notes": "Individually examined every final structured claim, every summary sentence and every suggestedAction sentence against the complete source; duplicate summary references are derivative and generic action text is not a novel source claim."
+  }
+}

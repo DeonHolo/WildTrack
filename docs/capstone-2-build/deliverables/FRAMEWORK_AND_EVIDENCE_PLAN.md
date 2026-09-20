@@ -1,6 +1,6 @@
 # Framework and evidence plan
 
-**Status:** proposed evaluation design. It is not adviser-approved, not yet deployed as a hosted instrument, and contains no participant or benchmark results.
+**Status:** proposed evaluation design, not adviser-approved and not yet deployed as a hosted questionnaire. Controlled Goal 1 component and Goal 2 pilot evidence has been collected; real student/participant evidence remains pending. Goal 1 was scoped to the already completed component benchmark after its run; see `GOAL1_SCOPE_AMENDMENT_20260921.md`.
 
 ## Selected goal-led framework
 
@@ -22,7 +22,7 @@ The September 14 consultation says the SMART goals should come first and the fra
 
 This design therefore avoids using satisfaction or clarity ratings as proof that a SMART objective was achieved:
 
-- Objective 1 is measured from controlled Document Check fixtures.
+- Objective 1 is measured from the frozen controlled Document Check **component** fixture run, with simulated gateway cases disclosed; no new live Google Drive accuracy run is required by the clarified objective.
 - Objective 2 is measured from controlled AI Review fixtures.
 - Objective 3 is measured from real student submission/revision tasks and system evidence.
 - The questionnaire supplies supporting student/adviser/Admin feedback about the deployed MVP.
@@ -33,7 +33,7 @@ The course notes require framework endorsement before formal deployment. This pa
 
 | SMART goal | Operational question | Primary evidence | Primary metric | Questionnaire role |
 |---|---|---|---|---|
-| Objective 1: Document Check accuracy | Do applicable deterministic assertions match the frozen expected results across the STD benchmark? | controlled Document Check fixture manifest + run logs | assertion accuracy, execution coverage, FP/FN and precision/recall where defined | none; participant opinions do not score technical accuracy |
+| Objective 1: Document Check component classifications | Do the production PDF inspection/template comparison components and declared simulated gateway branches match the frozen project-defined labels across 52 STD assertions? | source-frozen component manifest + recorded 52-assertion run; separate scope-amendment record | project-reference classification agreement >=90%, execution coverage, per-signal FP/FN and precision/recall where defined | none; participant opinions and live screenshots do not score component accuracy |
 | Objective 2: AI Review grounded-content screening | Does AI Review identify frozen content issues without inventing requirements, and are substantive claims traceable to the PDF or supplied authority? | frozen ten-fixture fresh-run pilot + adjudication log | decision agreement, claim traceability, fresh-run coverage, provider/cache/quota outcomes | none; participant opinions do not score AI accuracy |
 | Objective 3: Student submission transaction correctness | Does WildTrack correctly reject the prescribed invalid attempt, save the valid student response under the correct record, and preserve the intended material revision? | controlled student task log + WildTrack system/readback evidence | STU_TXN_accuracy = C_STU_TXN / N_STU_TXN, target >= 95% | student survey is supporting feedback only |
 
@@ -161,7 +161,7 @@ For each route, verify:
 
 - [ ] GQM is labeled proposed and its primary Basili source is cited.
 - [ ] Adviser/framework endorsement is not falsely claimed.
-- [ ] Objective 1 uses the frozen Document Check benchmark and preserves execution failures.
+- [ ] Objective 1 uses the completed project-reference **component** benchmark, preserves scheduled failures, and discloses its post-observation scope amendment, known fixture population and simulated Drive branches.
 - [ ] Objective 2 uses the frozen fresh AI pilot and preserves cache/quota/provider outcomes.
 - [ ] Objective 3 is student-facing and scored from real WildTrack transaction evidence rather than survey opinion.
 - [ ] Objective 3 uses the frozen T1/T2 protocol and 95% transaction-correctness target.
@@ -286,4 +286,4 @@ For Objectives 1 and 2, report the exact benchmark denominators/coverage defined
 
 For questionnaire findings, report descriptive counts/distributions and de-identified themes. Do not call a clarity rating technical accuracy, transaction correctness, or measured usability speed.
 
-Until real collection and benchmark execution occur, report only the proposed design, completed documentation audits, and external prerequisites. A passing local documentation check does not prove adviser approval, participant collection, benchmark success, or final validation completion.
+Until real participant collection is complete, report completed technical results only with their measured scope and original run evidence. A passing local documentation check does not prove adviser approval, student-task success or final validation completion. A repeat full live Drive-path accuracy benchmark is not required by the clarified Goal 1.

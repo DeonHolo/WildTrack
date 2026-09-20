@@ -1,0 +1,41 @@
+{
+  "fixture_id": "G2-01",
+  "final_report_sha256": "7d47fbd5bf3c2413de8bbdb78192d0f76f383d97501d393d49018e8203f99419",
+  "decisions": [
+    {
+      "decision_id": "false-incompleteness",
+      "observed": "absent",
+      "report_reference": "full_report",
+      "full_report_examined": true,
+      "notes": "Examined every final finding, missingRequiredSection, summary and suggestedAction; none asserts the prohibited case-specific missing/mandatory section or example-identity requirement.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT"
+    }
+  ],
+  "claims": [],
+  "claim_inventory": {
+    "complete": true,
+    "final_report_sha256": "7d47fbd5bf3c2413de8bbdb78192d0f76f383d97501d393d49018e8203f99419",
+    "method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+    "narrative_segments": {
+      "summary": [
+        {
+          "start": 0,
+          "end": 99,
+          "text": "The AI review returned no grounded findings from the submitted PDF or supplied requirement sources.",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        }
+      ],
+      "suggestedAction": [
+        {
+          "start": 0,
+          "end": 68,
+          "text": "Review the PDF manually before giving feedback or making a decision.",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        }
+      ]
+    },
+    "notes": "Individually examined every final structured claim, every summary sentence and every suggestedAction sentence against the complete source; duplicate summary references are derivative and generic action text is not a novel source claim."
+  }
+}

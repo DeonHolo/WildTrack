@@ -1,0 +1,3 @@
+Requested deliverable: Software Test Document (STD).
+NO official template is mapped for this controlled fictional sample. Evaluate the submitted PDF as the document actually supplied; do not invent required section titles, implied template structure, mandatory real-test logs or a sample project name.
+Any illustrative outputs are fictional scripted examples, not evidence that a real application was executed. Do not infer academic completeness against an unseen SRS/SDD.

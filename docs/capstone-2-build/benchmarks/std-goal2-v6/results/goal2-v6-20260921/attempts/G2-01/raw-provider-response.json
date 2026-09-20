@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"summary\": \"The submitted Software Test Document for the QueueBoard project is structurally compliant with the provided synthetic template. All required sections are present and contain substantive illustrative content.\",\n  \"suggestedAction\": \"No further action is required as the document meets all specified structural and content requirements.\",\n  \"findings\": [],\n  \"missingRequiredSections\": []\n}",
+            "thoughtSignature": "EnEKbwFpFH0T3sHJqIbchrm68DKDEulnpVvkP2nTi4zja3qP0fvGVG3McNlMH1urn3AHGACfk+ZeFaicFCZptWYme6q3AXmfJJPBf91v+QGeFR19Dcb3/a8pUzlDIJUeLWo75msodmCdFweMDXKb9XJCCw=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 2990,
+    "candidatesTokenCount": 77,
+    "totalTokenCount": 3067,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1926
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1064
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.1-flash-lite",
+  "responseId": "PkKwaufWMouW9tMPneGuoAI"
+}

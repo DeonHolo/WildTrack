@@ -1,0 +1,59 @@
+{
+  "fixture_id": "G2-02",
+  "final_report_sha256": "efcc8cf3b36915bef815df598d0b226314dbf176937be82c7b0e431b28853d1e",
+  "decisions": [
+    {
+      "decision_id": "missing-approach-body",
+      "observed": "present",
+      "report_reference": "findings[0]",
+      "notes": "The exact identified FINAL report claim matches the pre-run case-specific controlled document condition and its separately frozen authority.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT"
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "G2-02-findings_0_",
+      "report_reference": "findings[0]",
+      "text": "The required section '1.2 Test Approach' is missing from the body of the document.",
+      "substantive": true,
+      "source_status": "SOURCE_SUPPORTED",
+      "source_kind": "deliverable_instructions",
+      "source_excerpt": "The section named \"1.2 Test Approach\" MUST appear as a BODY heading with a substantive description of the planned example checks",
+      "source_reference": "STD_V6_INSTRUCTIONS.txt",
+      "source_assessment": "The supplied instructions explicitly require a 1.2 Test Approach body heading. The complete extracted PDF body transitions from 1.1 System Overview to 2. Test Plan without that body heading, so the reported omission matches both sources.",
+      "notes": "Project AI-assisted post-run assessment of the entire fictional PDF and applicable authority, not a provider-quote auto-match or independent reviewer signoff.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+      "absence_audit": {
+        "full_document_examined": true,
+        "notes": "Checked the entire PDFBox-extracted G2-02 document including Table of Contents and all body headings. The substantive body does not contain a standalone Test Approach heading; this is not inferred solely from the source excerpt."
+      }
+    }
+  ],
+  "claim_inventory": {
+    "complete": true,
+    "final_report_sha256": "efcc8cf3b36915bef815df598d0b226314dbf176937be82c7b0e431b28853d1e",
+    "method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+    "narrative_segments": {
+      "summary": [
+        {
+          "start": 0,
+          "end": 112,
+          "text": "Grounded requirement finding: The required section '1.2 Test Approach' is missing from the body of the document.",
+          "classification": "DERIVATIVE",
+          "derivative_of": "G2-02-findings_0_",
+          "notes": "This narrative sentence directly reproduces an already individually source-audited structured claim and adds no separate factual obligation."
+        }
+      ],
+      "suggestedAction": [
+        {
+          "start": 0,
+          "end": 114,
+          "text": "Confirm the cited Deliverable Instructions or official-template passages before giving requirement-based feedback.",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        }
+      ]
+    },
+    "notes": "Individually examined every final structured claim, every summary sentence and every suggestedAction sentence against the complete source; duplicate summary references are derivative and generic action text is not a novel source claim."
+  }
+}

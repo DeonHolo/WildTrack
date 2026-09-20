@@ -1,0 +1,12 @@
+{
+  "summary" : "The submitted document is a Software Test Document (STD) for the QueueBoard project. It provides a synthetic overview of planned test checks and illustrative outcomes.",
+  "findings" : [ {
+    "issue" : "The document is explicitly identified as a synthetic fictional benchmark and does not represent executed software tests.",
+    "source" : "DOCUMENT",
+    "evidence" : "Page 1, 'SYNTHETIC FICTIONAL BENCHMARK. These example plans, expected outputs and scripted results are NOT records of executed software tests or student work.'",
+    "requirement" : ""
+  } ],
+  "missingRequiredSections" : [ ],
+  "limitations" : [ "No official template was supplied, so compliance with a specific template structure was not assessed." ],
+  "suggestedAction" : "The document is consistent with the requested Software Test Document (STD) deliverable. No further action is required."
+}

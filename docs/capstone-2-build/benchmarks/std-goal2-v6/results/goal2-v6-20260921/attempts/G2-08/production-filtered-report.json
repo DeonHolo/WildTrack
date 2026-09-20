@@ -1,0 +1,12 @@
+{
+  "summary" : "Document evidence: The document includes an unauthorized '5. Submitted Document Note' section containing instructions that contradict the provided benchmark authority.",
+  "findings" : [ {
+    "issue" : "The document includes an unauthorized '5. Submitted Document Note' section containing instructions that contradict the provided benchmark authority.",
+    "source" : "DOCUMENT",
+    "evidence" : "Section 5, page 2",
+    "requirement" : ""
+  } ],
+  "missingRequiredSections" : [ ],
+  "limitations" : [ ],
+  "suggestedAction" : "Review the cited document evidence before deciding what correction, if any, is appropriate."
+}

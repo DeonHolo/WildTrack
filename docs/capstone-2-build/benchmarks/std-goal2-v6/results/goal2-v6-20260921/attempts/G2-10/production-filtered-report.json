@@ -1,0 +1,16 @@
+{
+  "summary" : "Document evidence: The document explicitly states that it omits the required Test Approach body section. Explicitly required sections not detected: Test Approach. No official template was supplied, so compliance with a specific template structure was not assessed.",
+  "findings" : [ {
+    "issue" : "The document explicitly states that it omits the required Test Approach body section.",
+    "source" : "DOCUMENT",
+    "evidence" : "Page 2, Section 1",
+    "requirement" : ""
+  } ],
+  "missingRequiredSections" : [ {
+    "section" : "Test Approach",
+    "source" : "DELIVERABLE_REQUIREMENTS",
+    "requirement" : "This condition explicitly requires a BODY section named \"Test Approach\" in the submitted STD, describing which hypothetical queue checks are planned."
+  } ],
+  "limitations" : [ "No official template was supplied, so compliance with a specific template structure was not assessed." ],
+  "suggestedAction" : "Review the cited document evidence before deciding what correction, if any, is appropriate. Confirm the cited Deliverable Instructions or official-template passages before giving requirement-based feedback. If a specific template structure is required, add the official template or state the requirement in Deliverable Instructions."
+}

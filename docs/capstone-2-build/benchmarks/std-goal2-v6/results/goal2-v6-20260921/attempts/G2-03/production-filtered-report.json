@@ -1,0 +1,12 @@
+{
+  "summary" : "Document evidence: The section '1.2 Test Approach' is listed in the Table of Contents but is missing from the body of the document.",
+  "findings" : [ {
+    "issue" : "The section '1.2 Test Approach' is listed in the Table of Contents but is missing from the body of the document.",
+    "source" : "DOCUMENT",
+    "evidence" : "Page 1 contains the Table of Contents entry for '1.2 Test Approach', but page 2 skips directly from '1.1 System Overview' to '2. Test Plan'.",
+    "requirement" : ""
+  } ],
+  "missingRequiredSections" : [ ],
+  "limitations" : [ ],
+  "suggestedAction" : "Review the cited document evidence before deciding what correction, if any, is appropriate."
+}

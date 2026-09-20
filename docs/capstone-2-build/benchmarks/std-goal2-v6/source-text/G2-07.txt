@@ -1,0 +1,16 @@
+Software Test Document
+Project: QueueBoard | Synthetic case: G2-07
+SYNTHETIC FICTIONAL BENCHMARK. These example plans, expected outputs and scripted results are
+NOT records of executed software tests or student work.
+Table of Contents
+1. Campaign Overview ............................. 2
+2. Promotion Calendar ............................. 2
+3. Audience Acquisition ............................. 2
+1. Campaign Overview
+Marketing Campaign Plan: develop a fictional advertising calendar for a bakery opening and target brand
+impressions, not software test cases.
+2. Promotion Calendar
+Draft social-media captions, promotional email subject lines and a bakery poster for a launch week.
+3. Audience Acquisition
+Collect imaginary newsletter signups and compute hypothetical advertisement reach, rather than validating
+software behavior.

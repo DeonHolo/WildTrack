@@ -6,7 +6,7 @@
 
 WildTrack MVP validation evaluates three primary objectives:
 
-1. Document Check deterministic accuracy on a frozen controlled fixture set.
+1. Document Check project-reference component classifications on a frozen controlled fixture set (post-benchmark scope clarification; no live Drive accuracy claim).
 2. AI Review grounded-content screening on a frozen fresh-run pilot.
 3. Student submission transaction correctness using the Refactored SRS T1/T2 controlled task.
 
@@ -18,26 +18,26 @@ Role-specific questionnaire feedback is descriptive supporting evidence and does
 - Eligible students completing Objective 3 tasks: `[pending real data]`
 - Adviser respondents: `[pending real data]`
 - Admin/beneficiary evidence: Sir Ralph Laviste September 14 consultation, plus `[any real supplemental follow-up if collected]`
-- Document Check frozen fixtures executed: `[pending Ticket 10]`
+- Document Check component benchmark: 25 families / 30 conditions; 52/52 recorded classifications matched the frozen project-defined reference.
 - AI Review fresh pilot fixtures executed: `[pending Ticket 10/provider availability]`
 
 State withdrawals, exclusions and unassessable cases separately.
 
-## 3. Objective 1 - Document Check accuracy
+## 3. Objective 1 - Document Check component classifications
 
-Target and denominator: `[copy exact frozen target/denominator from SMART_OBJECTIVES.md and SCORING_AND_CODEBOOK.md]`
+Clarified target (owner decision **after** the benchmark): >=90% agreement with the frozen project-defined **component** reference across 52 applicable assertions. The original broader objective, scope change and underlying unchanged run are documented in `GOAL1_SCOPE_AMENDMENT_20260921.md`.
 
 Results:
 
-- Scored assertions: `[pending]`
-- Correct assertions: `[pending]`
-- Accuracy: `[pending]`
+- Scored assertions: **52**
+- Matching classifications: **52**
+- Project-reference agreement: **52/52 = 100%**
 - False positives: `[pending]`
 - False negatives: `[pending]`
-- Execution/unassessable cases: `[pending]`
-- Target met: `[pending]`
+- Execution coverage: **52/52 = 100%**; 0 unassessable classifications in this run.
+- Clarified component target reached: **yes**, subject to approval of the revised academic scope.
 
-Representative evidence and limitations: `[pending actual run evidence]`
+Representative evidence and limitations: `benchmarks/std/results/goal1-project-reference-r2-20260921/`. The original result status `PROJECT_DEFINED_COMPONENT_RESULT_NOT_END_TO_END_GOAL_1` remains unchanged. The benchmark uses familiar synthetic fixtures, AI-assisted/project-authored expected labels and four simulated gateway conditions, **not** live provider permissions or independently verified student-document accuracy. Do not present an existing successful deployed Document Check screenshot as part of the 52-assertion denominator or invent live evidence. Add observed screenshots here only if actually available.
 
 ## 4. Objective 2 - AI Review grounded-content screening
 

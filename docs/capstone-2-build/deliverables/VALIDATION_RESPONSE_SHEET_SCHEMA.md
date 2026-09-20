@@ -87,11 +87,11 @@ Working target: `>= 0.95`.
 
 Also report unique eligible students, total scheduled tasks, scored tasks, both-tasks-pass students, assertion-level failures, withdrawals, unassessable cases and runtime errors.
 
-## Tab 4 - Document Check Benchmark
+## Tab 4 - Document Check Component Benchmark
 
 One row per frozen fixture/assertion pair or a normalized fixture row plus assertion child table.
 
-Minimum fields: fixture_id, fixture_version/hash, expected finding, observed finding, assertion_type, TP/FP/TN/FN/not-assessable, run timestamp, checker version/commit, template version/hash, execution error, notes.
+Minimum fields: fixture_id, fixture_version/hash, expected finding, observed finding, assertion_type, TP/FP/TN/FN/not-assessable, run timestamp, checker version/commit, template version/hash, execution error, notes. Use the **already recorded 52/52 project-reference component run** and link `GOAL1_SCOPE_AMENDMENT_20260921.md` as a **post-observation** scope clarification. Flag gateway mocks as simulated and do not count optional deployed-MVP screenshots in the 52-assertion denominator or invent new live-Drive results.
 
 ## Tab 5 - AI Review Pilot
 
@@ -103,7 +103,7 @@ Cached results are never counted as fresh pilot executions.
 
 Populate only after collection. Suggested outputs:
 
-- Objective 1 assertion accuracy and coverage with FP/FN counts;
+- Objective 1 component-reference agreement (52/52), coverage (52/52), applicable per-signal FP/FN and its post-benchmark scope clarification;
 - Objective 2 decision agreement, traceability and fresh-run coverage;
 - Objective 3 C_STU_TXN, N_STU_TXN, STU_TXN_accuracy and both-tasks-pass count;
 - questionnaire counts/distributions by role;

@@ -1,0 +1,87 @@
+{
+  "fixture_id": "G2-07",
+  "final_report_sha256": "0b55b5ba77ac43286b2f59eb7cccc586a52422546a825bb39b5b69449fbb26f5",
+  "decisions": [
+    {
+      "decision_id": "wrong-deliverable-body",
+      "observed": "present",
+      "report_reference": "findings[0]",
+      "notes": "The exact identified FINAL report claim matches the pre-run case-specific controlled document condition and its separately frozen authority.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT"
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "G2-07-findings_0_",
+      "report_reference": "findings[0]",
+      "text": "The document content describes a marketing campaign plan for a bakery instead of a software test document.",
+      "substantive": true,
+      "source_status": "SOURCE_SUPPORTED",
+      "source_kind": "pdf",
+      "source_excerpt": "Marketing Campaign Plan: develop a fictional advertising calendar for a bakery opening",
+      "source_reference": "source-text/G2-07.txt",
+      "source_assessment": "The submitted PDF body actually describes a bakery marketing campaign, advertisement calendar, promotional copy and audience reach, not software test cases. The finding identifies the body mismatch despite the generic Software Test Document cover.",
+      "notes": "Project AI-assisted post-run assessment of the entire fictional PDF and applicable authority, not a provider-quote auto-match or independent reviewer signoff.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT"
+    },
+    {
+      "claim_id": "G2-07-missingRequiredSections_0_",
+      "report_reference": "missingRequiredSections[0]",
+      "text": "1.2 Test Approach",
+      "substantive": true,
+      "source_status": "SOURCE_SUPPORTED",
+      "source_kind": "deliverable_instructions",
+      "source_excerpt": "The section named \"1.2 Test Approach\" MUST appear as a BODY heading with a substantive description of the planned example checks",
+      "source_reference": "STD_V6_INSTRUCTIONS.txt",
+      "source_assessment": "The applicable instructions specifically require Test Approach as a body heading. The entire marketing-plan PDF body has campaign, calendar and audience sections but no 1.2 Test Approach body section; the separate missing-section observation is supported.",
+      "notes": "Project AI-assisted post-run assessment of the entire fictional PDF and applicable authority, not a provider-quote auto-match or independent reviewer signoff.",
+      "audit_method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+      "absence_audit": {
+        "full_document_examined": true,
+        "notes": "Checked the entire PDFBox-extracted G2-07 document including Table of Contents and all body headings. The substantive body does not contain a standalone Test Approach heading; this is not inferred solely from the source excerpt."
+      }
+    }
+  ],
+  "claim_inventory": {
+    "complete": true,
+    "final_report_sha256": "0b55b5ba77ac43286b2f59eb7cccc586a52422546a825bb39b5b69449fbb26f5",
+    "method": "PROJECT_AI_ASSISTED_SOURCE_AUDIT",
+    "narrative_segments": {
+      "summary": [
+        {
+          "start": 0,
+          "end": 126,
+          "text": "Document evidence: The document content describes a marketing campaign plan for a bakery instead of a software test document. ",
+          "classification": "DERIVATIVE",
+          "derivative_of": "G2-07-findings_0_",
+          "notes": "This narrative sentence directly reproduces an already individually source-audited structured claim and adds no separate factual obligation."
+        },
+        {
+          "start": 126,
+          "end": 187,
+          "text": "Explicitly required sections not detected: 1.2 Test Approach.",
+          "classification": "DERIVATIVE",
+          "derivative_of": "G2-07-missingRequiredSections_0_",
+          "notes": "This narrative sentence directly reproduces an already individually source-audited structured claim and adds no separate factual obligation."
+        }
+      ],
+      "suggestedAction": [
+        {
+          "start": 0,
+          "end": 92,
+          "text": "Review the cited document evidence before deciding what correction, if any, is appropriate. ",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        },
+        {
+          "start": 92,
+          "end": 206,
+          "text": "Confirm the cited Deliverable Instructions or official-template passages before giving requirement-based feedback.",
+          "classification": "BOILERPLATE",
+          "notes": "This is a bounded generic reviewer instruction or supplied-template limitation, not a novel document-content allegation."
+        }
+      ]
+    },
+    "notes": "Individually examined every final structured claim, every summary sentence and every suggestedAction sentence against the complete source; duplicate summary references are derivative and generic action text is not a novel source claim."
+  }
+}
