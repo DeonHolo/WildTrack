@@ -1,6 +1,6 @@
 # MVP Validation Highlights
 
-**Status:** analysis structure only. Do not replace bracketed fields with invented results.
+**Status:** working outline; the populated, evidence-linked working report is `MVP_VALIDATION_HIGHLIGHTS_DRAFT.md`. Keep unknown participant and Goal 3 cells pending until genuine results exist.
 
 ## 1. Validation scope
 
@@ -19,7 +19,7 @@ Role-specific questionnaire feedback is descriptive supporting evidence and does
 - Adviser respondents: `[pending real data]`
 - Admin/beneficiary evidence: Sir Ralph Laviste September 14 consultation, plus `[any real supplemental follow-up if collected]`
 - Document Check component benchmark: 25 families / 30 conditions; 52/52 recorded classifications matched the frozen project-defined reference.
-- AI Review fresh pilot fixtures executed: `[pending Ticket 10/provider availability]`
+- AI Review new v6 follow-up: 10/10 cases attempted once; 9/10 fresh final reports; one HTTP 503, not retried.
 
 State withdrawals, exclusions and unassessable cases separately.
 
@@ -32,8 +32,8 @@ Results:
 - Scored assertions: **52**
 - Matching classifications: **52**
 - Project-reference agreement: **52/52 = 100%**
-- False positives: `[pending]`
-- False negatives: `[pending]`
+- False positives across applicable per-signal binary confusion matrices: **0** in the recorded component run.
+- False negatives across applicable per-signal binary confusion matrices: **0** in the recorded component run.
 - Execution coverage: **52/52 = 100%**; 0 unassessable classifications in this run.
 - Clarified component target reached: **yes**, subject to approval of the revised academic scope.
 
@@ -43,15 +43,15 @@ Representative evidence and limitations: `benchmarks/std/results/goal1-project-r
 
 Results:
 
-- Fresh scored runs: `[pending]`
-- Cached/non-fresh runs excluded from fresh denominator: `[pending]`
-- Decision agreement: `[pending]`
-- Traceable substantive claims: `[pending]`
-- Unsupported claims: `[pending]`
-- Quota/provider failures: `[pending]`
-- Target met: `[pending]`
+- New v6 fresh final reports: **9/10** (one failed provider attempt retained in coverage denominator).
+- Cached/non-fresh runs: **0 cached substitute reports**; one actual HTTP 503 with unknown generation outcome.
+- New v6 decision agreement: **9/9 = 100%** among successful final reports.
+- New v6 traceable substantive claims: **10/11 = 90.9%**, with one unassessable narrative fragment.
+- New v6 unsupported substantive claims: **0** in this project-defined audit.
+- New v6 provider failures: **1/10 HTTP 503**.
+- New v6 descriptive thresholds reached: **85% checklist agreement and 90% claim traceability**, conditional on this distinct synthetic cohort.
 
-Do not claim general AI accuracy beyond the frozen fixture scope.
+The original v3 STD pilot remains **7/10 (70%) checklist agreement and 24/43 (55.8%) claim support**, below its targets. Do not blend cohorts or claim general AI accuracy beyond the applicable synthetic fixture scope.
 
 ## 5. Objective 3 - Student submission transaction correctness
 

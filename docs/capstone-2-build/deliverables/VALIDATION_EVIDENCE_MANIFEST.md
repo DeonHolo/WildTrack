@@ -1,6 +1,6 @@
 # WildTrack MVP validation evidence manifest
 
-**Status:** prepared-local folder and naming plan. This file does not imply the folders contain real participant evidence yet.
+**Status:** prepared-local folder and naming plan. The technical benchmark records and a real September 14 stakeholder consultation exist; the owner has distributed the actual Google Form and shown its connected response Sheet. This file does not imply that the Drive evidence folders or complete participant evidence have been created or uploaded. Use `EVIDENCE_INDEX_WORKING.md` for concrete available source paths and outstanding entries.
 
 ## Recommended structure
 

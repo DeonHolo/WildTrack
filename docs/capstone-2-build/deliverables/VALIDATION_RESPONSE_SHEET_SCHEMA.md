@@ -1,10 +1,10 @@
 # Validation response and analysis sheet schema
 
-**Status:** prepared-local. No participant rows are included. Keep the Google Forms response tab raw and create analysis tabs separately.
+**Status:** the actual Google Form and its connected response spreadsheet already exist; the owner's screenshot shows a `Form_Responses` tab with at least one row. This repository file is a **schema**, not a live export or verified respondent count. Keep the actual Google Forms response tab raw and create analysis tabs separately; `prepare_existing_response_analysis.gs` prepares derived sheets in the existing spreadsheet after a read-only preview.
 
 ## Tab 1 - Google Form Responses (raw)
 
-Owned by Google Forms. Do not manually rewrite, sort in place, or add research scoring formulas to this tab during collection.
+Owned by Google Forms. The real connected tab is named `Form_Responses`. Do not manually rewrite, sort in place, or add research scoring formulas to this tab during collection.
 
 Expected questionnaire fields are defined in `QUESTIONNAIRE.md`. Preferred settings keep email collection off and do not use a respondent-created participant code.
 

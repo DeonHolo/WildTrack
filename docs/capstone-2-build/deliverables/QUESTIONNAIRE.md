@@ -1,8 +1,8 @@
 # Copy-ready Google Forms questionnaire
 
-**Status:** proposed research instrument for the WildTrack MVP evaluation round. It is not adviser-approved, is not yet published, and is not evidence that anyone has responded.
+**Status:** source draft for the **already created and distributed** WildTrack MVP Evaluation Google Form. The owner showed its connected `WildTrack MVP Evaluation - Responses` spreadsheet and the live `Form_Responses` tab containing at least one response. This repository copy is not a verified export of the live form; actual wording/route changes must be compared with the live form before analysis. Do **not** create or distribute a replacement or edit the live instrument mid-collection based on this draft. Adviser/framework endorsement has not been verified.
 
-This is the respondent-facing Google Form to build manually. It supplies role-specific MVP feedback. It does **not** score Document Check accuracy, AI Review accuracy, or Objective 3 student transaction correctness. Objective 3 is scored from the separate controlled WildTrack task log and system evidence.
+This is the questionnaire's copy-ready source, retained for reproducibility after the original Form was published. It supplies role-specific MVP feedback. It does **not** score Document Check accuracy, AI Review accuracy, or Objective 3 student transaction correctness. Objective 3 is scored from the separate controlled WildTrack task log and system evidence.
 
 ## Form title and description
 

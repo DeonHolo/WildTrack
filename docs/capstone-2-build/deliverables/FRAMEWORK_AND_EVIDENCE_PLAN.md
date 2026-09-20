@@ -1,6 +1,6 @@
 # Framework and evidence plan
 
-**Status:** proposed evaluation design, not adviser-approved and not yet deployed as a hosted questionnaire. Controlled Goal 1 component and Goal 2 pilot evidence has been collected; real student/participant evidence remains pending. Goal 1 was scoped to the already completed component benchmark after its run; see `GOAL1_SCOPE_AMENDMENT_20260921.md`.
+**Status:** proposed GQM evaluation design, not adviser-endorsed. The real Google Form is **already deployed/distributed** and its linked `Form_Responses` spreadsheet was shown receiving responses; this source plan does not establish a final count, independently verify every live question, or authorize changing the live instrument. Controlled Goal 1 component and Goal 2 pilot evidence is recorded; real student transaction/questionnaire analysis remains to be retrieved and scored. Goal 1 was scoped to the already completed component benchmark **after** its run; see `GOAL1_SCOPE_AMENDMENT_20260921.md`.
 
 ## Selected goal-led framework
 
@@ -137,9 +137,9 @@ STU_TXN_accuracy >= 0.95
 
 Keep system/runtime failures visible. Report unique students, total scheduled/scored transactions, assertion failures, students whose two tasks both passed, withdrawals, and unassessable conditions.
 
-## Google Forms dry-run
+## Google Forms route verification (the Form has already been distributed)
 
-Before recruitment, submit dummy responses for these routes:
+The original pre-distribution plan called for checking these routes. **Do not inject dummy rows or alter the active Form during ongoing collection.** If route verification already occurred, file genuine pre-collection screenshots/logs; if not, compare current live Form configuration in read-only editor/preview and document the limitation before any separate test session. The six planned routes were:
 
 1. Student controlled-task participant.
 2. Student other-current-use feedback.
@@ -155,7 +155,7 @@ For each route, verify:
 - no respondent-facing internal item codes appear;
 - optional comments may be left blank;
 - student options do not mention student-invisible AI Review explanation or submission/history UI;
-- dummy rows are tagged/deleted before real analysis.
+- any pre-existing dummy rows can be identified from actual recorded testing evidence without treating real participant rows as disposable; do not delete active live response data.
 
 ## Reviewer checklist
 
