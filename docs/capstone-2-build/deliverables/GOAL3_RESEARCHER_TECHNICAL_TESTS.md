@@ -1,6 +1,6 @@
 # Goal 3: separate researcher-controlled technical checks
 
-**Working protocol, 2026-09-22. Not an executed test report.** The owner removed the research-only `Validation Step` question from the live WildTrack Refactored SRS form after the original mandatory T1/T2 research method was superseded. The question is no longer a prerequisite or an editing target. Historical versions and any saved old values remain historical evidence. This technical test protocol concerns actual application behavior, not the Google Form questionnaire or its response tab.
+**Working protocol, 2026-09-22.** The owner removed the research-only `Validation Step` question from the live WildTrack Refactored SRS form after the original mandatory T1/T2 research method was superseded. The question is no longer a prerequisite or an editing target. Historical versions and any saved old values remain historical evidence. A deterministic **local mocked-Drive** test run has now been executed and separately reported in `GOAL3_RESEARCHER_LOCAL_RUN_20260922.md`. Its local PASS results do not establish real Google Drive provider or deployed browser behavior; the full external-provider stage described below has **not** been executed. This protocol concerns actual application behavior, not the Google Form questionnaire or its response tab.
 
 ## Scope and safety
 

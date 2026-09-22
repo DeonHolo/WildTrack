@@ -59,7 +59,7 @@ Sources: `docs/capstone-2-build/benchmarks/std/results/goal2-20260921/README.md`
 | INITIAL_SAVED_CORRECTNESS = C_INITIAL / N_INITIAL | **[pending; not estimable if N=0]** |
 | Proposed >=95% numerical target within the SAVED-record scope | **[pending; adviser review of changed metric required]** |
 | FAIL / UNVERIFIED, consent/exclusion and absent original-version/readback evidence | **[pending; report distinct categories]** |
-| Separate researcher-controlled blank-link, DOCX/non-PDF, edit/revision tests | **[pending; do not count as student evidence]** |
+| Separate researcher-controlled blank-link, DOCX/non-PDF, edit/revision tests | **Isolated local automated run completed 2026-09-22: 3/3 backend tests and 2/2 frontend validator tests PASS; Drive metadata for DOCX was MOCKED, synthetic PDF A/B bytes were genuinely parsed, and local H2 persistence/history assertions were exercised. Live Google Drive provider/deployed browser scenarios remain NOT RUN. Neither result counts as student Goal 3 evidence.** See `GOAL3_RESEARCHER_LOCAL_RUN_20260922.md`. |
 
 Source to populate later: the **new** restricted Goal 3 Task Log in the existing response spreadsheet, genuine initial version/association/readback records, independent consent basis and `SCORING_AND_CODEBOOK.md`. The old temporary Admin Validation Study export is a T1/T2 diagnostic and **does not supply a valid new Goal 3 pass rate**. The revised metric explicitly conditions on saved records: failed or abandoned attempts without a saved record cannot be represented by its denominator. A student's response saying they completed both tasks is a self-report, not proof of two actual persisted transactions.
 
