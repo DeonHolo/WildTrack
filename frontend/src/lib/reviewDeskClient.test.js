@@ -91,6 +91,19 @@ it('fails fast after an AI endpoint 401 without repeating paid requests or decla
   expect(ai.saved).not.toHaveBeenCalled();
 });
 
+it('surfaces a forbidden AI POST without claiming session expiry or automatically repeating generation', async () => {
+  ai.start.mockRejectedValueOnce(Object.assign(new Error('Request failed with status 403'), { status: 403 }));
+  const result = await runAiReview('workspace', 'response', 'field-pdf');
+
+  expect(result).toMatchObject({ ok: false, pauseBatch: true, authenticationRequired: false,
+    error: expect.stringContaining('returned HTTP 403') });
+  expect(result.error).toContain('XSRF cookie/security header or insufficient access');
+  expect(result.error).toContain('Check saved reviews');
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.saved).not.toHaveBeenCalled();
+  expect(ai.session).not.toHaveBeenCalled();
+});
+
 it('recovers a transient polling 401 with one read-only retry only after Administrator session verification', async () => {
   vi.useFakeTimers();
   ai.start.mockResolvedValueOnce({ status: 'RUNNING', fieldId: 'field-pdf', reused: false });
