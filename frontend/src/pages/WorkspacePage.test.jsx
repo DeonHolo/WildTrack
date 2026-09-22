@@ -7,7 +7,7 @@ import { wildTrackTheme } from '../app/theme.js';
 import { WorkspacePage } from './WorkspacePage.jsx';
 
 const workflow = vi.hoisted(() => ({
-  session: { authenticated: true, email: 'admin@school.edu' },
+  session: { authenticated: true, email: 'admin@school.edu', roles: ['ADMIN'] },
   activeWorkspace: { id: 'workspace-it', name: 'IT Capstone - IT332', program: 'IT', courseCode: 'IT332', semester: 'Semester 2', academicYear: '2025-26' },
   activeWorkspaceId: 'workspace-it',
   workspaces: [
@@ -28,7 +28,9 @@ const workflow = vi.hoisted(() => ({
   refreshBackendData: vi.fn(),
   reset: vi.fn(),
   saveTemplate: vi.fn(),
-  removeTemplate: vi.fn()
+  removeTemplate: vi.fn(),
+  getFileMonitorSettings: vi.fn(),
+  setFileMonitorSettings: vi.fn()
 }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
@@ -79,6 +81,8 @@ vi.mock('../lib/academicDataClient.js', () => ({
   saveAcademicRows: vi.fn()
 }));
 vi.mock('../lib/api.js', () => ({
+  getFileMonitorSettings: (...args) => workflow.getFileMonitorSettings(...args),
+  setFileMonitorSettings: (...args) => workflow.setFileMonitorSettings(...args),
   getDriveConnectionStatus: vi.fn().mockResolvedValue({ configured: true, message: 'Google Drive connected.' }),
   getDocumentTemplateFileUrl: vi.fn(() => '/api/templates/template/file'),
   getStaffProfiles: vi.fn().mockResolvedValue([
@@ -252,7 +256,7 @@ function workspaceTree(initialEntry = '/workspace', pageProps = {}) {
 describe('workspace operations', () => {
   beforeEach(() => {
     workflow.activeWorkspaceId = 'workspace-it';
-    workflow.session = { authenticated: true, email: 'admin@school.edu' };
+    workflow.session = { authenticated: true, email: 'admin@school.edu', roles: ['ADMIN'] };
     workflow.activeWorkspace = { id: 'workspace-it', name: 'IT Capstone - IT332', program: 'IT', courseCode: 'IT332', semester: 'Semester 2', academicYear: '2025-26', active: true };
     workflow.workspaces = [
       workflow.activeWorkspace,
@@ -265,6 +269,8 @@ describe('workspace operations', () => {
     workflow.state = createState();
     Object.values(workflow).forEach((value) => value?.mockReset?.());
     workflow.refreshWorkspaceManagementCatalog.mockResolvedValue({ ok: true, workspaces: workflow.allWorkspaces });
+    workflow.getFileMonitorSettings.mockResolvedValue({ enabled: false, configured: true });
+    workflow.setFileMonitorSettings.mockImplementation(async (_workspaceId, enabled) => ({ enabled, configured: true }));
     workflow.loadArchiveReadiness.mockResolvedValue({
       responseCount: 0,
       archivedResponseCount: 0,
@@ -296,6 +302,103 @@ describe('workspace operations', () => {
       state: createState(),
       importSummary: { sourceType: sourceType === 'teamFormation' ? 'Team Formation' : sourceType === 'projectMonitor' ? 'Software Project Monitor' : 'Tracker', suggestedForms: [], mappings: [] }
     }));
+  });
+
+  it('loads the selected workspace monitoring setting as OFF and enables it only after server confirmation', async () => {
+    let finish;
+    workflow.setFileMonitorSettings.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    renderPage();
+    const monitor = screen.getByRole('region', { name: 'Deadline PDF monitoring' });
+    const enable = await within(monitor).findByRole('button', { name: 'Enable monitoring' });
+    await waitFor(() => expect(enable).toBeEnabled());
+    expect(within(monitor).getByText('Disabled')).toBeInTheDocument();
+    expect(workflow.getFileMonitorSettings).toHaveBeenCalledWith('workspace-it');
+    fireEvent.click(enable);
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', true));
+    expect(within(monitor).getByText('Disabled')).toBeInTheDocument();
+    expect(within(monitor).getByRole('button', { name: 'Enable monitoring' })).toBeDisabled();
+    await act(async () => finish({ enabled: true, configured: true }));
+    expect(within(monitor).getByText('Enabled')).toBeInTheDocument();
+    fireEvent.click(within(monitor).getByRole('button', { name: 'Disable monitoring' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false));
+    expect(within(monitor).getByText('Disabled')).toBeInTheDocument();
+    expect(within(monitor).getByText(/does not poll Google Sheets or change acceptance decisions/)).toBeInTheDocument();
+  });
+
+  it('shows a loading state and does not guess monitoring is disabled before backend responds', async () => {
+    workflow.getFileMonitorSettings.mockImplementation(() => new Promise(() => {}));
+    renderPage();
+    const monitor = screen.getByRole('region', { name: 'Deadline PDF monitoring' });
+    expect(within(monitor).getByText('Loading monitoring setting…')).toBeInTheDocument();
+    expect(within(monitor).queryByRole('button', { name: 'Enable monitoring' })).not.toBeInTheDocument();
+    expect(workflow.setFileMonitorSettings).not.toHaveBeenCalled();
+  });
+
+  it('prevents enabling when Drive checking is unavailable but permits disabling an already enabled monitor', async () => {
+    workflow.getFileMonitorSettings.mockResolvedValueOnce({ enabled: false, configured: false });
+    const view = renderPage();
+    const monitor = screen.getByRole('region', { name: 'Deadline PDF monitoring' });
+    expect(await within(monitor).findByText(/Google Drive PDF checking is unavailable/)).toBeInTheDocument();
+    expect(within(monitor).getByRole('button', { name: 'Enable monitoring' })).toBeDisabled();
+    expect(workflow.setFileMonitorSettings).not.toHaveBeenCalled();
+    view.unmount();
+    workflow.getFileMonitorSettings.mockResolvedValueOnce({ enabled: true, configured: false });
+    renderPage();
+    expect(await screen.findByRole('button', { name: 'Disable monitoring' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Disable monitoring' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false));
+  });
+
+  it('surfaces read and save failures without claiming a change, then retries the authoritative state', async () => {
+    workflow.getFileMonitorSettings.mockRejectedValueOnce(new Error('Status request failed'));
+    renderPage();
+    const monitor = screen.getByRole('region', { name: 'Deadline PDF monitoring' });
+    expect(await within(monitor).findByRole('alert')).toHaveTextContent('Status request failed');
+    expect(within(monitor).queryByRole('button', { name: 'Enable monitoring' })).not.toBeInTheDocument();
+    fireEvent.click(within(monitor).getByRole('button', { name: 'Retry monitoring status' }));
+    await waitFor(() => expect(within(monitor).getByRole('button', { name: 'Enable monitoring' })).toBeEnabled());
+    workflow.setFileMonitorSettings.mockRejectedValueOnce(new Error('Setting rejected'));
+    fireEvent.click(within(monitor).getByRole('button', { name: 'Enable monitoring' }));
+    expect(await within(monitor).findByRole('alert')).toHaveTextContent('Setting rejected');
+    expect(within(monitor).queryByText('Enabled')).not.toBeInTheDocument();
+    fireEvent.click(within(monitor).getByRole('button', { name: 'Retry monitoring status' }));
+    await waitFor(() => expect(within(monitor).getByText('Disabled')).toBeInTheDocument());
+    expect(workflow.getFileMonitorSettings).toHaveBeenCalledTimes(3);
+  });
+
+  it('discards late monitor reads and writes across workspace and account switches', async () => {
+    let finishRead;
+    workflow.getFileMonitorSettings.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
+    const view = renderPage();
+    workflow.activeWorkspaceId = 'workspace-cs';
+    workflow.activeWorkspace = workflow.workspaces[1];
+    view.rerender(workspaceTree());
+    await waitFor(() => expect(workflow.getFileMonitorSettings).toHaveBeenCalledWith('workspace-cs'));
+    await act(async () => finishRead({ enabled: true, configured: true }));
+    const monitor = screen.getByRole('region', { name: 'Deadline PDF monitoring' });
+    expect(within(monitor).getByText('Disabled')).toBeInTheDocument();
+    let finishSave;
+    workflow.setFileMonitorSettings.mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
+    fireEvent.click(within(monitor).getByRole('button', { name: 'Enable monitoring' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-cs', true));
+    workflow.session = { authenticated: true, email: 'another-admin@school.edu', roles: ['ADMIN'] };
+    view.rerender(workspaceTree());
+    await waitFor(() => expect(workflow.getFileMonitorSettings).toHaveBeenCalledTimes(3));
+    await act(async () => finishSave({ enabled: true, configured: true }));
+    expect(within(monitor).getByText('Disabled')).toBeInTheDocument();
+    expect(within(monitor).queryByText(/monitoring enabled for this workspace/)).not.toBeInTheDocument();
+  });
+
+  it('hides the control outside an authenticated Admin session or when the selected workspace is archived', () => {
+    workflow.session = { authenticated: true, email: 'adviser@school.edu', roles: ['ADVISER'] };
+    const view = renderPage();
+    expect(screen.queryByRole('region', { name: 'Deadline PDF monitoring' })).not.toBeInTheDocument();
+    expect(workflow.getFileMonitorSettings).not.toHaveBeenCalled();
+    workflow.session = { authenticated: true, email: 'admin@school.edu', roles: ['ADMIN'] };
+    workflow.activeWorkspace = { ...workflow.activeWorkspace, active: false };
+    view.rerender(workspaceTree());
+    expect(screen.queryByRole('region', { name: 'Deadline PDF monitoring' })).not.toBeInTheDocument();
+    expect(workflow.getFileMonitorSettings).not.toHaveBeenCalled();
   });
 
   it.each(['workspace', 'account'])('discards a late re-import preview after the %s changes', async (changed) => {

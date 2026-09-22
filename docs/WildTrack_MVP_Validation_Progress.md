@@ -2,6 +2,10 @@
 
 Last updated: 2026-09-22
 
+## 2026-09-22 — Deadline PDF monitoring activated from Workspace UI instead of ENV
+
+The owner rejected the requirement to edit server environment variables or manually find an active workspace UUID to enable monitoring. New local code makes each active workspace's monitoring setting an Admin-only **Enable monitoring / Disable monitoring** action in Workspace setup. Migration V29 leaves existing workspaces disabled; the scheduled worker reads the persisted per-workspace setting and stops scanning a workspace when disabled or archived. Drive gateway configuration is still necessary for actual access, but no monitor-specific environment variables or copied UUIDs are required. This change awaits a new PR/deployment and does not mean monitoring is currently active in production. Full local backend tests reported 369 tests: 360 passed, nine skipped, zero failures/errors; full local frontend Vitest passed 433/433 across 48 files, production build and package validator passed. The tests use mock provider access, not students' live Drive files.
+
 ## 2026-09-22 — Final local release-readiness test checkpoint
 
 After the legacy PDF AI Review View/Rerun state fix, **all 427 frontend unit/component tests passed** across 48 test files and the production Vite build succeeded. The default full backend suite passed again after test-only browser-journey corrections, with **357 tests, zero failures/errors and eight skipped**. The explicit, separately run `BrowserPersistenceJourneyIT` also passed **1/1**, executing both real-local-backend Playwright scenarios successfully, including clearing browser storage and reloading after student submission, scoped adviser feedback, acceptance/archive, Academic Data deliverable creation and staff administration. That test's fixture/runner was updated to seed an authorized adviser team and run only its own journey rather than a differently seeded form-editor test. No production role-checking rules were weakened.

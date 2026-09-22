@@ -104,19 +104,32 @@ class DeadlineFileMonitorTest {
                 100L, "synthetic-initial-checksum", OffsetDateTime.now(), true,
                 "https://drive.google.com/file/d/" + ref.fileId() + "/view");
         });
+        workspaces.flush();
+        db.update("UPDATE academic_workspaces SET file_monitor_enabled = TRUE WHERE id = ?", workspace.getId());
         var monitor = new DeadlineFileMonitor(db, responses, deliverables, fields,
-            workspaces, reports, drive, checker, json, true, workspace.getId().toString(), 20);
+            workspaces, reports, drive, checker, json, 20);
+        db.update("UPDATE academic_workspaces SET file_monitor_enabled = FALSE WHERE id = ?", workspace.getId());
+        assertThat(monitor.scanOnce(workspace.getId()).metadataRequests()).isZero();
+        monitor.scheduledCycle();
+        verify(drive, never()).getMetadata(any(DriveFileReference.class));
+        workspaces.flush();
+        db.update("UPDATE academic_workspaces SET file_monitor_enabled = TRUE WHERE id = ?", workspace.getId());
         for (int i = 0; i < 3; i++) {
-            var cycle = monitor.scanOnce();
+            var cycle = monitor.scanOnce(workspace.getId());
             assertThat(cycle.eligibleUniqueFiles()).isEqualTo(60);
             assertThat(cycle.metadataRequests()).isEqualTo(20);
             assertThat(cycle.fullDownloads()).isZero();
         }
-        assertThat(monitor.scanOnce().metadataRequests()).isZero();
+        assertThat(monitor.scanOnce(workspace.getId()).metadataRequests()).isZero();
         verify(drive, times(60)).getMetadata(any(DriveFileReference.class));
         verify(drive, never()).download(any(DriveFileReference.class));
         assertThat(db.queryForObject("SELECT COUNT(*) FROM monitored_drive_files WHERE workspace_id=?",
             Integer.class, workspace.getId())).isEqualTo(60);
+        db.update("UPDATE academic_workspaces SET file_monitor_enabled = FALSE WHERE id = ?", workspace.getId());
+        db.update("UPDATE monitored_drive_files SET next_check_at=? WHERE workspace_id=?",
+            java.sql.Timestamp.from(Instant.now().minusSeconds(1)), workspace.getId());
+        assertThat(monitor.scanOnce(workspace.getId()).metadataRequests()).isZero();
+        verify(drive, times(60)).getMetadata(any(DriveFileReference.class));
     }
 
     @Test
@@ -158,9 +171,11 @@ class DeadlineFileMonitorTest {
         assertThat(originalReport.metadata().md5Checksum()).isEqualTo(md5(original));
         clearInvocations(drive);
 
+        workspaces.flush();
+        db.update("UPDATE academic_workspaces SET file_monitor_enabled = TRUE WHERE id = ?", workspace.getId());
         var monitor = new DeadlineFileMonitor(db, responses, deliverables, fields,
-            workspaces, reports, drive, checker, json, true, workspace.getId().toString(), 20);
-        var changedCycle = monitor.scanOnce();
+            workspaces, reports, drive, checker, json, 20);
+        var changedCycle = monitor.scanOnce(workspace.getId());
         assertThat(changedCycle.eligibleUniqueFiles()).isEqualTo(1);
         assertThat(changedCycle.metadataRequests()).isEqualTo(1);
         assertThat(changedCycle.fullDownloads()).isEqualTo(1);
@@ -179,7 +194,7 @@ class DeadlineFileMonitorTest {
         clearInvocations(drive);
         db.update("UPDATE monitored_drive_files SET next_check_at=? WHERE workspace_id=?",
             java.sql.Timestamp.from(Instant.now().minusSeconds(1)), workspace.getId());
-        var unchangedCycle = monitor.scanOnce();
+        var unchangedCycle = monitor.scanOnce(workspace.getId());
         assertThat(unchangedCycle.metadataRequests()).isEqualTo(1);
         assertThat(unchangedCycle.fullDownloads()).isZero();
         assertThat(unchangedCycle.reportsUpdated()).isZero();
@@ -193,7 +208,7 @@ class DeadlineFileMonitorTest {
             .thenReturn(metadata(link, changed, "2026-09-22T01:00:00Z"));
         db.update("UPDATE monitored_drive_files SET next_check_at=? WHERE workspace_id=?",
             java.sql.Timestamp.from(Instant.now().minusSeconds(1)), workspace.getId());
-        var metadataOnly = monitor.scanOnce();
+        var metadataOnly = monitor.scanOnce(workspace.getId());
         assertThat(metadataOnly.fullDownloads()).isZero();
         assertThat(metadataOnly.reportsUpdated()).isZero();
         assertThat(db.queryForObject("""
@@ -212,7 +227,7 @@ class DeadlineFileMonitorTest {
         when(drive.download(any(DriveFileReference.class))).thenReturn(changed);
         db.update("UPDATE monitored_drive_files SET next_check_at=? WHERE workspace_id=?",
             java.sql.Timestamp.from(Instant.now().minusSeconds(1)), workspace.getId());
-        var withoutChecksum = monitor.scanOnce();
+        var withoutChecksum = monitor.scanOnce(workspace.getId());
         assertThat(withoutChecksum.fullDownloads()).isEqualTo(1);
         assertThat(withoutChecksum.reportsUpdated()).isEqualTo(5);
         assertThat(db.queryForObject("""
@@ -233,7 +248,7 @@ class DeadlineFileMonitorTest {
                 "The Drive file is inaccessible. Check sharing permissions."));
         db.update("UPDATE monitored_drive_files SET next_check_at=? WHERE workspace_id=?",
             java.sql.Timestamp.from(Instant.now().minusSeconds(1)), workspace.getId());
-        var denied = monitor.scanOnce();
+        var denied = monitor.scanOnce(workspace.getId());
         assertThat(denied.metadataRequests()).isEqualTo(1);
         assertThat(denied.fullDownloads()).isZero();
         assertThat(denied.reportsUpdated()).isEqualTo(5);
@@ -250,7 +265,7 @@ class DeadlineFileMonitorTest {
         }
         db.update("UPDATE monitored_drive_files SET next_check_at=? WHERE workspace_id=?",
             java.sql.Timestamp.from(Instant.now().minusSeconds(1)), workspace.getId());
-        assertThat(monitor.scanOnce().reportsUpdated()).isZero();
+        assertThat(monitor.scanOnce(workspace.getId()).reportsUpdated()).isZero();
         assertThat(db.queryForObject("""
             SELECT COUNT(*) FROM monitored_drive_events
             WHERE workspace_id=? AND kind='ACCESS_UNAVAILABLE'
@@ -264,7 +279,7 @@ class DeadlineFileMonitorTest {
             .thenThrow(new IllegalStateException("Temporary provider timeout"));
         db.update("UPDATE monitored_drive_files SET next_check_at=? WHERE workspace_id=?",
             java.sql.Timestamp.from(Instant.now().minusSeconds(1)), workspace.getId());
-        assertThat(monitor.scanOnce().reportsUpdated()).isZero();
+        assertThat(monitor.scanOnce(workspace.getId()).reportsUpdated()).isZero();
         assertThat(db.queryForObject("""
             SELECT last_accessible FROM monitored_drive_files WHERE workspace_id=?
             """, Boolean.class, workspace.getId())).isFalse();
@@ -278,7 +293,7 @@ class DeadlineFileMonitorTest {
                 OffsetDateTime.parse("2026-09-22T03:00:00Z"), true, link));
         db.update("UPDATE monitored_drive_files SET next_check_at=? WHERE workspace_id=?",
             java.sql.Timestamp.from(Instant.now().minusSeconds(1)), workspace.getId());
-        assertThat(monitor.scanOnce().reportsUpdated()).isZero();
+        assertThat(monitor.scanOnce(workspace.getId()).reportsUpdated()).isZero();
         assertThat(db.queryForObject("""
             SELECT last_accessible FROM monitored_drive_files WHERE workspace_id=?
             """, Boolean.class, workspace.getId())).isFalse();

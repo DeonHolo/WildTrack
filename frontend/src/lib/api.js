@@ -99,6 +99,18 @@ export async function updateWorkspace(workspaceId, payload) {
   });
 }
 
+/** Workspace-scoped, Admin-authorized deadline PDF monitoring preference. */
+export function getFileMonitorSettings(workspaceId) {
+  return request(`/workspaces/${encodeURIComponent(workspaceId)}/file-monitor`);
+}
+
+export function setFileMonitorSettings(workspaceId, enabled) {
+  return request(`/workspaces/${encodeURIComponent(workspaceId)}/file-monitor`, {
+    method: 'PUT',
+    body: { enabled: Boolean(enabled) }
+  });
+}
+
 export async function getPublicSubmissionForm(workspaceKey, slug) {
   return request(`/public/forms/${encodeURIComponent(workspaceKey)}/${encodeURIComponent(slug)}`, {
     skipCsrfPrecheck: true
