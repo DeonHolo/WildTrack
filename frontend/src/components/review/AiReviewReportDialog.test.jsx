@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
 import { AiReviewReportDialog } from './AiReviewReportDialog.jsx';
@@ -84,6 +84,9 @@ it('shows a saved zero-issue report with two verified SRS checks and a clear app
 
   expect(dialog).toHaveTextContent('Reviewed Sep 22, 2026');
   expect(dialog).toHaveTextContent('No actionable issues identified in the checked areas');
+  expect(dialog).toHaveTextContent('2 distinct observations supported by submitted PDF evidence');
+  expect(dialog).not.toHaveTextContent('Section 1.3: The system is for students and advisers.');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Show supporting evidence (2)' }));
   expect(dialog).toHaveTextContent('Section 1.3: The system is for students and advisers.');
   expect(dialog).toHaveTextContent('Authority: Identify intended users of the system.');
   expect(dialog).toHaveTextContent('FR-01: A student submits the PDF link for review.');

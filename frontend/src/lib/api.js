@@ -8,13 +8,14 @@ const SOURCE_TYPE_TO_API = {
 
 const CSRF_COOKIE = 'XSRF-TOKEN';
 const CSRF_HEADER = 'X-XSRF-TOKEN';
-export const AI_REVIEW_SIGN_IN_MESSAGE = 'Your WildTrack session expired. Sign out, then sign in with Google again. Check the saved AI Review status before starting another request, since the previous review may still be running.';
+export const AI_REVIEW_SIGN_IN_MESSAGE = 'An AI Review request returned HTTP 401. WildTrack will check whether your sign-in is still valid. The review may still be running; no second AI request was sent.';
 
 export class ApiError extends Error {
-  constructor(message, status = 0) {
+  constructor(message, status = 0, sessionState = '') {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.sessionState = sessionState;
   }
 }
 
@@ -464,10 +465,17 @@ export async function request(path, options = {}) {
 
   if (!response.ok) {
     // The AI provider's rejected key is returned in a saved review as
-    // failureCode=API_KEY_REJECTED. HTTP 401 here comes from WildTrack's own
-    // authenticated API, including a session that expires during polling.
+    // failureCode=API_KEY_REJECTED. HTTP 401 here came from the AI API path,
+    // but by itself does NOT prove a session expired: auth, routing and proxy
+    // failures can look identical. The caller probes /auth/session separately.
     if (response.status === 401 && path.startsWith('/ai-reviews')) {
-      throw new ApiError(AI_REVIEW_SIGN_IN_MESSAGE, 401);
+      // The backend's 401 diagnostic contains an enumerated state, never a
+      // session identifier or cookie. If an upstream gateway sent the 401,
+      // this header may be absent. Do not infer a missing cookie in that case.
+      const state = response.headers.get('X-WildTrack-Session-State') || '';
+      const sessionState = ['missing_cookie', 'empty_cookie', 'invalid_session',
+        'duplicate_cookie', 'duplicate_cookie_authenticated', 'authenticated', 'unclassified'].includes(state) ? state : '';
+      throw new ApiError(AI_REVIEW_SIGN_IN_MESSAGE, 401, sessionState);
     }
     let message = `Request failed with status ${response.status}`;
     const text = await response.text().catch(() => '');

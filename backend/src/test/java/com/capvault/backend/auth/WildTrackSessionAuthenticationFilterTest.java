@@ -67,6 +67,8 @@ class WildTrackSessionAuthenticationFilterTest {
         assertThat(auth.getName()).isEqualTo("instructor@cit.edu.ph");
         assertThat(auth.getAuthorities()).extracting("authority")
             .containsExactlyInAnyOrder("ROLE_USER", "ROLE_ADVISER");
+        assertThat(request.getAttribute(WildTrackSessionAuthenticationFilter.SESSION_STATE_ATTRIBUTE))
+            .isEqualTo("authenticated");
         verify(chain).doFilter(request, response);
     }
 
@@ -80,6 +82,43 @@ class WildTrackSessionAuthenticationFilterTest {
 
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         assertThat(auth).isNull();
+        assertThat(request.getAttribute(WildTrackSessionAuthenticationFilter.SESSION_STATE_ATTRIBUTE))
+            .isEqualTo("missing_cookie");
         verify(chain).doFilter(request, response);
+    }
+
+    @Test
+    void recordsRejectedCookieWithoutExposingTokenValueOrAuthenticating() throws ServletException, IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setCookies(new Cookie(WildTrackSessionController.SESSION_COOKIE, "secret-invalid-token"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+        when(sessionService.resolve("secret-invalid-token")).thenReturn(Optional.empty());
+
+        filter.doFilterInternal(request, response, chain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        assertThat(request.getAttribute(WildTrackSessionAuthenticationFilter.SESSION_STATE_ATTRIBUTE))
+            .isEqualTo("invalid_session");
+        assertThat(response.getHeader("X-WildTrack-Session-State")).isNull();
+        verify(chain).doFilter(request, response);
+    }
+
+    @Test
+    void flagsDuplicateSessionCookiesWithoutLoggingTheirValuesOrSelectingAnotherIdentity() throws ServletException, IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setCookies(new Cookie(WildTrackSessionController.SESSION_COOKIE, "stale-token"),
+            new Cookie(WildTrackSessionController.SESSION_COOKIE, "new-token"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+        when(sessionService.resolve("stale-token")).thenReturn(Optional.empty());
+
+        filter.doFilterInternal(request, response, chain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        assertThat(request.getAttribute(WildTrackSessionAuthenticationFilter.SESSION_STATE_ATTRIBUTE))
+            .isEqualTo("duplicate_cookie");
+        org.mockito.Mockito.verify(sessionService).resolve("stale-token");
+        org.mockito.Mockito.verify(sessionService, org.mockito.Mockito.never()).resolve("new-token");
     }
 }

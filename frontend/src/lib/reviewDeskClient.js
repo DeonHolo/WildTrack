@@ -1,5 +1,5 @@
 import {
-  AI_REVIEW_SIGN_IN_MESSAGE,
+  getCurrentSession,
   acceptReviewResponse,
   requestAiReview,
   getSavedAiReview,
@@ -188,17 +188,67 @@ function documentCheckResultKey(responseId, fieldId) {
   return JSON.stringify([responseId, fieldId || null]);
 }
 
+/** An AI endpoint 401 is not evidence that the WildTrack cookie has expired.
+ * Probe the public, read-only session endpoint once before suggesting another
+ * sign-in. Never replay the generation POST after an ambiguous response. */
+export async function diagnoseAiReviewAuthFailure(error, phase = 'AI Review request') {
+  if (error?.status !== 401) return { authenticationRequired: false, error: error?.message || 'AI Review could not finish.' };
+  const prefix = `The ${phase} returned HTTP 401.`;
+  const reason = {
+    missing_cookie: 'The AI endpoint did not receive a WildTrack session cookie.',
+    empty_cookie: 'The AI endpoint received an empty WildTrack session cookie.',
+    invalid_session: 'The AI endpoint received a cookie, but WildTrack could not resolve its session.',
+    duplicate_cookie: 'The AI endpoint received multiple WildTrack session cookies.',
+    duplicate_cookie_authenticated: 'The AI endpoint received multiple WildTrack session cookies, although one was recognized.',
+    authenticated: 'The backend recognized a WildTrack session before the request was rejected.',
+    unclassified: 'The backend could not classify the authorization failure.'
+  }[error.sessionState] || '';
+  try {
+    const session = await getCurrentSession();
+    if (session?.authenticated) {
+      const canReview = (session.roles || []).some(role => String(role).toUpperCase() === 'ADMIN');
+      return { authenticationRequired: false, sessionConfirmed: true,
+        error: canReview
+          ? `${prefix} ${reason} WildTrack still recognizes your Administrator session, so logging out again is unlikely to help. The AI endpoint or its proxy rejected this request. Check the saved result before considering a new AI request.`
+          : `${prefix} WildTrack recognizes your sign-in, but the session no longer has Administrator access. Contact an administrator to check your role before trying AI Review again.` };
+    }
+    return { authenticationRequired: true, sessionConfirmed: false,
+      error: `${prefix} ${reason} WildTrack's session check does not recognize your login. If this repeats immediately after Google sign-in, the session cookie or server session may be misconfigured. Continue with Google without signing out first; check saved results before attempting another paid review.` };
+  } catch {
+    return { authenticationRequired: false, sessionConfirmed: false,
+      error: `${prefix} ${reason} WildTrack could not verify the current session. This does not establish that you were signed out. Check saved results or try again after the connection recovers; do not repeat the paid request while its outcome is unknown.` };
+  }
+}
+
 export async function runAiReview(workspaceId, responseId, fieldId = null, retryAcknowledged = false, retryToken = null,
     shouldContinue = () => true, rerunRequested = false) {
+  let phase = 'AI Review start';
+  let authDiagnosis = null;
   try {
     let review = await requestAiReview(workspaceId, responseId, retryAcknowledged, retryToken, fieldId, rerunRequested);
     const reused = review.reused;
     // Poll saved state only. Never repeat the generation POST after a timeout or lost connection.
     const deadline = Date.now() + 8 * 60 * 1000;
+    let readRecoveryUsed = false;
     while (review.status === 'RUNNING' && shouldContinue() && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 2500));
       if (!shouldContinue()) return { ok: false, cancelled: true };
-      review = { ...await getSavedAiReview(workspaceId, responseId, fieldId), reused };
+      phase = 'saved AI Review status check';
+      try {
+        review = { ...await getSavedAiReview(workspaceId, responseId, fieldId), reused };
+      } catch (error) {
+        if (error?.status !== 401 || readRecoveryUsed || !shouldContinue()) throw error;
+        const diagnosis = await diagnoseAiReviewAuthFailure(error, phase);
+        if (!diagnosis.sessionConfirmed || !shouldContinue()) {
+          authDiagnosis = diagnosis;
+          throw error;
+        }
+        // A read-only status GET may be retried once after the independent
+        // session check proves Admin access remains. Never replay the billable
+        // generation POST, even if its original response was ambiguous.
+        readRecoveryUsed = true;
+        review = { ...await getSavedAiReview(workspaceId, responseId, fieldId), reused };
+      }
     }
     const inconclusive = review.status === 'UNCERTAIN'
       && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED', 'INSUFFICIENT_REVIEW_EVIDENCE'].includes(review.failureCode)
@@ -215,8 +265,8 @@ export async function runAiReview(workspaceId, responseId, fieldId = null, retry
         ? 'The review is still running. Open View AI Review after its saved result is ready; no additional AI request was sent.'
         : review.message || (review.failureCode ? `AI Review failed: ${review.failureCode}.` : 'AI Review could not finish.') };
   } catch (error) {
-    return { ok: false, pauseBatch: true, authenticationRequired: error?.status === 401,
-      error: error?.status === 401 ? AI_REVIEW_SIGN_IN_MESSAGE : error?.message || 'AI Review could not finish.' };
+    const diagnosed = authDiagnosis || await diagnoseAiReviewAuthFailure(error, phase);
+    return { ok: false, pauseBatch: true, ...diagnosed };
   }
 }
 
@@ -235,7 +285,8 @@ export async function runAiReviews(workspaceId, targets, options = {}) {
     options.onResult?.(normalized, result);
     // Document-specific failures remain available for explicit retry, but do not block other documents.
     if (result.pauseBatch) return { completed, total: targets.length, paused: true,
-      authenticationRequired: Boolean(result.authenticationRequired), reason: result.error || '' };
+      authenticationRequired: Boolean(result.authenticationRequired),
+      sessionConfirmed: Boolean(result.sessionConfirmed), reason: result.error || '' };
   }
   return { completed, total: targets.length, paused: false };
 }

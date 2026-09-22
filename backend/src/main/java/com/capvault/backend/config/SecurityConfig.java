@@ -25,7 +25,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
@@ -81,7 +80,17 @@ public class SecurityConfig {
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll())
             .exceptionHandling(exceptions -> exceptions
-                .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                .authenticationEntryPoint((request, response, failure) -> {
+                    // A 401 on an AI review may be produced before its controller runs.
+                    // Expose only the authentication stage so the caller can distinguish
+                    // a missing cookie from a rejected session without revealing tokens.
+                    if (request.getRequestURI().startsWith("/api/ai-reviews")) {
+                        Object state = request.getAttribute(WildTrackSessionAuthenticationFilter.SESSION_STATE_ATTRIBUTE);
+                        response.setHeader("X-WildTrack-Session-State",
+                            state instanceof String value ? value : "unclassified");
+                    }
+                    response.sendError(HttpStatus.UNAUTHORIZED.value());
+                }))
             .headers(headers -> headers
                 .frameOptions(frame -> frame.deny())
                 .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))

@@ -147,7 +147,7 @@ describe('production API delivery', () => {
     });
   });
 
-  it('identifies WildTrack session expiry on an AI review POST without exposing the raw 401 body', async () => {
+  it('preserves an AI review 401 without assuming session expiry or exposing the raw body', async () => {
     document.cookie = 'XSRF-TOKEN=test-csrf; path=/';
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>Sign-in middleware response</html>', {
       status: 401, headers: { 'Content-Type': 'text/html' }
@@ -155,21 +155,37 @@ describe('production API delivery', () => {
 
     await expect(requestAiReview('workspace-it', 'response-1')).rejects.toMatchObject({
       name: ApiError.name, status: 401,
-      message: expect.stringContaining('Sign out, then sign in with Google again')
+      message: expect.stringContaining('WildTrack will check whether your sign-in is still valid')
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toContain('/api/ai-reviews/response-1');
   });
 
-  it('treats a 401 during saved-state polling as app authentication failure', async () => {
+  it('flags a 401 during saved-state polling for a separate read-only auth check', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 401 }));
 
     await expect(getSavedAiReview('workspace-it', 'response-1', 'field-pdf')).rejects.toMatchObject({
-      name: ApiError.name, status: 401, message: expect.stringContaining('Check the saved AI Review status')
+      name: ApiError.name, status: 401, message: expect.stringContaining('will check whether your sign-in is still valid')
     });
     await expect(getAiReviewStatus()).rejects.toMatchObject({ status: 401,
-      message: expect.stringContaining('WildTrack session expired') });
+      message: expect.stringContaining('An AI Review request returned HTTP 401') });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves only safe backend cookie-state diagnostics on an AI 401', async () => {
+    document.cookie = 'XSRF-TOKEN=test-csrf; path=/';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, {
+      status: 401, headers: { 'X-WildTrack-Session-State': 'missing_cookie' }
+    })).mockResolvedValueOnce(new Response(null, {
+      status: 401, headers: { 'X-WildTrack-Session-State': 'a-sensitive-unrecognized-value' }
+    }));
+
+    await expect(requestAiReview('workspace-it', 'response-1')).rejects.toMatchObject({
+      status: 401, sessionState: 'missing_cookie'
+    });
+    await expect(requestAiReview('workspace-it', 'response-1')).rejects.toMatchObject({
+      status: 401, sessionState: ''
+    });
   });
 
   it('preserves Gemini API-key rejection in the saved review response instead of treating it as session expiry', async () => {
