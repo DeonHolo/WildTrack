@@ -88,6 +88,7 @@ export function CommandCenterPage() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [runningIds, setRunningIds] = useState(new Set());
+  const [bulkDismissProgress, setBulkDismissProgress] = useState(null);
   const [resolvedTaskIds, setResolvedTaskIds] = useState(new Set());
   const [batchProgress, setBatchProgress] = useState(null);
   const openConflicts = state.openConflicts || [];
@@ -98,6 +99,7 @@ export function CommandCenterPage() {
   useEffect(() => {
     setAccountManagementOpen(false);
     setRunningIds(new Set());
+    setBulkDismissProgress(null);
     setResolvedTaskIds(new Set());
     setBatchProgress(null);
     setDismissedKeys(null);
@@ -119,6 +121,9 @@ export function CommandCenterPage() {
   );
   const dismissedTasks = allTasks.filter((task) => dismissed.has(task.id));
   const displayedTasks = taskTab === 'dismissed' ? dismissedTasks : openTasks;
+  // A bulk action applies to the selected *section*, not just the current search
+  // result or first page. All work intentionally covers every category.
+  const sectionTasks = displayedTasks.filter(task => filter === 'all' || task.category === filter);
   const visibleTasks = useMemo(
     () => displayedTasks
       .filter((task) => filter === 'all' || task.category === filter)
@@ -166,7 +171,7 @@ export function CommandCenterPage() {
   }
 
   async function changeDismissal(task, shouldDismiss) {
-    if (!isCurrentScope()) return;
+    if (!isCurrentScope() || bulkDismissProgress) return;
     setRunningIds(current => withId(current, task.id));
     try {
       if (shouldDismiss) await dismissWorkTask(workspaceId, task.id);
@@ -183,6 +188,48 @@ export function CommandCenterPage() {
         message: error?.message || 'The notification could not be updated.' });
     } finally {
       if (isCurrentScope()) setRunningIds(current => withoutId(current, task.id));
+    }
+  }
+
+  async function changeSectionDismissal() {
+    if (!isCurrentScope() || bulkDismissProgress || !sectionTasks.length) return;
+    const shouldDismiss = taskTab === 'open';
+    const targets = [...sectionTasks];
+    const selectedWorkspace = workspaceId;
+    const selectedSection = filter;
+    setBulkDismissProgress({ done: 0, total: targets.length, failed: 0, shouldDismiss });
+    let failed = 0;
+    for (let offset = 0; offset < targets.length; offset += 8) {
+      if (!isCurrentScope()) return;
+      const batch = targets.slice(offset, offset + 8);
+      setRunningIds(current => new Set([...current, ...batch.map(task => task.id)]));
+      const results = await Promise.allSettled(batch.map(task => shouldDismiss
+        ? dismissWorkTask(selectedWorkspace, task.id) : restoreWorkTask(selectedWorkspace, task.id)));
+      if (!isCurrentScope()) return;
+      setDismissedKeys(current => {
+        const next = new Set(current ?? state.dismissedKeys ?? []);
+        results.forEach((result, index) => {
+          if (result.status !== 'fulfilled') return;
+          if (shouldDismiss) next.add(batch[index].id);
+          else next.delete(batch[index].id);
+        });
+        return [...next];
+      });
+      failed += results.filter(result => result.status !== 'fulfilled').length;
+      setBulkDismissProgress({ done: Math.min(offset + batch.length, targets.length),
+        total: targets.length, failed, shouldDismiss });
+      setRunningIds(current => {
+        const next = new Set(current);
+        batch.forEach(task => next.delete(task.id));
+        return next;
+      });
+    }
+    if (isCurrentScope()) {
+      setBulkDismissProgress(null);
+      notifications.show({ color: failed ? 'orange' : 'green',
+        title: `${shouldDismiss ? 'Dismiss' : 'Restore'} ${selectedSection === 'all' ? 'all work' : selectedSection} complete`,
+        message: failed ? `${targets.length - failed} updated; ${failed} failed. Retry the remaining items.`
+          : `${targets.length} notification${targets.length === 1 ? '' : 's'} updated.` });
     }
   }
 
@@ -486,7 +533,7 @@ export function CommandCenterPage() {
           <Text className="wt-command-total wt-tabular" size="sm" fw={800}>{openTasks.length} open</Text>
         </div>
 
-        <Group role="tablist" aria-label="Work notification status" gap="xs" mb="sm">
+        <Group role="tablist" aria-label="Work notification status" gap="xs" mb="sm" className="wt-command-status-tabs">
           <Button role="tab" aria-selected={taskTab === 'open'} aria-controls="work-notification-list"
             variant={taskTab === 'open' ? 'filled' : 'default'} color="wildtrackMaroon"
             onClick={() => { setTaskTab('open'); setPage(1); }}>Open ({openTasks.length})</Button>
@@ -528,7 +575,17 @@ export function CommandCenterPage() {
           <Text size="sm" fw={700} c="dimmed" className="wt-nowrap wt-tabular">
             Showing {firstRow}-{lastRow} of {visibleTasks.length}
           </Text>
+          <Button size="xs" variant="default" disabled={!sectionTasks.length || Boolean(bulkDismissProgress)}
+            loading={Boolean(bulkDismissProgress)} onClick={changeSectionDismissal}
+            aria-label={`${taskTab === 'dismissed' ? 'Restore' : 'Dismiss'} all ${filter === 'all' ? 'work' : QUEUE_FILTERS.find(item => item.value === filter)?.label || filter} notifications`}>
+            {taskTab === 'dismissed' ? 'Restore all' : 'Dismiss all'} ({sectionTasks.length})
+          </Button>
         </div>
+
+        {bulkDismissProgress ? <Text role="status" size="sm" ml="md" mb="xs">
+          {bulkDismissProgress.shouldDismiss ? 'Dismissing' : 'Restoring'} {bulkDismissProgress.done} of {bulkDismissProgress.total} notifications
+          {bulkDismissProgress.failed ? ` · ${bulkDismissProgress.failed} failed` : ''}
+        </Text> : null}
 
         {batchProgress ? (
           <Alert
@@ -647,9 +704,17 @@ function buildWorkQueue(state, openConflicts = [], dismissedKeys = new Set()) {
       const deliverable = getDeliverable(state, response.deliverableId);
       const kind = monitorEventLabel(event.kind);
       const affected = event.visibleResponseIds.length;
+      const linkedNames = [...new Set(event.visibleResponseIds.map(id => {
+        const linked = byResponse.get(id);
+        return findStudent(state.students, linked.studentNumber)?.name || linked.studentName
+          || linked.studentNumber || 'Unmatched student';
+      }))];
+      const namePreview = linkedNames.slice(0, 2).join(', ')
+        + (linkedNames.length > 2 ? ` and ${linkedNames.length - 2} more` : '');
       tasks.push({ id: fileEventTaskId(event), category: 'document', type: kind,
         title: (deliverable?.shortTitle || deliverable?.trackerColumn || 'Submitted PDF') + ' | ' + kind,
-        detail: `File ending ${event.fileId.slice(-8)} · ${affected} affected ${affected === 1 ? 'response' : 'responses'} across ${new Set(event.teamCodes || []).size || 1} team(s). ${event.detail || ''}`,
+        detail: `Linked submission${linkedNames.length === 1 ? '' : 's'}: ${namePreview}. File ending ${event.fileId.slice(-8)} · ${affected} affected ${affected === 1 ? 'response' : 'responses'} across ${new Set(event.teamCodes || []).size || 1} team(s). ${event.detail || ''}`,
+        studentName: linkedNames.join(', '),
         teamCode: (event.teamCodes || []).join(', ') || response.teamCode || 'Submitted file',
         deliverableCode: deliverable?.shortTitle || deliverable?.trackerColumn || 'Submitted PDF',
         updatedAt: event.observedAt, response, action: 'review', actionLabel: 'Review response',

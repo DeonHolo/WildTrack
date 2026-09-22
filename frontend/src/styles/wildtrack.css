@@ -3612,8 +3612,32 @@
   }
 }
 
-/* Queue actions remain readable at every table width. */
-.wt-command-table th:nth-child(5) { width: 196px; }
+/* Five-column queue: the primary action and Dismiss/Restore share the final cell. */
+.wt-command-status-tabs { padding: 12px 20px 0; }
+.wt-command-row-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.wt-command-table { width: 100%; min-width: 720px; table-layout: fixed; }
+.wt-command-table th:nth-child(1) { width: 12%; }
+.wt-command-table th:nth-child(2) { width: 32%; }
+.wt-command-table th:nth-child(3) { width: 16%; }
+.wt-command-table th:nth-child(4) { width: 15%; }
+.wt-command-table th:nth-child(5) { width: 25%; }
+.wt-command-table td { padding: 8px 10px; overflow-wrap: anywhere; }
 .wt-command-table td:last-child { overflow: visible; }
-.wt-command-table td:last-child .mantine-Button-root { max-width: none; width: auto; min-width: 148px; }
-.wt-command-table td:last-child .mantine-Button-label { overflow: visible; white-space: nowrap; }
+.wt-command-table td:last-child .mantine-Button-root {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  width: auto;
+}
+.wt-command-table td:last-child .mantine-Button-label { white-space: nowrap; }
+.wt-command-item-copy strong,
+.wt-command-item-copy p { white-space: normal; overflow-wrap: anywhere; }
+.wt-command-toolbar { flex-wrap: wrap; }
+.wt-command-toolbar .mantine-TextInput-root { flex: 1 1 280px; }
+@media (max-width: 1180px) {
+  .wt-command-table th:nth-child(1) { width: 13%; }
+  .wt-command-table th:nth-child(2) { width: 33%; }
+  .wt-command-table th:nth-child(3) { width: 17%; }
+  .wt-command-table th:nth-child(4), .wt-command-table td:nth-child(4) { display: none; }
+  .wt-command-table th:nth-child(5) { width: 37%; }
+}

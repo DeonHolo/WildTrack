@@ -122,6 +122,15 @@ class DeadlineFileMonitorTest {
         }
         assertThat(monitor.scanOnce(workspace.getId()).metadataRequests()).isZero();
         verify(drive, times(60)).getMetadata(any(DriveFileReference.class));
+        // A configured empty deliverable set means no scans even with monitoring
+        // enabled and previously checked files due for another observation.
+        db.update("UPDATE academic_workspaces SET file_monitor_enabled = TRUE, file_monitor_selection_configured = TRUE WHERE id = ?",
+            workspace.getId());
+        assertThat(monitor.scanOnce(workspace.getId()).eligibleUniqueFiles()).isZero();
+        verify(drive, times(60)).getMetadata(any(DriveFileReference.class));
+        db.update("INSERT INTO workspace_file_monitor_deliverables(workspace_id,deliverable_id) VALUES (?, ?)",
+            workspace.getId(), deliverable.getId());
+        assertThat(monitor.scanOnce(workspace.getId()).eligibleUniqueFiles()).isEqualTo(60);
         verify(drive, never()).download(any(DriveFileReference.class));
         assertThat(db.queryForObject("SELECT COUNT(*) FROM monitored_drive_files WHERE workspace_id=?",
             Integer.class, workspace.getId())).isEqualTo(60);

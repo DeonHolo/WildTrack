@@ -25,7 +25,7 @@ export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchi
   onReview, onDismiss, onRestore, dismissed = false }) {
   return (
     <div className="wt-command-table-wrap">
-      <Table.ScrollContainer minWidth={940} type="native">
+      <Table.ScrollContainer minWidth={720} type="native">
         <Table aria-label="Today's work queue" className="wt-command-table" verticalSpacing={0} horizontalSpacing={0}>
           <Table.Thead>
             <Table.Tr>
@@ -33,8 +33,7 @@ export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchi
               <Table.Th>Item</Table.Th>
               <Table.Th>Context</Table.Th>
               <Table.Th>Updated</Table.Th>
-              <Table.Th>Action</Table.Th>
-              <Table.Th>{dismissed ? 'Restore' : 'Dismiss'}</Table.Th>
+              <Table.Th>Actions</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -60,10 +59,11 @@ export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchi
                   </Table.Td>
                   <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{task.updatedAt ? formatDateTime(task.updatedAt) : 'Current import'}</Text></Table.Td>
                   <Table.Td>
+                    <div className="wt-command-row-actions">
                     {task.action === 'check' ? (
                       <Button
                         variant="default"
-                        size="sm"
+                        size="xs"
                         loading={runningIds.has(task.response.id)}
                         leftSection={<FileMagnifyingGlass size={17} />}
                         aria-label={task.actionAriaLabel}
@@ -72,14 +72,14 @@ export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchi
                         {task.actionLabel}
                       </Button>
                     ) : task.action === 'conflict' ? (
-                      <Button variant="default" size="sm" leftSection={<IdentificationBadge size={17} />}
+                      <Button variant="default" size="xs" leftSection={<IdentificationBadge size={17} />}
                         onClick={() => onDecideConflict(task)} aria-label={'Review identity conflict for ' + task.conflict.studentNumber}>
                         Review conflict
                       </Button>
                     ) : task.action === 'archive' ? (
                       <Button
                         variant="default"
-                        size="sm"
+                        size="xs"
                         loading={runningIds.has(task.response.id)}
                         leftSection={<Archive size={17} />}
                         aria-label={task.actionAriaLabel}
@@ -88,27 +88,26 @@ export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchi
                         {task.actionLabel}
                       </Button>
                     ) : task.action === 'review' ? (
-                      <Button variant="default" size="sm" leftSection={<FileMagnifyingGlass size={17} />}
+                      <Button variant="default" size="xs" leftSection={<FileMagnifyingGlass size={17} />}
                         aria-label={task.actionAriaLabel} onClick={() => onReview(task)}>{task.actionLabel}</Button>
                     ) : (
                       <Button
                         component={Link}
                         to={task.href}
                         variant="default"
-                        size="sm"
+                        size="xs"
                         leftSection={<ArrowSquareOut size={17} />}
                         aria-label={task.actionAriaLabel}
                       >
                         {task.actionLabel}
                       </Button>
                     )}
-                  </Table.Td>
-                  <Table.Td>
                     <Button variant="subtle" color={dismissed ? 'wildtrackMaroon' : 'gray'} size="xs"
                       loading={runningIds.has(task.id)} onClick={() => dismissed ? onRestore(task) : onDismiss(task)}
                       aria-label={(dismissed ? 'Restore ' : 'Dismiss ') + task.type + ': ' + task.title}>
                       {dismissed ? 'Restore' : 'Dismiss'}
                     </Button>
+                    </div>
                   </Table.Td>
                 </Table.Tr>
               );

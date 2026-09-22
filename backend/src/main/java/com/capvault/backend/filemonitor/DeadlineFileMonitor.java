@@ -283,6 +283,14 @@ public class DeadlineFileMonitor {
     }
 
     private Map<String, FileGroup> eligible(UUID workspaceId, Instant now) {
+        boolean configuredSelection = Boolean.TRUE.equals(db.queryForObject("""
+            SELECT file_monitor_selection_configured FROM academic_workspaces WHERE id = ?
+            """, Boolean.class, workspaceId));
+        java.util.Set<UUID> enabledDeliverables = configuredSelection
+            ? new java.util.HashSet<>(db.query("""
+                SELECT deliverable_id FROM workspace_file_monitor_deliverables WHERE workspace_id = ?
+                """, (rs, row) -> rs.getObject(1, UUID.class), workspaceId))
+            : java.util.Set.of();
         Map<UUID, Deliverable> byDeliverable = new HashMap<>();
         Map<UUID, List<DeliverableField>> byFields = new HashMap<>();
         Map<String, List<Target>> grouped = new LinkedHashMap<>();
@@ -297,7 +305,8 @@ public class DeadlineFileMonitor {
             if (finalized.contains(response.getId() + "|" + response.getUpdatedAt())) continue;
             Deliverable deliverable = byDeliverable.computeIfAbsent(response.getDeliverableId(),
                 id -> deliverables.findById(id).orElse(null));
-            if (deliverable == null || deliverable.getDueAt() == null) continue;
+            if (deliverable == null || deliverable.getDueAt() == null
+                || (configuredSelection && !enabledDeliverables.contains(deliverable.getId()))) continue;
             List<DeliverableField> pdfFields = byFields.computeIfAbsent(response.getDeliverableId(),
                 id -> fields.findAllByDeliverableIdOrderByDisplayOrderAscLabelAsc(id).stream()
                     .filter(f -> f.isActive() && f.getFieldType() == DeliverableFieldType.DRIVE_PDF

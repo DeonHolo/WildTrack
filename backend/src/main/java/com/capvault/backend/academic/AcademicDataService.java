@@ -340,6 +340,76 @@ public class AcademicDataService {
         return changed;
     }
 
+    /** Explicit Admin deletion is limited to unreferenced rows; submitted academic
+     *  history/account bindings and published forms cannot be silently destroyed. */
+    @Transactional
+    public void deleteRow(UUID workspaceId, String kind, UUID rowId, LocalDateTime expectedUpdatedAt) {
+        if (workspaceId == null || rowId == null) throw new IllegalArgumentException("Select a row in the active workspace.");
+        requireWorkspace(workspaceId, LockModeType.PESSIMISTIC_WRITE);
+        switch (kind) {
+            case "students" -> {
+                StudentRecord row = entityManager.find(StudentRecord.class, rowId, LockModeType.PESSIMISTIC_WRITE);
+                if (row == null || !workspaceId.equals(row.getWorkspaceId())) {
+                    throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Student row was not found in this workspace.");
+                }
+                requireFresh(expectedUpdatedAt, row.getUpdatedAt(), "student row");
+                if (referenced("form_responses", "student_record_id", workspaceId, rowId)
+                    || referenced("workspace_student_associations", "student_record_id", workspaceId, rowId)
+                    || referenced("student_identity_conflicts", "student_record_id", workspaceId, rowId)
+                    || referenced("canonical_response_selections", "student_record_id", workspaceId, rowId)) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "This student has saved submission or account history and cannot be deleted from Academic Data.");
+                }
+                entityManager.remove(row);
+            }
+            case "projects" -> {
+                ProjectMetadata row = entityManager.find(ProjectMetadata.class, rowId, LockModeType.PESSIMISTIC_WRITE);
+                if (row == null || !workspaceId.equals(row.getWorkspaceId())) {
+                    throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project row was not found in this workspace.");
+                }
+                requireFresh(expectedUpdatedAt, row.getUpdatedAt(), "project row");
+                if (count("SELECT COUNT(*) FROM form_responses WHERE workspace_id = ? AND LOWER(team_code) IN (?, ?)",
+                    workspaceId, key(row.getGroupCode()), key(row.getEffectiveGroupCode())) > 0) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "This team has saved submissions. Keep its project record for historical review.");
+                }
+                entityManager.remove(row);
+            }
+            case "deliverables" -> {
+                Deliverable row = entityManager.find(Deliverable.class, rowId, LockModeType.PESSIMISTIC_WRITE);
+                if (row == null || !workspaceId.equals(row.getWorkspaceId())) {
+                    throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Deliverable row was not found in this workspace.");
+                }
+                requireFresh(expectedUpdatedAt, row.getUpdatedAt(), "deliverable row");
+                if (row.getStatus() != DeliverableStatus.UNPUBLISHED
+                    || referenced("form_responses", "deliverable_id", workspaceId, rowId)
+                    || referenced("form_response_drafts", "deliverable_id", workspaceId, rowId)
+                    || referenced("academic_tracker_writebacks", "deliverable_id", workspaceId, rowId)) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "This deliverable is published or has saved responses, drafts, or tracker history. Unpublish or retain its academic record.");
+                }
+                // Selection is configuration, not submission evidence: remove an
+                // opted-in row before deleting an otherwise unused deliverable.
+                entityManager.createNativeQuery("DELETE FROM workspace_file_monitor_deliverables WHERE workspace_id=? AND deliverable_id=?")
+                    .setParameter(1, workspaceId).setParameter(2, rowId).executeUpdate();
+                entityManager.remove(row);
+            }
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose students, projects, or deliverables.");
+        }
+        entityManager.flush();
+    }
+
+    private boolean referenced(String table, String column, UUID workspaceId, UUID rowId) {
+        return count("SELECT COUNT(*) FROM " + table + " WHERE workspace_id = ? AND " + column + " = ?",
+            workspaceId, rowId) > 0;
+    }
+
+    private long count(String query, Object... args) {
+        var sql = entityManager.createNativeQuery(query);
+        for (int i = 0; i < args.length; i++) sql.setParameter(i + 1, args[i]);
+        return ((Number) sql.getSingleResult()).longValue();
+    }
+
     private AcademicWorkspace requireWorkspace(UUID workspaceId, LockModeType mode) {
         AcademicWorkspace workspace = entityManager.find(AcademicWorkspace.class, workspaceId, mode);
         if (workspace == null) throw new IllegalArgumentException("Academic workspace was not found.");

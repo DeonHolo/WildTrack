@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { addAcademicDeliverableColumn, clearAcademicDataSnapshot, getAcademicDataSnapshot, loadAcademicData, saveAcademicRows } from './academicDataClient.js';
+import { addAcademicDeliverableColumn, clearAcademicDataSnapshot, deleteAcademicRow, getAcademicDataSnapshot, loadAcademicData, saveAcademicRows } from './academicDataClient.js';
 
 const api = vi.hoisted(() => ({ request: vi.fn(), createTrackerColumn: vi.fn() }));
 
@@ -53,6 +53,19 @@ describe('Academic Data server operations and scoped snapshot', () => {
       method: 'PUT', body: { rows: [{ studentNumber: '26-0004' }] }
     });
     expect(getAcademicDataSnapshot('workspace-c', 'admin-c')).toBeNull();
+  });
+
+  it('deletes a saved row by stable id and optimistic version and invalidates its cached dataset', async () => {
+    api.request.mockResolvedValueOnce({ students: [{ id: 'row-1' }] });
+    await loadAcademicData('workspace-delete', 'admin-delete');
+    api.request.mockResolvedValueOnce({});
+    await deleteAcademicRow('workspace-delete', 'students', 'row-1', '2026-09-22T12:00:00');
+    expect(api.request).toHaveBeenLastCalledWith('/academic-data/students/row-1?workspaceId=workspace-delete', {
+      method: 'DELETE', body: { expectedUpdatedAt: '2026-09-22T12:00:00' }
+    });
+    expect(getAcademicDataSnapshot('workspace-delete', 'admin-delete')).toBeNull();
+    await expect(deleteAcademicRow('workspace-delete', 'unknown', 'row-1', 'date')).rejects.toThrow('Unknown academic data grid');
+    await expect(deleteAcademicRow('workspace-delete', 'students', null, null)).rejects.toThrow('Reload this row');
   });
 
   it('does not allow a delayed older refresh to overwrite a newer snapshot after a save', async () => {

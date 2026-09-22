@@ -13,6 +13,8 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -65,6 +67,16 @@ public class AcademicDataController {
     ) {
         requireAdmin(http);
         return service.saveDeliverables(workspaceId, request);
+    }
+
+    public record DeleteRequest(java.time.LocalDateTime expectedUpdatedAt) { }
+
+    @DeleteMapping("/{kind}/{rowId}")
+    public void deleteRow(@PathVariable String kind, @PathVariable UUID rowId,
+            @RequestParam UUID workspaceId, @RequestBody DeleteRequest request,
+            HttpServletRequest http) {
+        requireAdmin(http);
+        service.deleteRow(workspaceId, kind, rowId, request == null ? null : request.expectedUpdatedAt());
     }
 
     private void requireAdmin(HttpServletRequest http) {

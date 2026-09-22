@@ -14,11 +14,18 @@ import {
   Textarea,
   TextInput
 } from '@mantine/core';
-import { ArrowClockwise, DownloadSimple, MagnifyingGlass, Plus, UploadSimple } from '@phosphor-icons/react';
-import { addAcademicDeliverableColumn, clearAcademicDataSnapshot, getAcademicDataSnapshot, loadAcademicData, saveAcademicRows } from '../../lib/academicDataClient.js';
+import { ArrowClockwise, ArrowUDownLeft, ArrowUUpLeft, DownloadSimple, MagnifyingGlass, Plus, Trash, UploadSimple } from '@phosphor-icons/react';
+import { addAcademicDeliverableColumn, clearAcademicDataSnapshot, deleteAcademicRow, getAcademicDataSnapshot, loadAcademicData, saveAcademicRows } from '../../lib/academicDataClient.js';
 import { downloadAcademicCsv } from '../../lib/academicDataCsv.js';
+import { downloadAcademicWorkbook } from '../../lib/academicDataWorkbook.js';
 
 const PAGE_SIZE_OPTIONS = ['25', '50', '100'];
+const HISTORY_LIMIT = 150;
+const TRACKER_EXPORT_COLUMNS = [
+  column('columnKey', 'Tracker column'), column('label', 'Label'),
+  column('sourceColumn', 'Source column'), column('sourceColumnIndex', 'Source column index'),
+  column('displayOrder', 'Display order'), column('active', 'Active'), column('pdfRequired', 'PDF required')
+];
 
 const GRID_CONFIG = {
   students: {
@@ -93,6 +100,10 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   const [newDeliverablePdf, setNewDeliverablePdf] = useState(true);
   const [creatingColumn, setCreatingColumn] = useState(false);
   const [focusRow, setFocusRow] = useState('');
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const historyRef = useRef(emptyHistory());
   const gridRef = useRef(null);
   const dirtyRef = useRef(false);
   const workspaceRef = useRef(`${cacheScope || ''}\u0000${workspaceId || ''}`);
@@ -111,6 +122,9 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
     setSearch('');
     setSearchDraft('');
     setFocusRow('');
+    historyRef.current = emptyHistory();
+    setHistoryVersion((value) => value + 1);
+    setPendingDelete(null);
     if (workspaceId) void load({ quiet: Boolean(cached) });
     return () => { requestSequence.current += 1; };
   }, [workspaceId, cacheScope]);
@@ -131,6 +145,8 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
       setData(normalizeSnapshot(snapshot));
       setDirty(emptyDirty());
       dirtyRef.current = false;
+      historyRef.current = emptyHistory();
+      setHistoryVersion((value) => value + 1);
       setStatus('ready');
     } catch (loadError) {
       if (requestId !== requestSequence.current || workspaceRef.current !== `${cacheScope || ''}\u0000${workspaceId || ''}`) return;
@@ -139,6 +155,8 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
         setData(emptyData());
         setDirty(emptyDirty());
         dirtyRef.current = false;
+        historyRef.current = emptyHistory();
+        setHistoryVersion((value) => value + 1);
       }
       setError(loadError?.message || 'Academic data could not be loaded.');
       setStatus(getAcademicDataSnapshot(workspaceId, cacheScope) ? 'ready' : 'error');
@@ -166,6 +184,8 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   const dirtyKeys = dirty[activeGrid];
   const dirtyRows = rows.filter((row) => dirtyKeys.has(rowKey(row)));
   const dirtyHasErrors = dirtyRows.some((row) => Object.keys(errors.get(rowKey(row)) || {}).length > 0);
+  const activeHistory = historyRef.current[activeGrid];
+  void historyVersion;
   const pastePreview = useMemo(
     () => parsePaste(activeGrid, pasteText, rows, data.trackerColumns),
     [activeGrid, pasteText, rows, data.trackerColumns]
@@ -187,21 +207,48 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
 
   function updateCell(key, field, value) {
     if (status === 'saving') return;
-    setData((current) => ({
-      ...current,
-      [activeGrid]: current[activeGrid].map((row) => rowKey(row) === key ? { ...row, [field]: value } : row)
-    }));
-    markDirty(activeGrid, key);
+    const oldRow = rows.find((row) => rowKey(row) === key);
+    if (!oldRow || String(oldRow[field] ?? '') === String(value ?? '')) return;
+    commitGrid(activeGrid, rows.map((row) => rowKey(row) === key ? { ...row, [field]: value } : row), new Set([...dirtyKeys, key]));
     setNotice('');
   }
 
-  function markDirty(kind, key) {
-    dirtyRef.current = true;
-    setDirty((current) => {
-      const next = new Set(current[kind]);
-      next.add(key);
-      return { ...current, [kind]: next };
-    });
+  function commitGrid(kind, nextRows, nextDirty) {
+    const history = historyRef.current[kind];
+    history.past.push({ rows: data[kind], dirtyKeys: new Set(dirty[kind]) });
+    if (history.past.length > HISTORY_LIMIT) history.past.shift();
+    history.future = [];
+    setHistoryVersion((value) => value + 1);
+    setData((current) => ({ ...current, [kind]: nextRows }));
+    const next = { ...dirty, [kind]: nextDirty };
+    setDirty(next);
+    dirtyRef.current = Object.values(next).some((keys) => keys.size > 0);
+  }
+
+  function restoreHistory(direction) {
+    if (status === 'saving' || creatingColumn) return;
+    const history = historyRef.current[activeGrid];
+    const source = direction === 'undo' ? history.past : history.future;
+    const destination = direction === 'undo' ? history.future : history.past;
+    if (!source.length) return;
+    destination.push({ rows, dirtyKeys: new Set(dirtyKeys) });
+    const previous = source.pop();
+    const next = { ...dirty, [activeGrid]: new Set(previous.dirtyKeys) };
+    setData((current) => ({ ...current, [activeGrid]: previous.rows }));
+    setDirty(next);
+    dirtyRef.current = Object.values(next).some((keys) => keys.size > 0);
+    setHistoryVersion((value) => value + 1);
+    setError('');
+    setNotice(`${direction === 'undo' ? 'Undid' : 'Redid'} the latest unsaved change in ${config.label.toLowerCase()}.`);
+  }
+
+  function onGridKeyDown(event) {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || !event.target.closest?.('.wt-academic-grid-scroll')) return;
+    const key = event.key.toLowerCase();
+    const direction = key === 'z' && !event.shiftKey ? 'undo' : (key === 'y' || (key === 'z' && event.shiftKey)) ? 'redo' : null;
+    if (!direction || status === 'saving') return;
+    event.preventDefault();
+    restoreHistory(direction);
   }
 
   function addRow() {
@@ -213,9 +260,63 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
       return;
     }
     const row = newRow(activeGrid, data);
-    setData((current) => ({ ...current, [activeGrid]: [...current[activeGrid], row] }));
-    markDirty(activeGrid, rowKey(row));
+    commitGrid(activeGrid, [...rows, row], new Set([...dirtyKeys, rowKey(row)]));
     jumpToRow(row, [...rows, row]);
+  }
+
+  function requestDelete(key) {
+    if (status === 'saving') return;
+    const row = rows.find((item) => rowKey(item) === key);
+    if (!row) return;
+    if (row._rosterTeam || row._importedColumn) {
+      setNotice(row._rosterTeam
+        ? 'This team comes from student records. Update the students’ team codes to change the roster.'
+        : 'This row comes from a tracker column. Edit the tracker column through workspace settings.');
+      return;
+    }
+    setPendingDelete({ kind: activeGrid, key, row, identity: rowIdentity(activeGrid, row) });
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete || status === 'saving') return;
+    const { kind, key, row, identity } = pendingDelete;
+    if (!row.id) {
+      commitGrid(kind, data[kind].filter((item) => rowKey(item) !== key), new Set([...dirty[kind]].filter((item) => item !== key)));
+      setPendingDelete(null);
+      setNotice(`Removed unsaved ${identity}. Use Undo to restore this row.`);
+      return;
+    }
+    const requestId = ++requestSequence.current;
+    const deletingScope = `${cacheScope || ''}\u0000${workspaceId || ''}`;
+    setDeleting(true);
+    setStatus('saving');
+    setError('');
+    try {
+      await deleteAcademicRow(workspaceId, kind, row.id, row.updatedAt);
+      if (requestId !== requestSequence.current || workspaceRef.current !== deletingScope) return;
+      // A committed deletion cannot be undone locally. Keep unsaved edits in
+      // the other rows/tabs and immediately remove the deleted server row.
+      historyRef.current[kind] = { past: [], future: [] };
+      setHistoryVersion((value) => value + 1);
+      const nextDirty = { ...dirty, [kind]: new Set([...dirty[kind]].filter((item) => item !== key)) };
+      setDirty(nextDirty);
+      dirtyRef.current = Object.values(nextDirty).some((keys) => keys.size > 0);
+      setData((current) => ({ ...current, [kind]: current[kind].filter((item) => rowKey(item) !== key) }));
+      setPendingDelete(null);
+      setStatus('ready');
+      setNotice(`Deleted ${identity} from WildTrack. A committed deletion cannot be undone.`);
+      await onSaved?.();
+    } catch (deleteError) {
+      if (requestId !== requestSequence.current || workspaceRef.current !== deletingScope) return;
+      setStatus('ready');
+      setError(deleteError?.message && deleteError.message !== 'Conflict'
+        ? deleteError.message
+        : deleteError?.status === 409
+          ? 'This row changed or has linked records. Reload before deleting, or keep this row for its saved history.'
+          : 'The row could not be deleted.');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function jumpToRow(row, nextRows) {
@@ -251,6 +352,8 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
       } else {
         setData(next);
       }
+      historyRef.current.deliverables = { past: [], future: [] };
+      setHistoryVersion((value) => value + 1);
       if (addedRow) jumpToRow(addedRow, nextRows);
       setNotice(`Tracker column ${createdColumn.label || createdColumn.columnKey} created. Set the due date and save the deliverable form.`);
       void onSaved?.();
@@ -292,6 +395,11 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
       const remainingDirty = { ...dirty, [savingGrid]: new Set() };
       setDirty(remainingDirty);
       dirtyRef.current = Object.values(remainingDirty).some((keys) => keys.size > 0);
+      historyRef.current[savingGrid] = { past: [], future: [] };
+      for (const kind of ['students', 'projects', 'deliverables']) {
+        if (kind !== savingGrid && !remainingDirty[kind].size) historyRef.current[kind] = { past: [], future: [] };
+      }
+      setHistoryVersion((value) => value + 1);
       setStatus('ready');
       await onSaved?.();
       setNotice(`${savedCount} ${savedCount === 1 ? 'row' : 'rows'} saved to WildTrack.`);
@@ -307,16 +415,14 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   function applyPaste() {
     if (status === 'saving') return;
     if (!pastePreview.rows.length || pastePreview.errors.length) return;
-    dirtyRef.current = true;
-    setData((current) => ({ ...current, [activeGrid]: pastePreview.nextRows }));
-    setDirty((current) => ({ ...current, [activeGrid]: new Set([...current[activeGrid], ...pastePreview.dirtyKeys]) }));
+    commitGrid(activeGrid, pastePreview.nextRows, new Set([...dirtyKeys, ...pastePreview.dirtyKeys]));
     setPasteOpened(false);
     setPasteText('');
     setNotice(`${pastePreview.rows.length} pasted ${pastePreview.rows.length === 1 ? 'row is' : 'rows are'} ready to save. Paste is not written until Save changes.`);
   }
 
   return (
-    <section className="wt-academic-data wt-academic-data-sheet" aria-label="Academic data workspace">
+    <section className="wt-academic-data wt-academic-data-sheet" aria-label="Academic data workspace" onKeyDownCapture={onGridKeyDown}>
       <Stack gap="md">
         {error ? <Alert color="red" role="alert">{error}</Alert> : null}
         {notice ? <Alert color="green" role="status">{notice}</Alert> : null}
@@ -345,8 +451,19 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
                   <Button variant="default" leftSection={<ArrowClockwise size={16} />} onClick={reload} disabled={status === 'saving'}>Reload</Button>
                   <Button variant="default" leftSection={<UploadSimple size={16} />} disabled={status === 'saving'} onClick={() => { setPasteText(''); setPasteOpened(true); }}>Paste rows</Button>
                   <Button variant="default" leftSection={<Plus size={16} />} disabled={status === 'saving'} onClick={addRow}>Add row</Button>
-                  <Button variant="default" leftSection={<DownloadSimple size={16} />} onClick={() => downloadAcademicCsv(activeGrid, config.columns, filteredRows)}
-                    disabled={!filteredRows.length}>Export CSV{search.trim() ? ' (filtered)' : ''}</Button>
+                  <Button variant="default" leftSection={<ArrowUDownLeft size={16} />} onClick={() => restoreHistory('undo')} disabled={!activeHistory.past.length || status === 'saving'}>Undo</Button>
+                  <Button variant="default" leftSection={<ArrowUUpLeft size={16} />} onClick={() => restoreHistory('redo')} disabled={!activeHistory.future.length || status === 'saving'}>Redo</Button>
+                  <Button variant="default" leftSection={<DownloadSimple size={16} />} onClick={() => {
+                    const sheet = exportDataset(activeGrid, rows, dirtyKeys);
+                    downloadAcademicCsv(activeGrid, sheet.columns, sheet.rows);
+                  }}
+                    disabled={!rows.length}>Export {config.label} CSV</Button>
+                  {activeGrid === 'deliverables' ? <Button variant="default" leftSection={<DownloadSimple size={16} />}
+                    onClick={() => downloadAcademicCsv('tracker-columns', exportColumns('trackerColumns', data.trackerColumns), data.trackerColumns)}
+                    disabled={!data.trackerColumns.length}>Export tracker columns CSV</Button> : null}
+                  <Button variant="default" leftSection={<DownloadSimple size={16} />} onClick={() => downloadAcademicWorkbook(Object.fromEntries(
+                    ['students', 'projects', 'deliverables', 'trackerColumns'].map((kind) => [kind, exportDataset(kind, data[kind], dirty[kind])])
+                  ))}>Export all XLSX</Button>
                   <Button color="wildtrackMaroon" onClick={save} loading={status === 'saving'} disabled={!dirtyRows.length || dirtyHasErrors || status === 'refreshing'}>
                     Save changes{dirtyRows.length ? ` (${dirtyRows.length})` : ''}
                   </Button>
@@ -363,6 +480,7 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
                 trackerColumns={data.trackerColumns}
                 dirtyKeys={dirtyKeys}
                 onChange={updateCell}
+                onDelete={requestDelete}
               />
 
               <Group className="wt-academic-pagination" justify="space-between" gap="md" wrap="wrap">
@@ -396,6 +514,19 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setNewDeliverableOpened(false)} disabled={creatingColumn}>Cancel</Button>
             <Button color="wildtrackMaroon" loading={creatingColumn} disabled={!newDeliverableName.trim()} onClick={createDeliverableColumn}>Create tracker column</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={Boolean(pendingDelete)} onClose={() => { if (!deleting) setPendingDelete(null); }} title="Delete academic data row?" centered>
+        <Stack gap="md">
+          <Text size="sm">Delete {pendingDelete?.identity} from {pendingDelete ? GRID_CONFIG[pendingDelete.kind].label : 'academic data'}?</Text>
+          <Text size="sm" c="dimmed">{pendingDelete?.row.id
+            ? 'This will delete a saved WildTrack record. A committed deletion cannot be undone.'
+            : 'This row has not been saved. You can undo its removal with Undo or Ctrl+Z in the grid.'}</Text>
+          <Group justify="flex-end">
+            <Button variant="default" disabled={deleting} onClick={() => setPendingDelete(null)}>Cancel</Button>
+            <Button color="red" loading={deleting} onClick={confirmDelete}>Delete row</Button>
           </Group>
         </Stack>
       </Modal>
@@ -440,15 +571,16 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   );
 }
 
-function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColumns, dirtyKeys, onChange, gridRef }) {
+function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColumns, dirtyKeys, onChange, onDelete, gridRef }) {
   return (
-    <div className="wt-academic-grid-scroll" ref={gridRef}>
+    <div className="wt-academic-grid-scroll" ref={gridRef} tabIndex={0} aria-label={`${GRID_CONFIG[kind].label} editable grid`}>
       <table className="wt-academic-grid" aria-label={`${GRID_CONFIG[kind].label} academic data`}>
         <thead>
           <tr>
             <th className="wt-academic-row-number" aria-label="Row number">#</th>
             <th>Source</th>
             {columns.map((item) => <th key={item.key}>{item.label}{item.required ? ' *' : ''}</th>)}
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -471,10 +603,16 @@ function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColum
                     />
                   </td>
                 ))}
+                <td><Button variant="subtle" color="red" size="compact-xs" leftSection={<Trash size={14} />}
+                  aria-label={`Delete row ${rowIdentity(kind, row)}`} onClick={() => onDelete(key)}
+                  disabled={Boolean(row._rosterTeam || row._importedColumn)}
+                  title={row._rosterTeam ? 'Roster team: update student team codes' : row._importedColumn ? 'Tracker column: edit in workspace settings' : 'Delete row'}>
+                  Delete
+                </Button></td>
               </tr>
             );
           })}
-          {!rows.length ? <tr><td colSpan={columns.length + 2}><Text size="sm" c="dimmed">No rows yet. Add a row or paste spreadsheet data.</Text></td></tr> : null}
+          {!rows.length ? <tr><td colSpan={columns.length + 3}><Text size="sm" c="dimmed">No rows yet. Add a row or paste spreadsheet data.</Text></td></tr> : null}
         </tbody>
       </table>
     </div>
@@ -740,6 +878,39 @@ function normalize(value) {
 
 function column(key, label, required = false, type = 'text') {
   return { key, label, required, type };
+}
+
+function exportColumns(kind, rows = []) {
+  const defined = kind === 'trackerColumns' ? TRACKER_EXPORT_COLUMNS : GRID_CONFIG[kind].columns;
+  const used = new Set(defined.map((column) => column.key));
+  const extra = [];
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      if (key.startsWith('_') || used.has(key)) continue;
+      used.add(key);
+      extra.push(column(key, key.replace(/([a-z])([A-Z])/g, '$1 $2')));
+    }
+  }
+  return [...defined, ...extra];
+}
+
+function exportDataset(kind, rows = [], dirtyKeys = new Set()) {
+  const columns = exportColumns(kind, rows);
+  if (kind === 'trackerColumns') return { columns, rows };
+  return {
+    columns: [...columns, column('recordState', 'Record state')],
+    rows: rows.map((row) => ({
+      ...row,
+      recordState: row.id ? (dirtyKeys.has(rowKey(row)) ? 'Saved record with unsaved edits' : 'Saved in WildTrack')
+        : row._rosterTeam ? (dirtyKeys.has(rowKey(row)) ? 'Unsaved project for roster team' : 'Roster team only, no project record')
+          : row._importedColumn ? (dirtyKeys.has(rowKey(row)) ? 'Unsaved form for tracker column' : 'Tracker column only, no deliverable form')
+            : 'Unsaved new row'
+    }))
+  };
+}
+
+function emptyHistory() {
+  return { students: { past: [], future: [] }, projects: { past: [], future: [] }, deliverables: { past: [], future: [] } };
 }
 
 function emptyData() {

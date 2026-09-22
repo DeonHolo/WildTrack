@@ -1,5 +1,10 @@
+export function academicExportValue(value) {
+  if (value == null) return '';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
 function csvCell(value) {
-  const text = String(value ?? '');
+  const text = academicExportValue(value);
   // Spreadsheet applications may execute formulas when opening CSV files.
   const safe = /^\s*[=+\-@]/.test(text) ? `'${text}` : text;
   return `"${safe.replace(/"/g, '""')}"`;

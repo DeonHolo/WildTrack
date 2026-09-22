@@ -159,6 +159,19 @@ function createState() {
   };
 }
 
+const monitorDeliverables = [
+  { id: 'deliverable-srs', title: 'Software Requirements Specification', dueAt: '2026-10-01T23:59:00', enabled: true },
+  { id: 'deliverable-sdd', title: 'Software Design Description', dueAt: '2026-10-05T23:59:00', enabled: true }
+];
+
+function monitorSettings(enabled = false, ids = monitorDeliverables.map((item) => item.id),
+  configured = true, selectionConfigured = true) {
+  return {
+    enabled, configured, deliverableSelectionConfigured: selectionConfigured,
+    deliverables: monitorDeliverables.map((item) => ({ ...item, enabled: ids.includes(item.id) }))
+  };
+}
+
 // Exercise the real hook independently of the page's synchronous resource fixture.
 const { useWorkspaceResource: useRealWorkspaceResource } = await vi.importActual('../hooks/useWorkspaceResource.js');
 const makeEmpty = () => ({ rows: [] });
@@ -269,8 +282,8 @@ describe('workspace operations', () => {
     workflow.state = createState();
     Object.values(workflow).forEach((value) => value?.mockReset?.());
     workflow.refreshWorkspaceManagementCatalog.mockResolvedValue({ ok: true, workspaces: workflow.allWorkspaces });
-    workflow.getFileMonitorSettings.mockResolvedValue({ enabled: false, configured: true });
-    workflow.setFileMonitorSettings.mockImplementation(async (_workspaceId, enabled) => ({ enabled, configured: true }));
+    workflow.getFileMonitorSettings.mockResolvedValue(monitorSettings());
+    workflow.setFileMonitorSettings.mockImplementation(async (_workspaceId, enabled, ids) => monitorSettings(enabled, ids));
     workflow.loadArchiveReadiness.mockResolvedValue({
       responseCount: 0,
       archivedResponseCount: 0,
@@ -306,6 +319,9 @@ describe('workspace operations', () => {
 
   it('loads the selected workspace monitoring setting as OFF and enables it only after server confirmation', async () => {
     let finish;
+    // A never-configured workspace is initially disabled, but all eligible
+    // deliverables are preselected by the backend for the first enable action.
+    workflow.getFileMonitorSettings.mockResolvedValueOnce(monitorSettings(false, undefined, true, false));
     workflow.setFileMonitorSettings.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     renderPage();
     const monitor = screen.getByRole('region', { name: 'Deadline PDF monitoring' });
@@ -314,15 +330,15 @@ describe('workspace operations', () => {
     expect(within(monitor).getByText('Disabled')).toBeInTheDocument();
     expect(workflow.getFileMonitorSettings).toHaveBeenCalledWith('workspace-it');
     fireEvent.click(enable);
-    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', true));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', true, ['deliverable-srs', 'deliverable-sdd']));
     expect(within(monitor).getByText('Disabled')).toBeInTheDocument();
     expect(within(monitor).getByRole('button', { name: 'Enable monitoring' })).toBeDisabled();
-    await act(async () => finish({ enabled: true, configured: true }));
+    await act(async () => finish(monitorSettings(true)));
     expect(within(monitor).getByText('Enabled')).toBeInTheDocument();
     fireEvent.click(within(monitor).getByRole('button', { name: 'Disable monitoring' }));
-    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false, ['deliverable-srs', 'deliverable-sdd']));
     expect(within(monitor).getByText('Disabled')).toBeInTheDocument();
-    expect(within(monitor).getByText(/does not poll Google Sheets or change acceptance decisions/)).toBeInTheDocument();
+    expect(within(monitor).queryByText(/does not poll Google Sheets or change acceptance decisions/)).not.toBeInTheDocument();
   });
 
   it('shows a loading state and does not guess monitoring is disabled before backend responds', async () => {
@@ -335,18 +351,18 @@ describe('workspace operations', () => {
   });
 
   it('prevents enabling when Drive checking is unavailable but permits disabling an already enabled monitor', async () => {
-    workflow.getFileMonitorSettings.mockResolvedValueOnce({ enabled: false, configured: false });
+    workflow.getFileMonitorSettings.mockResolvedValueOnce(monitorSettings(false, ['deliverable-srs', 'deliverable-sdd'], false));
     const view = renderPage();
     const monitor = screen.getByRole('region', { name: 'Deadline PDF monitoring' });
     expect(await within(monitor).findByText(/Google Drive PDF checking is unavailable/)).toBeInTheDocument();
     expect(within(monitor).getByRole('button', { name: 'Enable monitoring' })).toBeDisabled();
     expect(workflow.setFileMonitorSettings).not.toHaveBeenCalled();
     view.unmount();
-    workflow.getFileMonitorSettings.mockResolvedValueOnce({ enabled: true, configured: false });
+    workflow.getFileMonitorSettings.mockResolvedValueOnce(monitorSettings(true, ['deliverable-srs', 'deliverable-sdd'], false));
     renderPage();
     expect(await screen.findByRole('button', { name: 'Disable monitoring' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Disable monitoring' }));
-    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false, ['deliverable-srs', 'deliverable-sdd']));
   });
 
   it('surfaces read and save failures without claiming a change, then retries the authoritative state', async () => {
@@ -374,17 +390,17 @@ describe('workspace operations', () => {
     workflow.activeWorkspace = workflow.workspaces[1];
     view.rerender(workspaceTree());
     await waitFor(() => expect(workflow.getFileMonitorSettings).toHaveBeenCalledWith('workspace-cs'));
-    await act(async () => finishRead({ enabled: true, configured: true }));
+    await act(async () => finishRead(monitorSettings(true)));
     const monitor = screen.getByRole('region', { name: 'Deadline PDF monitoring' });
     expect(within(monitor).getByText('Disabled')).toBeInTheDocument();
     let finishSave;
     workflow.setFileMonitorSettings.mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
     fireEvent.click(within(monitor).getByRole('button', { name: 'Enable monitoring' }));
-    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-cs', true));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-cs', true, ['deliverable-srs', 'deliverable-sdd']));
     workflow.session = { authenticated: true, email: 'another-admin@school.edu', roles: ['ADMIN'] };
     view.rerender(workspaceTree());
     await waitFor(() => expect(workflow.getFileMonitorSettings).toHaveBeenCalledTimes(3));
-    await act(async () => finishSave({ enabled: true, configured: true }));
+    await act(async () => finishSave(monitorSettings(true)));
     expect(within(monitor).getByText('Disabled')).toBeInTheDocument();
     expect(within(monitor).queryByText(/monitoring enabled for this workspace/)).not.toBeInTheDocument();
   });
@@ -399,6 +415,120 @@ describe('workspace operations', () => {
     view.rerender(workspaceTree());
     expect(screen.queryByRole('region', { name: 'Deadline PDF monitoring' })).not.toBeInTheDocument();
     expect(workflow.getFileMonitorSettings).not.toHaveBeenCalled();
+  });
+
+  it('explains deadline math in a compact accessible help tooltip, not the old panel copy', async () => {
+    renderPage();
+    const monitor = screen.getByRole('region', { name: 'Deadline PDF monitoring' });
+    expect(within(monitor).queryByText(/; this does not poll Google Sheets or change acceptance decisions\./)).not.toBeInTheDocument();
+    const help = within(monitor).getByRole('button', { name: 'How deadline PDF monitoring works' });
+    fireEvent.mouseEnter(help);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent('Asia/Manila');
+    expect(tooltip).toHaveTextContent('24 hours before the deadline until 48 hours afterward');
+    expect(tooltip).toHaveTextContent('every 5 minutes');
+    expect(tooltip).toHaveTextContent('once every hour');
+    expect(tooltip).toHaveTextContent('20 files per enabled workspace per cycle');
+    expect(tooltip).toHaveTextContent('avoids downloading an unchanged PDF when a comparable content checksum is available');
+    expect(tooltip).toHaveTextContent('verify uncertain changes or restored access');
+    expect(tooltip).toHaveTextContent('best-effort, not guaranteed');
+  });
+
+  it('configures an individual deliverable and preserves its selection through disable/re-enable', async () => {
+    let server = monitorSettings(false);
+    workflow.getFileMonitorSettings.mockImplementation(async () => server);
+    workflow.setFileMonitorSettings.mockImplementation(async (_id, enabled, ids) => {
+      server = monitorSettings(enabled, ids);
+      return server;
+    });
+    const view = renderPage();
+    const monitor = screen.getByRole('region', { name: 'Deadline PDF monitoring' });
+    fireEvent.click(await within(monitor).findByRole('button', { name: 'Configure deliverables' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Configure deadline PDF monitoring' });
+    expect(within(dialog).getByRole('checkbox', { name: 'Software Requirements Specification' })).toBeChecked();
+    expect(within(dialog).getByRole('checkbox', { name: 'Software Design Description' })).toBeChecked();
+    expect(within(dialog).getByText(/Due 2026-10-01 23:59 \(Asia\/Manila\)/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Software Design Description' }));
+    expect(within(dialog).getByText('1 of 2 deliverables selected')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save deliverables' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false, ['deliverable-srs']));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Configure deadline PDF monitoring' })).not.toBeInTheDocument());
+    expect(within(monitor).getByText(/1 of 2 deliverables selected/)).toBeInTheDocument();
+    fireEvent.click(within(monitor).getByRole('button', { name: 'Enable monitoring' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', true, ['deliverable-srs']));
+    fireEvent.click(within(monitor).getByRole('button', { name: 'Disable monitoring' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false, ['deliverable-srs']));
+    view.unmount();
+    renderPage();
+    expect(await screen.findByText(/1 of 2 deliverables selected/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Configure deliverables' }));
+    const reopened = await screen.findByRole('dialog', { name: 'Configure deadline PDF monitoring' });
+    expect(within(reopened).getByRole('checkbox', { name: 'Software Requirements Specification' })).toBeChecked();
+    expect(within(reopened).getByRole('checkbox', { name: 'Software Design Description' })).not.toBeChecked();
+  });
+
+  it('supports Select none as a persisted no-scans choice and Select all to restore every eligible deliverable', async () => {
+    let server = monitorSettings(false);
+    workflow.getFileMonitorSettings.mockImplementation(async () => server);
+    workflow.setFileMonitorSettings.mockImplementation(async (_id, enabled, ids) => {
+      server = monitorSettings(enabled, ids);
+      return server;
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure deliverables' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Configure deadline PDF monitoring' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Select none' }));
+    expect(within(dialog).getByRole('status')).toHaveTextContent('No automatic PDF scans will run');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save deliverables' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false, []));
+    fireEvent.click(screen.getByRole('button', { name: 'Enable monitoring' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', true, []));
+    expect(screen.getByText(/No automatic PDF scans will run until you select a deliverable/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Configure deliverables' }));
+    const reopened = await screen.findByRole('dialog', { name: 'Configure deadline PDF monitoring' });
+    expect(within(reopened).getByRole('checkbox', { name: 'Software Requirements Specification' })).not.toBeChecked();
+    fireEvent.click(within(reopened).getByRole('button', { name: 'Select all' }));
+    expect(within(reopened).getByText('2 of 2 deliverables selected')).toBeInTheDocument();
+    fireEvent.click(within(reopened).getByRole('button', { name: 'Save deliverables' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', true, ['deliverable-srs', 'deliverable-sdd']));
+  });
+
+  it('keeps an edited selection in the dialog after a rejected save, without showing it as persisted', async () => {
+    workflow.setFileMonitorSettings.mockRejectedValueOnce(new Error('Selection could not be saved'));
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure deliverables' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Configure deadline PDF monitoring' });
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Software Design Description' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save deliverables' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Selection could not be saved');
+    expect(within(dialog).getByRole('checkbox', { name: 'Software Design Description' })).not.toBeChecked();
+    expect(screen.getByRole('region', { name: 'Deadline PDF monitoring' })).toHaveTextContent('2 of 2 deliverables selected');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save deliverables' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false, ['deliverable-srs']));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Configure deadline PDF monitoring' })).not.toBeInTheDocument());
+    expect(screen.getByRole('region', { name: 'Deadline PDF monitoring' })).toHaveTextContent('1 of 2 deliverables selected');
+  });
+
+  it('closes the modal on workspace switch and discards the old workspace’s delayed save', async () => {
+    let finishSave;
+    workflow.setFileMonitorSettings.mockImplementationOnce(() => new Promise((resolve) => { finishSave = resolve; }));
+    const view = renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure deliverables' }));
+    let dialog = await screen.findByRole('dialog', { name: 'Configure deadline PDF monitoring' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Select none' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save deliverables' }));
+    await waitFor(() => expect(workflow.setFileMonitorSettings).toHaveBeenCalledWith('workspace-it', false, []));
+    workflow.activeWorkspaceId = 'workspace-cs';
+    workflow.activeWorkspace = workflow.workspaces[1];
+    view.rerender(workspaceTree());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Configure deadline PDF monitoring' })).not.toBeInTheDocument());
+    await waitFor(() => expect(workflow.getFileMonitorSettings).toHaveBeenCalledWith('workspace-cs'));
+    await act(async () => finishSave(monitorSettings(false, [])));
+    expect(screen.getByRole('region', { name: 'Deadline PDF monitoring' })).toHaveTextContent('2 of 2 deliverables selected');
+    expect(screen.queryByText('Monitored deliverables saved.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Configure deliverables' }));
+    dialog = await screen.findByRole('dialog', { name: 'Configure deadline PDF monitoring' });
+    expect(within(dialog).getByRole('checkbox', { name: 'Software Requirements Specification' })).toBeChecked();
   });
 
   it.each(['workspace', 'account'])('discards a late re-import preview after the %s changes', async (changed) => {
