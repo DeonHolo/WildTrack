@@ -487,6 +487,16 @@ export function isAiReportCurrent(response) {
   return response.aiReport.sourceResponseUpdatedAt === sourceTimestamp;
 }
 
+// Historical saved reports may predate the backend's inconclusive-result guard.
+// Only flag its explicitly generic fallback, never an arbitrary report with
+// zero findings (a legitimate review can have none to report).
+export function isInconclusiveAiReviewReport(report) {
+  if (!report || (report.findings || report.flags || []).length
+      || (report.missingRequiredSections || report.missingSections || []).length) return false;
+  return /(?:the AI review returned no grounded findings from the submitted PDF|no source-grounded findings could be established)/i
+    .test(String(report.summary || ''));
+}
+
 export function artifactAiReview(response, field) {
   if (!response || !field) return null;
   if (field.definitionId && response.artifactAiReviews?.[field.definitionId]) {
@@ -521,17 +531,19 @@ export function isArtifactAiReviewCurrent(response, field) {
 
 export function artifactAiReviewStatus(response, field) {
   if (!field?.aiReviewEnabled) return 'Not applicable';
-  if (isArtifactAiReviewCurrent(response, field)) return 'Reviewed';
   const review = artifactAiReview(response, field);
+  if (isArtifactAiReviewCurrent(response, field)) {
+    return isInconclusiveAiReviewReport(review.report) ? 'Inconclusive' : 'Reviewed';
+  }
   if (review?.status === 'UNCERTAIN') return 'Retry required';
   if (review?.status === 'RUNNING') return 'Reviewing';
   return 'Not reviewed';
 }
 
 export function aiReviewStatus(response) {
-  if (isAiReportCurrent(response)) return 'Reviewed';
   const review = response?.aiReviewState;
   if (review?.sourceResponseUpdatedAt && review.sourceResponseUpdatedAt !== (response.updatedAt || response.submittedAt)) return 'Not reviewed';
+  if (isAiReportCurrent(response)) return isInconclusiveAiReviewReport(response.aiReport) ? 'Inconclusive' : 'Reviewed';
   if (review?.status === 'UNCERTAIN') return 'Retry required';
   if (review?.status === 'RUNNING') return 'Reviewing';
   if (review?.status === 'UNAVAILABLE') return 'Unavailable';

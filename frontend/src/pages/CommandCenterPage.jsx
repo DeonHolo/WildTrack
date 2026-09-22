@@ -667,7 +667,7 @@ export function CommandCenterPage() {
         fileLink={checkField ? checkResponse?.values?.[checkField.id] : ''}
         rechecking={Boolean(checkResponse && runningIds.has(checkResponse.id))}
         error={checkError} onClose={() => { setCheckDialogTarget(null); setCheckError(''); }} onRecheck={recheckFromDialog} />
-      <AiReviewReportDialog opened={Boolean(aiReport)} report={aiReport} review={aiReview}
+      <AiReviewReportDialog opened={Boolean(aiReport || aiReview?.previousReport)} report={aiReport} review={aiReview}
         fieldLabel={aiField?.label} onClose={() => setAiDialogTarget(null)} />
     </Stack>
   );

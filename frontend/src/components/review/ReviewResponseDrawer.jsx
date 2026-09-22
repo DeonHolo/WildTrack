@@ -154,6 +154,10 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
   const aiCurrent = isArtifactAiReviewCurrent(response, field);
   const aiStatus = artifactAiReviewStatus(response, field);
   const aiReport = aiCurrent ? aiState?.report : null;
+  const previousAiReport = !aiCurrent && aiState?.previousReport && aiState?.sourceUrl === value
+    ? aiState.previousReport : null;
+  const inconclusiveAttempt = aiState?.status === 'UNCERTAIN'
+    && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED'].includes(aiState.failureCode);
   const missingPreview = compactMissingSections(report?.missingSections, 4);
 
   return (
@@ -185,10 +189,10 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
                 loading={checking} disabled={!value} onClick={onDocumentCheck}>
                 {isArtifactDocumentCheckCurrent(response, field) ? 'View Document Check' : field.documentCheckPolicy === 'MANUAL' ? 'Check document' : 'Check again'}
               </Button>
-              {aiReport ? (
+              {aiReport || previousAiReport ? (
                 <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<Eye size={15} aria-hidden="true" />}
                   onClick={onViewAiReview}>
-                  View AI Review
+                  {previousAiReport ? 'View previous AI Review' : 'View AI Review'}
                 </Button>
               ) : null}
               {field.aiReviewEnabled ? (
@@ -209,6 +213,14 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
             {field.aiReviewEnabled ? (
               <Stack gap={3}>
                 <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={reviewing ? 'Reviewing' : aiStatus} /></Group>
+                {inconclusiveAttempt ? (
+                  <Text size="sm" c="orange.8">Latest AI Review inconclusive. The new run produced no source-grounded findings; it did not verify this PDF.</Text>
+                ) : aiState?.status === 'UNCERTAIN' ? (
+                  <Text size="sm" c="orange.8">Latest AI Review did not finish successfully. Retry only after reviewing the reported error.</Text>
+                ) : null}
+                {previousAiReport ? (
+                  <Text size="xs" c="dimmed">A previously saved AI Review is available. It is historical, not the result of the latest attempt.</Text>
+                ) : null}
                 {reviewing && aiReport ? (
                   <Text size="xs" c="dimmed">A new review is running. The previous report remains available until the new result is saved.</Text>
                 ) : null}

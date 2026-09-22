@@ -169,6 +169,111 @@ class AiReviewDeduplicationTest {
         verify(provider, times(2)).review(any());
     }
 
+    @Test void aProviderResponseWithNoStructuredFindingsIsNotSavedAsACompletedReview() {
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result("Looks fine", List.of(),
+            List.of(), List.of(), "No changes needed"));
+
+        var inconclusive = run(first);
+        assertThat(inconclusive.status()).isEqualTo("UNCERTAIN");
+        assertThat(inconclusive.failureCode()).isEqualTo("NO_GROUNDED_FINDINGS");
+        assertThat(inconclusive.report()).isNull();
+        assertThat(inconclusive.retryToken()).isNotNull();
+        assertThat(inconclusive.message()).contains("inconclusive", "not a clean pass");
+        assertThat(service.saved(workspace, second.getId(), "admin").status()).isEqualTo("NOT_REVIEWED");
+        assertThat(run(first).status()).isEqualTo("UNCERTAIN");
+        verify(provider, times(1)).review(any());
+
+        when(provider.review(any())).thenReturn(result);
+        var repaired = service.review(workspace, first.getId(), "admin", true, inconclusive.retryToken());
+        assertThat(repaired.status()).isEqualTo("COMPLETED");
+        assertThat(repaired.report().findings()).hasSize(1);
+        verify(provider, times(2)).review(any());
+    }
+
+    @Test void aGroundingFilterThatRemovesAllProposedFindingsReportsInconclusiveRatherThanSuccess() {
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result(
+            "Project Scope is missing", List.of(),
+            List.of(new AiReviewProvider.MissingRequiredSection("Project Scope",
+                AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS, "Check requirements")),
+            List.of(), "Add Project Scope"));
+
+        var inconclusive = run(first);
+        assertThat(inconclusive.status()).isEqualTo("UNCERTAIN");
+        assertThat(inconclusive.failureCode()).isEqualTo("FINDINGS_FILTERED");
+        assertThat(inconclusive.report()).isNull();
+        assertThat(jdbc.queryForObject("SELECT report_json FROM ai_review_jobs", String.class)).isNull();
+    }
+
+    @Test void rerunKeepsPreviousSubstantiveReportWhileRunningAndAfterAnInconclusiveAttempt() {
+        assertThat(run(first).status()).isEqualTo("COMPLETED");
+        var original = service.saved(workspace, first.getId(), "admin");
+        var tasks = new java.util.ArrayList<Runnable>();
+        service = newService(store, tasks::add);
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result("No issues", List.of(),
+            List.of(), List.of(), "No action"));
+
+        var running = service.review(workspace, first.getId(), null, "admin", false, null, true);
+        assertThat(running.status()).isEqualTo("RUNNING");
+        assertThat(running.report()).isNull();
+        assertThat(running.previousReport()).isEqualTo(original.report());
+        assertThat(running.previousGeneratedAt()).isEqualTo(original.generatedAt());
+        assertThat(service.saved(workspace, second.getId(), "admin").status()).isEqualTo("NOT_REVIEWED");
+        tasks.get(0).run();
+
+        var failed = service.saved(workspace, first.getId(), "admin");
+        assertThat(failed.status()).isEqualTo("UNCERTAIN");
+        assertThat(failed.failureCode()).isEqualTo("NO_GROUNDED_FINDINGS");
+        assertThat(failed.report()).isNull();
+        assertThat(failed.previousReport()).isEqualTo(original.report());
+        assertThat(failed.previousGeneratedAt()).isEqualTo(original.generatedAt());
+        assertThat(jdbc.queryForObject("SELECT report_json FROM ai_review_jobs", String.class))
+            .contains("document-level issue");
+
+        when(provider.review(any())).thenReturn(result);
+        var recovered = service.review(workspace, first.getId(), "admin", true, failed.retryToken());
+        assertThat(recovered.status()).isEqualTo("RUNNING");
+        assertThat(recovered.previousReport()).isEqualTo(original.report());
+        tasks.get(1).run();
+        var saved = service.saved(workspace, first.getId(), "admin");
+        assertThat(saved.status()).isEqualTo("COMPLETED");
+        assertThat(saved.previousReport()).isNull();
+        assertThat(saved.report()).isEqualTo(original.report());
+        verify(provider, times(3)).review(any());
+    }
+
+    @Test void migrationReclassifiesLegacyGenericSuccessButPreservesSubstantiveSavedReviews() {
+        assertThat(run(first).status()).isEqualTo("COMPLETED");
+        var substantive = service.saved(workspace, first.getId(), "admin");
+        var anotherTeam = response("legacy-generic", "another-team");
+        var generic = new AiReviewProvider.Result("No issues", List.of(), List.of(), List.of(), "No action");
+        var input = service.review(workspace, anotherTeam.getId(), "admin", false);
+        assertThat(input.status()).isEqualTo("COMPLETED");
+        String empty = new ObjectMapper().valueToTree(generic).toString().replace("No issues",
+            "The AI review returned no grounded findings from the submitted PDF or supplied requirement sources.");
+        jdbc.update("UPDATE ai_review_jobs SET report_json = ? WHERE cache_key = ?", empty,
+            jdbc.queryForObject("SELECT cache_key FROM ai_review_response_links WHERE response_id = ?", String.class, anotherTeam.getId()));
+
+        new ResourceDatabasePopulator(new ClassPathResource(
+            "db/migration/V31__mark_empty_ai_reviews_inconclusive.sql")).execute(datasource);
+        var migrated = service.saved(workspace, anotherTeam.getId(), "admin");
+        assertThat(migrated.status()).isEqualTo("UNCERTAIN");
+        assertThat(migrated.failureCode()).isEqualTo("NO_GROUNDED_FINDINGS");
+        assertThat(migrated.previousReport()).isNull();
+        assertThat(migrated.retryToken()).isNotNull();
+        assertThat(service.saved(workspace, first.getId(), "admin").report()).isEqualTo(substantive.report());
+    }
+
+    @Test void previousValidReportSurvivesProviderErrorWithoutBeingMislabelledAsCurrent() {
+        assertThat(run(first).status()).isEqualTo("COMPLETED");
+        var original = service.saved(workspace, first.getId(), "admin");
+        when(provider.review(any())).thenThrow(new IllegalStateException("network failure"));
+        var failed = service.review(workspace, first.getId(), null, "admin", false, null, true);
+        assertThat(failed.status()).isEqualTo("UNCERTAIN");
+        assertThat(failed.report()).isNull();
+        assertThat(failed.previousReport()).isEqualTo(original.report());
+        assertThat(failed.previousGeneratedAt()).isEqualTo(original.generatedAt());
+    }
+
     @Test void twoConcurrentRerunRequestsForOneSharedFileDoNotStartTwoGeminiJobs() {
         assertThat(run(first).status()).isEqualTo("COMPLETED");
         var tasks = new java.util.ArrayList<Runnable>();
@@ -264,10 +369,9 @@ class AiReviewDeduplicationTest {
 
         var guarded = run(first);
 
-        assertThat(guarded.status()).isEqualTo("COMPLETED");
-        assertThat(guarded.report().missingRequiredSections()).isEmpty();
-        assertThat(guarded.report().summary()).doesNotContain("Project Scope");
-        assertThat(guarded.report().suggestedAction()).doesNotContain("Project Scope");
+        assertThat(guarded.status()).isEqualTo("UNCERTAIN");
+        assertThat(guarded.failureCode()).isEqualTo("FINDINGS_FILTERED");
+        assertThat(guarded.report()).isNull();
     }
 
     @Test void explicitlyNamedInstructionCanAuthorizeAMissingRequiredSection() {
@@ -303,10 +407,9 @@ class AiReviewDeduplicationTest {
 
         var completed = run(first);
 
-        assertThat(completed.status()).isEqualTo("COMPLETED");
-        assertThat(completed.report().missingRequiredSections()).isEmpty();
-        assertThat(completed.report().summary()).doesNotContain("Constraints section is missing");
-        assertThat(completed.report().suggestedAction()).doesNotContain("Add the Constraints section");
+        assertThat(completed.status()).isEqualTo("UNCERTAIN");
+        assertThat(completed.failureCode()).isEqualTo("FINDINGS_FILTERED");
+        assertThat(completed.report()).isNull();
     }
 
     @Test void twoPdfArtifactsInOneResponseKeepIndependentSavedLinksAndReviews() {

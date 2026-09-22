@@ -15,7 +15,7 @@ import {
   applyFileCheck,
   applyReviewState
 } from './backendDomain.js';
-import { aiReviewableSubmissionFields, reviewableSubmissionFields } from './workflow.js';
+import { aiReviewableSubmissionFields, isInconclusiveAiReviewReport, reviewableSubmissionFields } from './workflow.js';
 
 export { emptyMonitoringState as emptyReviewDesk, loadMonitoringState as loadReviewDesk } from './monitoringClient.js';
 
@@ -199,12 +199,18 @@ export async function runAiReview(workspaceId, responseId, fieldId = null, retry
       if (!shouldContinue()) return { ok: false, cancelled: true };
       review = { ...await getSavedAiReview(workspaceId, responseId, fieldId), reused };
     }
-    return { ok: review.status === 'COMPLETED', unavailable: review.status === 'UNAVAILABLE',
+    const inconclusive = review.status === 'UNCERTAIN'
+      && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED'].includes(review.failureCode)
+      || review.status === 'COMPLETED' && isInconclusiveAiReviewReport(review.report);
+    return { ok: review.status === 'COMPLETED' && !inconclusive,
+      unavailable: review.status === 'UNAVAILABLE', inconclusive,
       pauseBatch: review.status === 'UNAVAILABLE' || review.status === 'RUNNING'
         || ['RATE_LIMITED', 'API_KEY_REJECTED', 'NOT_CONFIGURED', 'QUEUE_FULL',
           'PROVIDER_TIMEOUT', 'PROVIDER_CONNECTION_FAILED', 'MODEL_UNAVAILABLE'].includes(review.failureCode),
       pending: review.status === 'RUNNING', uncertain: review.status === 'UNCERTAIN', review,
-      error: review.status === 'COMPLETED' ? '' : review.status === 'RUNNING'
+      error: review.status === 'COMPLETED' && inconclusive
+        ? 'The previously saved AI Review contains no source-grounded findings. It is inconclusive, not verification that the PDF is correct.'
+        : review.status === 'COMPLETED' ? '' : review.status === 'RUNNING'
         ? 'The review is still running. Open View AI Review after its saved result is ready; no additional AI request was sent.'
         : review.message || (review.failureCode ? `AI Review failed: ${review.failureCode}.` : 'AI Review could not finish.') };
   } catch (error) {

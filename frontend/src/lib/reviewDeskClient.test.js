@@ -51,6 +51,55 @@ it('surfaces a quota-limited rerun and never silently sends another generation r
   expect(ai.start).toHaveBeenCalledWith('workspace', 'response', false, null, 'field-pdf', true);
 });
 
+it.each(['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED'])(
+  'marks a %s rerun inconclusive without hiding the previous saved substantive report', async (failureCode) => {
+    vi.useFakeTimers();
+    ai.start.mockResolvedValueOnce({ status: 'RUNNING', fieldId: 'field-pdf', previousReport: {
+      summary: 'Grounded findings from the previous saved run.'
+    } });
+    ai.saved.mockResolvedValueOnce({ status: 'UNCERTAIN', fieldId: 'field-pdf', failureCode,
+      message: 'The new run could not establish source-grounded findings.', retryToken: 'retry-token',
+      previousReport: { summary: 'Grounded findings from the previous saved run.', findings: [{
+        issue: 'A document issue.', source: 'DOCUMENT', evidence: 'Exact PDF passage'
+      }] }, previousGeneratedAt: '2026-09-22T08:00:00Z' });
+    const pending = runAiReview('workspace', 'response', 'field-pdf', false, null, () => true, true);
+    await vi.advanceTimersByTimeAsync(2500);
+    const result = await pending;
+    expect(result).toMatchObject({ ok: false, inconclusive: true, uncertain: true, pauseBatch: false,
+      review: { status: 'UNCERTAIN', failureCode, previousReport: { summary: 'Grounded findings from the previous saved run.' },
+        previousGeneratedAt: '2026-09-22T08:00:00Z' } });
+    expect(ai.start).toHaveBeenCalledTimes(1);
+    expect(ai.saved).toHaveBeenCalledTimes(1);
+  });
+
+it('retains a previous substantive report in the response model after an uncertain rerun', () => {
+  const response = { deliverableId: 'deliverable-1', values: { documentPdf: 'https://drive.test/pdf' },
+    updatedAt: '2026-09-22T01:00:00Z', artifactAiReviews: { 'field-pdf': {
+      status: 'COMPLETED', report: { summary: 'Original finding' }
+    } } };
+  const review = { fieldId: 'field-pdf', status: 'UNCERTAIN', failureCode: 'NO_GROUNDED_FINDINGS',
+    sourceUrl: response.values.documentPdf, sourceResponseUpdatedAt: response.updatedAt,
+    previousReport: { summary: 'Original finding' }, previousGeneratedAt: '2026-09-22T02:00:00Z' };
+  const updated = applyArtifactAiReview(response, review);
+  expect(updated.artifactAiReviews['field-pdf']).toEqual(review);
+  expect(updated.artifactAiReviews['field-pdf'].report).toBeUndefined();
+  expect(updated.artifactAiReviews['field-pdf'].previousReport).toEqual({ summary: 'Original finding' });
+});
+
+it('does not misclassify a pre-existing completed generic fallback as a successful new review', async () => {
+  const generic = {
+    summary: 'The AI review returned no grounded findings from the submitted PDF or supplied requirement sources.',
+    findings: [], missingRequiredSections: [], limitations: ['No official template was supplied.']
+  };
+  ai.start.mockResolvedValueOnce({ status: 'COMPLETED', report: generic, reused: true });
+  const result = await runAiReview('workspace', 'response', 'field-pdf');
+  expect(result).toMatchObject({ ok: false, inconclusive: true, uncertain: false,
+    review: { status: 'COMPLETED', report: generic },
+    error: expect.stringContaining('inconclusive, not verification') });
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.saved).not.toHaveBeenCalled();
+});
+
 it('surfaces a failed rerun POST without replacing the saved report with a fictitious result', async () => {
   ai.start.mockRejectedValueOnce(Object.assign(new Error('Quota exceeded (429)'), { status: 429 }));
   const result = await runAiReview('workspace', 'response', 'field-pdf', false, null, () => true, true);

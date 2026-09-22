@@ -702,7 +702,7 @@ export function ReviewPage() {
         onRecheck={recheckFromDialog}
       />
       <AiReviewReportDialog
-        opened={Boolean(aiReportDialogReport)}
+        opened={Boolean(aiReportDialogReport || aiReportDialogReview?.previousReport)}
         report={aiReportDialogReport}
         review={aiReportDialogReview}
         fieldLabel={aiReportDialogField?.label}

@@ -1,4 +1,5 @@
-import { Stack, Text } from '@mantine/core';
+import { Alert, Stack, Text } from '@mantine/core';
+import { isInconclusiveAiReviewReport } from '../../lib/workflow.js';
 
 const SOURCE_LABELS = {
   DOCUMENT: 'Document evidence',
@@ -19,10 +20,16 @@ export function AiReviewReport({ report }) {
   // When evidence-backed findings exist, show those once with their exact source
   // passages instead of a second, unstructured account of the same concerns.
   const summary = uniqueFindings.length || missingRequiredSections.length ? '' : report.summary;
+  const noGroundedFindings = isInconclusiveAiReviewReport(report);
 
   return (
     <Stack gap="sm" className="wt-ai-review-report">
-      {summary ? <Text size="md" lh={1.55}>{summary}</Text> : null}
+      {noGroundedFindings ? (
+        <Alert color="orange" title="Inconclusive AI Review" role="status">
+          This run produced no source-grounded findings. That does not mean the PDF was verified or has no issues.
+          {summary ? <Text size="sm" mt="xs">{summary}</Text> : null}
+        </Alert>
+      ) : summary ? <Text size="md" lh={1.55}>{summary}</Text> : null}
       {uniqueFindings.map((finding, index) => (
         <Text size="sm" lh={1.55} key={`${finding.source || 'legacy'}:${finding.issue}:${index}`}>
           <strong>{sourceLabel(finding.source)}:</strong> {finding.issue}

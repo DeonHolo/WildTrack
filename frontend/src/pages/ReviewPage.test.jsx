@@ -368,6 +368,36 @@ describe('deliverable-first submission review', () => {
     expect(workflow.runAiReviews).toHaveBeenCalledTimes(1);
   });
 
+  it('shows an inconclusive rerun and opens the separately identified previous substantive AI Review', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    const previousReport = { summary: 'Previously grounded document finding.', findings: [{
+      source: 'DOCUMENT', issue: 'Submitted title differs from the deliverable.',
+      evidence: 'Title page: Software Project Management Plan', requirement: ''
+    }], missingRequiredSections: [] };
+    workflow.runAiReviews.mockImplementationOnce(async (_workspace, targets, { onResult }) => {
+      onResult(targets[0], { ok: false, inconclusive: true, uncertain: true,
+        error: 'New run produced no grounded findings.', review: {
+          status: 'UNCERTAIN', failureCode: 'NO_GROUNDED_FINDINGS', retryToken: 'retry-new',
+          sourceUrl: ron.values.documentPdf, sourceResponseUpdatedAt: ron.updatedAt,
+          message: 'New run produced no grounded findings.', previousReport,
+          previousGeneratedAt: '2026-09-21T08:00:00Z'
+        } });
+    });
+    renderPage('/review?response=response-ron-srs');
+    const drawer = await screen.findByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun AI Review' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Rerun AI Review?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Rerun review' }));
+    await waitFor(() => expect(within(drawer).getByText(/Latest AI Review inconclusive/)).toBeInTheDocument());
+    expect(within(drawer).getByRole('button', { name: 'Retry AI review' })).toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'View previous AI Review' }));
+    const saved = await screen.findByRole('dialog', { name: 'AI Review: PDF Drive Link' });
+    expect(saved).toHaveTextContent('Latest AI Review inconclusive');
+    expect(saved).toHaveTextContent('Previously saved AI Review');
+    expect(saved).toHaveTextContent('Title page: Software Project Management Plan');
+    expect(saved).not.toHaveTextContent('AI review completed.');
+  });
+
   it('AI review all carries retry tokens only for retry-required responses in a mixed batch', async () => {
     const muriel = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
     const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');

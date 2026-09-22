@@ -59,9 +59,32 @@ it('does not repeat a combined two-finding overview above its distinct source-ba
   expect(screen.queryByText(/Grounded requirement finding/)).not.toBeInTheDocument();
 });
 
-it('retains an overview when a legacy report has no structured findings', () => {
+it('labels a zero-grounding result inconclusive rather than treating it as a clean or verified PDF', () => {
   show({ summary: 'No source-grounded findings could be established.', findings: [], missingRequiredSections: [] });
   expect(screen.getByText('No source-grounded findings could be established.')).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.getByRole('status')).toHaveTextContent('does not mean the PDF was verified or has no issues');
+});
+
+it('labels the actual postprocessor fallback as inconclusive even when it includes review limitations', () => {
+  show({
+    summary: 'The AI review returned no grounded findings from the submitted PDF or supplied requirement sources. No official template was supplied.',
+    findings: [], missingRequiredSections: [],
+    limitations: ['The official template could not be used in this review.']
+  });
+  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.getByText(/The official template could not be used/)).toBeInTheDocument();
+});
+
+it('does not label a substantive, evidence-backed report inconclusive even if its overview mentions no grounded findings', () => {
+  show({
+    summary: 'No grounded findings about formatting. The PDF explicitly identifies itself as an SPMP.',
+    findings: [{ source: 'DOCUMENT', issue: 'The document identifies itself as an SPMP.',
+      evidence: 'Title page: Software Project Management Plan', requirement: '' }],
+    missingRequiredSections: []
+  });
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  expect(screen.getByText(/Title page: Software Project Management Plan/)).toBeInTheDocument();
 });
 
 it('renders repeated identical findings once while keeping distinct evidence for the same issue', () => {
