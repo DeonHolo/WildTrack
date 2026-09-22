@@ -25,7 +25,7 @@ Do not silently use the old temporary Validation Study `Overall pass` field: it 
 
 ## Separate technical checks, not additional student participants
 
-Researcher-controlled, fictional/synthetic, permitted-account tests may check (a) required blank PDF link is rejected, (b) a non-PDF/DOCX link is handled according to actual pre-save validation versus async Document Check policy, and (c) an edit preserves response identity, untouched fields and actual revision state. Report test account, date, version and the actual expected behavior. These checks are supporting engineering evidence; they do **not** increase the student denominator, prove a natural student revision occurred, or count as extra participants.
+Researcher-controlled, fictional/synthetic, permitted-account tests may check (a) required blank PDF link is rejected, (b) a non-PDF/DOCX link is handled according to actual pre-save validation versus async Document Check policy, and (c) an edit preserves response identity, untouched fields and actual revision state. After this amendment the owner removed the research-only `Validation Step` field from the live WildTrack Refactored SRS form. A meaningful test edit changes the **synthetic PDF link from file A to file B**, not that removed field. The explicit run/evidence protocol is `GOAL3_RESEARCHER_TECHNICAL_TESTS.md`. Report test account, date, version and the actual expected behavior. These checks are supporting engineering evidence; they do **not** increase the student denominator, prove a natural student revision occurred, or count as extra participants.
 
 ## Existing distributed Google Form: keep collecting
 
