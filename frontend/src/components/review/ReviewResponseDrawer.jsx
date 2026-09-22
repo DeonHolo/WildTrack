@@ -157,7 +157,7 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
   const previousAiReport = !aiCurrent && aiState?.previousReport && aiState?.sourceUrl === value
     ? aiState.previousReport : null;
   const inconclusiveAttempt = aiState?.status === 'UNCERTAIN'
-    && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED'].includes(aiState.failureCode);
+    && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED', 'INSUFFICIENT_REVIEW_EVIDENCE'].includes(aiState.failureCode);
   const missingPreview = compactMissingSections(report?.missingSections, 4);
 
   return (
@@ -214,7 +214,10 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
               <Stack gap={3}>
                 <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={reviewing ? 'Reviewing' : aiStatus} /></Group>
                 {inconclusiveAttempt ? (
-                  <Text size="sm" c="orange.8">Latest AI Review inconclusive. The new run produced no source-grounded findings; it did not verify this PDF.</Text>
+                  <Text size="sm" c="orange.8">Latest AI Review inconclusive.{' '}
+                    {aiState?.message || (aiState?.failureCode === 'INSUFFICIENT_REVIEW_EVIDENCE'
+                      ? 'The new run established fewer than two independent verified checks.'
+                      : 'The new run produced no source-grounded findings.')}{' '}The latest attempt was inconclusive; it did not verify this PDF.</Text>
                 ) : aiState?.status === 'UNCERTAIN' ? (
                   <Text size="sm" c="orange.8">Latest AI Review did not finish successfully. Retry only after reviewing the reported error.</Text>
                 ) : null}

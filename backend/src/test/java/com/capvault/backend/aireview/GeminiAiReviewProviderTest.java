@@ -49,11 +49,13 @@ class GeminiAiReviewProviderTest {
             .andExpect(header("x-goog-api-key", "test-key"))
             .andExpect(jsonPath("$.generationConfig.thinkingConfig.thinkingLevel").value("MINIMAL"))
             .andExpect(jsonPath("$.generationConfig.thinkingConfig.thinkingBudget").doesNotExist())
-            .andExpect(jsonPath("$.generationConfig.maxOutputTokens").value(2048))
+            .andExpect(jsonPath("$.generationConfig.maxOutputTokens").value(8192))
             .andExpect(jsonPath("$.generationConfig.responseMimeType").value("application/json"))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required.length()").value(4))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.source.enum.length()").value(3))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.missingRequiredSections.items.properties.source.enum.length()").value(2))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(5))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.required.length()").value(4))
             .andExpect(jsonPath("$.contents[0].parts[1].inlineData.mimeType").value("application/pdf"))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("hasOfficialTemplate")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("hasDeliverableInstructions")))
@@ -64,8 +66,9 @@ class GeminiAiReviewProviderTest {
         assertThat(result.findings()).hasSize(1);
         assertThat(result.findings().get(0).source()).isEqualTo(AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS);
         assertThat(result.missingRequiredSections()).isEmpty();
+        assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
-        assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v3", "thinking-minimal", "output-2048");
+        assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v5", "thinking-minimal", "output-8192");
         server.verify();
     }
 
@@ -109,6 +112,13 @@ class GeminiAiReviewProviderTest {
         server.verify();
     }
 
+    @Test void unauthorizedGenerationIsClassifiedWithoutReturningProviderErrorBody() {
+        server.expect(requestTo(GENERATE)).andRespond(withStatus(HttpStatus.UNAUTHORIZED)
+            .body("private provider request and key details"));
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("API_KEY_REJECTED").hasNoCause();
+        server.verify();
+    }
+
     @Test void timeoutDoesNotRetryAnUncertainGeneration() {
         server.expect(requestTo(GENERATE)).andRespond(withException(new java.net.SocketTimeoutException("timeout")));
         assertThatThrownBy(() -> provider.review(input())).hasMessage("PROVIDER_TIMEOUT");
@@ -119,6 +129,138 @@ class GeminiAiReviewProviderTest {
         server.expect(requestTo(GENERATE)).andRespond(withSuccess(response("{}", "MAX_TOKENS"), MediaType.APPLICATION_JSON));
         server.expect(requestTo(GENERATE)).andRespond(withSuccess(response("{\"summary\":\"Missing required fields\"}", "STOP"), MediaType.APPLICATION_JSON));
         assertThatThrownBy(() -> provider.review(input())).hasMessage("OUTPUT_TRUNCATED");
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("INVALID_RESPONSE");
+        server.verify();
+    }
+
+    @Test void missingCandidateAndAbsentFinishAreInvalidResponsesNotContentBlocks() throws Exception {
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess("{\"candidates\":[]}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(
+            "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{}\"}]}}]}", MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("INVALID_RESPONSE");
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("INVALID_RESPONSE");
+        server.verify();
+    }
+
+    @Test void nonSafetyFinishDoesNotMasqueradeAsContentBlock() throws Exception {
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response("{}", "OTHER"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response("{}", "MALFORMED_FUNCTION_CALL"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response("{}", "SAFETY"), MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("PROVIDER_OUTCOME_UNKNOWN");
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("INVALID_RESPONSE");
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("CONTENT_BLOCKED");
+        server.verify();
+    }
+
+    @Test void malformedOrAbsentTextNeverProducesSuccessOrFabricatedFindings() throws Exception {
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response("{malformed", "STOP"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response("{}", "STOP"), MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("INVALID_RESPONSE");
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("INVALID_RESPONSE");
+        server.verify();
+    }
+
+    @Test void legacyFiveArgumentResultAndPreviouslySavedJsonDefaultToEmptyVerifiedChecks() throws Exception {
+        var oldResult = new AiReviewProvider.Result("Review summary", List.of(), List.of(), List.of(), "Review document.");
+        assertThat(oldResult.verifiedChecks()).isEmpty();
+        String oldJson = "{\"summary\":\"Review summary\",\"findings\":[],"
+            + "\"missingRequiredSections\":[],\"limitations\":[],\"suggestedAction\":\"Review document.\"}";
+        var restored = json.readValue(oldJson, AiReviewProvider.Result.class);
+        assertThat(restored.verifiedChecks()).isEmpty();
+    }
+
+    @Test void parsesNarrowPositiveChecksWithDocumentAndAuthorityEvidence() throws Exception {
+        var documentCheck = Map.of("aspect", "Section 2.1 describes the project scope", "source", "DOCUMENT",
+            "documentEvidence", "The system supports account registration and role-specific access.");
+        var authorityCheck = Map.of("aspect", "Section 3.2 identifies functional requirements",
+            "source", "DELIVERABLE_REQUIREMENTS", "documentEvidence", "FR-01: The student can submit a PDF.",
+            "requirement", "Include functional requirements");
+        String report = json.writeValueAsString(Map.of("summary", "The document specifies role access and one functional requirement.",
+            "findings", List.of(), "missingRequiredSections", List.of(),
+            "suggestedAction", "Review other requirements independently.", "verifiedChecks", List.of(documentCheck, authorityCheck)));
+        server.expect(requestTo(GENERATE))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("exact verbatim PDF body text")))
+            .andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+
+        var result = provider.review(input());
+        assertThat(result.findings()).isEmpty();
+        assertThat(result.verifiedChecks()).hasSize(2);
+        assertThat(result.verifiedChecks()).extracting(AiReviewProvider.VerifiedCheck::source)
+            .containsExactly(AiReviewProvider.FindingSource.DOCUMENT,
+                AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS);
+        assertThat(result.verifiedChecks().get(0).requirement()).isEmpty();
+        assertThat(result.verifiedChecks().get(1).requirement()).isEqualTo("Include functional requirements");
+        assertThat(result.verifiedChecks().get(1).documentEvidence())
+            .isEqualTo("FR-01: The student can submit a PDF.");
+        server.verify();
+    }
+
+    @Test void rejectsMalformedVerifiedChecksWithoutInventingPositiveEvidence() throws Exception {
+        var valid = Map.of("aspect", "Section 2.1 describes scope", "source", "DOCUMENT",
+            "documentEvidence", "The system supports account registration.", "requirement", "");
+        var noQuote = Map.of("aspect", "Section 2.1 describes scope", "source", "DOCUMENT",
+            "documentEvidence", "", "requirement", "");
+        var missingAuthority = Map.of("aspect", "Section 3.2 lists functional requirements",
+            "source", "OFFICIAL_TEMPLATE", "documentEvidence", "FR-01: The student can submit a PDF.",
+            "requirement", "");
+        var inventedAuthority = Map.of("aspect", "Section 2.1 describes scope", "source", "DOCUMENT",
+            "documentEvidence", "The system supports account registration.", "requirement", "Include functional requirements");
+        for (Object checks : List.of("not an array", java.util.Collections.nCopies(6, valid),
+                List.of(noQuote), List.of(missingAuthority), List.of(inventedAuthority))) {
+            String report = json.writeValueAsString(Map.of("summary", "Narrow observations only.",
+                "findings", List.of(), "missingRequiredSections", List.of(),
+                "suggestedAction", "Check other sections independently.", "verifiedChecks", checks));
+            server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+        }
+        for (int attempt = 0; attempt < 5; attempt++) {
+            assertThatThrownBy(() -> provider.review(input())).hasMessage("INVALID_RESPONSE");
+        }
+        server.verify();
+    }
+
+    @Test void validStructuredReviewCanExceedOldThirtyThousandCharacterLimit() throws Exception {
+        var findings = new java.util.ArrayList<Map<String, String>>();
+        for (int i = 0; i < 8; i++) {
+            findings.add(Map.of("issue", "Issue " + i + ": " + "i".repeat(1_700),
+                "source", "DELIVERABLE_REQUIREMENTS", "evidence", "Page " + i + ": " + "e".repeat(1_700),
+                "requirement", "Requirement " + i + ": " + "r".repeat(1_700)));
+        }
+        var missing = new java.util.ArrayList<Map<String, String>>();
+        for (int i = 0; i < 8; i++) {
+            missing.add(Map.of("section", "Section " + i + ": " + "s".repeat(450),
+                "source", "OFFICIAL_TEMPLATE", "requirement", "Template " + i + ": " + "t".repeat(1_700)));
+        }
+        String report = json.writeValueAsString(Map.of("summary", "Review summary", "findings", findings,
+            "missingRequiredSections", missing, "suggestedAction", "Review cited passages."));
+        assertThat(report.length()).isGreaterThan(30_000).isLessThanOrEqualTo(100_000);
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+
+        var result = provider.review(input());
+        assertThat(result.findings()).hasSize(8);
+        assertThat(result.missingRequiredSections()).hasSize(8);
+        assertThat(result.findings().get(0).requirement()).hasSize(1_715);
+        server.verify();
+    }
+
+    @Test void jsonLargerThanBoundIsRejectedEvenIfItsStructureIsOtherwiseValid() throws Exception {
+        String report = "{\"summary\":\"Valid summary\",\"findings\":[],\"missingRequiredSections\":[],\"suggestedAction\":\"Valid action\"}";
+        String oversized = report + " ".repeat(100_001);
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(oversized, "STOP"), MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> provider.review(input()))
+            .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                assertThat(failure.code).isEqualTo("INVALID_RESPONSE");
+                assertThat(failure.detail).isEqualTo("oversized_json_text");
+            });
+        server.verify();
+    }
+
+    @Test void documentOnlyFindingMayOmitInapplicableRequirementButAuthorityClaimMustQuoteIt() throws Exception {
+        String documentOnly = "{\"summary\":\"Document identifies a different deliverable.\",\"findings\":[{\"issue\":\"Different deliverable identity.\",\"source\":\"DOCUMENT\",\"evidence\":\"Page 1: Individual Exploration\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Verify submitted file.\"}";
+        String unquotedAuthority = "{\"summary\":\"A section is missing.\",\"findings\":[{\"issue\":\"A requirement is unmet.\",\"source\":\"OFFICIAL_TEMPLATE\",\"evidence\":\"Page 2\",\"requirement\":null}],\"missingRequiredSections\":[],\"suggestedAction\":\"Review the source.\"}";
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(documentOnly, "STOP"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(unquotedAuthority, "STOP"), MediaType.APPLICATION_JSON));
+        assertThat(provider.review(input()).findings().get(0).requirement()).isEmpty();
         assertThatThrownBy(() -> provider.review(input())).hasMessage("INVALID_RESPONSE");
         server.verify();
     }

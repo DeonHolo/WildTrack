@@ -106,3 +106,77 @@ it('renders repeated identical findings once while keeping distinct evidence for
   expect(screen.getByText(/Title page: Software Project Management Plan/)).toBeInTheDocument();
   expect(screen.getByText(/Page 2: Project milestones and schedule/)).toBeInTheDocument();
 });
+
+const groundedChecks = [
+  { aspect: 'The system scope identifies the intended users', source: 'DELIVERABLE_REQUIREMENTS',
+    documentEvidence: 'Section 1.3: The system serves capstone students and advisers.',
+    requirement: 'Describe the scope and intended users of the proposed system.' },
+  { aspect: 'Functional requirements describe submission behavior', source: 'OFFICIAL_TEMPLATE',
+    documentEvidence: 'Section 3.2: The student submits a PDF link for adviser review.',
+    requirement: '3.2 Functional requirements' }
+];
+
+it('shows a positive SRS result only for at least two distinct grounded observations, with their passages and limits', () => {
+  show({ summary: 'The whole PDF is compliant.', findings: [], missingRequiredSections: [],
+    verifiedChecks: groundedChecks });
+
+  const status = screen.getByRole('status');
+  expect(status).toHaveTextContent('No actionable issues identified in the checked areas');
+  expect(screen.getByText('Verified checks')).toBeInTheDocument();
+  expect(screen.getByText(/Section 1\.3: The system serves capstone students and advisers/)).toBeInTheDocument();
+  expect(screen.getByText(/Describe the scope and intended users/)).toBeInTheDocument();
+  expect(screen.getByText(/Section 3\.2: The student submits a PDF link/)).toBeInTheDocument();
+  expect(screen.getByText(/Authority: 3\.2 Functional requirements/)).toBeInTheDocument();
+  expect(screen.getByText(/not a guarantee of full compliance or approval/)).toBeInTheDocument();
+  expect(screen.queryByText('The whole PDF is compliant.')).not.toBeInTheDocument();
+  expect(screen.queryByText('Inconclusive AI Review')).not.toBeInTheDocument();
+});
+
+it('shows grounded positive checks separately from actionable findings without duplicate observations', () => {
+  const duplicate = { ...groundedChecks[0], aspect: ` ${groundedChecks[0].aspect.toUpperCase()} ` };
+  show({ summary: 'The document meets all requirements.', findings: [{
+    source: 'OFFICIAL_TEMPLATE', issue: 'The constraints section does not explain the offline requirement.',
+    evidence: 'Section 2.4: The app requires network access.', requirement: '2.4 Constraints'
+  }], missingRequiredSections: [], verifiedChecks: [...groundedChecks, duplicate] });
+
+  expect(screen.getByText('Issues to review')).toBeInTheDocument();
+  expect(screen.getByText(/constraints section does not explain/)).toBeInTheDocument();
+  expect(screen.getByText('Verified checks')).toBeInTheDocument();
+  expect(screen.getAllByText(/Section 1\.3: The system serves capstone students and advisers/)).toHaveLength(1);
+  expect(screen.getByText(/Section 3\.2: The student submits a PDF link/)).toBeInTheDocument();
+  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+  expect(screen.queryByText('The document meets all requirements.')).not.toBeInTheDocument();
+  expect(screen.getByText(/not a guarantee of full compliance or approval/)).toBeInTheDocument();
+});
+
+it('shows one verified check as observed evidence while marking a zero-issue result inconclusive', () => {
+  show({ summary: 'All criteria passed.', findings: [], missingRequiredSections: [],
+    verifiedChecks: [groundedChecks[0]] });
+
+  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.getByRole('status')).toHaveTextContent('not establish enough distinct verified checks');
+  expect(screen.getByText(/Section 1\.3: The system serves capstone students and advisers/)).toBeInTheDocument();
+  expect(screen.queryByText('All criteria passed.')).not.toBeInTheDocument();
+  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+});
+
+it('does not count duplicated or unsupported observations toward a positive result', () => {
+  show({ summary: 'All checks passed.', findings: [], missingRequiredSections: [],
+    verifiedChecks: [groundedChecks[0], { ...groundedChecks[0] }, {
+      ...groundedChecks[0], aspect: 'Students appear as the intended users', source: 'OFFICIAL_TEMPLATE',
+      requirement: '3.2 Functional requirements' },
+      { aspect: 'The system has a constraints section', source: 'OFFICIAL_TEMPLATE',
+        documentEvidence: '', requirement: '2.4 Constraints' }] });
+
+  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.getAllByText(/Section 1\.3: The system serves capstone students and advisers/)).toHaveLength(1);
+  expect(screen.queryByText('The system has a constraints section')).not.toBeInTheDocument();
+  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+});
+
+it('does not promote a generic fallback or an empty prose claim into a clean result', () => {
+  show({ summary: 'The PDF satisfies the SRS requirements.', findings: [], missingRequiredSections: [],
+    verifiedChecks: [] });
+  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+});

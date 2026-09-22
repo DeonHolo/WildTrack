@@ -17,13 +17,15 @@ const workflow = vi.hoisted(() => ({
   runDocumentChecks: vi.fn(),
   getAiReviewStatus: vi.fn(),
   runAiReviews: vi.fn(),
+  logoutStaffSession: vi.fn(),
   markAccepted: vi.fn(),
   revokeAcceptance: vi.fn(),
   archiveAttempt: vi.fn()
 }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
-  useWorkspaceSession: () => ({ activeWorkspaceId: workflow.workspaceId, session: workflow.session })
+  useWorkspaceSession: () => ({ activeWorkspaceId: workflow.workspaceId, session: workflow.session,
+    logoutStaffSession: workflow.logoutStaffSession })
 }));
 
 vi.mock('../hooks/useWorkspaceResource.js', () => ({
@@ -425,6 +427,48 @@ describe('deliverable-first submission review', () => {
       { key: 'response-ron-srs:documentPdf', responseId: 'response-ron-srs', fieldId: null }
     ]);
     expect(options.retryTokens).toEqual({ 'response-ron-srs:documentPdf': 'ron-retry-token' });
+  });
+
+  it('pauses AI Review All on a WildTrack session 401 and offers the existing Google sign-in flow', async () => {
+    const muriel = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    muriel.documentCheck = currentDocumentCheck(muriel.updatedAt);
+    workflow.state.attempts = [muriel, ron];
+    workflow.runAiReviews.mockImplementationOnce(async (_workspace, targets, { onResult }) => {
+      onResult(targets[0], { ok: false, pauseBatch: true, authenticationRequired: true,
+        error: 'Your WildTrack session expired. Sign out, then sign in with Google again.' });
+      return { completed: 1, total: 2, paused: true, authenticationRequired: true };
+    });
+    workflow.logoutStaffSession.mockResolvedValue(undefined);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'AI review submissions' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Start review' }));
+
+    const status = await screen.findByRole('status');
+    await waitFor(() => expect(status).toHaveTextContent('AI review paused'));
+    expect(status).toHaveTextContent('1 of 2 PDF artifacts attempted');
+    expect(status).toHaveTextContent('1 not attempted');
+    expect(status).toHaveTextContent('Your WildTrack session expired');
+    expect(within(status).queryByRole('button', { name: 'Review retry options' })).not.toBeInTheDocument();
+    fireEvent.click(within(status).getByRole('button', { name: 'Sign out and continue with Google' }));
+    await waitFor(() => expect(workflow.logoutStaffSession).toHaveBeenCalledTimes(1));
+    expect(workflow.runAiReviews).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers sign-in when the AI Review All preflight receives a session 401 without starting requests', async () => {
+    workflow.getAiReviewStatus.mockRejectedValueOnce(Object.assign(
+      new Error('Your WildTrack session expired. Sign out, then sign in with Google again.'), { status: 401 }));
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('AI review paused');
+    expect(status).toHaveTextContent('0 of');
+    expect(within(status).getByRole('button', { name: 'Sign out and continue with Google' })).toBeInTheDocument();
+    expect(workflow.runAiReviews).not.toHaveBeenCalled();
   });
 
   it('opens a compact deliverable queue and keeps only pending SRS responses in the workbench', async () => {

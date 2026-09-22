@@ -56,6 +56,10 @@ final class AiReviewGroundingPolicy {
             + "wrong (?:document|deliverable)|rather than (?:an? |the )?(?:software |project[- ]specific )?"
             + "(?:test document|requirements? (?:specification|document)|design document))\\b",
         Pattern.CASE_INSENSITIVE);
+    private static final Pattern NON_ISSUE = Pattern.compile(
+        "(?i)\\b(?:not\\s+(?:a\\s+)?(?:non[- ]?compliance|violation|problem|issue|error|defect)|"
+            + "(?:is|are)\\s+(?:acceptable|permitted|allowed|compliant)|"
+            + "no\\s+(?:correction|change|action)\\s+(?:is\\s+)?(?:needed|required))\\b");
 
     private AiReviewGroundingPolicy() { }
 
@@ -64,6 +68,14 @@ final class AiReviewGroundingPolicy {
         var accepted = new ArrayList<AiReviewProvider.Finding>();
         for (var finding : input) {
             String issue = finding.issue();
+            // The provider occasionally places its own exculpatory observation
+            // in the findings array. The screenshot's naming difference was
+            // explicitly called "not a noncompliance". Such prose is not an
+            // actionable finding and must not create a false successful review.
+            if (NON_ISSUE.matcher(issue).find() && !WRONG_DELIVERABLE.matcher(issue).find()
+                    && !ABSENCE.matcher(issue).find()
+                    && !normalize(issue).matches("(?s).*(?:however|but|although|nevertheless)\\s+"
+                        + ".*(?:missing|incorrect|incomplete|violat|noncompliance).*")) continue;
             if (unsupportedBulletFormattingClaim(finding)) continue;
             if (finding.source() == AiReviewProvider.FindingSource.DOCUMENT) {
                 if (wrongDeliverableFromSyntheticLabel(issue, title, documentText)

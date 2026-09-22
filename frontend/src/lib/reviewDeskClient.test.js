@@ -8,10 +8,20 @@ vi.mock('./api.js', async (original) => ({ ...(await original()), runDocumentChe
   runDocumentCheckBatch: batchRequest, requestAiReview: ai.start, getSavedAiReview: ai.saved }));
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
+const twoVerifiedChecks = [
+  { aspect: 'Scope identifies student users', source: 'DELIVERABLE_REQUIREMENTS',
+    documentEvidence: 'Section 1.3: The system is used by capstone students.',
+    requirement: 'Describe the system scope and intended users.' },
+  { aspect: 'Functional requirement covers submission', source: 'OFFICIAL_TEMPLATE',
+    documentEvidence: 'FR-01: Students submit PDF links for review.',
+    requirement: '3.2 Functional requirements' }
+];
+
 it('polls a running AI job without submitting a second generation request', async () => {
   vi.useFakeTimers();
   ai.start.mockResolvedValue({ status: 'RUNNING', reused: false });
-  ai.saved.mockResolvedValue({ status: 'COMPLETED', reused: true, report: { summary: 'Feedback' } });
+  ai.saved.mockResolvedValue({ status: 'COMPLETED', reused: true, report: {
+    summary: 'Feedback', verifiedChecks: twoVerifiedChecks } });
   const pending = runAiReview('workspace', 'response');
   await vi.advanceTimersByTimeAsync(2500);
   const result = await pending;
@@ -21,11 +31,80 @@ it('polls a running AI job without submitting a second generation request', asyn
   expect(ai.saved).toHaveBeenCalledWith('workspace', 'response', null);
 });
 
+it('treats a completed summary-only zero-issue report as inconclusive even if it claims success', async () => {
+  ai.start.mockResolvedValueOnce({ status: 'COMPLETED', report: {
+    summary: 'The document satisfies all requirements.', findings: [], missingRequiredSections: [] } });
+
+  const result = await runAiReview('workspace', 'response');
+
+  expect(result).toMatchObject({ ok: false, inconclusive: true,
+    error: expect.stringContaining('inconclusive, not verification') });
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.saved).not.toHaveBeenCalled();
+});
+
+it('marks insufficient grounded positive observations inconclusive without silently retrying Gemini', async () => {
+  ai.start.mockResolvedValueOnce({ status: 'UNCERTAIN', failureCode: 'INSUFFICIENT_REVIEW_EVIDENCE',
+    message: 'Only one distinct evidence-backed check survived validation.', retryToken: 'retry-token' });
+
+  const result = await runAiReview('workspace', 'response', 'field-pdf');
+
+  expect(result).toMatchObject({ ok: false, inconclusive: true, uncertain: true,
+    error: 'Only one distinct evidence-backed check survived validation.',
+    review: { failureCode: 'INSUFFICIENT_REVIEW_EVIDENCE', retryToken: 'retry-token' } });
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.saved).not.toHaveBeenCalled();
+});
+
+it('stops polling when the WildTrack session expires and does not pretend a saved result failed', async () => {
+  vi.useFakeTimers();
+  ai.start.mockResolvedValueOnce({ status: 'RUNNING', fieldId: 'field-pdf' });
+  ai.saved.mockRejectedValueOnce(Object.assign(new Error('Request failed with status 401'), { status: 401 }));
+
+  const pending = runAiReview('workspace', 'response', 'field-pdf');
+  await vi.advanceTimersByTimeAsync(2500);
+  const result = await pending;
+
+  expect(result).toMatchObject({ ok: false, pauseBatch: true, authenticationRequired: true,
+    error: expect.stringContaining('Sign out, then sign in with Google again') });
+  expect(result.review).toBeUndefined();
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.saved).toHaveBeenCalledTimes(1);
+});
+
+it('fails fast after an app-session 401 in AI Review All without starting remaining paid requests', async () => {
+  ai.start.mockRejectedValueOnce(Object.assign(new Error('Request failed with status 401'), { status: 401 }));
+  const onResult = vi.fn();
+
+  const outcome = await runAiReviews('workspace', ['first', 'must-not-start', 'also-must-not-start'], { onResult });
+
+  expect(outcome).toEqual({ completed: 1, total: 3, paused: true, authenticationRequired: true,
+    reason: expect.stringContaining('WildTrack session expired') });
+  expect(onResult).toHaveBeenCalledTimes(1);
+  expect(onResult.mock.calls[0][1]).toMatchObject({ authenticationRequired: true, pauseBatch: true });
+  expect(ai.start.mock.calls.map(args => args[1])).toEqual(['first']);
+  expect(ai.saved).not.toHaveBeenCalled();
+});
+
+it('keeps Gemini API_KEY_REJECTED distinct from an expired WildTrack sign-in', async () => {
+  ai.start.mockResolvedValueOnce({ status: 'UNCERTAIN', failureCode: 'API_KEY_REJECTED',
+    message: 'Gemini rejected the API key or its permissions.' });
+
+  const result = await runAiReview('workspace', 'response');
+
+  expect(result).toMatchObject({ ok: false, pauseBatch: true, uncertain: true,
+    error: 'Gemini rejected the API key or its permissions.' });
+  expect(result.authenticationRequired).toBeUndefined();
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.saved).not.toHaveBeenCalled();
+});
+
 it('sends an explicit rerun flag for a current saved PDF and replaces its report with the newly completed saved result', async () => {
   vi.useFakeTimers();
   ai.start.mockResolvedValueOnce({ status: 'RUNNING', reused: false, fieldId: 'field-pdf' });
   ai.saved.mockResolvedValueOnce({ status: 'COMPLETED', fieldId: 'field-pdf', reused: false,
-    report: { summary: 'New rerun output' }, sourceUrl: 'https://drive.test/file', generatedAt: '2026-09-22T05:00:00Z' });
+    report: { summary: 'New rerun output', verifiedChecks: twoVerifiedChecks },
+    sourceUrl: 'https://drive.test/file', generatedAt: '2026-09-22T05:00:00Z' });
   const pending = runAiReview('workspace', 'response', 'field-pdf', false, null, () => true, true);
   await vi.advanceTimersByTimeAsync(2500);
   const result = await pending;
@@ -33,7 +112,7 @@ it('sends an explicit rerun flag for a current saved PDF and replaces its report
   expect(ai.start).toHaveBeenCalledWith('workspace', 'response', false, null, 'field-pdf', true);
   expect(ai.saved).toHaveBeenCalledWith('workspace', 'response', 'field-pdf');
   expect(result).toMatchObject({ ok: true, review: {
-    fieldId: 'field-pdf', report: { summary: 'New rerun output' }, reused: false
+    fieldId: 'field-pdf', report: { summary: 'New rerun output', verifiedChecks: twoVerifiedChecks }, reused: false
   } });
 });
 

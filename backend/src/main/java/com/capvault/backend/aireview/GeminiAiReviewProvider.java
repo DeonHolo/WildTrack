@@ -10,6 +10,9 @@ import java.util.Objects;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -18,7 +21,16 @@ import org.springframework.web.client.RestClientResponseException;
 /** One generation attempt, no SDK retries, credentials/Google error bodies never returned to users. */
 final class GeminiAiReviewProvider implements AiReviewProvider {
     static final String MODEL = "gemini-3.1-flash-lite";
-    private static final int MAX_OUTPUT_TOKENS = 2048;
+    private static final Logger LOG = LoggerFactory.getLogger(GeminiAiReviewProvider.class);
+    // This is an output ceiling, not a target. Long PDFs can need room for several
+    // evidence passages and exact authority quotes in the structured JSON response.
+    private static final int MAX_OUTPUT_TOKENS = 8192;
+    // The response schema permits 8 findings (3 x 2,000 chars each), 8 missing
+    // sections (500 + 2,000 chars each), plus 6,000 summary, 3,000 action, and
+    // 5 verified checks (200 + 1,000 + 2,000 chars each): at most 93,000 raw
+    // field chars before JSON keys/escaping. Keep room for the
+    // full bounded report while rejecting unexpectedly large provider output.
+    private static final int MAX_JSON_CHARS = 100_000;
     private static final int INLINE_LIMIT = 10 * 1024 * 1024; // room for base64 + prompt under the 20 MB request limit
     private static final String GUIDANCE = """
         Write a concise first-pass review, at most 600 words total. Summary: 2-3 sentences.
@@ -30,6 +42,17 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         as mandatory requirements. Missing required sections: at most 8. Each missing section must be explicitly
         named in the supplied Deliverable Instructions or official template, and requirement must quote the exact
         supplied passage that requires it. If neither supplied authority explicitly names a section, do not list it.
+        Include 2-5 concise, document-specific verifiedChecks when you can substantiate them, especially if you
+        identify zero findings and zero missing sections. Each check's aspect should name one narrowly scoped
+        strength actually observed in the attached PDF. documentEvidence MUST quote exact verbatim PDF body text,
+        ideally with a page or section locator in aspect; a table-of-contents heading alone is not proof that the
+        section body is complete. For source DOCUMENT, requirement MUST be the empty string and the check must
+        describe only observable PDF content. For DELIVERABLE_REQUIREMENTS or OFFICIAL_TEMPLATE, requirement
+        MUST be an exact verbatim quote from the selected supplied authority and documentEvidence MUST quote
+        exact PDF text that demonstrates that specific obligation. Do not claim full compliance, completeness,
+        correctness, successful implementation, or blanket approval from checking isolated passages. Do not invent
+        evidence, infer a mandatory requirement from conventions, or add generic checks to fill a quota. Return
+        an empty verifiedChecks array when nothing can be substantiated.
         If no official template is supplied, do not infer a standard template. Suggested action: 1-3 sentences.
         Official-template sample project names, sample transaction names, placeholder labels, worked examples and
         demonstration values are examples to replace, not the requested project's identity or required factual values.
@@ -73,7 +96,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     @Override public boolean isConfigured() { return !key.isBlank(); }
 
     @Override public String cacheVersion() {
-        return MODEL + ":rest-pdf-v3:temperature-0.2:thinking-minimal:output-" + MAX_OUTPUT_TOKENS
+        return MODEL + ":rest-pdf-v5:temperature-0.2:thinking-minimal:output-" + MAX_OUTPUT_TOKENS
             + ":" + AiReviewService.sha256(GUIDANCE.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
@@ -86,6 +109,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             throw new Failure("REQUIREMENTS_TOO_LARGE"); // never silently truncate the rubric
         if (System.currentTimeMillis() < quotaBlockedUntil) throw new Failure("RATE_LIMITED");
         String uploadedName = null;
+        String stage = "prepare";
         try {
             pause(Math.max(0, nextRequestAt - System.currentTimeMillis()));
             nextRequestAt = System.currentTimeMillis() + intervalMillis;
@@ -94,9 +118,11 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 document = Map.of("inlineData", Map.of("mimeType", "application/pdf",
                     "data", Base64.getEncoder().encodeToString(input.pdf())));
             } else {
+                stage = "file_upload";
                 JsonNode file = upload(input.pdf());
                 uploadedName = file.path("name").asText();
                 validateFileName(uploadedName);
+                stage = "file_processing";
                 file = awaitActive(file, uploadedName);
                 String uri = file.path("uri").asText();
                 trustedGoogleUri(uri);
@@ -113,12 +139,15 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                     "maxOutputTokens", MAX_OUTPUT_TOKENS, "thinkingConfig", Map.of("thinkingLevel", "MINIMAL"),
                     "responseMimeType", "application/json", "responseJsonSchema", schema()));
             // Send the PDF once; do not also send extractedText (which duplicates its contents).
+            stage = "generation";
             JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
                 .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON)
                 .body(payload).retrieve().body(JsonNode.class);
+            stage = "response_validation";
             return parse(response, input);
         } catch (RestClientResponseException rejected) {
             int status = rejected.getStatusCode().value();
+            LOG.warn("Gemini AI review HTTP failure: stage={} status={}", stage, status);
             if (status == 429) {
                 quotaBlockedUntil = System.currentTimeMillis() + 60_000;
                 throw new Failure("RATE_LIMITED");
@@ -126,8 +155,12 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             throw new Failure(status == 401 || status == 403 ? "API_KEY_REJECTED"
                 : status == 404 ? "MODEL_UNAVAILABLE" : status == 400 ? "REQUEST_REJECTED" : "PROVIDER_OUTCOME_UNKNOWN");
         } catch (Failure failure) {
+            // Error details are fixed internal labels only. Never record document content,
+            // provider error bodies, credentials or model-generated passages.
+            LOG.warn("Gemini AI review failure: stage={} code={} detail={}", stage, failure.code, failure.detail);
             throw failure;
         } catch (RestClientException failure) {
+            LOG.warn("Gemini AI review connection failure: stage={}", stage);
             Throwable cause = failure;
             while (cause != null) {
                 if (cause instanceof java.net.http.HttpTimeoutException || cause instanceof java.net.SocketTimeoutException)
@@ -136,6 +169,8 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             }
             throw new Failure("PROVIDER_CONNECTION_FAILED");
         } catch (Exception failure) {
+            LOG.warn("Gemini AI review unexpected failure: stage={} exception={}", stage,
+                failure.getClass().getSimpleName());
             throw new Failure("INVALID_RESPONSE");
         } finally {
             if (uploadedName != null && uploadedName.matches("files/[a-zA-Z0-9_-]+")) {
@@ -177,38 +212,66 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     }
 
     private Result parse(JsonNode response, Input input) throws java.io.IOException {
-        if (response == null) throw new Failure("INVALID_RESPONSE");
-        if (response.path("promptFeedback").hasNonNull("blockReason")) throw new Failure("CONTENT_BLOCKED");
+        if (response == null || !response.isObject()) throw invalid("missing_response");
+        if (response.path("promptFeedback").hasNonNull("blockReason")) throw new Failure("CONTENT_BLOCKED", "prompt_blocked");
         JsonNode candidate = response.path("candidates").path(0);
-        String finish = candidate.path("finishReason").asText();
-        if (!"STOP".equals(finish)) throw new Failure("MAX_TOKENS".equals(finish) ? "OUTPUT_TRUNCATED" : "CONTENT_BLOCKED");
+        if (!candidate.isObject()) throw invalid("missing_candidate");
+        String finish = candidate.path("finishReason").asText("");
+        if (!"STOP".equals(finish)) throw finishFailure(finish);
+        JsonNode parts = candidate.path("content").path("parts");
+        if (!parts.isArray() || parts.isEmpty()) throw invalid("missing_content_parts");
         StringBuilder text = new StringBuilder();
-        for (JsonNode part : candidate.path("content").path("parts")) {
+        for (JsonNode part : parts) {
             if (!part.path("thought").asBoolean() && part.path("text").isTextual()) text.append(part.path("text").asText());
         }
-        if (text.length() > 30_000) throw new Failure("INVALID_RESPONSE");
-        JsonNode report = json.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-            .readTree(text.toString());
+        if (text.isEmpty()) throw invalid("missing_json_text");
+        if (text.length() > MAX_JSON_CHARS) throw invalid("oversized_json_text");
+        JsonNode report;
+        try {
+            report = json.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                .readTree(text.toString());
+        } catch (JsonProcessingException malformed) {
+            throw invalid("malformed_json");
+        }
+        if (report == null || !report.isObject()) throw invalid("invalid_json_root");
         return new Result(requiredText(report, "summary", 6000), findings(report, "findings"),
             missingRequiredSections(report, "missingRequiredSections"), limitations(input),
-            requiredText(report, "suggestedAction", 3000));
+            optionalText(report, "suggestedAction", 3000), verifiedChecks(report));
     }
 
+    private static Failure finishFailure(String finish) {
+        return switch (finish) {
+            case "MAX_TOKENS" -> new Failure("OUTPUT_TRUNCATED", "max_output_tokens");
+            case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY" ->
+                new Failure("CONTENT_BLOCKED", "candidate_blocked");
+            case "OTHER" -> new Failure("PROVIDER_OUTCOME_UNKNOWN", "provider_stopped_other");
+            case "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL" -> invalid("unexpected_tool_finish");
+            default -> invalid("missing_or_unrecognized_finish");
+        };
+    }
+
+    private static Failure invalid(String detail) { return new Failure("INVALID_RESPONSE", detail); }
+
     private static String requiredText(JsonNode node, String field, int maximum) {
-        if (node == null || !node.path(field).isTextual()) throw new Failure("INVALID_RESPONSE");
+        if (node == null || !node.path(field).isTextual()) throw invalid("missing_or_invalid_" + field);
         String value = node.path(field).asText().trim();
-        if (value.isEmpty() || value.length() > maximum) throw new Failure("INVALID_RESPONSE");
+        if (value.isEmpty() || value.length() > maximum) throw invalid("empty_or_oversized_" + field);
         return value;
     }
     private static List<Finding> findings(JsonNode node, String field) {
         JsonNode values = node.path(field);
-        if (!values.isArray() || values.size() > 8) throw new Failure("INVALID_RESPONSE");
+        if (!values.isArray() || values.size() > 8) throw invalid("invalid_" + field + "_array");
         List<Finding> result = new ArrayList<>();
         for (JsonNode value : values) {
             var source = source(value, "source", false);
-            String requirement = optionalText(value, "requirement", 2000);
-            if (source == FindingSource.DOCUMENT && !requirement.isBlank()) throw new Failure("INVALID_RESPONSE");
-            if (source != FindingSource.DOCUMENT && requirement.isBlank()) throw new Failure("INVALID_RESPONSE");
+            // For a document-only observation the source quote is inapplicable. Missing
+            // or null requirement is semantically identical to the required empty string.
+            JsonNode rawRequirement = value.path("requirement");
+            String requirement = source == FindingSource.DOCUMENT
+                && (rawRequirement.isMissingNode() || rawRequirement.isNull())
+                    ? "" : optionalText(value, "requirement", 2000);
+            if (source == FindingSource.DOCUMENT && !requirement.isBlank()) throw invalid("document_finding_has_requirement");
+            if (source != FindingSource.DOCUMENT && requirement.isBlank()) throw invalid("authority_finding_missing_requirement");
             result.add(new Finding(requiredText(value, "issue", 2000), source,
                 requiredText(value, "evidence", 2000), requirement));
         }
@@ -217,7 +280,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
 
     private static List<MissingRequiredSection> missingRequiredSections(JsonNode node, String field) {
         JsonNode values = node.path(field);
-        if (!values.isArray() || values.size() > 8) throw new Failure("INVALID_RESPONSE");
+        if (!values.isArray() || values.size() > 8) throw invalid("invalid_" + field + "_array");
         List<MissingRequiredSection> result = new ArrayList<>();
         for (JsonNode value : values) {
             var source = source(value, "source", true);
@@ -226,22 +289,42 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         }
         return List.copyOf(result);
     }
+    private static List<VerifiedCheck> verifiedChecks(JsonNode report) {
+        JsonNode values = report.path("verifiedChecks");
+        if (values.isMissingNode()) return List.of(); // older structured outputs remain readable
+        if (!values.isArray() || values.size() > 5) throw invalid("invalid_verifiedChecks_array");
+        List<VerifiedCheck> result = new ArrayList<>();
+        for (JsonNode value : values) {
+            var source = source(value, "source", false);
+            JsonNode rawRequirement = value.path("requirement");
+            String requirement = source == FindingSource.DOCUMENT
+                && (rawRequirement.isMissingNode() || rawRequirement.isNull())
+                    ? "" : optionalText(value, "requirement", 2000);
+            if (source == FindingSource.DOCUMENT && !requirement.isBlank())
+                throw invalid("document_check_has_requirement");
+            if (source != FindingSource.DOCUMENT && requirement.isBlank())
+                throw invalid("authority_check_missing_requirement");
+            result.add(new VerifiedCheck(requiredText(value, "aspect", 200), source,
+                requiredText(value, "documentEvidence", 1000), requirement));
+        }
+        return List.copyOf(result);
+    }
 
     private static FindingSource source(JsonNode node, String field, boolean requirementOnly) {
-        if (!node.path(field).isTextual()) throw new Failure("INVALID_RESPONSE");
+        if (!node.path(field).isTextual()) throw invalid("missing_or_invalid_" + field);
         try {
             FindingSource source = FindingSource.valueOf(node.path(field).asText());
-            if (requirementOnly && source == FindingSource.DOCUMENT) throw new Failure("INVALID_RESPONSE");
+            if (requirementOnly && source == FindingSource.DOCUMENT) throw invalid("missing_section_document_source");
             return source;
         } catch (IllegalArgumentException invalid) {
-            throw new Failure("INVALID_RESPONSE");
+            throw invalid("unrecognized_" + field);
         }
     }
 
     private static String optionalText(JsonNode node, String field, int maximum) {
-        if (!node.path(field).isTextual()) throw new Failure("INVALID_RESPONSE");
+        if (!node.path(field).isTextual()) throw invalid("missing_or_invalid_" + field);
         String value = node.path(field).asText().trim();
-        if (value.length() > maximum) throw new Failure("INVALID_RESPONSE");
+        if (value.length() > maximum) throw invalid("oversized_" + field);
         return value;
     }
 
@@ -275,10 +358,19 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 "source", requirementSource,
                 "requirement", Map.of("type", "string", "description", "Exact quote from the selected supplied authority requiring this section.")),
             "required", List.of("section", "source", "requirement"));
+        var verified = Map.of("type", "object", "additionalProperties", false,
+            "properties", Map.of(
+                "aspect", Map.of("type", "string", "description", "Concise narrow aspect observed in the submitted PDF. No overall compliance or approval claims."),
+                "source", findingSource,
+                "documentEvidence", Map.of("type", "string", "description", "Exact verbatim quote from submitted PDF body demonstrating this specific aspect."),
+                "requirement", Map.of("type", "string", "description", "Empty for DOCUMENT. Otherwise exact verbatim quote from the specified supplied authority.")),
+            "required", List.of("aspect", "source", "documentEvidence", "requirement"));
         var findings = Map.of("type", "array", "items", finding, "maxItems", 8);
         var missingSections = Map.of("type", "array", "items", missing, "maxItems", 8);
+        var checks = Map.of("type", "array", "items", verified, "maxItems", 5);
         return Map.of("type", "object", "properties", Map.of("summary", string, "findings", findings,
-            "missingRequiredSections", missingSections, "suggestedAction", string), "additionalProperties", false,
+            "missingRequiredSections", missingSections, "suggestedAction", string,
+            "verifiedChecks", checks), "additionalProperties", false,
             "required", List.of("summary", "findings", "missingRequiredSections", "suggestedAction"));
     }
     private static URI trustedGoogleUri(String address) {
@@ -298,6 +390,12 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     }
     static final class Failure extends RuntimeException {
         final String code;
-        Failure(String code) { super(code); this.code = code; }
+        final String detail;
+        Failure(String code) { this(code, "unspecified"); }
+        Failure(String code, String detail) {
+            super(code);
+            this.code = code;
+            this.detail = detail;
+        }
     }
 }

@@ -264,6 +264,26 @@ class AiReviewGroundingPolicyTest {
             official, official)).containsExactly(confused); // name occurs in the PDF, so do not guess
     }
 
+    @Test void doesNotCountAnExplicitlyAcceptableTemplateNameDifferenceAsAnAiFinding() {
+        String official = "Software Requirements Specification\nSKYSYNC\nWheels On Go\n1. Introduction";
+        String submitted = "Software Requirements Specification\nTrevora\n1. Introduction\nTrevora manages vehicle maintenance records.";
+        var irrelevant = doc("The submitted document is titled 'Trevora' while the official template uses 'SKYSYNC' "
+            + "and 'Wheels On Go' as examples. This is a project-specific naming convention and not a noncompliance.");
+        var processed = AiReviewService.postprocessForBenchmark(review(List.of(irrelevant), List.of(),
+            "Template title difference.", "Review the naming difference."),
+            "Software Requirements Specification", "", official, submitted);
+        assertThat(processed.findings()).isEmpty();
+        assertThat(processed.summary()).doesNotContain("SKYSYNC", "Wheels On Go", "noncompliance");
+        assertThat(processed.suggestedAction()).doesNotContain("naming difference");
+
+        // Legitimate independent problems must survive even when the same
+        // response notes that a different harmless formatting choice is fine.
+        var mixed = doc("The different sample project name is acceptable, but the submitted PDF is missing "
+            + "the entire functional requirements section.");
+        assertThat(AiReviewGroundingPolicy.findings(List.of(mixed), "Software Requirements Specification",
+            submitted, official)).containsExactly(mixed);
+    }
+
     @Test void noTemplateNeverAuthorizesTemplateClaimsOrCopiesProviderSuggestedAction() {
         var raw = review(List.of(doc("The PDF states that validation evidence was not supplied.")),
             List.of(), "Missing mandatory template sections.", "Add mandatory testing evidence.");
@@ -274,12 +294,38 @@ class AiReviewGroundingPolicyTest {
         assertThat(safe.limitations()).anyMatch(s -> s.startsWith("No official template was supplied"));
     }
 
-    @Test void existingInvalidQuoteStillFailsClosed() {
+    @Test void inventedAuthorityQuoteIsDiscardedWithoutBecomingAnAcademicClaim() {
         var invalid = review(List.of(new AiReviewProvider.Finding(
             "Security section missing.", AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS,
             "Page 2", "This quotation does not occur in the supplied instructions.")),
             List.of(), "The requirements are missing.", "Add sections.");
-        assertThatThrownBy(() -> AiReviewService.postprocessForBenchmark(invalid,
+        var filtered = AiReviewService.postprocessForBenchmark(invalid, "SRS", INSTRUCTIONS, "", "SRS");
+        assertThat(filtered.findings()).isEmpty();
+        assertThat(filtered.summary()).doesNotContain("Security section missing", "requirements are missing");
+        assertThat(filtered.suggestedAction()).doesNotContain("Add sections");
+    }
+
+    @Test void oneInventedAuthorityQuoteDoesNotDiscardIndependentlyGroundedObservations() {
+        var invented = new AiReviewProvider.Finding("Security section missing.",
+            AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS,
+            "Page 2", "This quotation does not occur in the supplied instructions.");
+        var actual = new AiReviewProvider.Finding("The PDF contains an unresolved placeholder on page 2.",
+            AiReviewProvider.FindingSource.DOCUMENT, "Page 2: INSERT DETAILS HERE", "");
+        var inventedMissing = missing("Architecture", "Invented official template quote");
+        var grounded = AiReviewService.postprocessForBenchmark(
+            review(List.of(invented, actual), List.of(inventedMissing), "Everything is wrong.", "Fix everything."),
+            "Software Requirements Specification", INSTRUCTIONS, TEMPLATE,
+            "Software Requirements Specification\nINSERT DETAILS HERE");
+        assertThat(grounded.findings()).containsExactly(actual);
+        assertThat(grounded.missingRequiredSections()).isEmpty();
+        assertThat(grounded.summary()).contains("unresolved placeholder").doesNotContain("Security section missing");
+    }
+
+    @Test void structurallyMalformedFindingStillFailsRatherThanBeingSilentlyIgnored() {
+        var broken = new AiReviewProvider.Finding("Security section missing.",
+            AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS, null, "Security section");
+        assertThatThrownBy(() -> AiReviewService.postprocessForBenchmark(
+            review(List.of(broken), List.of(), "Missing.", "Fix it."),
             "SRS", INSTRUCTIONS, "", "SRS"))
             .hasMessageContaining("invalid or ungrounded");
     }

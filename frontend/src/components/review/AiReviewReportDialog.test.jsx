@@ -56,3 +56,37 @@ it('shows a current substantive report as current rather than historical', async
   expect(dialog).not.toHaveTextContent('Previously saved AI Review');
   expect(dialog).not.toHaveTextContent('Latest AI Review inconclusive');
 });
+
+it('keeps an earlier report historical after an insufficient-evidence rerun', async () => {
+  show({ status: 'UNCERTAIN', failureCode: 'INSUFFICIENT_REVIEW_EVIDENCE', previousReport,
+    previousGeneratedAt: '2026-09-21T08:00:00Z', generatedAt: null,
+    message: 'Only one distinct grounded check was verified in the latest run.' });
+  const dialog = await screen.findByRole('dialog', { name: 'AI Review: SRS PDF' });
+  expect(dialog).toHaveTextContent('Latest AI Review inconclusive');
+  expect(dialog).toHaveTextContent('Only one distinct grounded check was verified');
+  expect(dialog).toHaveTextContent('Previously saved AI Review');
+  expect(dialog).toHaveTextContent('The report below is from an earlier saved run');
+  expect(dialog).not.toHaveTextContent('Reviewed Sep 22');
+});
+
+it('shows a saved zero-issue report with two verified SRS checks and a clear approval limit', async () => {
+  const verifiedReport = { summary: 'General overview from provider.', findings: [], missingRequiredSections: [],
+    verifiedChecks: [
+      { aspect: 'Scope identifies system users', source: 'DELIVERABLE_REQUIREMENTS',
+        documentEvidence: 'Section 1.3: The system is for students and advisers.',
+        requirement: 'Identify intended users of the system.' },
+      { aspect: 'Functional requirement states the submission workflow', source: 'OFFICIAL_TEMPLATE',
+        documentEvidence: 'FR-01: A student submits the PDF link for review.',
+        requirement: '3.2 Functional requirements' }
+    ] };
+  show({ status: 'COMPLETED', generatedAt: '2026-09-22T08:00:00Z', report: verifiedReport }, verifiedReport);
+  const dialog = await screen.findByRole('dialog', { name: 'AI Review: SRS PDF' });
+
+  expect(dialog).toHaveTextContent('Reviewed Sep 22, 2026');
+  expect(dialog).toHaveTextContent('No actionable issues identified in the checked areas');
+  expect(dialog).toHaveTextContent('Section 1.3: The system is for students and advisers.');
+  expect(dialog).toHaveTextContent('Authority: Identify intended users of the system.');
+  expect(dialog).toHaveTextContent('FR-01: A student submits the PDF link for review.');
+  expect(dialog).toHaveTextContent('not a guarantee of full compliance or approval');
+  expect(dialog).not.toHaveTextContent('General overview from provider.');
+});

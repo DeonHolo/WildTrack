@@ -20,7 +20,11 @@ public class AiReviewConfiguration {
             @Value("${wildtrack.gemini.minimum-interval-seconds:15}") int interval) {
         var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NEVER).build());
-        factory.setReadTimeout(Duration.ofSeconds(60));
+        // PDF reasoning over long submissions can exceed one minute. The
+        // review runs on the background worker, so keep the provider read
+        // bounded without turning slow, billable generations into false
+        // failures at the original 60-second cutoff. No automatic retry.
+        factory.setReadTimeout(Duration.ofSeconds(180));
         return new GeminiAiReviewProvider(key, RestClient.builder()
             .baseUrl("https://generativelanguage.googleapis.com").requestFactory(factory).build(), json, interval);
     }

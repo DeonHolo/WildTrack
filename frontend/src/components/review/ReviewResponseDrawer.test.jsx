@@ -98,13 +98,16 @@ describe('ReviewResponseDrawer submission artifacts', () => {
     expect(screen.queryByText(/Older Google Drive revision history is unavailable/i)).not.toBeInTheDocument();
   });
 
-  it('keeps the previous report visible when a rerun has no grounded findings', async () => {
+  it.each([
+    ['NO_GROUNDED_FINDINGS', 'The new run had no source-grounded findings.'],
+    ['INSUFFICIENT_REVIEW_EVIDENCE', 'Only one independently grounded check was confirmed.']
+  ])('keeps the previous report visible when a rerun is inconclusive (%s)', async (failureCode, message) => {
     const url = 'https://drive.google.com/file/d/previous-report/view';
     const previousReport = { summary: 'Prior substantive finding.', findings: [{ source: 'DOCUMENT',
       issue: 'Wrong document title.', evidence: 'Title page says SPMP.' }] };
-    const review = { fieldId: 'field-pdf', status: 'UNCERTAIN', failureCode: 'NO_GROUNDED_FINDINGS',
+    const review = { fieldId: 'field-pdf', status: 'UNCERTAIN', failureCode,
       retryToken: 'retry-1', sourceUrl: url, previousReport, previousGeneratedAt: '2026-09-21T08:00:00Z',
-      message: 'The new run had no source-grounded findings.' };
+      message };
     render(<MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <ReviewResponseDrawer opened
         response={{ id: 'response-1', deliverableId: 'deliverable-1', studentNumber: '26-0001',
@@ -120,6 +123,7 @@ describe('ReviewResponseDrawer submission artifacts', () => {
     </MantineProvider>);
     const drawer = await screen.findByRole('dialog', { name: 'Review DOE, JANE' });
     expect(drawer).toHaveTextContent('Latest AI Review inconclusive');
+    expect(drawer).toHaveTextContent(message);
     expect(drawer).toHaveTextContent('it did not verify this PDF');
     expect(drawer).toHaveTextContent('previously saved AI Review is available');
     expect(screen.getByRole('button', { name: 'View previous AI Review' })).toBeEnabled();
