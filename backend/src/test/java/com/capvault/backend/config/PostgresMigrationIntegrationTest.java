@@ -27,11 +27,12 @@ class PostgresMigrationIntegrationTest {
             MigrateResult firstMigration = flyway.migrate();
 
             assertThat(firstMigration.migrationsExecuted).isPositive();
-            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("28");
+            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("29");
             assertThat(tableExists(dataSource, "domain_audit_events")).isTrue();
             assertThat(tableExists(dataSource, "response_tracker_outbox")).isTrue();
             assertThat(tableExists(dataSource, "archive_records")).isTrue();
             assertThat(tableExists(dataSource, "academic_workspaces")).isTrue();
+            assertThat(columnExists(dataSource, "academic_workspaces", "file_monitor_enabled")).isTrue();
             assertThat(tableExists(dataSource, "wildtrack_sessions")).isTrue();
             assertThat(tableExists(dataSource, "form_responses")).isTrue();
             assertThat(tableExists(dataSource, "response_feedback")).isTrue();

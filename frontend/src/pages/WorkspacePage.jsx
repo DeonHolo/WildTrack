@@ -25,7 +25,7 @@ import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/workflow.js';
-import { getDocumentTemplateFileUrl } from '../lib/api.js';
+import { getDocumentTemplateFileUrl, getFileMonitorSettings, setFileMonitorSettings } from '../lib/api.js';
 import { removeSubmissionTemplate, saveSubmissionTemplate } from '../lib/submissionClient.js';
 import {
   applyWorkspaceSheetPreview,
@@ -103,12 +103,14 @@ const EMPTY_WORKSPACE_FORM = {
 };
 
 const EMPTY_ARCHIVE_READINESS = { status: 'idle', data: null, error: '' };
+const EMPTY_FILE_MONITOR = { scope: '', status: 'loading', enabled: false, configured: null, error: '', notice: '' };
 
 export function WorkspacePage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const linkedSource = searchParams.get('source') || '';
   const {
+    session,
     workspaces,
     allWorkspaces,
     activeWorkspace,
@@ -151,6 +153,13 @@ export function WorkspacePage() {
   const [workspaceManagementOpen, setWorkspaceManagementOpen] = useState(false);
   const [archiveReadiness, setArchiveReadiness] = useState(EMPTY_ARCHIVE_READINESS);
   const archiveReadinessRequest = useRef(0);
+  const [fileMonitorState, setFileMonitorState] = useState(EMPTY_FILE_MONITOR);
+  const fileMonitorRequest = useRef(0);
+  const isAdmin = Boolean(session?.authenticated && session?.roles?.includes('ADMIN'));
+  const fileMonitorScope = JSON.stringify([activeWorkspaceId, session?.authenticated ? session.googleSubject || session.email : '', session?.roles]);
+  // Render nothing from a previous account or workspace while a new scope loads.
+  const fileMonitor = fileMonitorState.scope === fileMonitorScope
+    ? fileMonitorState : { ...EMPTY_FILE_MONITOR, scope: fileMonitorScope };
 
   const activeColumns = getActiveTrackerColumns(state);
   const templateDeliverable = state.deliverables.find((item) => item.trackerColumn === template.deliverable) || null;
@@ -208,6 +217,65 @@ export function WorkspacePage() {
     });
     return () => { cancelled = true; };
   }, [refreshWorkspaceManagementCatalog]);
+
+  useEffect(() => {
+    const currentRequest = ++fileMonitorRequest.current;
+    if (!activeWorkspaceId || !isAdmin || activeWorkspace?.active === false) return undefined;
+    setFileMonitorState({ ...EMPTY_FILE_MONITOR, scope: fileMonitorScope });
+    getFileMonitorSettings(activeWorkspaceId).then((settings) => {
+      if (fileMonitorRequest.current !== currentRequest) return;
+      if (!settings || typeof settings.enabled !== 'boolean') throw new Error('Monitoring status could not be verified.');
+      setFileMonitorState({ scope: fileMonitorScope, status: 'ready', enabled: settings.enabled,
+        configured: settings.configured ?? null, error: '', notice: '' });
+    }).catch((error) => {
+      if (fileMonitorRequest.current !== currentRequest) return;
+      setFileMonitorState({ ...EMPTY_FILE_MONITOR, scope: fileMonitorScope, status: 'error',
+        error: error?.message || 'Monitoring status could not be loaded.' });
+    });
+    return () => { if (fileMonitorRequest.current === currentRequest) fileMonitorRequest.current += 1; };
+  }, [activeWorkspaceId, activeWorkspace?.active, fileMonitorScope, isAdmin]);
+
+  async function saveFileMonitor(enabled) {
+    if (!isAdmin || !activeWorkspaceId || activeWorkspace?.active === false
+        || fileMonitor.status !== 'ready' || (enabled && fileMonitor.configured === false)
+        || fileMonitor.enabled === enabled) return;
+    const scope = fileMonitorScope;
+    const currentRequest = ++fileMonitorRequest.current;
+    const previous = fileMonitor;
+    setFileMonitorState({ ...previous, status: 'saving', error: '', notice: '' });
+    try {
+      const result = await setFileMonitorSettings(activeWorkspaceId, enabled);
+      if (fileMonitorRequest.current !== currentRequest || !isCurrentScope()) return;
+      if (!result || typeof result.enabled !== 'boolean' || result.enabled !== enabled) {
+        throw new Error('The server did not confirm the new monitoring setting. Reload its status before trying again.');
+      }
+      setFileMonitorState({ scope, status: 'ready', enabled: result.enabled,
+        configured: result.configured ?? previous.configured, error: '',
+        notice: result.enabled ? 'Deadline PDF monitoring enabled for this workspace.'
+          : 'Deadline PDF monitoring disabled for this workspace.' });
+    } catch (error) {
+      if (fileMonitorRequest.current !== currentRequest || !isCurrentScope()) return;
+      // A failed or unconfirmed write must never be shown as successfully saved.
+      setFileMonitorState({ ...previous, status: 'error', error: error?.message || 'Monitoring could not be updated.', notice: '' });
+    }
+  }
+
+  async function retryFileMonitor() {
+    if (!isAdmin || !activeWorkspaceId || activeWorkspace?.active === false) return;
+    const scope = fileMonitorScope;
+    const currentRequest = ++fileMonitorRequest.current;
+    setFileMonitorState({ ...EMPTY_FILE_MONITOR, scope });
+    try {
+      const settings = await getFileMonitorSettings(activeWorkspaceId);
+      if (fileMonitorRequest.current !== currentRequest || !isCurrentScope()) return;
+      if (!settings || typeof settings.enabled !== 'boolean') throw new Error('Monitoring status could not be verified.');
+      setFileMonitorState({ scope, status: 'ready', enabled: settings.enabled,
+        configured: settings.configured ?? null, error: '', notice: '' });
+    } catch (error) {
+      if (fileMonitorRequest.current !== currentRequest || !isCurrentScope()) return;
+      setFileMonitorState({ ...EMPTY_FILE_MONITOR, scope, status: 'error', error: error?.message || 'Monitoring status could not be loaded.' });
+    }
+  }
 
   async function importSource(sourceType, mappingOverrides = null) {
     if (!isCurrentScope()) return;
@@ -548,6 +616,39 @@ export function WorkspacePage() {
           <span><strong>{state.templates.length}</strong> templates</span>
         </div>
       </section>
+
+      {isAdmin && activeWorkspace?.active !== false ? (
+        <section className="panel wt-file-monitor-section" aria-label="Deadline PDF monitoring">
+          <div className="panel-header">
+            <div>
+              <h2>Deadline PDF monitoring</h2>
+              <p>For the selected workspace only. When enabled, WildTrack periodically checks submitted Google Drive PDFs for changes around deadlines. Drive checks can use API quota; this does not poll Google Sheets or change acceptance decisions.</p>
+            </div>
+          </div>
+          {fileMonitor.status === 'loading' ? <p role="status">Loading monitoring setting…</p> : (
+            <>
+              {fileMonitor.status === 'ready' || fileMonitor.status === 'saving' ? (
+                <p role={fileMonitor.status === 'saving' ? 'status' : undefined}>Monitoring is <strong>{fileMonitor.enabled ? 'Enabled' : 'Disabled'}</strong>{fileMonitor.status === 'saving' ? ' · Saving…' : ''}.</p>
+              ) : <p role="status">Monitoring status could not be verified. It has not been changed here.</p>}
+              {fileMonitor.configured === false ? <p role="alert">Google Drive PDF checking is unavailable. Monitoring cannot be enabled until Drive access is configured.</p> : null}
+              {fileMonitor.error ? <p role="alert">{fileMonitor.error}</p> : null}
+              {fileMonitor.notice ? <p role="status">{fileMonitor.notice}</p> : null}
+              <div className="wt-row-actions">
+                {fileMonitor.status === 'error' ? (
+                  <Button type="button" variant="secondary" onClick={retryFileMonitor}>Retry monitoring status</Button>
+                ) : (
+                  <Button type="button" variant={fileMonitor.enabled ? 'secondary' : 'primary'}
+                    disabled={fileMonitor.status !== 'ready' || (!fileMonitor.enabled && fileMonitor.configured === false)}
+                    loading={fileMonitor.status === 'saving'}
+                    onClick={() => saveFileMonitor(!fileMonitor.enabled)}>
+                    {fileMonitor.enabled ? 'Disable monitoring' : 'Enable monitoring'}
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      ) : null}
 
       <section className="panel wt-source-section">
         <div className="panel-header">

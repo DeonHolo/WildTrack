@@ -45,8 +45,8 @@ import org.springframework.stereotype.Service;
  * never stores PDF bytes, and rechecks changed files using one download and PDF parse
  * per unique file. Each referencing response receives its own authorization-scoped report.
  *
- * Disabled unless the owner explicitly sets both WILDTRACK_FILE_MONITOR_ENABLED=true and
- * WILDTRACK_FILE_MONITOR_WORKSPACE_ID. A database compare-and-set lease prevents repeated
+ * Disabled per workspace until an admin enables it in Workspace settings.
+ * A database compare-and-set lease prevents repeated
  * concurrent scans on multiple Heroku instances; a crashed job becomes eligible again.
  */
 @Service
@@ -62,16 +62,12 @@ public class DeadlineFileMonitor {
     private final GoogleDriveGateway drive;
     private final FileCheckService checks;
     private final ObjectMapper json;
-    private final boolean enabled;
-    private final String workspaceSetting;
     private final int batchLimit;
 
     public DeadlineFileMonitor(JdbcTemplate db, FormResponseRepository responses,
             DeliverableRepository deliverables, DeliverableFieldRepository fields,
             AcademicWorkspaceRepository workspaces, FileCheckReportRepository previousReports,
             GoogleDriveGateway drive, FileCheckService checks, ObjectMapper json,
-            @Value("${wildtrack.file-monitor.enabled:false}") boolean enabled,
-            @Value("${wildtrack.file-monitor.workspace-id:}") String workspaceSetting,
             @Value("${wildtrack.file-monitor.max-files-per-cycle:20}") int batchLimit) {
         this.db = db;
         this.responses = responses;
@@ -82,8 +78,6 @@ public class DeadlineFileMonitor {
         this.drive = drive;
         this.checks = checks;
         this.json = json;
-        this.enabled = enabled;
-        this.workspaceSetting = workspaceSetting;
         this.batchLimit = Math.max(1, Math.min(batchLimit, 30));
     }
 
@@ -91,20 +85,20 @@ public class DeadlineFileMonitor {
     record FileGroup(String fileId, String url, List<Target> targets, Instant nearestDeadline) { }
     public record Cycle(int eligibleUniqueFiles, int metadataRequests, int fullDownloads, int reportsUpdated) { }
 
-    /** Scheduling is deliberately opt-in; opening Today's Work cannot trigger Drive requests. */
+    /** Only workspaces explicitly enabled by an admin are polled. Opening Today's Work cannot trigger Drive requests. */
     @Scheduled(fixedDelayString = "${wildtrack.file-monitor.tick-ms:60000}")
     public synchronized void scheduledCycle() {
-        if (!enabled || workspaceSetting.isBlank()) return;
-        scanOnce();
+        for (UUID workspaceId : db.query("""
+                SELECT id FROM academic_workspaces WHERE active = TRUE AND file_monitor_enabled = TRUE
+                ORDER BY id
+                """, (rs, row) -> rs.getObject("id", UUID.class))) {
+            scanOnce(workspaceId);
+        }
     }
 
-    public synchronized Cycle scanOnce() {
-        if (!enabled || !drive.isConfigured() || workspaceSetting.isBlank()) return new Cycle(0, 0, 0, 0);
-        UUID workspaceId;
-        try {
-            workspaceId = UUID.fromString(workspaceSetting);
-        } catch (IllegalArgumentException badConfiguration) {
-            throw new IllegalStateException("WILDTRACK_FILE_MONITOR_WORKSPACE_ID must be a valid workspace UUID.", badConfiguration);
+    public synchronized Cycle scanOnce(UUID workspaceId) {
+        if (workspaceId == null || !drive.isConfigured() || !monitorEnabled(workspaceId)) {
+            return new Cycle(0, 0, 0, 0);
         }
         if (workspaces.findById(workspaceId).filter(workspace -> workspace.isActive()).isEmpty()) {
             return new Cycle(0, 0, 0, 0);
@@ -116,6 +110,8 @@ public class DeadlineFileMonitor {
         int reports = 0;
         for (FileGroup file : unique.values().stream()
                 .sorted(Comparator.comparing(FileGroup::nearestDeadline)).toList()) {
+            // Disabling a workspace while a cycle is running prevents subsequent Drive requests.
+            if (!monitorEnabled(workspaceId)) break;
             if (requests >= batchLimit) break;
             seed(workspaceId, file, now);
             // Atomic claim: a concurrent dyno cannot check the same file until the
@@ -278,6 +274,12 @@ public class DeadlineFileMonitor {
             }
         }
         return new Cycle(unique.size(), requests, downloads, reports);
+    }
+
+    private boolean monitorEnabled(UUID workspaceId) {
+        return Boolean.TRUE.equals(db.queryForObject("""
+            SELECT file_monitor_enabled FROM academic_workspaces WHERE id = ?
+            """, Boolean.class, workspaceId));
     }
 
     private Map<String, FileGroup> eligible(UUID workspaceId, Instant now) {

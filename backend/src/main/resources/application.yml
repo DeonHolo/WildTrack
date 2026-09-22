@@ -37,9 +37,7 @@ capvault:
 
 wildtrack:
   file-monitor:
-    # Opt-in: no real semester is polled or modified until explicitly enabled.
-    enabled: ${WILDTRACK_FILE_MONITOR_ENABLED:false}
-    workspace-id: ${WILDTRACK_FILE_MONITOR_WORKSPACE_ID:}
+    # Enable individual workspaces from Workspace settings. These optional values only tune pacing.
     max-files-per-cycle: ${WILDTRACK_FILE_MONITOR_MAX_FILES_PER_CYCLE:20}
     tick-ms: ${WILDTRACK_FILE_MONITOR_TICK_MS:60000}
   drive-history:
