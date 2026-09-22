@@ -19,6 +19,7 @@ import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.drive.DriveLinkParser;
 import com.capvault.backend.drive.GoogleDriveGateway;
 import com.capvault.backend.drive.GoogleDriveProperties;
+import com.capvault.backend.drive.GoogleDriveUnavailableException;
 import com.capvault.backend.filecheck.PdfInspector;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseRepository;
@@ -32,6 +33,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.client.RestClientResponseException;
 
 @Service
 public class AiReviewService {
@@ -139,15 +141,15 @@ public class AiReviewService {
         if (!drive.isConfigured()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Document access is not configured.");
         String source = target.sourceUrl();
         var reference = DriveLinkParser.parse(source);
-        var metadata = drive.getMetadata(reference);
+        var metadata = preclaimDrive(() -> drive.getMetadata(reference));
         if (!"application/pdf".equalsIgnoreCase(metadata.mimeType()) || !metadata.canDownload())
             throw new IllegalArgumentException("AI review requires a downloadable PDF. Run Document Check first.");
         if (metadata.size() != null && metadata.size() > driveProperties.maximumFileSizeBytes())
             throw new IllegalArgumentException("The PDF exceeds the document size limit.");
-        byte[] bytes = drive.download(reference);
+        byte[] bytes = preclaimDrive(() -> drive.download(reference));
         if (bytes == null || bytes.length > driveProperties.maximumFileSizeBytes())
             throw new IllegalArgumentException("The PDF exceeds the document size limit.");
-        var afterDownload = drive.getMetadata(reference);
+        var afterDownload = preclaimDrive(() -> drive.getMetadata(reference));
         if (!Objects.equals(metadata.md5Checksum(), afterDownload.md5Checksum())
                 || !Objects.equals(metadata.modifiedTime(), afterDownload.modifiedTime()))
             throw stale("The Drive file changed during download. Try again.");
@@ -202,6 +204,24 @@ public class AiReviewService {
         try { assertCurrent(response, target, context, subject); }
         catch (RuntimeException changed) { unlink(target, response, sourceValueHash, key); throw changed; }
         return view(store.find(key).orElseThrow(), response, target, !claim.acquired(), true);
+    }
+
+    /** Only Drive reads before the job claim can guarantee no Gemini request was started. */
+    private static <T> T preclaimDrive(java.util.function.Supplier<T> operation) {
+        try {
+            return operation.get();
+        } catch (GoogleDriveUnavailableException unavailable) {
+            // Drive's HTTP 403/404 means this submitted link is currently not
+            // accessible to WildTrack. Never leak provider error bodies, file
+            // identifiers, account information or external request URLs.
+            if (unavailable.getCause() instanceof RestClientResponseException rejected
+                    && (rejected.getStatusCode().value() == 403 || rejected.getStatusCode().value() == 404)) {
+                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "The submitted Drive PDF could not be opened. Confirm the file exists and its sharing/download access, then correct its link and try again. No AI review was started.");
+            }
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "WildTrack could not retrieve the submitted PDF from Google Drive. No AI review was started. Try again later.");
+        }
     }
 
     /** Read-only saved result. Download/hash verification happens on explicit review requests, not page views. */
