@@ -49,43 +49,17 @@ Rules:
 - Report role-specific denominators rather than treating missing branches as zeroes.
 - Sir Ralph's September 14 consultation remains qualitative evidence, not a fabricated Google Form row.
 
-## Tab 3 - Objective 3 Task Log (restricted)
+## Tab 3 - Objective 3 Protocol and Objective 3 Task Log (revised, restricted)
 
-One row per scheduled T1 or T2 task.
+**Existing live spreadsheet:** `Form_Responses` remains unchanged. The original `Objective 3 Task Log` and `Objective 3 Protocol` active tabs describe **old T1/T2** and are **NOT** the revised study. The owner requested replacing those two active tabs; the one-time bound script `replace_existing_goal3_tabs.gs` previews and creates hidden **dated historical archive copies** *before* removing the two original active tabs and creating new tabs with the same names. Do not rerun the original Form-creation script or delete real historical task data without an archived copy. This repository has not directly edited the user's live spreadsheet.
 
-| Column | Purpose |
-|---|---|
-| task_observation_id | researcher-created public-safe key |
-| raw_student_record_key | restricted canonical Student Number/internal key |
-| workspace_id | existing MVP Validation workspace |
-| deliverable_id | Refactored SRS form id |
-| task_code | T1_INITIAL or T2_REVISED |
-| started_at | observation start if recorded; task is not speed-scored |
-| completed_at | observation completion if recorded |
-| required_blank_attempt_blocked | T1 assertion |
-| correct_student_record | persisted response matches intended canonical student |
-| correct_workspace | persisted response belongs to expected workspace |
-| correct_deliverable | persisted response belongs to Refactored SRS |
-| pdf_link_expected | researcher reference to expected submitted link, restricted if needed |
-| pdf_link_persisted_correctly | assertion |
-| validation_step_expected | Initial submission or Revised submission |
-| validation_step_persisted_correctly | assertion |
-| response_id_preserved | T2 assertion |
-| unchanged_values_preserved | T2 assertion |
-| revision_behavior_correct | T2 assertion |
-| visible_readback_correct | student-visible result/readback assertion |
-| runtime_error | explicit platform/runtime failure if any |
-| task_pass | true only when every applicable frozen assertion passes |
-| exclusion_or_unassessable_reason | explicit reason; never silently drop |
-| evidence_reference | screenshot/log/audit reference, not binary data in this sheet |
+The **new `Objective 3 Protocol` tab** describes initial SAVED Refactored SRS record correctness, the limited saved-record denominator, true research-consent/selection rules, post-distribution amendment, required assertions and researcher-only technical checks. It also explains why the old Admin Study `Overall pass` cannot be reused.
 
-Primary calculation after collection:
+The **new `Objective 3 Task Log` tab** is **one genuinely selected initial saved record per eligible consenting student**, with these exact headers: `observation_id`, `observed_at`, `consent_scope_verified`, `consent_evidence_reference`, `student_alias`, `response_id_RESTRICTED`, `cohort_selection`, `first_viewed_phase`, `student_association`, `workspace_match`, `deliverable_match`, `initial_saved_version`, `pdf_link_and_values`, `student_visible_readback`, `derived_initial_result`, `initial_version_evidence_reference`, `system_evidence_reference`, `researcher_note`.
 
-`STU_TXN_accuracy = count(task_pass = TRUE) / count(scored T1/T2 task rows)`
+Record `CONFIRMED/PENDING/NOT_AUTHORIZED` consent; `INCLUDED/OUT_OF_SCOPE/PENDING` selection; `PRE_AMENDMENT_SEEN/NEW_POST_AMENDMENT/UNKNOWN` phase; `PASS/FAIL/UNVERIFIED` for each of the **five required primary checks** (student association, workspace, deliverable, original saved version and original stored PDF/values). The `student_visible_readback` column is **supporting observation only** and may be `NOT_OBSERVED`; the primary metric must not force retrospective student screenshots. The derived-result formula yields PASS **only** for five verified PASS checks with confirmed consent and inclusion; FAIL if any required check fails; UNVERIFIED if any required evidence remains unknown; otherwise NOT_IN_COHORT. Never infer an initial version from a current `Revised submission` label with no history. The old T1/T2 `Overall pass` is not a substitute for this new result.
 
-Working target: `>= 0.95`.
-
-Also report unique eligible students, total scheduled tasks, scored tasks, both-tasks-pass students, assertion-level failures, withdrawals, unassessable cases and runtime errors.
+Primary calculation after collection: `INITIAL_SAVED_CORRECTNESS = C_INITIAL / N_INITIAL`, where the denominator includes consent-confirmed, selected records with PASS/FAIL/**UNVERIFIED** status and the numerator includes only verified PASS. Working threshold `>=0.95`, **limited to correctly stored *initial saved* records**, not all failed/abandoned attempts. Preserve actual pre-amendment observations, consent uncertainty, incomplete first-version/readback proof, failure modes and number of uniquely eligible students in the final report; if N=0 report NOT ESTIMABLE. Researcher-controlled invalid-link/DOCX/revision checks belong to a separate technical log, not student results.
 
 ## Tab 4 - Document Check Component Benchmark
 
@@ -105,7 +79,7 @@ Populate only after collection. Suggested outputs:
 
 - Objective 1 component-reference agreement (52/52), coverage (52/52), applicable per-signal FP/FN and its post-benchmark scope clarification;
 - Objective 2 decision agreement, traceability and fresh-run coverage;
-- Objective 3 C_STU_TXN, N_STU_TXN, STU_TXN_accuracy and both-tasks-pass count;
+- Objective 3 C_INITIAL, N_INITIAL, INITIAL_SAVED_CORRECTNESS, FAIL/UNVERIFIED and pre-/post-amendment counts **within the revised, saved-record-only scope**; separately label the archived original T1/T2 protocol and any independent researcher-only technical checks;
 - questionnaire counts/distributions by role;
 - coded qualitative themes with de-identified examples;
 - limitations/exclusions table.

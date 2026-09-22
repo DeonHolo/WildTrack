@@ -1,6 +1,6 @@
 # Framework and evidence plan
 
-**Status:** proposed GQM evaluation design, not adviser-endorsed. The real Google Form is **already deployed/distributed** and its linked `Form_Responses` spreadsheet was shown receiving responses; this source plan does not establish a final count, independently verify every live question, or authorize changing the live instrument. Controlled Goal 1 component and Goal 2 pilot evidence is recorded; real student transaction/questionnaire analysis remains to be retrieved and scored. Goal 1 was scoped to the already completed component benchmark **after** its run; see `GOAL1_SCOPE_AMENDMENT_20260921.md`.
+**Status:** proposed GQM evaluation design, not adviser-endorsed. The real Google Form is **already deployed/distributed** and its linked `Form_Responses` spreadsheet was shown receiving responses; this source plan does not establish a final count, independently verify every live question, or authorize changing the live instrument. Controlled Goal 1 component and Goal 2 pilot evidence is recorded; real student initial-saved-record/questionnaire analysis remains to be retrieved and scored. Goal 1 was scoped to the already completed component benchmark **after** its run; see `GOAL1_SCOPE_AMENDMENT_20260921.md`. Goal 3 was likewise amended **after Form distribution**; see `GOAL3_INITIAL_SUBMISSION_AMENDMENT_20260922.md`.
 
 ## Selected goal-led framework
 
@@ -12,7 +12,7 @@ Basili's approach starts from explicit goals, derives operational questions, the
 
 - deterministic Document Check outcomes;
 - grounded AI Review outcomes; and
-- real student submission/revision transaction correctness.
+- real student initial saved-record correctness.
 
 GQM is used here to organize the goal-to-evidence trace. The custom role-feedback questionnaire is descriptive validation feedback, not a standardized psychometric scale.
 
@@ -24,7 +24,7 @@ This design therefore avoids using satisfaction or clarity ratings as proof that
 
 - Objective 1 is measured from the frozen controlled Document Check **component** fixture run, with simulated gateway cases disclosed; no new live Google Drive accuracy run is required by the clarified objective.
 - Objective 2 is measured from controlled AI Review fixtures.
-- Objective 3 is measured from real student submission/revision tasks and system evidence.
+- Objective 3 is measured from genuine, eligible and appropriately consented initial saved records; researcher-only invalid-link/type/edit tests are separate technical checks.
 - The questionnaire supplies supporting student/adviser/Admin feedback about the deployed MVP.
 
 The course notes require framework endorsement before formal deployment. This packet proposes GQM but does not claim adviser approval.
@@ -35,7 +35,7 @@ The course notes require framework endorsement before formal deployment. This pa
 |---|---|---|---|---|
 | Objective 1: Document Check component classifications | Do the production PDF inspection/template comparison components and declared simulated gateway branches match the frozen project-defined labels across 52 STD assertions? | source-frozen component manifest + recorded 52-assertion run; separate scope-amendment record | project-reference classification agreement >=90%, execution coverage, per-signal FP/FN and precision/recall where defined | none; participant opinions and live screenshots do not score component accuracy |
 | Objective 2: AI Review grounded-content screening | Does AI Review identify frozen content issues without inventing requirements, and are substantive claims traceable to the PDF or supplied authority? | frozen ten-fixture fresh-run pilot + adjudication log | decision agreement, claim traceability, fresh-run coverage, provider/cache/quota outcomes | none; participant opinions do not score AI accuracy |
-| Objective 3: Student submission transaction correctness | Does WildTrack correctly reject the prescribed invalid attempt, save the valid student response under the correct record, and preserve the intended material revision? | controlled student task log + WildTrack system/readback evidence | STU_TXN_accuracy = C_STU_TXN / N_STU_TXN, target >= 95% | student survey is supporting feedback only |
+| Objective 3: Initial saved student-record correctness (amended 2026-09-22) | Among selected, legitimately consented original persisted Refactored SRS responses, is the student, Semester 1 workspace, deliverable, initial version and original required PDF link/fields association correct? | restricted revised initial-record log + independently verifiable saved-system evidence | C_INITIAL / N_INITIAL, proposed >=95% of selected eligible saved records; FAIL and UNVERIFIED remain in denominator | survey is descriptive only; optional student readback is supporting evidence |
 
 ## Role feedback mapping
 
@@ -56,7 +56,7 @@ Plan for at least 30 unique consenting stakeholder participants across varied ro
 The evidence boundaries are:
 
 - participating students are the primary human participant group for Objective 3;
-- Objective 3 is scored from their controlled WildTrack task results, not from survey agreement;
+- Objective 3 is scored only from appropriately consented and eligible initial SAVED Refactored SRS system records, not from survey agreement, presumed failed attempts or forced revisions;
 - Document Check and AI Review accuracy come from controlled synthetic PDF fixtures, not from the 30-person questionnaire;
 - student/adviser/Admin questionnaire responses provide descriptive MVP validation findings;
 - The owner identifies Sir Ralph Laviste as the **sole planned Admin/beneficiary participant**. His September 14 consultation is **one real qualitative Admin contribution**, which includes teacher/adviser and prospective-user perspectives. The transcript's actual findings and exact Part/line references are recorded in `FRAMEWORK_AND_MODEL.md` and `MVP_VALIDATION_HIGHLIGHTS_DRAFT.md`; the same person is not split into separate teacher, user and Admin participants or turned into a fabricated Google Form row. Count him among unique consenting study participants only with genuine applicable consent/eligibility evidence;
@@ -78,64 +78,25 @@ Google currently documents that Limit to 1 response requires sign-in but usernam
 
 Do not recreate the old self-generated six-character participant code.
 
-### Objective 3 task evidence
+### Objective 3 initial-saved-record evidence
 
-The Objective 3 task must verify that a response is attached to the correct canonical student record. The restricted raw task log may therefore contain the minimum Student Number/internal record key needed for that verification.
+The revised Objective 3 must verify that the original saved response is attached to the correct canonical student record. The restricted raw study log may therefore contain the minimum internal record key needed for genuine verification; the consent must actually cover analysis of that record. Consent for an old controlled task must not automatically be extended to unrelated ordinary submissions.
 
 Use a researcher-created task_observation_id in cleaned analysis. Do not publish raw Student Numbers or account identifiers.
 
 The questionnaire and task log do not need a respondent-entered shared code. They are separate evidence tables with different purposes.
 
-## Objective 3 controlled student task
+## Objective 3 revised initial saved-record study (post-distribution amendment)
 
-### Pre-collection setup
+The originally planned student T1/T2 protocol required a blank-link attempt, an initial save and an artificial edit changing only Validation step. The Form was distributed under that earlier plan. The study owner later observed that many genuine student responses were never edited. The old protocol and observed history are preserved in `GOAL3_INITIAL_SUBMISSION_AMENDMENT_20260922.md` and the archived original Sheet tabs; do not rewrite the earlier invitation as though the amendment preceded it.
 
-1. Use the existing imported MVP Validation workspace; do not create a second fake workspace solely for Objective 3.
-2. Use **Refactored SRS** as the common target existing published form for the student sample.
-3. Confirm the old official SRS template is configured for Refactored SRS so the normal Document Check comparison is available.
-4. Add one required research-only multiple-choice field to the Refactored SRS form: **Validation step**, choices **Initial submission** and **Revised submission**.
-5. Participants paste the Google Drive link to their own existing old Refactored SRS PDF. WildTrack does not receive a file upload.
-6. Freeze the task instructions, one required-link invalid/incomplete attempt, the valid link submission with Validation step = Initial submission, and the T2 edit that changes only Validation step to Revised submission.
-7. Freeze the exact assertion list in SCORING_AND_CODEBOOK.md.
-8. Verify the task against the current deployed student UI before recruitment.
-9. Have a second team member review the expected assertions before seeing participant results.
-10. Ensure the validation task cannot affect real grading, real course acceptance, or unrelated student records.
+Select at most one original saved Refactored SRS response for each eligible, genuinely consenting student in the active Semester 1 MVP Validation workspace, under an explicit, defensible inclusion rule. Label already-inspected cases `PRE_AMENDMENT_SEEN` rather than claiming a fresh blinded sample. Original saved response/version evidence is mandatory; current Revised submission labels or questionnaire task-completion claims alone cannot reconstruct an initial version. Do not infer that every saved response has research consent, or treat previously failed, unsaved attempts as observed successes.
 
-### Per-student task
+For each selected included record, verify five primary assertions with real saved-system evidence: authentic student association, active Semester 1 workspace, correct Refactored SRS deliverable, authentic original initial saved response ID/version, and the original stored required Drive PDF link and relevant field values. Score each as PASS, FAIL or UNVERIFIED. Student-visible readback is **optional separate supporting evidence** when actually captured; it is not a retrospective screenshot requirement and is not one of the five primary checks.
 
-Each eligible participating student is scheduled for:
+Define `N_INITIAL` as all genuinely consented selected eligible initial saved records, including FAIL and UNVERIFIED; `C_INITIAL` counts only selected records with all five evidenced primary checks PASS. The proposed working target is `C_INITIAL / N_INITIAL >= 0.95` when `N_INITIAL > 0`. Report unverified evidence separately. This conditional **saved-record** metric cannot measure every attempt that failed before persistence.
 
-1. **Initial-submission task**
-   - open the Refactored SRS form;
-   - attempt submission without the required PDF link;
-   - confirm WildTrack blocks it as specified;
-   - paste the participant's own existing Refactored SRS Google Drive PDF link;
-   - choose **Initial submission** for Validation step;
-   - submit the response;
-   - researcher verifies correct record/value/state evidence.
-
-2. **Material-revision task**
-   - reopen the saved response;
-   - change only Validation step from **Initial submission** to **Revised submission**;
-   - leave the SRS PDF link unchanged;
-   - save;
-   - researcher verifies the intended change, preservation of other values, response identity, revision behavior, and student-visible readback.
-
-The task is untimed. The researcher may clarify the written task instruction but must not operate the student's UI on the student's behalf.
-
-### Scoring
-
-Each T1/T2 task passes only when all applicable frozen assertions pass.
-
-Primary metric:
-
-STU_TXN_accuracy = C_STU_TXN / N_STU_TXN
-
-Working target:
-
-STU_TXN_accuracy >= 0.95
-
-Keep system/runtime failures visible. Report unique students, total scheduled/scored transactions, assertion failures, students whose two tasks both passed, withdrawals, and unassessable conditions.
+Run blank required-link, non-PDF/DOCX and edit/revision behavior as separately documented, researcher-controlled technical tests on a permitted isolated account and fictional content. Verify actual behavior rather than assuming DOCX links must be rejected synchronously at save. These checks never add student participants or numerator entries. Record real version, expected and observed outcomes, and failures without changing a real student's grading/acceptance state. Seek course/adviser endorsement of the amended consent/inclusion method before reporting empirical Goal 3 results.
 
 ## Google Forms route verification (the Form has already been distributed)
 
@@ -163,11 +124,11 @@ For each route, verify:
 - [ ] Adviser/framework endorsement is not falsely claimed.
 - [ ] Objective 1 uses the completed project-reference **component** benchmark, preserves scheduled failures, and discloses its post-observation scope amendment, known fixture population and simulated Drive branches.
 - [ ] Objective 2 uses the frozen fresh AI pilot and preserves cache/quota/provider outcomes.
-- [ ] Objective 3 is student-facing and scored from real WildTrack transaction evidence rather than survey opinion.
-- [ ] Objective 3 uses the frozen T1/T2 protocol and 95% transaction-correctness target.
-- [ ] The invalid T1 attempt cannot create/overwrite an incorrect response.
-- [ ] T1 verifies canonical student/workspace/deliverable association, persisted values, and visible state.
-- [ ] T2 verifies intended changed value, preservation of unchanged values, response identity, revision behavior, and visible state.
+- [ ] Objective 3 uses eligible consented original saved Refactored SRS system records, not questionnaire ratings or unverified all-attempt claims.
+- [ ] The post-distribution Goal 3 amendment, 95% proposed saved-record target, original protocol and previously inspected cases remain clearly versioned.
+- [ ] Each included student has genuine consent for the actual analyzed record; missing initial-version evidence is UNVERIFIED, not PASS.
+- [ ] The five primary checks and optional supporting readback remain separate; FAIL/UNVERIFIED cases remain in the selected denominator.
+- [ ] Blank-link, non-PDF/DOCX and edit/revision researcher checks remain separate from student results and reflect actual observed application behavior.
 - [ ] Student Number/account details remain in restricted raw evidence only.
 - [ ] Questionnaire contains no typed participant code and no scenario quiz.
 - [ ] Questionnaire contains no student AI Review explanation or submission/history option unless the deployed UI changes before freeze.
@@ -225,7 +186,7 @@ WildTrack MVP Validation/
     Google Form - live validation instrument link
     Scoring and Codebook - frozen copy
     Questionnaire Route Review Checklist
-    Objective 3 Student Task Protocol - frozen copy
+    Objective 3 amended initial-saved-record protocol and preserved original T1/T2 version
   02 Deployed MVP Evidence/
     deployment screenshots
     role-view screenshots
@@ -235,10 +196,10 @@ WildTrack MVP Validation/
     de-identified session notes
     questionnaire route evidence
   04 Objective 3 Student Transaction Evidence/
-    restricted raw task log
-    cleaned task scoring table
-    task screenshots/log references
-    transaction failure examples
+    restricted consent/inclusion and original saved-record log
+    cleaned initial saved-record scoring table
+    original version/system evidence references
+    separately labeled researcher invalid-file/edit test observations
   05 Interviews and Consultation Notes/
     Sir Ralph Laviste - 2026-09-14 transcript
     other real interview notes
@@ -247,7 +208,7 @@ WildTrack MVP Validation/
     raw export - access controlled
     cleaned questionnaire analysis
   07 Analysis and Findings/
-    Objective 3 transaction summary
+    Objective 3 initial saved-record summary
     role feedback summaries
     qualitative coding memo
     MVP Validation Highlights draft/final
@@ -272,15 +233,14 @@ Raw participant/task evidence remains access controlled and should not be commit
 
 For Objective 3 report:
 
-- unique eligible participating students;
-- N_STU_TXN and C_STU_TXN;
-- STU_TXN_accuracy;
-- whether the 95% target was met;
-- number/percentage of students whose two transaction tasks both passed;
-- assertion-level failure counts;
-- runtime/system errors;
-- withdrawals/non-research stops; and
-- representative de-identified failure evidence.
+- genuinely consenting eligible selected students and the inclusion/previously-seen rules;
+- N_INITIAL, C_INITIAL, FAIL and UNVERIFIED counts;
+- C_INITIAL / N_INITIAL or NOT ESTIMABLE if N_INITIAL = 0;
+- whether the proposed 95% saved-record target was met, subject to academic endorsement;
+- assertion-level failures and unavailable original-version evidence;
+- optional actual student readback observations, separately;
+- distinct researcher-controlled invalid-field/type/edit observations and runtime errors; and
+- representative de-identified evidence without claiming all-attempt success.
 
 For Objectives 1 and 2, report the exact benchmark denominators/coverage defined in SCORING_AND_CODEBOOK.md. Preserve failure examples, unassessable cases, cache hits, quota failures, and provider failures.
 

@@ -78,10 +78,10 @@ export function ValidationStudyPage() {
     <Stack gap="lg">
       <Group justify="space-between" align="flex-end" wrap="wrap">
         <div>
-          <Text size="xs" fw={800} tt="uppercase" c="wildtrackMaroon.7">Objective 3 evidence</Text>
-          <Title order={1}>Validation Study</Title>
+          <Text size="xs" fw={800} tt="uppercase" c="wildtrackMaroon.7">Research evidence (historical diagnostic)</Text>
+          <Title order={1}>Validation Study · original T1/T2</Title>
           <Text c="dimmed" maw={760}>
-            Admin-only server evidence for the controlled Initial submission → Revised submission workflow. This isolated page reads current responses and their material revision history; it does not alter submissions.
+            Admin-only read-only evidence for the ORIGINAL controlled Initial submission → Revised submission protocol. The current Goal 3 instead measures eligible, consenting students' original SAVED response records; this screen has not scored that revised objective.
           </Text>
         </div>
         <Button
@@ -90,7 +90,7 @@ export function ValidationStudyPage() {
           disabled={!evidence}
           onClick={() => evidence && downloadValidationStudyCsv(evidence)}
         >
-          Export CSV
+          Export historical CSV
         </Button>
       </Group>
 
@@ -112,12 +112,15 @@ export function ValidationStudyPage() {
       {status === 'loading' ? <Text c="dimmed">Loading Validation Study evidence…</Text> : null}
 
       {evidence ? <>
+        <Alert color="yellow" title="Do not use the red revision badges as the current Goal 3 score">
+          This page retains the old T1/T2 diagnostic so earlier evidence is not lost. An initial-only student can have a valid saved response and still show “Old T1/T2 pass: Fail” simply because no revision was attempted. No student is required to revise solely for the revised research protocol. Use the separately reviewed, consent-scoped Objective 3 initial-saved-record log for the new result; neither this page nor its CSV verifies consent, pre-save failures, or student-visible readback.
+        </Alert>
         <SimpleGrid cols={{ base: 2, sm: 5 }}>
-          <CountCard label="Current responses" value={counts.uniqueCurrentResponses} />
-          <CountCard label="Unique students" value={counts.uniqueCurrentStudents} />
-          <CountCard label="T1 observed" value={counts.t1Observed} />
-          <CountCard label="T2 complete" value={counts.t2Complete} />
-          <CountCard label="Passing both" value={counts.passingBoth} />
+          <CountCard label="Current saved responses (unscored)" value={counts.uniqueCurrentResponses} />
+          <CountCard label="Students with current response (not verified participants)" value={counts.uniqueCurrentStudents} />
+          <CountCard label="Old T1 observed" value={counts.t1Observed} />
+          <CountCard label="Old T2 complete" value={counts.t2Complete} />
+          <CountCard label="Old T1+T2 passed" value={counts.passingBoth} />
         </SimpleGrid>
 
         <Paper withBorder p="md">
@@ -141,7 +144,7 @@ export function ValidationStudyPage() {
                   <Table.Th>Submitted / updated</Table.Th>
                   <Table.Th>Current Validation Step</Table.Th>
                   <Table.Th>Current PDF/link</Table.Th>
-                  <Table.Th>Study checks</Table.Th>
+                  <Table.Th>Historical T1/T2 checks (NOT revised Goal 3 score)</Table.Th>
                   <Table.Th>History</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -186,7 +189,7 @@ function EvidenceRow({ row }) {
           <Check label="Material history" value={checks.materialEditHistoryPresent} />
           <Check label="PDF unchanged" value={checks.pdfUnchanged} />
           <Check label="Other values preserved" value={checks.nonDesignatedValuesPreserved} />
-          <Check label="Overall pass" value={checks.overallPass} strong />
+          <Check label="Old T1+T2 pass (not current Goal 3)" value={checks.overallPass} strong />
         </Stack>
       </Table.Td>
       <Table.Td>

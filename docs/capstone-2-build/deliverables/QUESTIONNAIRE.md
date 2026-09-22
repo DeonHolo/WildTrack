@@ -1,8 +1,8 @@
 # Copy-ready Google Forms questionnaire
 
-**Status:** source draft for the **already created and distributed** WildTrack MVP Evaluation Google Form. The owner showed its connected `WildTrack MVP Evaluation - Responses` spreadsheet and the live `Form_Responses` tab containing at least one response. This repository copy is not a verified export of the live form; actual wording/route changes must be compared with the live form before analysis. Do **not** create or distribute a replacement or edit the live instrument mid-collection based on this draft. Adviser/framework endorsement has not been verified.
+**Status:** historical source draft for the **already created and distributed** WildTrack MVP Evaluation Google Form. The owner showed its connected `WildTrack MVP Evaluation - Responses` spreadsheet and the live `Form_Responses` tab containing at least one response. This repository copy is not a verified export of the live form; actual wording/route changes must be compared with the live form before analysis. Do **not** create or distribute a replacement or edit the live instrument mid-collection based on this draft. Adviser/framework endorsement has not been verified.
 
-This is the questionnaire's copy-ready source, retained for reproducibility after the original Form was published. It supplies role-specific MVP feedback. It does **not** score Document Check accuracy, AI Review accuracy, or Objective 3 student transaction correctness. Objective 3 is scored from the separate controlled WildTrack task log and system evidence.
+This is the questionnaire's **original** copy-ready source, retained for reproducibility after the Form was published. Its description and controlled-task consent below remain the historical respondent-facing proposal, not current instructions to require T1/T2. Goal 3 was amended **after distribution on 2026-09-22** to assess appropriately consented, verifiable **initial saved Refactored SRS records**, with invalid-link/type/edit tests handled separately by the researcher. See `GOAL3_INITIAL_SUBMISSION_AMENDMENT_20260922.md`. Original controlled-task consent must not silently authorize research on unrelated ordinary submissions. The live “After submitting or editing” 1–5 item permits **submitting alone**; optional Adviser feedback and Editing a saved response improvements apply only when actually used/saw. One other live “For this evaluation...” task-completion question and current consent/description still require exact wording verification before any prospective edit. Questionnaire responses alone never score technical correctness.
 
 ## Form title and description
 
@@ -58,7 +58,7 @@ Options and routing:
 - "I have used the current WildTrack student workflow outside the controlled task and can give feedback about what I actually used" -> Section 4, Student feedback
 - "I have not used the current student workflow enough to comment" -> Section 9, No-use close
 
-The first option identifies the intended Objective 3 participant group. The questionnaire response itself is supporting evidence only; Objective 3 correctness is scored from the separate task record.
+The first option identifies the original controlled-task route; the second allows descriptive feedback from natural use. Neither option alone proves research consent for an unrelated saved response, a persisted initial version or Goal 3 correctness.
 
 ## Section 4 - Student feedback
 

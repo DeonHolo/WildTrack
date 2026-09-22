@@ -1,13 +1,13 @@
 # Scoring and codebook
 
-**Status:** freeze this codebook and the Objective 3 task protocol before real participant collection. Goal 1 component and Goal 2 technical evidence already exists; no participant/Goal 3 results are asserted. Goal 1's component-scope clarification was approved by the owner after its recorded run and remains subject to adviser/framework endorsement.
+**Status:** the original T1/T2 student protocol below is retained as **historical v1 only**. After Form distribution, the owner authorized v2 initial-saved-record Goal 3; its current scoring is specified immediately below and in `GOAL3_INITIAL_SUBMISSION_AMENDMENT_20260922.md`. Neither a new Goal 3 score nor adviser endorsement is asserted. Goal 1 and Goal 2 technical evidence is unchanged.
 
 ## Evidence streams
 
 Keep three evidence streams separate:
 
 1. **Controlled technical benchmark:** Document Check and AI Review fixtures.
-2. **Controlled student task:** Objective 3 student submission transaction correctness.
+2. **Current Objective 3:** eligible consenting students' initial SAVED Refactored SRS response correctness. Old controlled T1/T2 is historical; separate researcher technical checks are not student results.
 3. **Google Form questionnaire:** descriptive role-based MVP feedback only.
 
 Questionnaire ratings never substitute for technical accuracy or Objective 3 transaction correctness.
@@ -24,13 +24,27 @@ These are researcher/export codes only. Do not show them in respondent-facing qu
 | ROLE_ADV | Adviser | adviser feedback only |
 | ROLE_ADM | Admin/beneficiary | Admin/beneficiary feedback only |
 | ROLE_NONE | insufficient current-use/review context | no-use exit |
-| BASIS_TASK | student completed/attempted controlled task | intended Objective 3 participant group |
-| BASIS_USE | student feedback from other current WildTrack use | questionnaire feedback only |
+| BASIS_TASK | student reported completing/attempting the old controlled task | historical questionnaire basis only; not independent consent/proof that a natural record is eligible or correctly saved |
+| BASIS_USE | student feedback from other current WildTrack use | questionnaire feedback only unless separate actual consent for revised system-record analysis is established |
 | BASIS_NONE | insufficient current-use context | no-use exit |
 
-## Objective 3 - Student submission transaction correctness
+## Objective 3 - CURRENT v2: initial saved record correctness
 
-Objective 3 is **not scored from questionnaire answers**. Its primary evidence is the frozen researcher task record plus WildTrack system/readback evidence from the current imported MVP Validation workspace.
+**Reason/date:** owner-approved post-distribution revision dated 2026-09-22. This is not a blind prospective test on records that the owner already viewed. The unchanged original v1 T1/T2 instructions follow in an explicitly HISTORICAL section. The current metric is correct **persisted initial records**, NOT all attempt success and NOT student revision compliance.
+
+**Eligibility and privacy:** Define and freeze an inclusion rule before selecting additional cases, restrict to the actual Semester 1 workspace/Refactored SRS and one real initial saved version per eligible student. Confirm a lawful/academic **consent basis covering analysis of this particular record**; the published Form's reference to an optional controlled task does not, by itself, cover any unrelated natural submission. Keep a restricted pseudonymous observation map separate from the public aggregate. Students who merely tick the questionnaire's controlled-task option do not automatically enter this denominator.
+
+**Five primary source-backed PASS/FAIL/UNVERIFIED checks:** independently corroborated canonical student association; correct active workspace; correct Refactored SRS deliverable; authentic initial saved version/response ID; original stored required PDF-link/field values. Student-visible saved state/readback is a **separate supporting check only when actually observed**; do not require a new screenshot from students who already submitted. If a primary check is not verifiable, mark UNVERIFIED rather than PASS. A `Revised submission` choice + current revision 1 + zero historical revisions cannot establish that an actual revision occurred or what earlier values were saved. The temporary WildTrack Admin Validation Study page's old `overallPass` is **not** the new score.
+
+**Primary count:** N_INITIAL = selected, eligible, consent-confirmed original initial saved records with PASS, FAIL or UNVERIFIED assessment; C_INITIAL = those with all required checks PASS. `INITIAL_SAVED_CORRECTNESS = C_INITIAL / N_INITIAL` (not estimable when N=0), proposed threshold >=95%. Publish separate counts for FAIL, UNVERIFIED, prior-seen/after-amendment cohorts, exclusion reasons, consent uncertainty and missing version/readback proof. This conditional saved-record metric **cannot establish the success rate for all attempts**, including rejected, abandoned or failed-before-save attempts.
+
+**Separate engineering tests:** use permitted researcher-controlled synthetic scenarios for missing required PDF links, actual non-PDF/DOCX types and editing/response identity preservation. Test the documented distinction between pre-save validation versus a saved response subsequently flagged by asynchronous Document Check; do not assume a DOCX must always be blocked at form-save time. Do not count researcher tests as student task passes or extra participants.
+
+**Questionnaire:** Existing Form stays distributed. “After submitting **or** editing” can be answered after submission alone. `Editing a saved response` and `Adviser feedback` are OPTIONAL improvement options limited to features the student actually used/saw; missing adviser feedback must not be coded as approval or failure. Questionnaire ratings do not score initial saved correctness.
+
+## Objective 3 - HISTORICAL v1 T1/T2 protocol (superseded; do not reuse as current score)
+
+The original proposed T1/T2 Objective 3 was **not** scored from questionnaire answers. Its historical primary evidence was a frozen researcher task record plus WildTrack system/readback evidence. It was replaced *after* the initial Form distribution due to low natural revision participation. Preserve any original evidence and the old spreadsheet tabs in hidden archives; do not silently reclassify the old tasks as current initial-record passes.
 
 ### Controlled task protocol
 
@@ -252,7 +266,7 @@ Cache hits, quota failures, provider/transport failures, invalid responses, and 
 - Optional checkbox/comment blanks are legitimate blanks, not incomplete responses.
 - Do not require or normalize a literal "None" response.
 - Adviser rows legitimately have blank student/Admin variables. Admin rows legitimately have blank student/adviser variables.
-- A student questionnaire row without a controlled task may still contribute descriptive student feedback but does not create Objective 3 task evidence.
+- A student questionnaire row without a controlled task may still contribute descriptive student feedback. Neither that route nor the controlled-task route automatically creates evidence for the **revised** Goal 3 or authorizes unrelated natural submission records.
 
 ## Qualitative coding
 
@@ -280,4 +294,4 @@ Sir Ralph Laviste's September 14 consultation transcript remains a separately la
 
 ## Integrity rules
 
-Freeze the questionnaire, Objective 3 task script/assertions, technical manifests, and this codebook before collection. If an ambiguity is discovered after collection begins, version the affected instrument/protocol, record the reason, preserve the original scoring, and report any sensitivity analysis separately. Never change a task assertion, duplicate decision, or expected benchmark label merely because the observed score would improve.
+The questionnaire and old Goal 3 task protocol were issued before the September 22 revised initial-record method. Preserve the originals and their collection chronology, explicitly version the revised consent/inclusion/assessment method before new record selection, and report pre-observed evidence separately. Never change a past task assertion, duplicate decision or expected benchmark label merely because the observed score would improve.
