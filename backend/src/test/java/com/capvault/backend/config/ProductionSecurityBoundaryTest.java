@@ -107,6 +107,32 @@ class ProductionSecurityBoundaryTest {
     }
 
     @Test
+    void aiReviewPostAndSessionGetWithTheSameCookiePassAuthenticationIndependentlyOfHttpMethod() throws Exception {
+        var session = sessions.create(new GoogleIdentity("ai-review-post-test-subject",
+            "auth-post@example.invalid", "POST auth test account", ""));
+        var cookie = new Cookie("WILDTRACK_SESSION", session.rawToken());
+        try {
+            mockMvc.perform(get("/api/auth/session").cookie(cookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(true));
+            // Invalid UUID intentionally stops before document lookup or paid provider calls.
+            mockMvc.perform(post("/api/ai-reviews/not-a-uuid")
+                    .param("workspaceId", "11111111-1111-1111-1111-111111111111")
+                    .cookie(cookie).with(csrf()).contentType("application/json")
+                    .content("{\"fieldId\":null,\"retryAcknowledged\":false}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().doesNotExist("X-WildTrack-Session-State"));
+            mockMvc.perform(post("/api/ai-reviews/not-a-uuid")
+                    .param("workspaceId", "11111111-1111-1111-1111-111111111111")
+                    .cookie(cookie).contentType("application/json")
+                    .content("{\"fieldId\":null,\"retryAcknowledged\":false}"))
+                .andExpect(status().isForbidden());
+        } finally {
+            sessions.revoke(session.rawToken());
+        }
+    }
+
+    @Test
     void h2ConsoleIsNotReachableThroughTheApiBoundary() throws Exception {
         mockMvc.perform(get("/h2-console")).andExpect(status().isUnauthorized());
     }
