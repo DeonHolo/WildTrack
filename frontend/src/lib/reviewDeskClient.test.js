@@ -3,9 +3,10 @@ import { applyArtifactAiReview, runAiReview, runAiReviews, runDocumentChecks } f
 
 const request = vi.hoisted(() => vi.fn());
 const batchRequest = vi.hoisted(() => vi.fn());
-const ai = vi.hoisted(() => ({ start: vi.fn(), saved: vi.fn() }));
+const ai = vi.hoisted(() => ({ start: vi.fn(), saved: vi.fn(), session: vi.fn() }));
 vi.mock('./api.js', async (original) => ({ ...(await original()), runDocumentCheck: request,
-  runDocumentCheckBatch: batchRequest, requestAiReview: ai.start, getSavedAiReview: ai.saved }));
+  runDocumentCheckBatch: batchRequest, requestAiReview: ai.start, getSavedAiReview: ai.saved,
+  getCurrentSession: ai.session }));
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
 const twoVerifiedChecks = [
@@ -56,33 +57,101 @@ it('marks insufficient grounded positive observations inconclusive without silen
   expect(ai.saved).not.toHaveBeenCalled();
 });
 
-it('stops polling when the WildTrack session expires and does not pretend a saved result failed', async () => {
+it('checks actual session state after an AI polling 401 and never retries the paid request', async () => {
   vi.useFakeTimers();
   ai.start.mockResolvedValueOnce({ status: 'RUNNING', fieldId: 'field-pdf' });
   ai.saved.mockRejectedValueOnce(Object.assign(new Error('Request failed with status 401'), { status: 401 }));
+  ai.session.mockResolvedValueOnce({ authenticated: false });
 
   const pending = runAiReview('workspace', 'response', 'field-pdf');
   await vi.advanceTimersByTimeAsync(2500);
   const result = await pending;
 
   expect(result).toMatchObject({ ok: false, pauseBatch: true, authenticationRequired: true,
-    error: expect.stringContaining('Sign out, then sign in with Google again') });
+    error: expect.stringContaining('Continue with Google without signing out first') });
   expect(result.review).toBeUndefined();
+  expect(ai.session).toHaveBeenCalledTimes(1);
   expect(ai.start).toHaveBeenCalledTimes(1);
   expect(ai.saved).toHaveBeenCalledTimes(1);
 });
 
-it('fails fast after an app-session 401 in AI Review All without starting remaining paid requests', async () => {
+it('fails fast after an AI endpoint 401 without repeating paid requests or declaring session expiry', async () => {
   ai.start.mockRejectedValueOnce(Object.assign(new Error('Request failed with status 401'), { status: 401 }));
+  ai.session.mockResolvedValueOnce({ authenticated: true, roles: ['ADMIN'] });
   const onResult = vi.fn();
 
   const outcome = await runAiReviews('workspace', ['first', 'must-not-start', 'also-must-not-start'], { onResult });
 
-  expect(outcome).toEqual({ completed: 1, total: 3, paused: true, authenticationRequired: true,
-    reason: expect.stringContaining('WildTrack session expired') });
+  expect(outcome).toEqual({ completed: 1, total: 3, paused: true, authenticationRequired: false,
+    sessionConfirmed: true, reason: expect.stringContaining('still recognizes your Administrator session') });
   expect(onResult).toHaveBeenCalledTimes(1);
-  expect(onResult.mock.calls[0][1]).toMatchObject({ authenticationRequired: true, pauseBatch: true });
+  expect(onResult.mock.calls[0][1]).toMatchObject({ authenticationRequired: false,
+    sessionConfirmed: true, pauseBatch: true });
   expect(ai.start.mock.calls.map(args => args[1])).toEqual(['first']);
+  expect(ai.saved).not.toHaveBeenCalled();
+});
+
+it('recovers a transient polling 401 with one read-only retry only after Administrator session verification', async () => {
+  vi.useFakeTimers();
+  ai.start.mockResolvedValueOnce({ status: 'RUNNING', fieldId: 'field-pdf', reused: false });
+  ai.saved.mockRejectedValueOnce(Object.assign(new Error('HTTP 401'), { status: 401 }))
+    .mockResolvedValueOnce({ status: 'COMPLETED', fieldId: 'field-pdf', report: {
+      summary: 'The sampled sections have source-backed observations.', verifiedChecks: twoVerifiedChecks
+    } });
+  ai.session.mockResolvedValueOnce({ authenticated: true, roles: ['ADMIN'] });
+
+  const pending = runAiReview('workspace', 'response', 'field-pdf');
+  await vi.advanceTimersByTimeAsync(2500);
+  const result = await pending;
+
+  expect(result).toMatchObject({ ok: true, review: { status: 'COMPLETED' } });
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.saved).toHaveBeenCalledTimes(2);
+  expect(ai.session).toHaveBeenCalledTimes(1);
+});
+
+it('does not loop on a persistent polling 401 after one authenticated read recovery', async () => {
+  vi.useFakeTimers();
+  ai.start.mockResolvedValueOnce({ status: 'RUNNING', fieldId: 'field-pdf' });
+  ai.saved.mockRejectedValue(Object.assign(new Error('HTTP 401'), { status: 401 }));
+  ai.session.mockResolvedValue({ authenticated: true, roles: ['ADMIN'] });
+
+  const pending = runAiReview('workspace', 'response', 'field-pdf');
+  await vi.advanceTimersByTimeAsync(2500);
+  const result = await pending;
+
+  expect(result).toMatchObject({ ok: false, pauseBatch: true, authenticationRequired: false,
+    sessionConfirmed: true });
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.saved).toHaveBeenCalledTimes(2);
+  expect(ai.session).toHaveBeenCalledTimes(2);
+});
+
+it('does not suggest signing out if the read-only session diagnostic itself fails', async () => {
+  ai.start.mockRejectedValueOnce(Object.assign(new Error('Request failed with status 401'), { status: 401 }));
+  ai.session.mockRejectedValueOnce(new Error('Upstream unavailable'));
+
+  const result = await runAiReview('workspace', 'response');
+
+  expect(result).toMatchObject({ ok: false, pauseBatch: true, authenticationRequired: false,
+    sessionConfirmed: false, error: expect.stringContaining('could not verify the current session') });
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.session).toHaveBeenCalledTimes(1);
+  expect(ai.saved).not.toHaveBeenCalled();
+});
+
+it('explains a backend-reported missing AI cookie when a separate session check remains authenticated', async () => {
+  ai.start.mockRejectedValueOnce(Object.assign(new Error('HTTP 401'), {
+    status: 401, sessionState: 'missing_cookie'
+  }));
+  ai.session.mockResolvedValueOnce({ authenticated: true, roles: ['ADMIN'] });
+
+  const result = await runAiReview('workspace', 'response');
+
+  expect(result).toMatchObject({ authenticationRequired: false, sessionConfirmed: true,
+    error: expect.stringContaining('did not receive a WildTrack session cookie') });
+  expect(result.error).toContain('logging out again is unlikely to help');
+  expect(ai.start).toHaveBeenCalledTimes(1);
   expect(ai.saved).not.toHaveBeenCalled();
 });
 

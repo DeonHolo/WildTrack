@@ -13,6 +13,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static com.capvault.backend.support.AuthenticatedRequest.adviserSession;
 import static com.capvault.backend.support.AuthenticatedRequest.session;
 
+import com.capvault.backend.auth.GoogleIdentity;
+import com.capvault.backend.auth.WildTrackSessionService;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +37,9 @@ class ProductionSecurityBoundaryTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private WildTrackSessionService sessions;
 
     @BeforeEach
     void resetSignInWindow() {
@@ -62,6 +68,42 @@ class ProductionSecurityBoundaryTest {
         mockMvc.perform(get("/api/sheets/import-runs")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/workspace/staff")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/health")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aiReviewUnauthorizedResponseDistinguishesMissingCookieFromRejectedSession() throws Exception {
+        mockMvc.perform(get("/api/ai-reviews/status"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string("X-WildTrack-Session-State", "missing_cookie"));
+
+        mockMvc.perform(get("/api/ai-reviews/status")
+                .cookie(new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", "unrecognized-test-session")))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string("X-WildTrack-Session-State", "invalid_session"));
+        mockMvc.perform(get("/api/ai-reviews/status")
+                .cookie(new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", "stale-test-session"),
+                    new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", "newer-test-session")))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string("X-WildTrack-Session-State", "duplicate_cookie"));
+
+        // A missing cookie on another protected endpoint remains a real 401.
+        mockMvc.perform(get("/api/workspaces"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().doesNotExist("X-WildTrack-Session-State"));
+    }
+
+    @Test
+    void aRealAuthenticatedSessionWithNoStaffRoleCannotAccessAiReview() throws Exception {
+        var session = sessions.create(new GoogleIdentity("ai-review-role-test-subject",
+            "nonstaff@example.invalid", "Nonstaff test account", ""));
+        try {
+            mockMvc.perform(get("/api/ai-reviews/status")
+                    .cookie(new Cookie("WILDTRACK_SESSION", session.rawToken())))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("X-WildTrack-Session-State"));
+        } finally {
+            sessions.revoke(session.rawToken());
+        }
     }
 
     @Test

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
 import { ReviewPage } from './ReviewPage.jsx';
 import { applyReviewState } from '../lib/backendDomain.js';
+import { getIdentityConflicts } from '../lib/api.js';
 import { useReducer } from 'react';
 
 const workflow = vi.hoisted(() => ({
@@ -17,7 +18,8 @@ const workflow = vi.hoisted(() => ({
   runDocumentChecks: vi.fn(),
   getAiReviewStatus: vi.fn(),
   runAiReviews: vi.fn(),
-  logoutStaffSession: vi.fn(),
+  refreshSession: vi.fn(),
+  diagnoseAiReviewAuthFailure: vi.fn(),
   markAccepted: vi.fn(),
   revokeAcceptance: vi.fn(),
   archiveAttempt: vi.fn()
@@ -25,7 +27,7 @@ const workflow = vi.hoisted(() => ({
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
   useWorkspaceSession: () => ({ activeWorkspaceId: workflow.workspaceId, session: workflow.session,
-    logoutStaffSession: workflow.logoutStaffSession })
+    refreshSession: workflow.refreshSession })
 }));
 
 vi.mock('../hooks/useWorkspaceResource.js', () => ({
@@ -59,6 +61,7 @@ vi.mock('../lib/reviewDeskClient.js', () => ({
     ? { ...response, artifactAiReviews: { ...(response.artifactAiReviews || {}), [review.fieldId]: review } }
     : { ...response, aiReviewState: review },
   applyReviewMutation: (response, mutation) => applyReviewState(response, mutation),
+  diagnoseAiReviewAuthFailure: (...args) => workflow.diagnoseAiReviewAuthFailure(...args),
   runDocumentCheck: (_workspaceId, response, _deliverable, field) => workflow.runDocumentCheck(response.id, field),
   runDocumentChecks: (_workspaceId, targets, _deliverables, options) => workflow.runDocumentChecks(targets, options),
   runAiReviews: (...args) => workflow.runAiReviews(...args),
@@ -272,6 +275,7 @@ describe('deliverable-first submission review', () => {
     workflow.workspaceId = 'workspace-it';
     workflow.session = { authenticated: true, email: 'admin@school.edu' };
     workflow.state = createState();
+    getIdentityConflicts.mockReset().mockResolvedValue([]);
     Object.values(workflow).forEach((value) => value?.mockReset?.());
     workflow.runDocumentCheck.mockResolvedValue({ ok: true });
     workflow.runDocumentChecks.mockImplementation(async (ids, { onProgress } = {}) => {
@@ -439,7 +443,7 @@ describe('deliverable-first submission review', () => {
         error: 'Your WildTrack session expired. Sign out, then sign in with Google again.' });
       return { completed: 1, total: 2, paused: true, authenticationRequired: true };
     });
-    workflow.logoutStaffSession.mockResolvedValue(undefined);
+    workflow.refreshSession.mockResolvedValue({ authenticated: false });
 
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
@@ -452,14 +456,16 @@ describe('deliverable-first submission review', () => {
     expect(status).toHaveTextContent('1 not attempted');
     expect(status).toHaveTextContent('Your WildTrack session expired');
     expect(within(status).queryByRole('button', { name: 'Review retry options' })).not.toBeInTheDocument();
-    fireEvent.click(within(status).getByRole('button', { name: 'Sign out and continue with Google' }));
-    await waitFor(() => expect(workflow.logoutStaffSession).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(status).getByRole('button', { name: 'Continue with Google' }));
+    await waitFor(() => expect(workflow.refreshSession).toHaveBeenCalledTimes(1));
     expect(workflow.runAiReviews).toHaveBeenCalledTimes(1);
   });
 
   it('offers sign-in when the AI Review All preflight receives a session 401 without starting requests', async () => {
     workflow.getAiReviewStatus.mockRejectedValueOnce(Object.assign(
-      new Error('Your WildTrack session expired. Sign out, then sign in with Google again.'), { status: 401 }));
+      new Error('AI Review returned HTTP 401.'), { status: 401 }));
+    workflow.diagnoseAiReviewAuthFailure.mockResolvedValueOnce({ authenticationRequired: true,
+      sessionConfirmed: false, error: 'WildTrack does not recognize this login.' });
     renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
@@ -467,7 +473,21 @@ describe('deliverable-first submission review', () => {
     const status = await screen.findByRole('status');
     expect(status).toHaveTextContent('AI review paused');
     expect(status).toHaveTextContent('0 of');
-    expect(within(status).getByRole('button', { name: 'Sign out and continue with Google' })).toBeInTheDocument();
+    expect(within(status).getByRole('button', { name: 'Continue with Google' })).toBeInTheDocument();
+    expect(workflow.runAiReviews).not.toHaveBeenCalled();
+  });
+
+  it('does not instruct another sign-out when the AI endpoint rejects a confirmed administrator session', async () => {
+    workflow.getAiReviewStatus.mockRejectedValueOnce(Object.assign(new Error('HTTP 401'), { status: 401 }));
+    workflow.diagnoseAiReviewAuthFailure.mockResolvedValueOnce({ authenticationRequired: false,
+      sessionConfirmed: true, error: 'WildTrack still recognizes your Administrator session. AI endpoint rejected the request.' });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('still recognizes your Administrator session');
+    expect(within(status).getByRole('button', { name: 'Check saved reviews' })).toBeInTheDocument();
+    expect(within(status).queryByRole('button', { name: /Google/i })).not.toBeInTheDocument();
     expect(workflow.runAiReviews).not.toHaveBeenCalled();
   });
 
@@ -740,6 +760,120 @@ describe('deliverable-first submission review', () => {
     fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'Archived' }));
     expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Barangan, Mark Lorenz L.')).toBeInTheDocument();
     expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Pacio, Muriel D.')).toBeInTheDocument();
+  });
+
+  it('accepts only the specifically checked response after explicit academic confirmation, not the class or archive', async () => {
+    renderPage();
+    expect(screen.queryByRole('button', { name: 'Accept All Response' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Pacio, Muriel D. response' }));
+    expect(screen.getByRole('button', { name: 'Accept All Response' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    let confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
+    expect(confirmation).toHaveTextContent('1 selected response: 1 eligible for acceptance, 0 skipped');
+    expect(confirmation).toHaveTextContent('Acceptance is an academic decision made by staff, not an automated AI Review result');
+    expect(confirmation).toHaveTextContent('This does not archive responses');
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
+    expect(workflow.markAccepted).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Accept 1 eligible response' }));
+    await waitFor(() => expect(workflow.markAccepted).toHaveBeenCalledExactlyOnceWith('response-muriel-srs'));
+    expect(await screen.findByText('Selected responses accepted')).toBeInTheDocument();
+    expect(screen.getByText(/1 accepted · 0 failed · 0 skipped of 1 selected/)).toBeInTheDocument();
+    expect(screen.getByText(/No responses were archived/)).toBeInTheDocument();
+    expect(workflow.archiveAttempt).not.toHaveBeenCalled();
+    expect(workflow.state.attempts.find(item => item.id === 'response-muriel-srs')).toMatchObject({ reviewStatus: 'Accepted', archiveStatus: 'Not Archived' });
+    expect(workflow.state.attempts.find(item => item.id === 'response-ron-srs').reviewStatus).toBe('Needs Review');
+    expect(workflow.state.attempts.find(item => item.id === 'response-muriel-sdd').reviewStatus).toBe('Received');
+    expect(workflow.state.attempts.find(item => item.id === 'response-mark-srs').archiveStatus).toBe('Archived');
+  });
+
+  it('preserves failed selected responses and reports partial backend acceptance accurately', async () => {
+    workflow.markAccepted.mockImplementation(async id => {
+      if (id === 'response-ron-srs') throw new Error('Adviser lacks access to this team.');
+      return { acceptance: { acceptedAt: checkedAt,
+        sourceResponseUpdatedAt: workflow.state.attempts.find(item => item.id === id).updatedAt } };
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select all visible responses' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
+    expect(confirmation).toHaveTextContent('2 selected responses: 2 eligible for acceptance, 0 skipped');
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Accept 2 eligible responses' }));
+
+    expect(await screen.findByText('Selected response acceptance completed with exceptions')).toBeInTheDocument();
+    expect(screen.getByText(/1 accepted · 1 failed · 0 skipped of 2 selected/)).toBeInTheDocument();
+    expect(screen.getByText(/Adviser lacks access to this team/)).toBeInTheDocument();
+    expect(workflow.markAccepted).toHaveBeenCalledTimes(2);
+    expect(workflow.markAccepted.mock.calls.map(call => call[0]).sort()).toEqual(['response-muriel-srs', 'response-ron-srs']);
+    expect(screen.getByRole('checkbox', { name: 'Select Taghoy, Ron Luigi F. response' })).toBeChecked();
+    expect(workflow.state.attempts.find(item => item.id === 'response-muriel-srs')).toMatchObject({ reviewStatus: 'Accepted', archiveStatus: 'Not Archived' });
+    expect(workflow.state.attempts.find(item => item.id === 'response-ron-srs').reviewStatus).toBe('Needs Review');
+    expect(workflow.archiveAttempt).not.toHaveBeenCalled();
+  });
+
+  it('skips already archived and unresolved-identity-conflict selections even with the All filter', async () => {
+    getIdentityConflicts.mockResolvedValue([{ status: 'OPEN', studentRecordId: 'student-2' }]);
+    renderPage();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'All' }));
+    expect(await screen.findByText('Identity conflict')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select all visible responses' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
+    expect(confirmation).toHaveTextContent('3 selected responses: 1 eligible for acceptance, 2 skipped');
+    expect(confirmation).toHaveTextContent('1 archived, 1 identity conflicts');
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Accept 1 eligible response' }));
+    await waitFor(() => expect(workflow.markAccepted).toHaveBeenCalledExactlyOnceWith('response-muriel-srs'));
+    expect(await screen.findByText('Selected response acceptance completed with exceptions')).toBeInTheDocument();
+    expect(screen.getByText(/1 accepted · 0 failed · 2 skipped of 3 selected/)).toBeInTheDocument();
+    expect(workflow.archiveAttempt).not.toHaveBeenCalled();
+    expect(workflow.state.attempts.find(item => item.id === 'response-ron-srs').reviewStatus).toBe('Needs Review');
+    expect(workflow.state.attempts.find(item => item.id === 'response-mark-srs').archiveStatus).toBe('Archived');
+    expect(workflow.state.attempts.find(item => item.id === 'response-muriel-sdd').reviewStatus).toBe('Received');
+  });
+
+  it('disables bulk acceptance when every checked response is already accepted or archived', async () => {
+    const accepted = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    accepted.reviewStatus = 'Accepted';
+    accepted.primaryStatus = 'Accepted';
+    accepted.acceptance = { acceptedAt: checkedAt, sourceResponseUpdatedAt: accepted.updatedAt };
+    renderPage();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'All' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Taghoy, Ron Luigi F. response' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Barangan, Mark Lorenz L. response' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
+    expect(confirmation).toHaveTextContent('2 selected responses: 0 eligible for acceptance, 2 skipped');
+    expect(confirmation).toHaveTextContent('1 already accepted, 1 archived');
+    expect(confirmation).toHaveTextContent('No selected responses are eligible for acceptance.');
+    expect(within(confirmation).getByRole('button', { name: 'Accept 0 eligible responses' })).toBeDisabled();
+    expect(workflow.markAccepted).not.toHaveBeenCalled();
+  });
+
+  it('does not accept any response if the checked selection becomes ineligible before confirmation', async () => {
+    let resolveConflicts;
+    getIdentityConflicts.mockImplementation(() => new Promise(resolve => { resolveConflicts = resolve; }));
+    renderPage();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Taghoy, Ron Luigi F. response' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
+    expect(confirmation).toHaveTextContent('1 eligible for acceptance');
+    await act(async () => resolveConflicts([{ status: 'OPEN', studentRecordId: 'student-2' }]));
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Accept 1 eligible response' }));
+    expect(await screen.findByText('Selected response acceptance completed with exceptions')).toBeInTheDocument();
+    expect(screen.getByText(/0 accepted · 0 failed · 1 skipped of 1 selected/)).toBeInTheDocument();
+    expect(workflow.markAccepted).not.toHaveBeenCalled();
+  });
+
+  it('uses the same Files icon for Recheck all documents and Check selected', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Pacio, Muriel D. response' }));
+    const recheckIcon = screen.getByRole('button', { name: 'Recheck all documents' }).querySelector('svg');
+    const checkSelectedIcon = screen.getByRole('button', { name: 'Check selected' }).querySelector('svg');
+    expect(recheckIcon).not.toBeNull();
+    expect(recheckIcon.innerHTML).toBe(checkSelectedIcon.innerHTML);
   });
 
   it('counts received students uniquely so duplicate responses do not hide missing work', async () => {

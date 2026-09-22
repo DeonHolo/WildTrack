@@ -35,6 +35,7 @@ import {
   applyArtifactAiReview,
   applyDocumentCheck,
   applyReviewMutation,
+  diagnoseAiReviewAuthFailure,
   emptyReviewDesk,
   loadReviewDesk,
   revokeAcceptance,
@@ -58,7 +59,7 @@ import {
 const REVIEW_PAGE_SIZE = 50;
 
 export function ReviewPage() {
-  const { activeWorkspaceId, logoutStaffSession } = useWorkspaceSession();
+  const { activeWorkspaceId, refreshSession } = useWorkspaceSession();
   const navigate = useNavigate();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
   const { data: state, setData: setState, status: reviewStatus, error: reviewError, reload } = useWorkspaceResource(
@@ -99,6 +100,8 @@ export function ReviewPage() {
   const [checkDialogTarget, setCheckDialogTarget] = useState(null);
   const [aiReportDialogTarget, setAiReportDialogTarget] = useState(null);
   const [batchProgress, setBatchProgress] = useState(null);
+  const [acceptProgress, setAcceptProgress] = useState(null);
+  const acceptBusy = useRef(false);
   const [aiProgress, setAiProgress] = useState(null);
   const [aiRunningKeys, setAiRunningKeys] = useState(new Set());
   const aiBusy = useRef(false);
@@ -109,6 +112,8 @@ export function ReviewPage() {
     setAiProgress(null); setAiRunningKeys(new Set()); aiBusy.current = false;
     setSelectedDeliverableId(linkedDeliverableId || '');
     setBatchProgress(null);
+    setAcceptProgress(null);
+    acceptBusy.current = false;
     setCheckingIds(new Set());
     setCheckError(null);
     setCheckDialogTarget(null);
@@ -344,16 +349,21 @@ export function ReviewPage() {
     } catch (error) {
       if (!isCurrentScope()) return;
       if (error?.status === 401) {
+        const diagnosis = await diagnoseAiReviewAuthFailure(error, 'AI Review availability check');
+        if (!isCurrentScope()) return;
         setAiProgress({ total: candidates.length, completed: 0, available: 0, reused: 0,
-          failures: [error.message], uncertainTargets: [], retryTokens: {}, done: true,
-          paused: true, authenticationRequired: true });
+          failures: [diagnosis.error], uncertainTargets: [], retryTokens: {}, done: true,
+          paused: true, authenticationRequired: diagnosis.authenticationRequired,
+          sessionConfirmed: diagnosis.sessionConfirmed });
       } else notifications.show({ color: 'red', message: error.message || 'AI review status could not be loaded.' });
     }
   }
 
-  async function reconnectGoogle() {
-    try { await logoutStaffSession(); } catch { /* Expired sessions can reject logout; local sign-out still completes. */ }
-    navigate('/login', { replace: true });
+  function reconnectGoogle() {
+    // A new verified Google credential can replace an unrecognized cookie.
+    // Do not revoke another live session or make the user sign out first.
+    navigate('/login', { state: { from: '/review' } });
+    refreshSession?.();
   }
 
   async function runAiBatch(targets, retryTokens = {}, rerunKeys = {}) {
@@ -375,6 +385,7 @@ export function ReviewPage() {
           const targetKey = target?.key || `${targetRef.responseId}:${targetRef.fieldId || 'legacy'}`;
           progress = { ...progress, completed: progress.completed + 1,
             authenticationRequired: Boolean(progress.authenticationRequired || result.authenticationRequired),
+            sessionConfirmed: Boolean(progress.sessionConfirmed || result.sessionConfirmed),
             available: progress.available + (result.ok ? 1 : 0),
             reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
             failures: result.ok ? progress.failures : [...progress.failures, `${label}: ${result.error || 'AI Review could not finish.'}`],
@@ -384,12 +395,15 @@ export function ReviewPage() {
         }
       });
     } catch (error) {
+      const diagnosis = await diagnoseAiReviewAuthFailure(error, 'AI Review batch');
       progress = { ...progress, failures: [...progress.failures, error?.message || 'AI Review batch could not finish.'],
-        authenticationRequired: Boolean(progress.authenticationRequired || error?.status === 401) };
+        authenticationRequired: Boolean(progress.authenticationRequired || diagnosis.authenticationRequired),
+        sessionConfirmed: Boolean(progress.sessionConfirmed || diagnosis.sessionConfirmed) };
     } finally {
       if (isCurrentScope()) { aiBusy.current = false; setAiRunningKeys(new Set());
         setAiProgress({ ...progress, done: true, paused: Boolean(outcome?.paused || progress.completed < progress.total),
-          authenticationRequired: Boolean(progress.authenticationRequired || outcome?.authenticationRequired) }); }
+          authenticationRequired: Boolean(progress.authenticationRequired || outcome?.authenticationRequired),
+          sessionConfirmed: Boolean(progress.sessionConfirmed || outcome?.sessionConfirmed) }); }
     }
   }
 
@@ -500,6 +514,97 @@ export function ReviewPage() {
   const selectedResponses = state.attempts.filter((response) => selectedIds.has(response.id));
   const selectedDocumentTargets = documentTargetsForResponses(selectedResponses, state.deliverables);
   const allAiTargets = aiTargetsForResponses(state.attempts, state.deliverables);
+  const selectedIdsRef = useRef(selectedIds);
+  const reviewStateRef = useRef(state);
+  const deliverableIdRef = useRef(activeDeliverableId);
+  const conflictsRef = useRef(conflictStudentNumbers);
+  selectedIdsRef.current = selectedIds;
+  reviewStateRef.current = state;
+  deliverableIdRef.current = activeDeliverableId;
+  conflictsRef.current = conflictStudentNumbers;
+
+  function acceptanceSkipReason(response, deliverableId, conflicts) {
+    if (!response || response.deliverableId !== deliverableId) return 'Response no longer belongs to this deliverable';
+    if (response.archiveStatus === 'Archived') return 'Already archived';
+    if (response.reviewStatus === 'Accepted' || response.primaryStatus === 'Accepted'
+        || response.acceptance?.acceptedAt) return 'Already accepted';
+    if (conflicts.includes(response.studentNumber)) return 'Unresolved identity conflict';
+    return '';
+  }
+
+  function confirmAcceptSelected() {
+    if (!isCurrentScope() || acceptBusy.current || !selectedIds.size) return;
+    const selected = selectedResponses.map((response) => ({
+      id: response.id,
+      student: findStudent(state.students, response.studentNumber)?.name
+        || response.studentName || response.studentNumber || response.id,
+      skip: acceptanceSkipReason(response, activeDeliverableId, conflictStudentNumbers)
+    }));
+    const eligible = selected.filter(item => !item.skip);
+    const skipped = selected.filter(item => item.skip);
+    const scopedDeliverableId = activeDeliverableId;
+    modals.openConfirmModal({
+      title: 'Accept selected responses?',
+      centered: true,
+      children: <Stack gap="xs">
+        <Text size="sm"><strong>{selected.length} selected response{selected.length === 1 ? '' : 's'}:</strong>{' '}
+          {eligible.length} eligible for acceptance, {skipped.length} skipped
+          {skipped.length ? ` (${skipped.filter(item => item.skip === 'Already accepted').length} already accepted, ${skipped.filter(item => item.skip === 'Already archived').length} archived, ${skipped.filter(item => item.skip === 'Unresolved identity conflict').length} identity conflicts)` : ''}.
+        </Text>
+        <Text size="sm">Acceptance is an academic decision made by staff, not an automated AI Review result.
+          Only the eligible checked response IDs will be accepted. This does not archive responses or check their documents.</Text>
+        {!eligible.length ? <Text size="sm" c="orange.8">No selected responses are eligible for acceptance.</Text> : null}
+      </Stack>,
+      labels: { confirm: `Accept ${eligible.length} eligible response${eligible.length === 1 ? '' : 's'}`, cancel: 'Cancel' },
+      confirmProps: { color: 'wildtrackMaroon', disabled: !eligible.length },
+      onConfirm: () => acceptSelectedResponses(selected, scopedDeliverableId)
+    });
+  }
+
+  async function acceptSelectedResponses(selected, scopedDeliverableId) {
+    if (acceptBusy.current || !isCurrentScope() || deliverableIdRef.current !== scopedDeliverableId) return;
+    acceptBusy.current = true;
+    const eligible = selected.filter(item => !item.skip);
+    const progress = { selected: selected.length, eligible: eligible.length,
+      skipped: selected.length - eligible.length, completed: 0, succeeded: 0, failed: 0,
+      failures: [], done: false };
+    setAcceptProgress({ ...progress });
+    try {
+      for (const item of eligible) {
+        if (!isCurrentScope()) return;
+        const current = reviewStateRef.current.attempts.find(response => response.id === item.id);
+        const skip = acceptanceSkipReason(current, scopedDeliverableId, conflictsRef.current);
+        if (!selectedIdsRef.current.has(item.id) || deliverableIdRef.current !== scopedDeliverableId || skip) {
+          progress.skipped++;
+          progress.completed++;
+          setAcceptProgress({ ...progress });
+          continue;
+        }
+        try {
+          const serverState = await acceptResponse(item.id);
+          if (!isCurrentScope()) return;
+          if (!serverState?.acceptance?.acceptedAt
+              || applyReviewMutation(current, serverState).reviewStatus !== 'Accepted') {
+            throw new Error('Acceptance could not be confirmed from the saved response. Check its current status before retrying.');
+          }
+          setState(currentState => ({ ...currentState, attempts: currentState.attempts.map(response =>
+            response.id === item.id ? applyReviewMutation(response, serverState) : response) }));
+          setSelectedIds(currentIds => withoutId(currentIds, item.id));
+          progress.succeeded++;
+        } catch (error) {
+          if (!isCurrentScope()) return;
+          progress.failed++;
+          progress.failures.push({ id: item.id, student: item.student,
+            message: error?.message || 'Acceptance could not be saved.' });
+        }
+        progress.completed++;
+        setAcceptProgress({ ...progress });
+      }
+    } finally {
+      acceptBusy.current = false;
+      if (isCurrentScope()) setAcceptProgress({ ...progress, done: true });
+    }
+  }
 
   return (
     <Stack gap="lg" className="wt-review-page">
@@ -517,7 +622,7 @@ export function ReviewPage() {
         <Select label="Deliverable" value={activeDeliverableId} onChange={chooseDeliverable} allowDeselect={false} searchable
           style={{ flex: '1 1 280px', maxWidth: 520 }} data={summaries.map(summary => ({ value: summary.deliverable.id,
             label: (summary.deliverable.shortTitle || summary.deliverable.title) + ' · ' + summary.received + ' received · ' + summary.needsAction + ' need action' }))} />
-        <Group gap="xs"><Button variant="default" disabled={batchRunning || !allDocumentTargets.length}
+        <Group gap="xs"><Button variant="default" leftSection={<Files size={17} />} disabled={batchRunning || !allDocumentTargets.length}
           onClick={() => confirmDocumentCheckBatch(allDocumentTargets, { allDeliverables: true })}>Recheck all documents</Button>
           <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done) || !allAiTargets.length} onClick={() => requestAiReview(allAiTargets, false, {}, true)}>AI review all</Button>
           <Button variant="subtle" onClick={() => setOverviewOpen(value => !value)} aria-expanded={overviewOpen}>{overviewOpen ? 'Hide overview' : 'Deliverable overview'}</Button></Group>
@@ -530,7 +635,9 @@ export function ReviewPage() {
           {aiProgress.done && aiProgress.completed < aiProgress.total ? ` · ${aiProgress.total - aiProgress.completed} not attempted` : ''}</Text>
         {[...new Set(aiProgress.failures)].map(message => <Text size="sm" key={message}>{message}</Text>)}
         {aiProgress.done && aiProgress.authenticationRequired ? <Button variant="default" size="xs" mt="sm"
-          onClick={reconnectGoogle}>Sign out and continue with Google</Button> : null}
+          onClick={reconnectGoogle}>Continue with Google</Button> : null}
+        {aiProgress.done && aiProgress.paused && !aiProgress.authenticationRequired ? <Button variant="default" size="xs" mt="sm"
+          onClick={() => reload()}>Check saved reviews</Button> : null}
         {aiProgress.done && !aiProgress.authenticationRequired && aiProgress.uncertainTargets.length ? <Button variant="default" size="xs" mt="sm" onClick={() => requestAiReview(aiProgress.uncertainTargets, true, aiProgress.retryTokens)}>Review retry options</Button> : null}
       </Alert> : null}
       <Collapse in={overviewOpen}><ReviewDeliverablesTable summaries={summaries} selectedId={activeDeliverableId} onSelect={chooseDeliverable} /></Collapse>
@@ -595,6 +702,10 @@ export function ReviewPage() {
                 <Text fw={750} size="sm">{selectedIds.size} response{selectedIds.size === 1 ? '' : 's'} selected</Text>
               </Group>
               <Group gap="xs">
+                <Button variant="default" color="wildtrackMaroon" size="sm" leftSection={<CheckCircle size={17} />}
+                  disabled={acceptBusy.current} loading={Boolean(acceptProgress && !acceptProgress.done)} onClick={confirmAcceptSelected}>
+                  Accept All Response
+                </Button>
                 {documentCheckEnabled ? (
                   <>
                     <Button variant="default" size="sm" disabled={batchRunning || !selectedDocumentTargets.length} leftSection={<Files size={17} />} onClick={() => confirmDocumentCheckBatch(selectedDocumentTargets)}>
@@ -610,6 +721,20 @@ export function ReviewPage() {
                 </Button>
               </Group>
             </div>
+          ) : null}
+
+          {acceptProgress ? (
+            <Alert role="status" color={!acceptProgress.done ? 'blue' : acceptProgress.failed || acceptProgress.skipped ? 'orange' : 'green'}
+              title={!acceptProgress.done ? 'Accepting selected responses' : acceptProgress.failed || acceptProgress.skipped
+                ? 'Selected response acceptance completed with exceptions' : 'Selected responses accepted'}
+              withCloseButton={acceptProgress.done} onClose={() => setAcceptProgress(null)}>
+              <Text size="sm">{acceptProgress.succeeded} accepted · {acceptProgress.failed} failed · {acceptProgress.skipped} skipped
+                {' '}of {acceptProgress.selected} selected ({acceptProgress.eligible} initially eligible).
+                {acceptProgress.done ? ' No responses were archived.' : ''}</Text>
+              {acceptProgress.failures.map(failure => <Text size="sm" key={failure.id}>
+                <strong>{failure.student}:</strong> {failure.message}
+              </Text>)}
+            </Alert>
           ) : null}
 
           {batchProgress ? (

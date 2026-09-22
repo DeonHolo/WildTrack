@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { AiReviewReport } from './AiReviewReport.jsx';
 
@@ -116,20 +116,29 @@ const groundedChecks = [
     requirement: '3.2 Functional requirements' }
 ];
 
-it('shows a positive SRS result only for at least two distinct grounded observations, with their passages and limits', () => {
+it('shows a compact positive result only for at least two distinct grounded observations, with passages on demand', () => {
   show({ summary: 'The whole PDF is compliant.', findings: [], missingRequiredSections: [],
     verifiedChecks: groundedChecks });
 
   const status = screen.getByRole('status');
   expect(status).toHaveTextContent('No actionable issues identified in the checked areas');
-  expect(screen.getByText('Verified checks')).toBeInTheDocument();
+  expect(status).toHaveTextContent('2 distinct observations supported by submitted PDF evidence');
+  expect(status).toHaveTextContent('1 mapped to the official template');
+  expect(status).toHaveTextContent('1 mapped to deliverable instructions');
+  expect(status).toHaveTextContent('not a guarantee of full compliance or approval');
+  const details = screen.getByRole('button', { name: 'Show supporting evidence (2)' });
+  expect(details).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByText(/Section 1\.3: The system serves capstone students and advisers/)).not.toBeInTheDocument();
+  fireEvent.click(details);
+  expect(screen.getByRole('button', { name: 'Hide supporting evidence' })).toHaveAttribute('aria-expanded', 'true');
   expect(screen.getByText(/Section 1\.3: The system serves capstone students and advisers/)).toBeInTheDocument();
   expect(screen.getByText(/Describe the scope and intended users/)).toBeInTheDocument();
   expect(screen.getByText(/Section 3\.2: The student submits a PDF link/)).toBeInTheDocument();
   expect(screen.getByText(/Authority: 3\.2 Functional requirements/)).toBeInTheDocument();
-  expect(screen.getByText(/not a guarantee of full compliance or approval/)).toBeInTheDocument();
   expect(screen.queryByText('The whole PDF is compliant.')).not.toBeInTheDocument();
   expect(screen.queryByText('Inconclusive AI Review')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Hide supporting evidence' }));
+  expect(screen.queryByText(/Section 1\.3: The system serves capstone students and advisers/)).not.toBeInTheDocument();
 });
 
 it('shows grounded positive checks separately from actionable findings without duplicate observations', () => {
@@ -141,7 +150,9 @@ it('shows grounded positive checks separately from actionable findings without d
 
   expect(screen.getByText('Issues to review')).toBeInTheDocument();
   expect(screen.getByText(/constraints section does not explain/)).toBeInTheDocument();
-  expect(screen.getByText('Verified checks')).toBeInTheDocument();
+  expect(screen.getByText(/2 distinct observations supported by submitted PDF evidence/)).toBeInTheDocument();
+  expect(screen.queryByText(/Section 1\.3: The system serves capstone students and advisers/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Show supporting evidence (2)' }));
   expect(screen.getAllByText(/Section 1\.3: The system serves capstone students and advisers/)).toHaveLength(1);
   expect(screen.getByText(/Section 3\.2: The student submits a PDF link/)).toBeInTheDocument();
   expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
@@ -155,6 +166,9 @@ it('shows one verified check as observed evidence while marking a zero-issue res
 
   expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
   expect(screen.getByRole('status')).toHaveTextContent('not establish enough distinct verified checks');
+  expect(screen.getByText(/1 distinct observation supported by submitted PDF evidence/)).toBeInTheDocument();
+  expect(screen.queryByText(/Section 1\.3: The system serves capstone students and advisers/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Show supporting evidence (1)' }));
   expect(screen.getByText(/Section 1\.3: The system serves capstone students and advisers/)).toBeInTheDocument();
   expect(screen.queryByText('All criteria passed.')).not.toBeInTheDocument();
   expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
@@ -169,6 +183,8 @@ it('does not count duplicated or unsupported observations toward a positive resu
         documentEvidence: '', requirement: '2.4 Constraints' }] });
 
   expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.getByText(/1 distinct observation supported by submitted PDF evidence/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Show supporting evidence (1)' }));
   expect(screen.getAllByText(/Section 1\.3: The system serves capstone students and advisers/)).toHaveLength(1);
   expect(screen.queryByText('The system has a constraints section')).not.toBeInTheDocument();
   expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
@@ -179,4 +195,30 @@ it('does not promote a generic fallback or an empty prose claim into a clean res
     verifiedChecks: [] });
   expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
   expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+});
+
+it('summarizes five distinct verified observations by actual source counts without claiming section or instruction coverage', () => {
+  show({ summary: 'All template sections are present and all instructions were followed.',
+    findings: [], missingRequiredSections: [],
+    suggestedAction: 'Confirm all the observed passages and independently assess remaining requirements.',
+    verifiedChecks: [
+      ...groundedChecks,
+      { aspect: 'SRS includes interface context', source: 'OFFICIAL_TEMPLATE',
+        documentEvidence: 'Section 3.1: The app uses the university API.', requirement: '3.1 External interfaces' },
+      { aspect: 'SRS includes acceptance flow', source: 'DELIVERABLE_REQUIREMENTS',
+        documentEvidence: 'Section 3.4: Adviser acceptance locks a revision.', requirement: 'Explain the acceptance flow.' },
+      { aspect: 'SRS identifies its submitted version', source: 'DOCUMENT',
+        documentEvidence: 'Title: Refactored Software Requirements Specification.', requirement: '' }
+    ] });
+  const status = screen.getByRole('status');
+  expect(status).toHaveTextContent('5 distinct observations supported by submitted PDF evidence');
+  expect(status).toHaveTextContent('2 mapped to the official template');
+  expect(status).toHaveTextContent('2 mapped to deliverable instructions');
+  expect(status).toHaveTextContent('1 based on the PDF alone');
+  expect(status).toHaveTextContent('not a guarantee of full compliance or approval');
+  expect(screen.getByRole('button', { name: 'Show supporting evidence (5)' })).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByText(/Section 3\.4: Adviser acceptance locks a revision/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/All template sections are present|all instructions were followed/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Suggested action/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/5 of \d+ sections|5 requirements|sections verified|instructions fulfilled/i)).not.toBeInTheDocument();
 });
