@@ -192,6 +192,13 @@ function documentCheckResultKey(responseId, fieldId) {
  * Probe the public, read-only session endpoint once before suggesting another
  * sign-in. Never replay the generation POST after an ambiguous response. */
 export async function diagnoseAiReviewAuthFailure(error, phase = 'AI Review request') {
+  if (error?.status === 403) {
+    // A forbidden AI request can mean missing/mismatched CSRF credentials or
+    // insufficient access. A separately valid session does not distinguish
+    // those cases, and the generation POST must never be replayed automatically.
+    return { authenticationRequired: false,
+      error: `The ${phase} returned HTTP 403. WildTrack rejected this request. A missing or mismatched XSRF cookie/security header or insufficient access may be responsible. Check saved reviews before considering another AI request. No automatic AI retry was sent.` };
+  }
   if (error?.status !== 401) return { authenticationRequired: false, error: error?.message || 'AI Review could not finish.' };
   const prefix = `The ${phase} returned HTTP 401.`;
   const reason = {

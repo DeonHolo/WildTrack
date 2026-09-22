@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
@@ -59,6 +60,13 @@ public class SecurityConfig {
                 .ignoringRequestMatchers(SIGN_IN_PATH))
             .cors(Customizer.withDefaults())
             .authorizeHttpRequests(auth -> auth
+                // Tomcat forwards sendError(403) to /error using ERROR dispatch.
+                // Denying that internal dispatch re-enters the 401 entry point,
+                // masking a genuine CSRF rejection as an authentication failure.
+                // Only the container's internal /error dispatch is allowed;
+                // direct client requests to /error remain denied.
+                .requestMatchers(request -> request.getDispatcherType() == DispatcherType.ERROR
+                    && "/error".equals(request.getServletPath())).permitAll()
                 .requestMatchers("/api/health/live", "/api/health/ready", "/api/auth/session", SIGN_IN_PATH, "/api/public/forms/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/drive-history/auth/callback").permitAll()
                 .requestMatchers("/api/file-checks/**").hasAnyRole("ADMIN", "ADVISER")
