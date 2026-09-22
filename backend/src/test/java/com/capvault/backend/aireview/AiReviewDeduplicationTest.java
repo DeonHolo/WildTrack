@@ -190,6 +190,71 @@ class AiReviewDeduplicationTest {
         verify(provider, times(2)).review(any());
     }
 
+    @Test void aNoIssuesReviewCanBeInformativeWhenMultipleIndependentPdfObservationsAreVerified() {
+        when(pdf.inspect(any())).thenReturn(new PdfInspection(true, false, 84, 1000, """
+            Software Requirements Specification
+            Trevora stores vehicle service records and rejects duplicate entries.
+            The validation section describes required fields and supported user roles.
+            """, ""));
+        var observations = List.of(
+            new AiReviewProvider.VerifiedCheck("Service record scope is described",
+                AiReviewProvider.FindingSource.DOCUMENT,
+                "Trevora stores vehicle service records and rejects duplicate entries", ""),
+            new AiReviewProvider.VerifiedCheck("Validation responsibilities are described",
+                AiReviewProvider.FindingSource.DOCUMENT,
+                "The validation section describes required fields and supported user roles", ""));
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result("Everything is perfect", List.of(),
+            List.of(), List.of(), "Approve the SRS", observations));
+
+        var saved = run(first);
+        assertThat(saved.status()).isEqualTo("COMPLETED");
+        assertThat(saved.report().verifiedChecks()).containsExactlyElementsOf(observations);
+        assertThat(saved.report().summary()).contains("No actionable concerns", "not a confirmation")
+            .doesNotContain("Everything is perfect");
+        assertThat(saved.report().suggestedAction()).contains("independently assess remaining requirements")
+            .doesNotContain("Approve the SRS");
+        assertThat(run(second).reused()).isTrue();
+        assertThat(service.saved(workspace, second.getId(), "admin").report().verifiedChecks()).hasSize(2);
+        verify(provider, times(1)).review(any());
+    }
+
+    @Test void aSingleOrInventedPositiveCheckDoesNotBecomeEvidenceOfAnOverallCleanPass() {
+        when(pdf.inspect(any())).thenReturn(new PdfInspection(true, false, 84, 1000,
+            "Trevora stores vehicle service records and rejects duplicate entries.", ""));
+        var actual = new AiReviewProvider.VerifiedCheck("Service records described",
+            AiReviewProvider.FindingSource.DOCUMENT,
+            "Trevora stores vehicle service records and rejects duplicate entries", "");
+        var unverified = new AiReviewProvider.VerifiedCheck("Every requirement satisfied",
+            AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
+            "An invented passage that is not found in the PDF", "Missing template quote");
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result("All good", List.of(),
+            List.of(), List.of(), "Approve it", List.of(actual, unverified)));
+
+        var uncertain = run(first);
+        assertThat(uncertain.status()).isEqualTo("UNCERTAIN");
+        assertThat(uncertain.failureCode()).isEqualTo("INSUFFICIENT_REVIEW_EVIDENCE");
+        assertThat(uncertain.report()).isNull();
+        assertThat(uncertain.message()).contains("inconclusive");
+    }
+
+    @Test void onePdfExcerptCannotBeCountedTwiceToManufactureACompletePositiveReview() {
+        when(pdf.inspect(any())).thenReturn(new PdfInspection(true, false, 84, 1000,
+            "Trevora stores vehicle service records and rejects duplicate entries.", ""));
+        var firstCheck = new AiReviewProvider.VerifiedCheck("Records are described",
+            AiReviewProvider.FindingSource.DOCUMENT,
+            "Trevora stores vehicle service records and rejects duplicate entries", "");
+        var secondCheck = new AiReviewProvider.VerifiedCheck("Everything is compliant",
+            AiReviewProvider.FindingSource.DOCUMENT,
+            "Trevora stores vehicle service records and rejects duplicate entries", "");
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result("Perfect submission", List.of(),
+            List.of(), List.of(), "Approve", List.of(firstCheck, secondCheck)));
+
+        var uncertain = run(first);
+        assertThat(uncertain.status()).isEqualTo("UNCERTAIN");
+        assertThat(uncertain.failureCode()).isEqualTo("INSUFFICIENT_REVIEW_EVIDENCE");
+        assertThat(uncertain.report()).isNull();
+    }
+
     @Test void aGroundingFilterThatRemovesAllProposedFindingsReportsInconclusiveRatherThanSuccess() {
         when(provider.review(any())).thenReturn(new AiReviewProvider.Result(
             "Project Scope is missing", List.of(),

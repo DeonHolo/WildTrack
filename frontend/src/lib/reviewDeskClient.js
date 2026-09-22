@@ -1,4 +1,5 @@
 import {
+  AI_REVIEW_SIGN_IN_MESSAGE,
   acceptReviewResponse,
   requestAiReview,
   getSavedAiReview,
@@ -200,7 +201,7 @@ export async function runAiReview(workspaceId, responseId, fieldId = null, retry
       review = { ...await getSavedAiReview(workspaceId, responseId, fieldId), reused };
     }
     const inconclusive = review.status === 'UNCERTAIN'
-      && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED'].includes(review.failureCode)
+      && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED', 'INSUFFICIENT_REVIEW_EVIDENCE'].includes(review.failureCode)
       || review.status === 'COMPLETED' && isInconclusiveAiReviewReport(review.report);
     return { ok: review.status === 'COMPLETED' && !inconclusive,
       unavailable: review.status === 'UNAVAILABLE', inconclusive,
@@ -214,12 +215,14 @@ export async function runAiReview(workspaceId, responseId, fieldId = null, retry
         ? 'The review is still running. Open View AI Review after its saved result is ready; no additional AI request was sent.'
         : review.message || (review.failureCode ? `AI Review failed: ${review.failureCode}.` : 'AI Review could not finish.') };
   } catch (error) {
-    return { ok: false, pauseBatch: true, error: error?.message || 'AI Review could not finish.' };
+    return { ok: false, pauseBatch: true, authenticationRequired: error?.status === 401,
+      error: error?.status === 401 ? AI_REVIEW_SIGN_IN_MESSAGE : error?.message || 'AI Review could not finish.' };
   }
 }
 
 export async function runAiReviews(workspaceId, targets, options = {}) {
   const shouldContinue = options.shouldContinue || (() => true);
+  let completed = 0;
   for (const target of targets) {
     if (!shouldContinue()) break;
     const normalized = typeof target === 'string' ? { responseId: target, fieldId: null } : target;
@@ -228,10 +231,13 @@ export async function runAiReviews(workspaceId, targets, options = {}) {
     const result = await runAiReview(workspaceId, normalized.responseId, normalized.fieldId, Boolean(retryToken), retryToken,
       shouldContinue, !retryToken && Boolean(options.rerunKeys?.[targetKey]));
     if (!shouldContinue() || result.cancelled) break;
+    completed += 1;
     options.onResult?.(normalized, result);
     // Document-specific failures remain available for explicit retry, but do not block other documents.
-    if (result.pauseBatch) break;
+    if (result.pauseBatch) return { completed, total: targets.length, paused: true,
+      authenticationRequired: Boolean(result.authenticationRequired), reason: result.error || '' };
   }
+  return { completed, total: targets.length, paused: false };
 }
 
 export function applyReviewMutation(response, reviewState) {

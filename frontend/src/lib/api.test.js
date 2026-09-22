@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, decideIdentityConflict, describeSnapshotFailures, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getMyResponse, logout, saveBackendDeliverable, submitResponse } from './api.js';
+import { ApiError, decideIdentityConflict, describeSnapshotFailures, getAiReviewStatus, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getMyResponse, getSavedAiReview, logout, requestAiReview, saveBackendDeliverable, submitResponse } from './api.js';
 import { fetchCurrentSession, logoutSession } from './session.js';
 
 describe('production API delivery', () => {
@@ -145,6 +145,41 @@ describe('production API delivery', () => {
       status: 401,
       message: 'Authentication required.'
     });
+  });
+
+  it('identifies WildTrack session expiry on an AI review POST without exposing the raw 401 body', async () => {
+    document.cookie = 'XSRF-TOKEN=test-csrf; path=/';
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>Sign-in middleware response</html>', {
+      status: 401, headers: { 'Content-Type': 'text/html' }
+    }));
+
+    await expect(requestAiReview('workspace-it', 'response-1')).rejects.toMatchObject({
+      name: ApiError.name, status: 401,
+      message: expect.stringContaining('Sign out, then sign in with Google again')
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/ai-reviews/response-1');
+  });
+
+  it('treats a 401 during saved-state polling as app authentication failure', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 401 }));
+
+    await expect(getSavedAiReview('workspace-it', 'response-1', 'field-pdf')).rejects.toMatchObject({
+      name: ApiError.name, status: 401, message: expect.stringContaining('Check the saved AI Review status')
+    });
+    await expect(getAiReviewStatus()).rejects.toMatchObject({ status: 401,
+      message: expect.stringContaining('WildTrack session expired') });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves Gemini API-key rejection in the saved review response instead of treating it as session expiry', async () => {
+    const review = { status: 'UNCERTAIN', failureCode: 'API_KEY_REJECTED',
+      message: 'Gemini rejected the API key or its permissions.' };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(review), {
+      status: 200, headers: { 'Content-Type': 'application/json' }
+    }));
+
+    await expect(getSavedAiReview('workspace-it', 'response-1')).resolves.toEqual(review);
   });
 
   it('handles non-JSON error bodies without crashing on consumed stream', async () => {

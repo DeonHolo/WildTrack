@@ -6,7 +6,8 @@ export function AiReviewReportDialog({ opened, onClose, report, review, fieldLab
   const previous = !report && Boolean(review?.previousReport);
   const displayReport = report || review?.previousReport;
   if (!displayReport) return null;
-  const inconclusive = previous && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED'].includes(review?.failureCode);
+  const inconclusive = previous && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED', 'INSUFFICIENT_REVIEW_EVIDENCE']
+    .includes(review?.failureCode);
 
   return (
     <Modal

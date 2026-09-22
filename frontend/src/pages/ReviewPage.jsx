@@ -1,6 +1,6 @@
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Alert,
   Select,
@@ -58,7 +58,8 @@ import {
 const REVIEW_PAGE_SIZE = 50;
 
 export function ReviewPage() {
-  const { activeWorkspaceId } = useWorkspaceSession();
+  const { activeWorkspaceId, logoutStaffSession } = useWorkspaceSession();
+  const navigate = useNavigate();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
   const { data: state, setData: setState, status: reviewStatus, error: reviewError, reload } = useWorkspaceResource(
     activeWorkspaceId,
@@ -340,7 +341,19 @@ export function ReviewPage() {
             modals.close(modalId);
             runAiBatch(selected, selectedRetryTokens, selectedRerunKeys);
           }} /> });
-    } catch (error) { if (isCurrentScope()) notifications.show({ color: 'red', message: error.message || 'AI review status could not be loaded.' }); }
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      if (error?.status === 401) {
+        setAiProgress({ total: candidates.length, completed: 0, available: 0, reused: 0,
+          failures: [error.message], uncertainTargets: [], retryTokens: {}, done: true,
+          paused: true, authenticationRequired: true });
+      } else notifications.show({ color: 'red', message: error.message || 'AI review status could not be loaded.' });
+    }
+  }
+
+  async function reconnectGoogle() {
+    try { await logoutStaffSession(); } catch { /* Expired sessions can reject logout; local sign-out still completes. */ }
+    navigate('/login', { replace: true });
   }
 
   async function runAiBatch(targets, retryTokens = {}, rerunKeys = {}) {
@@ -349,8 +362,9 @@ export function ReviewPage() {
     setAiRunningKeys(new Set(targets.map(target => target.key)));
     let progress = { total: targets.length, completed: 0, available: 0, reused: 0, failures: [], uncertainTargets: [], retryTokens: {}, done: false };
     setAiProgress(progress);
+    let outcome = null;
     try {
-      await runAiReviews(activeWorkspaceId, targets.map(({ key, responseId, fieldId }) => ({ key, responseId, fieldId })), { retryTokens, rerunKeys, shouldContinue: isCurrentScope,
+      outcome = await runAiReviews(activeWorkspaceId, targets.map(({ key, responseId, fieldId }) => ({ key, responseId, fieldId })), { retryTokens, rerunKeys, shouldContinue: isCurrentScope,
         onResult: (targetRef, result) => {
           setAiRunningKeys(current => new Set([...current].filter(key => key !== targetRef.key)));
           const target = targets.find((item) => item.responseId === targetRef.responseId && item.fieldId === targetRef.fieldId);
@@ -360,6 +374,7 @@ export function ReviewPage() {
           if (result.review) setState(current => ({ ...current, attempts: current.attempts.map(item => item.id === targetRef.responseId ? applyArtifactAiReview(item, result.review) : item) }));
           const targetKey = target?.key || `${targetRef.responseId}:${targetRef.fieldId || 'legacy'}`;
           progress = { ...progress, completed: progress.completed + 1,
+            authenticationRequired: Boolean(progress.authenticationRequired || result.authenticationRequired),
             available: progress.available + (result.ok ? 1 : 0),
             reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
             failures: result.ok ? progress.failures : [...progress.failures, `${label}: ${result.error || 'AI Review could not finish.'}`],
@@ -368,8 +383,13 @@ export function ReviewPage() {
           setAiProgress(progress);
         }
       });
+    } catch (error) {
+      progress = { ...progress, failures: [...progress.failures, error?.message || 'AI Review batch could not finish.'],
+        authenticationRequired: Boolean(progress.authenticationRequired || error?.status === 401) };
     } finally {
-      if (isCurrentScope()) { aiBusy.current = false; setAiRunningKeys(new Set()); setAiProgress({ ...progress, done: true }); }
+      if (isCurrentScope()) { aiBusy.current = false; setAiRunningKeys(new Set());
+        setAiProgress({ ...progress, done: true, paused: Boolean(outcome?.paused || progress.completed < progress.total),
+          authenticationRequired: Boolean(progress.authenticationRequired || outcome?.authenticationRequired) }); }
     }
   }
 
@@ -502,14 +522,16 @@ export function ReviewPage() {
           <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done) || !allAiTargets.length} onClick={() => requestAiReview(allAiTargets, false, {}, true)}>AI review all</Button>
           <Button variant="subtle" onClick={() => setOverviewOpen(value => !value)} aria-expanded={overviewOpen}>{overviewOpen ? 'Hide overview' : 'Deliverable overview'}</Button></Group>
       </Group></Paper>
-      {aiProgress ? <Alert color={aiProgress.failures.length ? 'orange' : 'blue'} title={aiProgress.done ? (aiProgress.completed < aiProgress.total ? 'AI review paused' : aiProgress.failures.length ? 'AI review needs attention' : 'AI review complete') : 'Reviewing documents'}
+      {aiProgress ? <Alert role="status" color={aiProgress.failures.length ? 'orange' : 'blue'} title={aiProgress.done ? (aiProgress.paused ? 'AI review paused' : aiProgress.failures.length ? 'AI review needs attention' : 'AI review complete') : 'Reviewing documents'}
         withCloseButton={aiProgress.done} onClose={() => setAiProgress(null)}>
         <Text size="sm">{aiProgress.available} {aiProgress.available === 1 ? 'review' : 'reviews'} available · {aiProgress.uncertainTargets.length} awaiting retry
           {aiProgress.failures.length > aiProgress.uncertainTargets.length ? ` · ${aiProgress.failures.length - aiProgress.uncertainTargets.length} incomplete` : ''}</Text>
-        <Text size="xs" c="dimmed">{aiProgress.completed} of {aiProgress.total} PDF artifacts checked · {aiProgress.reused} saved reviews reused
-          {aiProgress.done && aiProgress.completed < aiProgress.total ? ` · ${aiProgress.total - aiProgress.completed} not processed` : ''}</Text>
+        <Text size="xs" c="dimmed">{aiProgress.completed} of {aiProgress.total} PDF artifacts attempted · {aiProgress.reused} saved reviews reused
+          {aiProgress.done && aiProgress.completed < aiProgress.total ? ` · ${aiProgress.total - aiProgress.completed} not attempted` : ''}</Text>
         {[...new Set(aiProgress.failures)].map(message => <Text size="sm" key={message}>{message}</Text>)}
-        {aiProgress.done && aiProgress.uncertainTargets.length ? <Button variant="default" size="xs" mt="sm" onClick={() => requestAiReview(aiProgress.uncertainTargets, true, aiProgress.retryTokens)}>Review retry options</Button> : null}
+        {aiProgress.done && aiProgress.authenticationRequired ? <Button variant="default" size="xs" mt="sm"
+          onClick={reconnectGoogle}>Sign out and continue with Google</Button> : null}
+        {aiProgress.done && !aiProgress.authenticationRequired && aiProgress.uncertainTargets.length ? <Button variant="default" size="xs" mt="sm" onClick={() => requestAiReview(aiProgress.uncertainTargets, true, aiProgress.retryTokens)}>Review retry options</Button> : null}
       </Alert> : null}
       <Collapse in={overviewOpen}><ReviewDeliverablesTable summaries={summaries} selectedId={activeDeliverableId} onSelect={chooseDeliverable} /></Collapse>
 

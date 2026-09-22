@@ -37,7 +37,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class AiReviewService {
     // Post-validation behavior is part of the persisted review cache fingerprint.
     // Do not reuse pre-TOC-fix reports whose false missing-index claim survived grounding.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v7";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v9";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -175,11 +175,13 @@ public class AiReviewService {
                         // A syntactically valid provider response is not necessarily a usable review.
                         // The postprocessor deliberately discards unsupported findings and rewrites
                         // the provider's narrative. Do not persist its empty fallback as success.
-                        if (result.findings().isEmpty() && result.missingRequiredSections().isEmpty()) {
+                        if (result.findings().isEmpty() && result.missingRequiredSections().isEmpty()
+                                && result.verifiedChecks().size() < 2) {
                             boolean providerHadFindings = raw != null && (!raw.findings().isEmpty()
                                 || !raw.missingRequiredSections().isEmpty());
                             throw new InconclusiveReviewResult(providerHadFindings
-                                ? "FINDINGS_FILTERED" : "NO_GROUNDED_FINDINGS");
+                                ? "FINDINGS_FILTERED" : raw != null && !raw.verifiedChecks().isEmpty()
+                                    ? "INSUFFICIENT_REVIEW_EVIDENCE" : "NO_GROUNDED_FINDINGS");
                         }
                         store.complete(claim.job(), json.writeValueAsString(result));
                         assertCurrent(response, target, context, subject);
@@ -408,6 +410,7 @@ public class AiReviewService {
             case "INVALID_RESPONSE" -> "Gemini returned an incomplete or invalid review. It was not saved as a result.";
             case "NO_GROUNDED_FINDINGS" -> "Gemini returned no structured findings that WildTrack could substantiate. The attempt is inconclusive, not a clean pass, and no new review was saved.";
             case "FINDINGS_FILTERED" -> "WildTrack excluded every proposed finding because none survived its source-grounding checks. The attempt is inconclusive, not a clean pass, and no new review was saved.";
+            case "INSUFFICIENT_REVIEW_EVIDENCE" -> "The review did not establish enough independent, source-backed observations to explain a no-issues result. The attempt is inconclusive, not a clean pass, and no new review was saved.";
             case "PROVIDER_TIMEOUT" -> "The Gemini request timed out before a complete response arrived. It may already have used AI tokens.";
             case "PROVIDER_CONNECTION_FAILED" -> "The backend lost its connection to Gemini. The request's outcome could not be confirmed.";
             default -> "The previous provider request has an uncertain outcome.";
@@ -425,15 +428,22 @@ public class AiReviewService {
         if (result == null || result.summary() == null || result.summary().isBlank() || result.summary().length() > 20000
                 || result.suggestedAction() == null || result.suggestedAction().length() > 10000
                 || result.findings() == null || result.findings().size() > 50
-                || result.missingRequiredSections() == null || result.missingRequiredSections().size() > 50)
+                || result.missingRequiredSections() == null || result.missingRequiredSections().size() > 50
+                || result.verifiedChecks() == null || result.verifiedChecks().size() > 50)
             throw invalidReview();
 
-        for (var finding : result.findings()) validateFinding(finding, context);
-        for (var missing : result.missingRequiredSections()) validateMissingSection(missing, context);
+        // Reject malformed records, but discard individual claims with invented or
+        // inexact authority quotes. A single Gemini citation error must not throw
+        // away unrelated substantiated findings from the same otherwise valid run.
+        // The excluded claim must never appear in the rebuilt summary or actions.
+        var authorityCheckedFindings = result.findings().stream()
+            .filter(finding -> validateFinding(finding, context)).toList();
+        var authorityCheckedMissing = result.missingRequiredSections().stream()
+            .filter(missing -> validateMissingSection(missing, context)).toList();
 
-        var validatedFindings = AiReviewGroundingPolicy.findings(result.findings(), context.title(),
+        var validatedFindings = AiReviewGroundingPolicy.findings(authorityCheckedFindings, context.title(),
             documentText, context.template());
-        var groundedMissing = result.missingRequiredSections().stream()
+        var groundedMissing = authorityCheckedMissing.stream()
             .filter(missing -> AiReviewGroundingPolicy.sectionNamedByRequirement(
                 missing.section(), missing.requirement(), missing.source()))
             .filter(missing -> missing.source() != AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE
@@ -446,35 +456,61 @@ public class AiReviewService {
             .limit(Math.max(0, 50 - validatedFindings.size())).toList();
         var groundedFindings = new java.util.ArrayList<>(validatedFindings);
         groundedFindings.addAll(crosscheck);
+        // Positive checks require a concrete excerpt in the submitted PDF and,
+        // for requirement-based checks, an exact passage in the supplied authority.
+        // Keep only one observation per independent document excerpt: five
+        // rephrasings of the cover title do not establish an informative review.
+        var seenEvidence = new java.util.HashSet<String>();
+        var verifiedChecks = result.verifiedChecks().stream()
+            .filter(check -> validateVerifiedCheck(check, context, documentText))
+            .filter(check -> seenEvidence.add(normalizeAuthorityText(check.documentEvidence())))
+            .limit(5).toList();
         var groundedLimitations = new java.util.ArrayList<>(limitations(context));
         if (!crosscheck.isEmpty()) groundedLimitations.add(
             "Mapped-template body-heading comparison is advisory: confirm section applicability, equivalent names, "
                 + "and the PDF's original formatting before treating an undetected heading as a required omission.");
-        return new AiReviewProvider.Result(groundedSummary(groundedFindings, groundedMissing, groundedLimitations),
+        return new AiReviewProvider.Result(groundedSummary(groundedFindings, groundedMissing, groundedLimitations,
+                verifiedChecks),
             groundedFindings, groundedMissing, groundedLimitations,
-            groundedSuggestedAction(groundedFindings, groundedMissing, groundedLimitations));
+            groundedSuggestedAction(groundedFindings, groundedMissing, groundedLimitations, verifiedChecks),
+            verifiedChecks);
     }
 
-    private static void validateFinding(AiReviewProvider.Finding finding, Context context) {
+    private static boolean validateVerifiedCheck(AiReviewProvider.VerifiedCheck check,
+            Context context, String documentText) {
+        if (check == null || check.source() == null || invalidText(check.aspect(), 200)
+                || invalidText(check.documentEvidence(), 1000) || check.requirement() == null
+                || check.requirement().length() > 2000) return false;
+        String aspect = normalizeAuthorityText(check.aspect());
+        if (aspect.matches("(?s).*(?:all|every|everything|entire|whole|fully|completely|perfectly)\\s+"
+                + ".*(?:compliant|correct|valid|complete|pass|satisf|meet|fulfill|verif).*")) return false;
+        String excerpt = normalizeAuthorityText(check.documentEvidence());
+        if (excerpt.length() < 15 || excerpt.split(" ").length < 3
+                || !containsNormalized(documentText, check.documentEvidence())) return false;
+        if (check.source() == AiReviewProvider.FindingSource.DOCUMENT) return check.requirement().isBlank();
+        return !check.requirement().isBlank()
+            && containsNormalized(authorityText(check.source(), context), check.requirement());
+    }
+
+    private static boolean validateFinding(AiReviewProvider.Finding finding, Context context) {
         if (finding == null || finding.source() == null || invalidText(finding.issue(), 2000)
                 || invalidText(finding.evidence(), 2000) || finding.requirement() == null
                 || finding.requirement().length() > 2000)
             throw invalidReview();
         if (finding.source() == AiReviewProvider.FindingSource.DOCUMENT) {
             if (!finding.requirement().isBlank()) throw invalidReview();
-            return;
+            return true;
         }
         String authority = authorityText(finding.source(), context);
-        if (finding.requirement().isBlank() || !containsNormalized(authority, finding.requirement())) throw invalidReview();
+        return !finding.requirement().isBlank() && containsNormalized(authority, finding.requirement());
     }
 
-    private static void validateMissingSection(AiReviewProvider.MissingRequiredSection missing, Context context) {
+    private static boolean validateMissingSection(AiReviewProvider.MissingRequiredSection missing, Context context) {
         if (missing == null || missing.source() == null || missing.source() == AiReviewProvider.FindingSource.DOCUMENT
                 || invalidText(missing.section(), 500) || invalidText(missing.requirement(), 2000))
             throw invalidReview();
         String authority = authorityText(missing.source(), context);
-        if (!containsNormalized(authority, missing.requirement()))
-            throw invalidReview();
+        return containsNormalized(authority, missing.requirement());
     }
 
     private static String authorityText(AiReviewProvider.FindingSource source, Context context) {
@@ -497,7 +533,8 @@ public class AiReviewService {
     }
 
     private static String groundedSummary(List<AiReviewProvider.Finding> findings,
-            List<AiReviewProvider.MissingRequiredSection> missing, List<String> limitations) {
+            List<AiReviewProvider.MissingRequiredSection> missing, List<String> limitations,
+            List<AiReviewProvider.VerifiedCheck> verifiedChecks) {
         var sentences = new java.util.ArrayList<String>();
         findings.stream().limit(2).forEach(finding -> sentences.add(
             (finding.issue().startsWith("Mapped-template body heading")
@@ -508,16 +545,18 @@ public class AiReviewService {
             sentences.add("Explicitly required sections not detected: "
                 + String.join(", ", missing.stream().map(AiReviewProvider.MissingRequiredSection::section).toList()) + ".");
         }
-        if (sentences.isEmpty()) {
-            sentences.add("The AI review returned no grounded findings from the submitted PDF or supplied requirement sources.");
-        }
+        if (sentences.isEmpty()) sentences.add(verifiedChecks.size() >= 2
+            ? "No actionable concerns were identified in the independently evidenced areas listed below. "
+                + "This is not a confirmation that the entire PDF satisfies every requirement."
+            : "The AI review returned no grounded findings from the submitted PDF or supplied requirement sources.");
         limitations.stream().filter(limit -> limit.startsWith("No official template was supplied"))
             .findFirst().ifPresent(sentences::add);
         return String.join(" ", sentences);
     }
 
     private static String groundedSuggestedAction(List<AiReviewProvider.Finding> findings,
-            List<AiReviewProvider.MissingRequiredSection> missing, List<String> limitations) {
+            List<AiReviewProvider.MissingRequiredSection> missing, List<String> limitations,
+            List<AiReviewProvider.VerifiedCheck> verifiedChecks) {
         var actions = new java.util.ArrayList<String>();
         if (findings.stream().anyMatch(finding -> finding.source() == AiReviewProvider.FindingSource.DOCUMENT)) {
             if (findings.stream().anyMatch(finding -> finding.source() == AiReviewProvider.FindingSource.DOCUMENT
@@ -533,6 +572,9 @@ public class AiReviewService {
         }
         if (limitations.stream().anyMatch(limit -> limit.startsWith("No official template was supplied"))) {
             actions.add("If a specific template structure is required, add the official template or state the requirement in Deliverable Instructions.");
+        }
+        if (findings.isEmpty() && missing.isEmpty() && verifiedChecks.size() >= 2) {
+            actions.add("Confirm the observed passages and independently assess remaining requirements before making an academic decision.");
         }
         if (actions.isEmpty()) actions.add("Review the PDF manually before giving feedback or making a decision.");
         return String.join(" ", actions);

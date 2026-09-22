@@ -487,14 +487,32 @@ export function isAiReportCurrent(response) {
   return response.aiReport.sourceResponseUpdatedAt === sourceTimestamp;
 }
 
-// Historical saved reports may predate the backend's inconclusive-result guard.
-// Only flag its explicitly generic fallback, never an arbitrary report with
-// zero findings (a legitimate review can have none to report).
+// The backend validates source passages before saving these observations. The
+// frontend still rejects incomplete/duplicate legacy records when deciding
+// whether a zero-issue report contains enough distinct checks to show.
+export function verifiedAiChecks(report) {
+  if (!Array.isArray(report?.verifiedChecks)) return [];
+  const seen = new Set();
+  return report.verifiedChecks.filter(check => {
+    if (!check || !['DOCUMENT', 'DELIVERABLE_REQUIREMENTS', 'OFFICIAL_TEMPLATE'].includes(check.source)
+        || !String(check.aspect || '').trim() || !String(check.documentEvidence || '').trim()
+        || (check.source !== 'DOCUMENT' && !String(check.requirement || '').trim())) return false;
+    // The backend counts independent submitted-PDF passages, even when the
+    // provider describes one passage under two different aspects or sources.
+    const key = String(check.documentEvidence).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// Old zero-evidence completed reports can be empty or claim a clean result in
+// prose. Two distinct grounded observations are required before the UI may
+// report no actionable issues in the checked areas.
 export function isInconclusiveAiReviewReport(report) {
-  if (!report || (report.findings || report.flags || []).length
-      || (report.missingRequiredSections || report.missingSections || []).length) return false;
-  return /(?:the AI review returned no grounded findings from the submitted PDF|no source-grounded findings could be established)/i
-    .test(String(report.summary || ''));
+  return !report || (!((report.findings || report.flags || []).length
+    || (report.missingRequiredSections || report.missingSections || []).length)
+    && verifiedAiChecks(report).length < 2);
 }
 
 export function artifactAiReview(response, field) {

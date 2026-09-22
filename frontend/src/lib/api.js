@@ -8,6 +8,7 @@ const SOURCE_TYPE_TO_API = {
 
 const CSRF_COOKIE = 'XSRF-TOKEN';
 const CSRF_HEADER = 'X-XSRF-TOKEN';
+export const AI_REVIEW_SIGN_IN_MESSAGE = 'Your WildTrack session expired. Sign out, then sign in with Google again. Check the saved AI Review status before starting another request, since the previous review may still be running.';
 
 export class ApiError extends Error {
   constructor(message, status = 0) {
@@ -462,6 +463,12 @@ export async function request(path, options = {}) {
   });
 
   if (!response.ok) {
+    // The AI provider's rejected key is returned in a saved review as
+    // failureCode=API_KEY_REJECTED. HTTP 401 here comes from WildTrack's own
+    // authenticated API, including a session that expires during polling.
+    if (response.status === 401 && path.startsWith('/ai-reviews')) {
+      throw new ApiError(AI_REVIEW_SIGN_IN_MESSAGE, 401);
+    }
     let message = `Request failed with status ${response.status}`;
     const text = await response.text().catch(() => '');
     if (text) {

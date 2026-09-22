@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   activeSubmissionValues,
   isArtifactAiReviewCurrent,
+  isInconclusiveAiReviewReport,
+  verifiedAiChecks,
   artifactAiReview,
   artifactAiReviewStatus,
   isArtifactDocumentCheckCurrent,
@@ -71,7 +73,13 @@ describe('artifact-scoped review currentness', () => {
   it('shows newly rerun legacy single-PDF feedback after the field-review map becomes nonempty', () => {
     const url = 'https://drive.google.com/file/d/legacy-shared-pdf/view';
     const legacy = { status: 'COMPLETED', sourceUrl: url,
-      generatedAt: '2026-09-22T06:00:00Z', report: { summary: 'Updated AI Review.' } };
+      generatedAt: '2026-09-22T06:00:00Z', report: { summary: 'Updated AI Review.',
+        verifiedChecks: [
+          { aspect: 'Scope lists student users', source: 'DELIVERABLE_REQUIREMENTS',
+            documentEvidence: 'Scope: Students submit project documentation.', requirement: 'Describe intended system users.' },
+          { aspect: 'Functional requirement describes submission', source: 'OFFICIAL_TEMPLATE',
+            documentEvidence: 'FR-01: Students submit their PDF link.', requirement: '3.2 Functional requirements' }
+        ] } };
     const response = { deliverableId: 'deliverable-srs', values: { documentPdf: url },
       artifactAiReviews: { 'deliverable-srs:legacy': legacy }, aiReviewState: legacy };
     const field = { id: 'documentPdf', pdfRequired: true, aiReviewEnabled: true };
@@ -101,6 +109,39 @@ describe('artifact-scoped review currentness', () => {
     expect(isArtifactDocumentCheckCurrent(response, second)).toBe(true);
     expect(isArtifactAiReviewCurrent(response, first)).toBe(false);
     expect(isArtifactAiReviewCurrent(response, second)).toBe(true);
+  });
+});
+
+describe('grounded positive AI review evidence', () => {
+  const first = { aspect: 'Scope identifies the students', source: 'DELIVERABLE_REQUIREMENTS',
+    documentEvidence: 'Scope: Capstone students submit their requirements.',
+    requirement: 'Define the project scope and its intended users.' };
+  const second = { aspect: 'Requirements have unique identifiers', source: 'DOCUMENT',
+    documentEvidence: 'FR-01: Students submit a PDF link.', requirement: '' };
+
+  it('accepts two distinct grounded observations as supporting a zero-issue result', () => {
+    const report = { findings: [], missingRequiredSections: [], verifiedChecks: [first, second] };
+    expect(verifiedAiChecks(report)).toHaveLength(2);
+    expect(isInconclusiveAiReviewReport(report)).toBe(false);
+  });
+
+  it('keeps an empty or one-observation legacy completed result inconclusive', () => {
+    expect(isInconclusiveAiReviewReport({ summary: 'All checks passed.' })).toBe(true);
+    expect(isInconclusiveAiReviewReport({ findings: [], verifiedChecks: [first] })).toBe(true);
+    expect(isInconclusiveAiReviewReport({ verifiedChecks: [first, { ...first, aspect: '  SCOPE IDENTIFIES THE STUDENTS  ' }] })).toBe(true);
+    expect(isInconclusiveAiReviewReport({ verifiedChecks: [first, {
+      ...first, aspect: 'Requirements document lists student users', source: 'OFFICIAL_TEMPLATE',
+      requirement: '3.2 Functional requirements',
+      documentEvidence: ' SCOPE: capstone students submit their REQUIREMENTS!'
+    }] })).toBe(true);
+    expect(isInconclusiveAiReviewReport({ verifiedChecks: [first, { ...second, documentEvidence: '' }] })).toBe(true);
+  });
+
+  it('keeps actionable findings actionable while exposing grounded positive observations', () => {
+    const report = { findings: [{ source: 'DOCUMENT', issue: 'Missing citation', evidence: 'Page 4: No citation' }],
+      verifiedChecks: [first] };
+    expect(isInconclusiveAiReviewReport(report)).toBe(false);
+    expect(verifiedAiChecks(report)).toEqual([first]);
   });
 });
 

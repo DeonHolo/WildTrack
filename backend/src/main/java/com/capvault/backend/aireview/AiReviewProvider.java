@@ -18,6 +18,17 @@ public interface AiReviewProvider {
     enum FindingSource { DOCUMENT, DELIVERABLE_REQUIREMENTS, OFFICIAL_TEMPLATE }
     record Finding(String issue, FindingSource source, String evidence, String requirement) { }
     record MissingRequiredSection(String section, FindingSource source, String requirement) { }
+    record VerifiedCheck(String aspect, FindingSource source, String documentEvidence, String requirement) { }
     record Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
-                  List<String> limitations, String suggestedAction) { }
+                  List<String> limitations, String suggestedAction, List<VerifiedCheck> verifiedChecks) {
+        public Result {
+            // Previously saved five-field reports deserialize without verifiedChecks.
+            verifiedChecks = verifiedChecks == null ? List.of() : List.copyOf(verifiedChecks);
+        }
+
+        public Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
+                      List<String> limitations, String suggestedAction) {
+            this(summary, findings, missingRequiredSections, limitations, suggestedAction, List.of());
+        }
+    }
 }
