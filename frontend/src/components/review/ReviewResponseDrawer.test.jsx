@@ -97,4 +97,33 @@ describe('ReviewResponseDrawer submission artifacts', () => {
     expect(screen.queryByText('WildTrack observed file history')).not.toBeInTheDocument();
     expect(screen.queryByText(/Older Google Drive revision history is unavailable/i)).not.toBeInTheDocument();
   });
+
+  it('keeps the previous report visible when a rerun has no grounded findings', async () => {
+    const url = 'https://drive.google.com/file/d/previous-report/view';
+    const previousReport = { summary: 'Prior substantive finding.', findings: [{ source: 'DOCUMENT',
+      issue: 'Wrong document title.', evidence: 'Title page says SPMP.' }] };
+    const review = { fieldId: 'field-pdf', status: 'UNCERTAIN', failureCode: 'NO_GROUNDED_FINDINGS',
+      retryToken: 'retry-1', sourceUrl: url, previousReport, previousGeneratedAt: '2026-09-21T08:00:00Z',
+      message: 'The new run had no source-grounded findings.' };
+    render(<MantineProvider theme={wildTrackTheme} forceColorScheme="light">
+      <ReviewResponseDrawer opened
+        response={{ id: 'response-1', deliverableId: 'deliverable-1', studentNumber: '26-0001',
+          teamCode: 'TEAM-01', submittedAt: '2026-09-22T08:00:00+08:00', reviewStatus: 'Received',
+          values: { documentPdf: url }, artifactAiReviews: { 'field-pdf': review } }}
+        student={{ name: 'DOE, JANE', studentNumber: '26-0001', teamCode: 'TEAM-01' }}
+        state={{ projectMetadata: [] }}
+        deliverable={{ id: 'deliverable-1', shortTitle: 'SRS', title: 'SRS', fields: [{
+          definitionId: 'field-pdf', id: 'documentPdf', label: 'PDF', type: 'drive', pdfRequired: true,
+          documentCheckPolicy: 'AUTO', aiReviewEnabled: true
+        }] }}
+        onClose={vi.fn()} onViewAiReview={vi.fn()} />
+    </MantineProvider>);
+    const drawer = await screen.findByRole('dialog', { name: 'Review DOE, JANE' });
+    expect(drawer).toHaveTextContent('Latest AI Review inconclusive');
+    expect(drawer).toHaveTextContent('it did not verify this PDF');
+    expect(drawer).toHaveTextContent('previously saved AI Review is available');
+    expect(screen.getByRole('button', { name: 'View previous AI Review' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Retry AI review' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View AI Review', exact: true })).not.toBeInTheDocument();
+  });
 });

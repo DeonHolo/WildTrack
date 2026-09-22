@@ -73,7 +73,7 @@ public class AiReviewStore {
             Job prior = existing;
             int changed = tx.execute(status -> jdbc.update("""
                 UPDATE ai_review_jobs SET state = 'RUNNING', claim_token = ?, started_at = ?,
-                    completed_at = NULL, report_json = NULL, failure_code = NULL
+                    failure_code = NULL
                 WHERE cache_key = ? AND claim_token = ? AND state = 'COMPLETED'
                 """, token, Timestamp.from(clock.instant()), key, prior.token()));
             if (changed == 1) return new Claim(find(key).orElseThrow(), true);
@@ -83,7 +83,7 @@ public class AiReviewStore {
             Job prior = existing;
             int changed = tx.execute(status -> jdbc.update("""
                 UPDATE ai_review_jobs SET state = 'RUNNING', claim_token = ?, started_at = ?,
-                    completed_at = NULL, report_json = NULL, failure_code = NULL
+                    failure_code = NULL
                 WHERE cache_key = ? AND claim_token = ? AND state = ?
                 """, token, Timestamp.from(clock.instant()), key, prior.token(), prior.state()));
             if (changed == 1) return new Claim(find(key).orElseThrow(), true);

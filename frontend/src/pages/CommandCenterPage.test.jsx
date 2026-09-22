@@ -691,6 +691,38 @@ describe("today's work queues", () => {
     expect(within(drawer).getByRole('button', { name: 'Retry AI review' })).toBeInTheDocument();
     expect(workflow.runAiReview).toHaveBeenCalledTimes(1);
   });
+
+  it('shows persisted previous AI evidence in the work queue after an inconclusive rerun', async () => {
+    workflow.activeWorkspaceId = 'ws-rerun-inconclusive';
+    const url = 'https://drive.google.com/file/d/review-001/view';
+    const previousReport = { summary: 'Substantive previous report.', findings: [{
+      source: 'DOCUMENT', issue: 'The PDF identifies itself as an SPMP.',
+      evidence: 'Title page: Software Project Management Plan', requirement: ''
+    }], missingRequiredSections: [] };
+    const old = { status: 'COMPLETED', sourceUrl: url,
+      generatedAt: '2026-09-21T08:00:00Z', report: previousReport };
+    workflow.state = makeState([checkedResponse('review-001', { aiReviewState: old })]);
+    workflow.state.deliverables[0].fields[0].aiReviewEnabled = true;
+    workflow.runAiReview.mockResolvedValueOnce({ ok: false, inconclusive: true, uncertain: true,
+      error: 'The latest run produced no grounded findings.', review: {
+        fieldId: 'documentPdf', status: 'UNCERTAIN', sourceUrl: url,
+        failureCode: 'NO_GROUNDED_FINDINGS', retryToken: 'retry-inconclusive',
+        previousReport, previousGeneratedAt: '2026-09-21T08:00:00Z',
+        message: 'The latest run produced no grounded findings.'
+      } });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Student review-001 response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student review-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun AI Review' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Rerun AI Review?' }))
+      .getByRole('button', { name: 'Rerun review' }));
+    await waitFor(() => expect(within(drawer).getByText(/Latest AI Review inconclusive/)).toBeInTheDocument());
+    fireEvent.click(within(drawer).getByRole('button', { name: 'View previous AI Review' }));
+    const saved = await screen.findByRole('dialog', { name: 'AI Review: PDF Drive link' });
+    expect(saved).toHaveTextContent('Previously saved AI Review');
+    expect(saved).toHaveTextContent('Title page: Software Project Management Plan');
+    expect(saved).not.toHaveTextContent('AI review completed.');
+  });
 });
 
 describe('identity conflicts from the server', () => {

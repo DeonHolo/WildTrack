@@ -99,7 +99,8 @@ public class AiReviewService {
 
     public record View(String status, boolean reused, String message, AiReviewProvider.Result report,
                        String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode,
-                       String fieldId, String sourceUrl) { }
+                       String fieldId, String sourceUrl, AiReviewProvider.Result previousReport,
+                       String previousGeneratedAt) { }
     private record Context(String hash, String title, String instructions, String template) { }
     private record ReviewTarget(String fieldId, String fieldKey, String label, String sourceUrl, boolean legacyStore) { }
 
@@ -171,6 +172,15 @@ public class AiReviewService {
                         var raw = provider.review(new AiReviewProvider.Input(key + ":" + claim.job().token(), bytes, inspection.extractedText(),
                             SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template()));
                         var result = groundAndValidate(raw, context, inspection.extractedText());
+                        // A syntactically valid provider response is not necessarily a usable review.
+                        // The postprocessor deliberately discards unsupported findings and rewrites
+                        // the provider's narrative. Do not persist its empty fallback as success.
+                        if (result.findings().isEmpty() && result.missingRequiredSections().isEmpty()) {
+                            boolean providerHadFindings = raw != null && (!raw.findings().isEmpty()
+                                || !raw.missingRequiredSections().isEmpty());
+                            throw new InconclusiveReviewResult(providerHadFindings
+                                ? "FINDINGS_FILTERED" : "NO_GROUNDED_FINDINGS");
+                        }
                         store.complete(claim.job(), json.writeValueAsString(result));
                         assertCurrent(response, target, context, subject);
                     } catch (Exception failure) {
@@ -178,7 +188,9 @@ public class AiReviewService {
                             unlink(target, response, sourceValueHash, key);
                         // A timeout/crash can occur after billing. Never retry automatically.
                         store.uncertain(claim.job(), failure instanceof GeminiAiReviewProvider.Failure gemini
-                            ? gemini.code : failure instanceof InvalidReviewResult ? "INVALID_RESPONSE" : "PROVIDER_OUTCOME_UNKNOWN");
+                            ? gemini.code : failure instanceof InconclusiveReviewResult inconclusive
+                                ? inconclusive.code : failure instanceof InvalidReviewResult
+                                    ? "INVALID_RESPONSE" : "PROVIDER_OUTCOME_UNKNOWN");
                     }
                 });
             } catch (RejectedExecutionException full) {
@@ -360,8 +372,13 @@ public class AiReviewService {
     private View view(AiReviewStore.Job job, FormResponse response, ReviewTarget target, boolean reused, boolean verified) {
         String state = store.displayState(job);
         AiReviewProvider.Result report = null;
-        if (state.equals("COMPLETED")) {
-            try { report = json.readValue(job.reportJson(), AiReviewProvider.Result.class); }
+        AiReviewProvider.Result previousReport = null;
+        if (job.reportJson() != null) {
+            try {
+                var persisted = json.readValue(job.reportJson(), AiReviewProvider.Result.class);
+                if (state.equals("COMPLETED")) report = persisted;
+                else previousReport = persisted;
+            }
             catch (Exception corrupt) { throw new IllegalStateException("Saved AI review could not be read."); }
         }
         String message = switch (state) {
@@ -369,8 +386,11 @@ public class AiReviewService {
             case "RUNNING" -> "This document is already being reviewed. No additional AI request was sent.";
             default -> failureMessage(job.failureCode());
         };
-        return new View(state, reused, message, report, job.completedAt() == null ? null : job.completedAt().toString(), response.getUpdatedAt().toString(), verified,
-            state.equals("UNCERTAIN") ? job.token() : null, state.equals("UNCERTAIN") ? job.failureCode() : null, target.fieldId(), target.sourceUrl());
+        String priorDate = job.completedAt() == null ? null : job.completedAt().toString();
+        return new View(state, reused, message, report, state.equals("COMPLETED") ? priorDate : null,
+            response.getUpdatedAt().toString(), verified, state.equals("UNCERTAIN") ? job.token() : null,
+            state.equals("UNCERTAIN") ? job.failureCode() : null, target.fieldId(), target.sourceUrl(),
+            previousReport, previousReport == null ? null : priorDate);
     }
 
     private static String failureMessage(String code) {
@@ -386,6 +406,8 @@ public class AiReviewService {
             case "OUTPUT_TRUNCATED" -> "Gemini's review exceeded the output limit. The incomplete review was not saved as a result.";
             case "FILE_PROCESSING_FAILED" -> "Gemini could not finish processing the PDF. No review was generated.";
             case "INVALID_RESPONSE" -> "Gemini returned an incomplete or invalid review. It was not saved as a result.";
+            case "NO_GROUNDED_FINDINGS" -> "Gemini returned no structured findings that WildTrack could substantiate. The attempt is inconclusive, not a clean pass, and no new review was saved.";
+            case "FINDINGS_FILTERED" -> "WildTrack excluded every proposed finding because none survived its source-grounding checks. The attempt is inconclusive, not a clean pass, and no new review was saved.";
             case "PROVIDER_TIMEOUT" -> "The Gemini request timed out before a complete response arrived. It may already have used AI tokens.";
             case "PROVIDER_CONNECTION_FAILED" -> "The backend lost its connection to Gemini. The request's outcome could not be confirmed.";
             default -> "The previous provider request has an uncertain outcome.";
@@ -544,6 +566,10 @@ public class AiReviewService {
     private static final class InvalidReviewResult extends RuntimeException {
         private InvalidReviewResult() { super("The AI provider returned an invalid or ungrounded review."); }
     }
+    private static final class InconclusiveReviewResult extends RuntimeException {
+        private final String code;
+        private InconclusiveReviewResult(String code) { super(code); this.code = code; }
+    }
     private String digest(Object value) {
         try { return sha256(json.writeValueAsString(value).getBytes(StandardCharsets.UTF_8)); }
         catch (Exception exception) { throw new IllegalStateException("Review fingerprint could not be computed.", exception); }
@@ -552,9 +578,9 @@ public class AiReviewService {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
         catch (Exception exception) { throw new IllegalStateException(exception); }
     }
-    private static View empty(String status, String message) { return new View(status, false, message, null, null, null, false, null, null, null, null); }
+    private static View empty(String status, String message) { return new View(status, false, message, null, null, null, false, null, null, null, null, null, null); }
     private static View emptyFor(ReviewTarget target, String status, String message) {
-        return new View(status, false, message, null, null, null, false, null, null, target.fieldId(), target.sourceUrl());
+        return new View(status, false, message, null, null, null, false, null, null, target.fieldId(), target.sourceUrl(), null, null);
     }
     private static ResponseStatusException stale(String message) { return new ResponseStatusException(HttpStatus.CONFLICT, message); }
 }
