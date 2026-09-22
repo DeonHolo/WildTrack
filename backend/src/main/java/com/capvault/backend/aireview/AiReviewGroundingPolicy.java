@@ -21,6 +21,10 @@ final class AiReviewGroundingPolicy {
         "(?i)\\b(?:optional|if applicable|when applicable|where applicable|as needed|"
             + "not required|for reference only|example only|illustrative only)\\b");
     private static final Pattern TOC_LEADER = Pattern.compile("^.*[.·…]{3,}\\s*\\d+\\s*$");
+    private static final Pattern TOC_PAGE_ENTRY = Pattern.compile(
+        "^(?:(?:\\d+(?:\\.\\d+)*|[IVXLC]+)[.)]?\\s+)?[\\p{L}][\\p{L}\\p{N} \\t,():/&'–-]{2,100}\\s+\\d{1,4}$");
+    private static final Pattern TOC_NUMBERED_ENTRY = Pattern.compile(
+        "^\\d+(?:\\.\\d+)*[.)]?\\s+[\\p{L}][\\p{L}\\p{N} \\t,():/&'–-]{2,100}$");
     private static final Pattern NUMBERED_HEADING = Pattern.compile(
         "^(?:[A-Z](?:\\.\\d+)*|\\d+(?:\\.(?:\\d+|[A-Za-z]))*|[IVXLC]+)[.)]?\\s+(.+)$");
     private static final Pattern QUOTED_HEADING = Pattern.compile("[\\\"'‘“]([^\\\"'’”]{3,100})[\\\"'’”]");
@@ -212,6 +216,11 @@ final class AiReviewGroundingPolicy {
     static boolean containsBodyHeading(String pdfText, String section) {
         String expected = canonical(section);
         if (expected.isBlank()) return false;
+        // The Table of Contents is itself a front-matter section, not a body
+        // chapter after the TOC. A real index heading with entries must not be
+        // marked missing merely because layout() deliberately excludes the
+        // index region when looking for chapter-body headings.
+        if (expected.equals("table of contents") && containsTableOfContents(pdfText)) return true;
         // When filtering a model-proposed missing section, prefer not to call a potentially
         // present heading missing. For *new* automatic absence advisories, use stricter body
         // boundary confidence in templateBodyCrosscheck above.
@@ -231,6 +240,30 @@ final class AiReviewGroundingPolicy {
                 }
             }
         }
+        return false;
+    }
+
+    private static boolean containsTableOfContents(String pdfText) {
+        List<String> lines = Objects.requireNonNullElse(pdfText, "").lines().map(String::trim).toList();
+        for (int heading = 0; heading < lines.size(); heading++) {
+            if (!normalize(lines.get(heading)).equals("table of contents")) continue;
+            int formattedEntries = 0;
+            int numberedEntries = 0;
+            int nonblank = 0;
+            for (int i = heading + 1; i < lines.size() && nonblank < 36; i++) {
+                String line = lines.get(i);
+                if (line.isBlank()) continue;
+                nonblank++;
+                if (line.length() > 125 || line.split("\\s+").length > 16) break;
+                // A later occurrence of the same title is usually a TOC entry
+                // or the start of a different region, not an index entry itself.
+                if (normalize(line).equals("table of contents")) break;
+                if (TOC_LEADER.matcher(line).matches() || TOC_PAGE_ENTRY.matcher(line).matches()) formattedEntries++;
+                if (TOC_NUMBERED_ENTRY.matcher(line).matches()) numberedEntries++;
+                if (formattedEntries >= 2 || numberedEntries >= 3) return true;
+            }
+        }
+        // A lone title or a paragraph mentioning the TOC is insufficient.
         return false;
     }
 
@@ -317,6 +350,9 @@ final class AiReviewGroundingPolicy {
         if (CONTENT_ABSENCE.matcher(issue).find()
                 || !(HEADING_ABSENCE.matcher(issue).find() || NAMED_HEADING_ABSENCE.matcher(issue).find()))
             return false;
+        if (normalize(issue).contains("table of contents")
+                && normalize(finding.requirement()).contains("table of contents")
+                && containsBodyHeading(documentText, "Table of Contents")) return true;
         Matcher quoted = QUOTED_HEADING.matcher(issue);
         while (quoted.find()) {
             if (containsBodyHeading(documentText, quoted.group(1))) return true;

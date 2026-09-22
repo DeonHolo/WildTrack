@@ -35,9 +35,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AiReviewService {
-    // Post-validation behavior is part of the persisted review cache fingerprint. Leave v4
-    // reports intact; new crosschecked reviews must not reuse pre-crosscheck cached results.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v6";
+    // Post-validation behavior is part of the persisted review cache fingerprint.
+    // Do not reuse pre-TOC-fix reports whose false missing-index claim survived grounding.
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v7";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and

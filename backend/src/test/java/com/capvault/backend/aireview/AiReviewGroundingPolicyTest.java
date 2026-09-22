@@ -49,6 +49,88 @@ class AiReviewGroundingPolicyTest {
             "Test Approach")).isTrue();
     }
 
+    @Test void aRealTableOfContentsIsPresentEvenThoughItsTitleIsExcludedFromChapterBodyDetection() {
+        // The template uses dotted leaders, while the submitted 84-page PDF's
+        // index uses clean page-number columns and different chapter numbering.
+        String officialTemplate = """
+            Table of Contents
+            Change History ....................................... 2
+            Table of Contents .................................... 3
+            1. Introduction ...................................... 4
+            2. Overall Description .............................. 5
+            3. Specific Requirements ............................ 7
+            1. Introduction
+            1.1 Purpose
+            """;
+        String submitted = """
+            Table of Contents
+            Change History                                      2
+            Table of Contents                                   3
+            1. Introduction                                     4
+            1.1 Purpose                                         4
+            1.2 Scope                                           4
+            2. Overall Description                              7
+            2.3 Constraints                                     7
+            2.4 Assumptions and Dependencies                    8
+            3. External Interface Requirements                 10
+            4. Functional Requirements                         10
+            4.1 Module 1: Service Record Input                 11
+            5. Non-functional Requirements                    81
+            1. Introduction
+            This document describes the application and its intended purpose.
+            """;
+        assertThat(AiReviewGroundingPolicy.containsBodyHeading(officialTemplate, "Table of Contents")).isTrue();
+        assertThat(AiReviewGroundingPolicy.containsBodyHeading(submitted, "Table of Contents")).isTrue();
+        var claimedMissing = missing("Table of Contents", "Table of Contents");
+        var raw = review(List.of(), List.of(claimedMissing), "The Table of Contents is missing.",
+            "Add the Table of Contents.");
+        var processed = AiReviewService.postprocessForBenchmark(raw, "Software Requirements Specification",
+            "", officialTemplate, submitted);
+        assertThat(processed.missingRequiredSections()).doesNotContain(claimedMissing);
+        assertThat(processed.summary()).doesNotContain("Table of Contents is missing");
+    }
+
+    @Test void aStandaloneTitleOrIncidentalMentionDoesNotFalselyProveAnIndexExists() {
+        assertThat(AiReviewGroundingPolicy.containsBodyHeading("""
+            1. Introduction
+            The application will contain a Table of Contents when the documentation is finished.
+            """, "Table of Contents")).isFalse();
+        assertThat(AiReviewGroundingPolicy.containsBodyHeading("""
+            Table of Contents
+            Draft index pending.
+            1. Introduction
+            A description of the project.
+            """, "Table of Contents")).isFalse();
+        assertThat(AiReviewGroundingPolicy.containsBodyHeading("""
+            Table of Contents
+            1. Introduction ................................... 4
+            2. Overview ....................................... 5
+            """, "Table of Contents")).isTrue();
+        assertThat(AiReviewGroundingPolicy.containsBodyHeading("""
+            Table of Contents
+            1. Introduction
+            1.1 Purpose
+            2. Overview
+            """, "Table of Contents")).isTrue();
+    }
+
+    @Test void aProviderFindingThatExplicitlyClaimsAnExistingIndexIsMissingIsAlsoFiltered() {
+        String submitted = """
+            Table of Contents
+            Change History .................................... 2
+            Introduction ...................................... 4
+            1. Introduction
+            Project purpose and scope.
+            """;
+        var alleged = new AiReviewProvider.Finding("The Table of Contents section is missing.",
+            AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
+            "No index detected on the submitted PDF", "Table of Contents");
+        var filtered = AiReviewService.postprocessForBenchmark(review(List.of(alleged), List.of(),
+            "The Table of Contents is missing.", "Add an index."),
+            "Software Requirements Specification", "", "Table of Contents", submitted);
+        assertThat(filtered.findings()).isEmpty();
+    }
+
     @Test void existingNumberedAndUnnumberedBodyHeadingsAreNotReportedMissing() {
         String docText = """
             Table of Contents
