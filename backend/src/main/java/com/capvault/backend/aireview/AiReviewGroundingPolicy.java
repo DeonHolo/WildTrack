@@ -27,6 +27,25 @@ final class AiReviewGroundingPolicy {
     private static final Pattern ABSENCE = Pattern.compile(
         "\\b(missing|absent|omitted|not present|not included|no section|lacks|does not contain)\\b",
         Pattern.CASE_INSENSITIVE);
+    private static final Pattern HEADING_ABSENCE = Pattern.compile(
+        "(?i)(?:\\b(?:missing|absent|omitted|not present|not included|no)\\s+(?:required\\s+)?(?:body\\s+)?(?:section|heading)\\b|"
+            + "\\b(?:section|heading)\\b.{0,110}\\b(?:missing|absent|omitted|not present|not included|does not appear|does not exist)\\b|"
+            + "\\b(?:missing|absent|omitted)\\b.{0,110}\\b(?:section|heading)\\b)");
+    private static final Pattern CONTENT_ABSENCE = Pattern.compile(
+        "(?i)\\b(?:missing|absent|omitted|lacks?)\\s+(?:substantive\\s+)?"
+            + "(?:content|detail|information|description|explanation|prose|paragraph|evidence|example)s?\\b");
+    private static final Pattern NAMED_HEADING_ABSENCE = Pattern.compile(
+        "(?i)\\b(?:is|are|was|were)\\s+(?:missing|absent|omitted|not\\s+present|not\\s+included)\\b");
+    private static final Pattern FORMAT_REQUIREMENT = Pattern.compile(
+        "(?i)\\b(?:no\\s+bullets?|bullets?\\s+(?:are\\s+)?(?:prohibited|forbidden|not\\s+allowed)|"
+            + "(?:must|shall|required\\s+to|should)\\s+(?:be\\s+)?(?:written|presented|described)\\s+"
+            + "(?:in\\s+)?(?:paragraphs?|prose|narrative)|paragraph\\s+format|prose\\s+format)\\b");
+    private static final Pattern UNSUPPORTED_FORMAT_CRITICISM = Pattern.compile(
+        "(?i)\\b(?:bullets?|bulleted|lists?)\\b.{0,150}\\b(?:instead\\s+of|rather\\s+than|"
+            + "should|must|required|incorrect|inappropriate|noncompliant|not\\s+acceptable|"
+            + "needs?\\s+to|prose|paragraph|narrative)\\b|"
+            + "\\b(?:should|must|required|incorrect|inappropriate|noncompliant|not\\s+acceptable|"
+            + "needs?\\s+to|prose|paragraph|narrative)\\b.{0,150}\\b(?:bullets?|bulleted|lists?)\\b");
     private static final Pattern WRONG_DELIVERABLE = Pattern.compile(
         "\\b(not (?:an? |the )?(?:actual |functional |valid |correct )?(?:software |project[- ]specific )?"
             + "(?:test document|requirements? (?:specification|document)|design document|deliverable)|"
@@ -41,14 +60,15 @@ final class AiReviewGroundingPolicy {
         var accepted = new ArrayList<AiReviewProvider.Finding>();
         for (var finding : input) {
             String issue = finding.issue();
+            if (unsupportedBulletFormattingClaim(finding)) continue;
             if (finding.source() == AiReviewProvider.FindingSource.DOCUMENT) {
                 if (wrongDeliverableFromSyntheticLabel(issue, title, documentText)
                         || sampleNameConfusion(issue, documentText, templateText)
-                        || contradictedAbsolutePlaceholderClaim(issue, documentText, templateText)
-                        || contradictedMissingBodyFinding(issue, documentText)) continue;
+                        || contradictedAbsolutePlaceholderClaim(issue, documentText, templateText)) continue;
             } else if (unsupportedNamedSectionClaim(issue, finding.requirement(), finding.source())) {
                 continue;
             }
+            if (contradictedRequiredHeadingFinding(finding, documentText)) continue;
             accepted.add(finding);
         }
         return List.copyOf(accepted);
@@ -292,13 +312,42 @@ final class AiReviewGroundingPolicy {
         return colon >= 0 && colon < 110 && canonical(content.substring(0, colon)).equals(expected);
     }
 
-    private static boolean contradictedMissingBodyFinding(String issue, String documentText) {
-        if (!ABSENCE.matcher(issue).find() || !normalize(issue).contains("section")) return false;
+    private static boolean contradictedRequiredHeadingFinding(AiReviewProvider.Finding finding, String documentText) {
+        String issue = finding.issue();
+        if (CONTENT_ABSENCE.matcher(issue).find()
+                || !(HEADING_ABSENCE.matcher(issue).find() || NAMED_HEADING_ABSENCE.matcher(issue).find()))
+            return false;
         Matcher quoted = QUOTED_HEADING.matcher(issue);
         while (quoted.find()) {
             if (containsBodyHeading(documentText, quoted.group(1))) return true;
         }
+        // Section references are often unquoted in the generated finding. Prefer a numbered
+        // heading explicitly named in the supplied authority and mentioned by the finding.
+        if (finding.source() == AiReviewProvider.FindingSource.DOCUMENT) return false;
+        Matcher required = TEMPLATE_BODY_NUMBERED_HEADING.matcher(finding.requirement().trim());
+        if (required.matches() && normalize(issue).contains(normalize(required.group(2)))) {
+            return containsBodyHeading(documentText, required.group(2));
+        }
+        for (String line : finding.requirement().lines().toList()) {
+            Matcher numbered = TEMPLATE_BODY_NUMBERED_HEADING.matcher(line.trim());
+            if (numbered.matches() && normalize(issue).contains(normalize(numbered.group(2)))
+                    && containsBodyHeading(documentText, numbered.group(2))) return true;
+        }
         return false;
+    }
+
+    private static boolean unsupportedBulletFormattingClaim(AiReviewProvider.Finding finding) {
+        if (!UNSUPPORTED_FORMAT_CRITICISM.matcher(finding.issue()).find()) return false;
+        // A document may be the wrong deliverable even when its visible structure is a list.
+        // A formatting guard must not erase that independently observed identity mismatch.
+        if (WRONG_DELIVERABLE.matcher(finding.issue()).find()
+                || normalize(finding.issue()).matches("(?s).*\\b(?:wrong document|wrong deliverable|"
+                    + "rather than the requested|not (?:an? )?(?:srs|std|sdd|spmp))\\b.*"))
+            return false;
+        // An observed bullet list is document evidence. Claiming it violates an unprovided
+        // paragraph/prose rule requires an explicit source passage authorizing that rule.
+        return finding.source() == AiReviewProvider.FindingSource.DOCUMENT
+            || !FORMAT_REQUIREMENT.matcher(finding.requirement()).find();
     }
 
     private static boolean unsupportedNamedSectionClaim(String issue, String requirement,
@@ -357,11 +406,35 @@ final class AiReviewGroundingPolicy {
                 && text.matches("(?s).*(?:placeholder|heading|no actual project content).*"))) return false;
         String doc = normalize(documentText);
         if (!normalize(templateText).isBlank() && doc.equals(normalize(templateText))) return false;
-        // A full, substantive paragraph in a body section disproves an absolute assertion
-        // that the document contains ONLY headings/placeholders. It does not establish completeness.
-        return documentText.lines().map(String::trim).anyMatch(line ->
-            line.length() >= 95 && line.split("\\s+").length >= 15
-                && !line.toLowerCase(Locale.ROOT).matches("(?s).*(?:placeholder|insert system name|sample filler).*"));
+        // PDF extraction often wraps one substantive paragraph into several
+        // short lines. A real body paragraph refutes the absolute claim that
+        // the entire document contains only headings and placeholders.
+        StringBuilder paragraph = new StringBuilder();
+        for (String raw : documentText.lines().toList()) {
+            String line = raw.trim();
+            boolean boundary = line.isBlank() || NUMBERED_HEADING.matcher(line).matches()
+                || line.matches("(?i)^(?:document version|software test document|"
+                    + "software requirements specification|software design document)(?::.*)?$");
+            if (boundary) {
+                if (substantiveParagraph(paragraph.toString())) return true;
+                paragraph.setLength(0);
+            } else if (line.toLowerCase(Locale.ROOT)
+                    .matches("(?s).*(?:placeholder|insert system name|sample filler).*")) {
+                paragraph.setLength(0);
+            } else {
+                if (!paragraph.isEmpty()) paragraph.append(' ');
+                paragraph.append(line);
+            }
+        }
+        return substantiveParagraph(paragraph.toString());
+    }
+
+    private static boolean substantiveParagraph(String candidate) {
+        String text = candidate.toLowerCase(Locale.ROOT);
+        if (text.contains("synthetic benchmark fixture") || text.contains("controlled test material")
+                || text.contains("sample filler") || text.contains("not evidence that")) return false;
+        return candidate.length() >= 110 && candidate.split("\\s+").length >= 18
+            && candidate.contains(".");
     }
 
     private static String canonical(String text) {

@@ -1,10 +1,11 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { runAiReview, runAiReviews, runDocumentChecks } from './reviewDeskClient.js';
+import { applyArtifactAiReview, runAiReview, runAiReviews, runDocumentChecks } from './reviewDeskClient.js';
 
 const request = vi.hoisted(() => vi.fn());
+const batchRequest = vi.hoisted(() => vi.fn());
 const ai = vi.hoisted(() => ({ start: vi.fn(), saved: vi.fn() }));
 vi.mock('./api.js', async (original) => ({ ...(await original()), runDocumentCheck: request,
-  requestAiReview: ai.start, getSavedAiReview: ai.saved }));
+  runDocumentCheckBatch: batchRequest, requestAiReview: ai.start, getSavedAiReview: ai.saved }));
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
 it('polls a running AI job without submitting a second generation request', async () => {
@@ -18,6 +19,57 @@ it('polls a running AI job without submitting a second generation request', asyn
   expect(result.review.reused).toBe(false);
   expect(ai.start).toHaveBeenCalledTimes(1);
   expect(ai.saved).toHaveBeenCalledWith('workspace', 'response', null);
+});
+
+it('sends an explicit rerun flag for a current saved PDF and replaces its report with the newly completed saved result', async () => {
+  vi.useFakeTimers();
+  ai.start.mockResolvedValueOnce({ status: 'RUNNING', reused: false, fieldId: 'field-pdf' });
+  ai.saved.mockResolvedValueOnce({ status: 'COMPLETED', fieldId: 'field-pdf', reused: false,
+    report: { summary: 'New rerun output' }, sourceUrl: 'https://drive.test/file', generatedAt: '2026-09-22T05:00:00Z' });
+  const pending = runAiReview('workspace', 'response', 'field-pdf', false, null, () => true, true);
+  await vi.advanceTimersByTimeAsync(2500);
+  const result = await pending;
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.start).toHaveBeenCalledWith('workspace', 'response', false, null, 'field-pdf', true);
+  expect(ai.saved).toHaveBeenCalledWith('workspace', 'response', 'field-pdf');
+  expect(result).toMatchObject({ ok: true, review: {
+    fieldId: 'field-pdf', report: { summary: 'New rerun output' }, reused: false
+  } });
+});
+
+it('surfaces a quota-limited rerun and never silently sends another generation request', async () => {
+  vi.useFakeTimers();
+  ai.start.mockResolvedValueOnce({ status: 'RUNNING', fieldId: 'field-pdf' });
+  ai.saved.mockResolvedValueOnce({ status: 'UNCERTAIN', fieldId: 'field-pdf', failureCode: 'RATE_LIMITED',
+    retryToken: 'retry-token', message: "Gemini's quota or rate limit was reached." });
+  const pending = runAiReview('workspace', 'response', 'field-pdf', false, null, () => true, true);
+  await vi.advanceTimersByTimeAsync(2500);
+  const result = await pending;
+  expect(result).toMatchObject({ ok: false, uncertain: true, pauseBatch: true,
+    error: "Gemini's quota or rate limit was reached.", review: { retryToken: 'retry-token' } });
+  expect(ai.start).toHaveBeenCalledTimes(1);
+  expect(ai.start).toHaveBeenCalledWith('workspace', 'response', false, null, 'field-pdf', true);
+});
+
+it('surfaces a failed rerun POST without replacing the saved report with a fictitious result', async () => {
+  ai.start.mockRejectedValueOnce(Object.assign(new Error('Quota exceeded (429)'), { status: 429 }));
+  const result = await runAiReview('workspace', 'response', 'field-pdf', false, null, () => true, true);
+  expect(result).toMatchObject({ ok: false, pauseBatch: true, error: 'Quota exceeded (429)' });
+  expect(result.review).toBeUndefined();
+  expect(ai.saved).not.toHaveBeenCalled();
+  expect(ai.start).toHaveBeenCalledTimes(1);
+});
+
+it('applies the backend legacy field ID to both legacy and migrated PDF view models', () => {
+  const response = { deliverableId: 'deliverable-1', values: { documentPdf: 'https://drive.test/pdf' },
+    updatedAt: '2026-09-22T01:00:00Z', aiReviewState: { status: 'COMPLETED', report: { summary: 'Old report' } } };
+  const review = { fieldId: 'deliverable-1:legacy', status: 'COMPLETED', sourceUrl: response.values.documentPdf,
+    generatedAt: '2026-09-22T02:00:00Z', sourceResponseUpdatedAt: response.updatedAt,
+    report: { summary: 'Rerun result from backend' } };
+  const updated = applyArtifactAiReview(response, review);
+  expect(updated.aiReviewState?.report?.summary).toBe('Rerun result from backend');
+  expect(updated.aiReport?.summary).toBe('Rerun result from backend');
+  expect(updated.artifactAiReviews['deliverable-1:legacy']?.report?.summary).toBe('Rerun result from backend');
 });
 
 it('stops polling when the account or workspace changes', async () => {
@@ -86,6 +138,159 @@ it('checks only explicitly reviewable PDF fields and never infers the first subm
     { fieldId: 'field-framework', sourceUrl: 'https://drive.google.com/file/d/framework-pdf/view' },
     { fieldId: 'field-highlights', sourceUrl: 'https://drive.google.com/file/d/highlights-pdf/view' }
   ]);
+});
+
+const srs = {
+  id: 'SRS', trackerColumn: 'Refactored SRS',
+  fields: [{ id: 'documentPdf', definitionId: 'field-pdf', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO' }]
+};
+
+function response(id, sourceUrl, deliverableId = 'SRS') {
+  return {
+    id, deliverableId, updatedAt: `2026-09-22T12:00:${String(Number(id.replace(/\D/g, '')) % 60).padStart(2, '0')}+08:00`,
+    values: { documentPdf: sourceUrl }
+  };
+}
+
+it('groups all students sharing a canonical Drive file before chunking across many file groups', async () => {
+  const sharedFile = 'shared-canonical-drive-id';
+  const shared = [
+    `https://drive.google.com/file/d/${sharedFile}/view`,
+    `https://drive.google.com/open?id=${sharedFile}`,
+    `https://drive.google.com/uc?export=download&id=${sharedFile}`,
+    `https://DRIVE.GOOGLE.COM/file/d/${sharedFile}/view?usp=sharing`,
+    `https://drive.google.com/open?ID=${sharedFile}&resourcekey=0-123`
+  ];
+  // Interleave the five students with enough other files to cross both the
+  // previous 30-target boundary and several 8-file group boundaries.
+  const responses = Array.from({ length: 67 }, (_, index) => response(`student-${index + 1}`,
+    [0, 12, 30, 43, 66].includes(index)
+      ? shared[[0, 12, 30, 43, 66].indexOf(index)]
+      : `https://drive.google.com/file/d/file-${Math.floor(index / 2)}/view`));
+  const expectedIds = new Set(responses.map((item) => {
+    const url = new URL(item.values.documentPdf);
+    return url.pathname.match(/\/file\/d\/([^/]+)/)?.[1] || [...url.searchParams.entries()].find(([key]) => key.toLowerCase() === 'id')?.[1];
+  }));
+  const progress = [];
+  batchRequest.mockImplementation(async (_workspace, payload) => payload.map((item) => ({
+    responseId: item.responseId, fieldId: item.fieldId,
+    report: { status: 'COMPLETED', fieldId: item.fieldId, sourceResponseUpdatedAt: item.sourceResponseUpdatedAt, sourceUrl: item.sourceUrl },
+    error: null
+  })).reverse());
+
+  const outcome = await runDocumentChecks('workspace', responses, [srs], {
+    useDedup: true, onProgress: (value) => progress.push(value)
+  });
+
+  expect(batchRequest.mock.calls.length).toBeGreaterThan(2);
+  const seen = new Map();
+  for (const [, payload] of batchRequest.mock.calls) {
+    expect(payload.length).toBeLessThanOrEqual(40);
+    const files = new Set(payload.map((item) => {
+      const url = new URL(item.sourceUrl);
+      return url.pathname.match(/\/file\/d\/([^/]+)/)?.[1] || [...url.searchParams.entries()].find(([key]) => key.toLowerCase() === 'id')?.[1];
+    }));
+    expect(files.size).toBeLessThanOrEqual(8);
+    files.forEach((file) => seen.set(file, (seen.get(file) || 0) + 1));
+    const common = payload.filter((item) => shared.includes(item.sourceUrl));
+    if (common.length) expect(common).toHaveLength(5);
+  }
+  expect(new Set(seen.keys())).toEqual(expectedIds);
+  expect([...seen.values()].every((count) => count === 1)).toBe(true);
+  expect(request).not.toHaveBeenCalled();
+  expect(outcome).toMatchObject({ ok: true, cancelled: false, completed: 67, total: 67, failed: 0 });
+  expect(outcome.results).toHaveLength(67);
+  expect(new Set(outcome.results.map((item) => item.attemptId)))
+    .toEqual(new Set(responses.map((item) => item.id)));
+  for (const item of outcome.results) {
+    expect(item.report.fieldId).toBe('field-pdf');
+    expect(item.report.sourceUrl).toBe(responses.find((candidate) => candidate.id === item.attemptId).values.documentPdf);
+  }
+  expect(progress).toHaveLength(batchRequest.mock.calls.length);
+  expect(progress.at(-1)).toEqual({ completed: 67, total: 67 });
+  expect(progress.map((value) => value.completed)).toEqual([...progress.map((value) => value.completed)].sort((a, b) => a - b));
+});
+
+it('preserves distinct response and PDF field reports when the same file is submitted for multiple artifacts', async () => {
+  const deliverable = {
+    ...srs,
+    fields: [...srs.fields, { id: 'appendixPdf', definitionId: 'field-appendix', type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO' }]
+  };
+  const first = response('response-1', 'https://drive.google.com/file/d/shared-id/view');
+  first.values.appendixPdf = 'https://drive.google.com/open?id=shared-id';
+  const second = response('response-2', 'https://drive.google.com/file/d/shared-id/view');
+  second.values.appendixPdf = 'https://drive.google.com/file/d/other-id/view';
+  batchRequest.mockImplementation(async (_workspace, payload) => payload.map((item) => ({
+    responseId: item.responseId, fieldId: item.fieldId,
+    report: { fieldId: item.fieldId, responseId: item.responseId, sourceUrl: item.sourceUrl }, error: null
+  })).reverse());
+
+  const result = await runDocumentChecks('workspace', [first, second], [deliverable], { useDedup: true });
+  expect(batchRequest).toHaveBeenCalledTimes(1);
+  expect(result).toMatchObject({ ok: true, completed: 4, total: 4, failed: 0 });
+  expect(result.results.map((item) => [item.attemptId, item.fieldId, item.fieldKey])).toEqual([
+    ['response-1', 'field-pdf', 'documentPdf'], ['response-1', 'field-appendix', 'appendixPdf'],
+    ['response-2', 'field-pdf', 'documentPdf'], ['response-2', 'field-appendix', 'appendixPdf']
+  ]);
+  expect(result.results.every((item) => item.report.fieldId === item.fieldId && item.report.responseId === item.attemptId)).toBe(true);
+});
+
+it('counts missing per-artifact responses and a failed chunk while continuing with the remaining file groups', async () => {
+  const responses = Array.from({ length: 20 }, (_, index) => response(`response-${index + 1}`, `https://drive.google.com/file/d/file-${index}/view`));
+  batchRequest.mockImplementationOnce(async (_workspace, payload) => payload.slice(1).map((item) => ({
+    responseId: item.responseId, fieldId: item.fieldId, report: { fieldId: item.fieldId }, error: null
+  }))).mockRejectedValueOnce(new Error('Temporary batch failure'))
+    .mockImplementationOnce(async (_workspace, payload) => payload.map((item) => ({
+      responseId: item.responseId, fieldId: item.fieldId, report: { fieldId: item.fieldId }, error: null
+    })));
+
+  const result = await runDocumentChecks('workspace', responses, [srs], { useDedup: true });
+  expect(batchRequest).toHaveBeenCalledTimes(3);
+  expect(result).toMatchObject({ ok: false, cancelled: false, completed: 20, total: 20, failed: 9 });
+  expect(result.results).toHaveLength(20);
+  expect(result.results[0]).toMatchObject({ attemptId: 'response-1', ok: false, error: expect.stringContaining('did not return') });
+  expect(result.results.filter((entry) => entry.error === 'Temporary batch failure')).toHaveLength(8);
+  expect(result.results.at(-1).ok).toBe(true);
+});
+
+it('stops starting new deduplicated chunks after the caller cancels', async () => {
+  const responses = Array.from({ length: 17 }, (_, index) => response(`response-${index + 1}`, `https://drive.google.com/file/d/file-${index}/view`));
+  let continueRunning = true;
+  let releaseFirst;
+  batchRequest.mockImplementationOnce(() => new Promise((resolve) => { releaseFirst = resolve; }));
+  const running = runDocumentChecks('workspace', responses, [srs], {
+    useDedup: true, shouldContinue: () => continueRunning
+  });
+  continueRunning = false;
+  releaseFirst(batchRequest.mock.calls[0][1].map((item) => ({ responseId: item.responseId, fieldId: item.fieldId, report: { fieldId: item.fieldId } })));
+  const result = await running;
+  expect(batchRequest).toHaveBeenCalledTimes(1);
+  expect(result).toMatchObject({ cancelled: true, completed: 8, total: 17, failed: 0 });
+});
+
+it('keeps a large shared-file group intact even when it exceeds the normal 40-target chunk size', async () => {
+  const responses = Array.from({ length: 46 }, (_, index) => response(`response-${index + 1}`,
+    index === 0 ? 'https://drive.google.com/file/d/independent/view'
+      : index % 2 ? 'https://drive.google.com/file/d/one-shared-pdf/view'
+        : 'https://drive.google.com/open?id=one-shared-pdf'));
+  batchRequest.mockImplementation(async (_workspace, payload) => payload.map((item) => ({
+    responseId: item.responseId, fieldId: item.fieldId, report: { fieldId: item.fieldId }
+  })));
+
+  const result = await runDocumentChecks('workspace', responses, [srs], { useDedup: true });
+  expect(batchRequest).toHaveBeenCalledTimes(2);
+  expect(batchRequest.mock.calls[0][1]).toHaveLength(1);
+  expect(batchRequest.mock.calls[1][1]).toHaveLength(45);
+  expect(result).toMatchObject({ ok: true, completed: 46, total: 46, failed: 0 });
+});
+
+it('reports an over-400-target shared-file group without splitting it into repeated downloads', async () => {
+  const responses = Array.from({ length: 401 }, (_, index) => response(`response-${index + 1}`,
+    'https://drive.google.com/file/d/one-shared-pdf/view'));
+  const result = await runDocumentChecks('workspace', responses, [srs], { useDedup: true });
+  expect(batchRequest).not.toHaveBeenCalled();
+  expect(result).toMatchObject({ ok: false, cancelled: false, completed: 401, total: 401, failed: 401 });
+  expect(result.results[0].error).toMatch(/More than 400 submissions/);
 });
 
 it('continues an AI batch past a saved uncertain result without automatically retrying it', async () => {

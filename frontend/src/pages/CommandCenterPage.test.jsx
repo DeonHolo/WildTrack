@@ -9,15 +9,25 @@ import { CommandCenterPage } from './CommandCenterPage.jsx';
 
 const workflow = vi.hoisted(() => ({
   state: null,
+  loadFromServer: false,
   activeWorkspaceId: null,
   session: { authenticated: true, email: 'admin@example.com' },
   runDocumentCheck: vi.fn(),
   runDocumentChecks: vi.fn(),
-  archiveAttempt: vi.fn()
+  archiveAttempt: vi.fn(),
+  acceptResponse: vi.fn(),
+  revokeAcceptance: vi.fn(),
+  runAiReview: vi.fn()
 }));
 
 const api = vi.hoisted(() => ({
   getIdentityConflicts: vi.fn(),
+  getFileMonitorEvents: vi.fn(),
+  getWorkTaskDismissals: vi.fn(),
+  dismissWorkTask: vi.fn(),
+  restoreWorkTask: vi.fn(),
+  getAiReviewStatus: vi.fn(),
+  getSubmittedFileHistory: vi.fn(),
   getStudentAccountBindings: vi.fn(),
   disconnectStudentAccountBinding: vi.fn(),
   recoverStudentAccountBinding: vi.fn()
@@ -28,9 +38,17 @@ vi.mock('../app/WorkspaceSession.jsx', () => ({
 }));
 
 vi.mock('../hooks/useWorkspaceResource.js', async () => {
-  const { useReducer } = await import('react');
+  const { useEffect, useReducer } = await import('react');
   return { useWorkspaceResource: (_id, _load, _empty, key) => {
     const [, renderAgain] = useReducer(value => value + 1, 0);
+    useEffect(() => {
+      if (!workflow.loadFromServer || !_id || key !== 'work-queue') return;
+      let active = true;
+      _load(_id).then(data => {
+        if (active) { workflow.state = data; renderAgain(); }
+      });
+      return () => { active = false; };
+    }, [_id, _load, key]);
     return {
       data: key === 'identity-history' ? workflow.state.openConflicts || [] : workflow.state,
       setData: next => { workflow.state = typeof next === 'function' ? next(workflow.state) : next; renderAgain(); },
@@ -38,10 +56,19 @@ vi.mock('../hooks/useWorkspaceResource.js', async () => {
     };
   } };
 });
+vi.mock('../lib/monitoringClient.js', () => ({
+  emptyMonitoringState: () => ({ attempts: [], students: [], deliverables: [], archives: [] }),
+  loadMonitoringState: async () => workflow.state
+}));
 beforeEach(() => { workflow.error = ''; notifications.clean(); });
 
 vi.mock('../lib/reviewDeskClient.js', () => ({
   applyDocumentCheck: (response, report) => ({ ...response, documentCheck: report }),
+  applyReviewMutation: (response, reviewState) => ({ ...response, ...reviewState }),
+  applyArtifactAiReview: (response, review) => ({ ...response, aiReviewState: review }),
+  acceptResponse: (...args) => workflow.acceptResponse(...args),
+  revokeAcceptance: (...args) => workflow.revokeAcceptance(...args),
+  runAiReview: (...args) => workflow.runAiReview(...args),
   runDocumentCheck: (_workspaceId, response) => workflow.runDocumentCheck(response.id),
   runDocumentChecks: (...args) => workflow.runDocumentChecks(...args)
 }));
@@ -142,7 +169,17 @@ describe("today's work queues", () => {
     workflow.runDocumentChecks.mockReset().mockResolvedValue({ completed: 1, total: 1, failed: 0, results: [] });
     workflow.archiveAttempt.mockReset().mockResolvedValue({ ok: true, archived: 1 });
     workflow.activeWorkspaceId = null;
+    workflow.loadFromServer = false;
     api.getIdentityConflicts.mockReset().mockResolvedValue([]);
+    api.getFileMonitorEvents.mockReset().mockResolvedValue([]);
+    api.getWorkTaskDismissals.mockReset().mockResolvedValue([]);
+    api.dismissWorkTask.mockReset().mockResolvedValue(undefined);
+    api.restoreWorkTask.mockReset().mockResolvedValue(undefined);
+    api.getAiReviewStatus.mockReset().mockResolvedValue({ configured: true });
+    api.getSubmittedFileHistory.mockReset().mockResolvedValue({ revisions: [], limitations: [] });
+    workflow.acceptResponse.mockReset().mockResolvedValue({ reviewStatus: 'Accepted', acceptance: { acceptedAt: submittedAt } });
+    workflow.revokeAcceptance.mockReset().mockResolvedValue({ reviewStatus: 'Pending', acceptance: null });
+    workflow.runAiReview.mockReset().mockResolvedValue({ ok: true, review: { status: 'COMPLETED' } });
     api.getStudentAccountBindings.mockReset().mockResolvedValue({ firstClaimLimitation: 'First successful submission is self-declared.', accounts: [] });
     api.disconnectStudentAccountBinding.mockReset().mockResolvedValue({ status: 'UNBOUND' });
     api.recoverStudentAccountBinding.mockReset().mockResolvedValue({ status: 'BOUND' });
@@ -238,7 +275,7 @@ describe("today's work queues", () => {
     await waitFor(() => expect(workflow.archiveAttempt).toHaveBeenCalledWith('accepted-004'));
   });
 
-  it('opens destination pages with the exact response, deliverable, source, or archive record in context', () => {
+  it('opens response review in Today’s work while preserving import and archive destination links', async () => {
     workflow.state.archives = [{
       id: 'archive-failed-1',
       attemptId: 'archived-005',
@@ -250,10 +287,10 @@ describe("today's work queues", () => {
     }];
     renderPage();
 
-    expect(screen.getByRole('link', { name: 'Review Student review-002 response' }))
-      .toHaveAttribute('href', '/review?deliverable=deliv-srs&response=review-002');
-    expect(screen.getByRole('link', { name: 'Resolve Student identity-003 identity conflict' }))
-      .toHaveAttribute('href', '/review?deliverable=deliv-srs&response=identity-003');
+    fireEvent.click(screen.getByRole('button', { name: 'Review Student review-002 response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student review-002' });
+    expect(within(drawer).getByText('SRS response')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: "Today's work" })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Tracker import warning' }))
       .toHaveAttribute('href', '/workspace?source=tracker');
     expect(screen.getByRole('link', { name: 'Open failed archive record' }))
@@ -322,6 +359,298 @@ describe("today's work queues", () => {
 
     expect(screen.getByText('All clear for this workspace')).toBeInTheDocument();
     expect(screen.queryByRole('table', { name: "Today's work queue" })).not.toBeInTheDocument();
+  });
+
+  it('groups file-monitor events by file, shows affected responses, and keeps bulk checks limited to unchecked PDFs', async () => {
+    workflow.activeWorkspaceId = 'ws-monitor';
+    const first = checkedResponse('shared-001');
+    const second = checkedResponse('shared-002');
+    workflow.state = makeState([first, second]);
+    workflow.state.fileEvents = [{ id: 'old-event', fileId: 'same-pdf', kind: 'METADATA_CHANGED',
+      detail: 'Old metadata observation.', observedAt: '2026-09-20T09:00:00Z',
+      responseIds: [first.id, second.id], teamCodes: [first.teamCode] },
+    { id: 'latest-event', fileId: 'same-pdf', kind: 'CONTENT_CHANGED',
+      detail: 'The PDF content changed.', observedAt: '2026-09-22T09:00:00Z',
+      responseIds: [first.id, second.id, second.id], teamCodes: [first.teamCode] }];
+    renderPage();
+
+    const queue = screen.getByRole('table', { name: "Today's work queue" });
+    expect(within(queue).getAllByText('PDF content changed')).toHaveLength(1);
+    expect(within(queue).getByText(/2 affected responses across 1 team/)).toBeInTheDocument();
+    expect(within(queue).queryByText('Drive metadata changed')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Check all unchecked/ })).not.toBeInTheDocument();
+    fireEvent.click(within(queue).getByRole('button', { name: 'Review affected response for PDF content changed' }));
+    expect(await screen.findByRole('dialog', { name: 'Review Student shared-001' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: "Today's work" })).toBeInTheDocument();
+  });
+
+  it('keeps an unresolved content alert prominent through later metadata and access updates, retains its dismissal, and surfaces a new content change', async () => {
+    workflow.activeWorkspaceId = 'ws-file-alerts';
+    const first = checkedResponse('shared-001');
+    workflow.state = makeState([first]);
+    const base = { fileId: 'shared-pdf', responseIds: [first.id], teamCodes: [first.teamCode] };
+    const originalContent = { ...base, id: 'content-1', kind: 'CONTENT_CHANGED', detail: 'First verified content change.',
+      observedAt: '2026-09-20T08:00:00Z' };
+    const metadata = { ...base, id: 'metadata-1', kind: 'METADATA_CHANGED', detail: 'Drive metadata updated.',
+      observedAt: '2026-09-21T08:00:00Z' };
+    const restored = { ...base, id: 'restored-1', kind: 'ACCESS_RESTORED', detail: 'Drive access restored.',
+      observedAt: '2026-09-22T08:00:00Z' };
+    workflow.state.fileEvents = [restored, metadata, originalContent];
+    const page = renderPage();
+
+    const open = () => screen.getByRole('tabpanel', { name: 'Open notifications' });
+    expect(within(open()).getByText('First verified content change.', { exact: false })).toBeInTheDocument();
+    expect(within(open()).getAllByText('PDF content changed')).toHaveLength(1);
+    expect(within(open()).queryByText('Drive metadata changed')).not.toBeInTheDocument();
+    expect(within(open()).queryByText('PDF access restored')).not.toBeInTheDocument();
+
+    fireEvent.click(within(open()).getByRole('button', { name: 'Dismiss PDF content changed: SRS | PDF content changed' }));
+    await waitFor(() => expect(api.dismissWorkTask).toHaveBeenCalledWith('ws-file-alerts', 'file:shared-pdf:content-1'));
+    expect(within(open()).queryByText('PDF content changed')).not.toBeInTheDocument();
+    expect(within(open()).queryByText('Drive metadata changed')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Dismissed (1)' }));
+    expect(screen.getByRole('tabpanel', { name: 'Dismissed notifications' }))
+      .toHaveTextContent('First verified content change.');
+
+    const newerContent = { ...base, id: 'content-2', kind: 'CONTENT_CHANGED', detail: 'Second verified content change.',
+      observedAt: '2026-09-22T09:00:00Z' };
+    workflow.state = { ...workflow.state, fileEvents: [newerContent, restored, metadata, originalContent] };
+    page.rerender(pageTree());
+    fireEvent.click(screen.getByRole('tab', { name: /Open \(/ }));
+    expect(within(open()).getByText('Second verified content change.', { exact: false })).toBeInTheDocument();
+    expect(within(open()).queryByText('First verified content change.', { exact: false })).not.toBeInTheDocument();
+    expect(within(open()).getAllByText('PDF content changed')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('tab', { name: 'Dismissed (1)' }));
+    expect(screen.getByRole('tabpanel', { name: 'Dismissed notifications' }))
+      .toHaveTextContent('First verified content change.');
+    expect(screen.getByRole('tabpanel', { name: 'Dismissed notifications' }))
+      .not.toHaveTextContent('Second verified content change.');
+  });
+
+  it('keeps an undismissed access failure visible when the file subsequently becomes accessible', () => {
+    const attempt = checkedResponse('shared-001');
+    workflow.state = makeState([attempt]);
+    workflow.state.fileEvents = [
+      { id: 'restored', fileId: 'access-file', kind: 'ACCESS_RESTORED',
+        observedAt: '2026-09-22T10:00:00Z', responseIds: [attempt.id], teamCodes: [attempt.teamCode] },
+      { id: 'unavailable', fileId: 'access-file', kind: 'ACCESS_UNAVAILABLE',
+        observedAt: '2026-09-22T09:00:00Z', responseIds: [attempt.id], teamCodes: [attempt.teamCode] }
+    ];
+    renderPage();
+
+    const open = screen.getByRole('tabpanel', { name: 'Open notifications' });
+    expect(within(open).getByText('PDF access unavailable')).toBeInTheDocument();
+    expect(within(open).queryByText('PDF access restored')).not.toBeInTheDocument();
+    expect(within(open).getAllByRole('button', { name: 'Review affected response for PDF access unavailable' })).toHaveLength(1);
+  });
+
+  it('keeps an older unresolved significant alert when a later significant event is dismissed', () => {
+    const attempt = checkedResponse('shared-001');
+    workflow.state = makeState([attempt]);
+    workflow.state.dismissedKeys = ['file:same-file:latest-change'];
+    workflow.state.fileEvents = [
+      { id: 'latest-change', fileId: 'same-file', kind: 'CONTENT_CHANGED',
+        detail: 'Latest change was acknowledged.', observedAt: '2026-09-22T10:00:00Z',
+        responseIds: [attempt.id], teamCodes: [attempt.teamCode] },
+      { id: 'unresolved-access', fileId: 'same-file', kind: 'ACCESS_UNAVAILABLE',
+        detail: 'Earlier access failure still requires attention.', observedAt: '2026-09-22T09:00:00Z',
+        responseIds: [attempt.id], teamCodes: [attempt.teamCode] }
+    ];
+    renderPage();
+    const open = screen.getByRole('tabpanel', { name: 'Open notifications' });
+    expect(within(open).getByText(/Earlier access failure still requires attention/)).toBeInTheDocument();
+    expect(within(open).queryByText(/Latest change was acknowledged/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Dismissed (1)' }));
+    expect(screen.getByRole('tabpanel', { name: 'Dismissed notifications' }))
+      .toHaveTextContent('Latest change was acknowledged.');
+  });
+
+  it('persists dismiss and restore through server-backed tasks with an accessible Dismissed tab', async () => {
+    workflow.activeWorkspaceId = 'ws-dismiss';
+    workflow.state = makeState([checkedResponse('review-001')]);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss Review decision: Student review-001 | SRS' }));
+    await waitFor(() => expect(api.dismissWorkTask).toHaveBeenCalledWith('ws-dismiss', 'review:review-001'));
+    expect(screen.queryByRole('button', { name: 'Review Student review-001 response' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Dismissed (1)' }));
+    expect(screen.getByRole('button', { name: 'Review Student review-001 response' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Restore Review decision: Student review-001 | SRS' }));
+    await waitFor(() => expect(api.restoreWorkTask).toHaveBeenCalledWith('ws-dismiss', 'review:review-001'));
+    expect(screen.getByText('No dismissed notifications')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Open (1)' }));
+    expect(screen.getByRole('button', { name: 'Review Student review-001 response' })).toBeInTheDocument();
+  });
+
+  it('loads server-dismissed keys for the current staff member and hides only matching notifications', () => {
+    workflow.state = makeState([checkedResponse('review-001'), checkedResponse('review-002')]);
+    workflow.state.dismissedKeys = ['review:review-001'];
+    renderPage();
+    expect(screen.queryByRole('button', { name: 'Review Student review-001 response' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review Student review-002 response' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Dismissed (1)' }));
+    expect(screen.getByRole('button', { name: 'Review Student review-001 response' })).toBeInTheDocument();
+  });
+
+  it('loads monitor events and dismissed keys from workspace-scoped backend endpoints', async () => {
+    workflow.activeWorkspaceId = 'ws-reload';
+    workflow.loadFromServer = true;
+    workflow.state = makeState([checkedResponse('review-001')]);
+    api.getWorkTaskDismissals.mockResolvedValue(['review:review-001']);
+    api.getFileMonitorEvents.mockResolvedValue([{ id: 'monitor-1', fileId: 'shared-file', kind: 'ACCESS_UNAVAILABLE',
+      observedAt: '2026-09-22T09:00:00Z', responseIds: ['review-001'], teamCodes: ['TEAM-1'] }]);
+    renderPage();
+
+    await waitFor(() => expect(api.getFileMonitorEvents).toHaveBeenCalledWith('ws-reload'));
+    await waitFor(() => expect(api.getWorkTaskDismissals).toHaveBeenCalledWith('ws-reload'));
+    expect(await screen.findByText('PDF access unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review Student review-001 response' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Dismissed (1)' }));
+    expect(screen.getByRole('button', { name: 'Review Student review-001 response' })).toBeInTheDocument();
+  });
+
+  it('accepts the real selected response in its local drawer and immediately offers archiving', async () => {
+    workflow.activeWorkspaceId = 'ws-review';
+    workflow.state = makeState([checkedResponse('review-001')]);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Student review-001 response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student review-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Accept response' }));
+    await waitFor(() => expect(workflow.acceptResponse).toHaveBeenCalledWith('review-001'));
+    expect(within(drawer).getByRole('button', { name: 'Revoke acceptance' })).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: 'Archive response' })).toBeEnabled();
+  });
+
+  it('revokes an accepted response through the review drawer and keeps the work page open', async () => {
+    workflow.activeWorkspaceId = 'ws-revoke';
+    workflow.state = makeState([checkedResponse('accepted-001', { reviewStatus: 'Accepted',
+      acceptance: { acceptedAt: submittedAt, acceptedBy: 'Staff', acceptedByRole: 'ADMIN' } })]);
+    workflow.state.fileEvents = [{ id: 'rev-event', fileId: 'rev-file', kind: 'CONTENT_CHANGED',
+      observedAt: submittedAt, responseIds: ['accepted-001'], teamCodes: ['TEAM-1'] }];
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review affected response for PDF content changed' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student accepted-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Revoke acceptance' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Revoke this acceptance?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Revoke acceptance' }));
+    await waitFor(() => expect(workflow.revokeAcceptance).toHaveBeenCalledWith('accepted-001'));
+    expect(within(drawer).getByRole('button', { name: 'Accept response' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: "Today's work" })).toBeInTheDocument();
+  });
+
+  it('archives an accepted response from the drawer using the existing server archive flow', async () => {
+    workflow.activeWorkspaceId = 'ws-archive';
+    workflow.state = makeState([checkedResponse('accepted-001', { reviewStatus: 'Accepted' })]);
+    workflow.state.fileEvents = [{ id: 'archive-event', fileId: 'archive-file', kind: 'CONTENT_CHANGED',
+      observedAt: submittedAt, responseIds: ['accepted-001'], teamCodes: ['TEAM-1'] }];
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review affected response for PDF content changed' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student accepted-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Archive response' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Archive this accepted response?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Archive response' }));
+    await waitFor(() => expect(workflow.archiveAttempt).toHaveBeenCalledWith('accepted-001'));
+    expect(within(drawer).getByRole('button', { name: 'Archived' })).toBeDisabled();
+  });
+
+  it('opens the saved Document Check and scoped file history from the response drawer', async () => {
+    workflow.activeWorkspaceId = 'ws-files';
+    workflow.state = makeState([checkedResponse('review-001')]);
+    workflow.state.deliverables[0].fields[0].type = 'drive';
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Student review-001 response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student review-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'View Document Check' }));
+    const check = await screen.findByRole('dialog', { name: /Document Check/ });
+    expect(check).toHaveTextContent('Readable PDF with sections requiring a staff decision.');
+    await waitFor(() => expect(api.getSubmittedFileHistory).toHaveBeenCalledWith('ws-files', 'review-001', 'documentPdf'));
+  });
+
+  it('opens File history when Document Check has not been run', async () => {
+    workflow.activeWorkspaceId = 'ws-history';
+    workflow.state = makeState([response('unchecked-001')]);
+    workflow.state.deliverables[0].fields[0].type = 'drive';
+    workflow.state.fileEvents = [{ id: 'history-event', fileId: 'history-file', kind: 'METADATA_CHANGED',
+      observedAt: submittedAt, responseIds: ['unchecked-001'], teamCodes: ['TEAM-1'] }];
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review affected response for Drive metadata changed' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student unchecked-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'File history' }));
+    const history = await screen.findByRole('dialog', { name: /File history/ });
+    expect(history).toBeInTheDocument();
+    await waitFor(() => expect(api.getSubmittedFileHistory).toHaveBeenCalledWith('ws-history', 'unchecked-001', 'documentPdf'));
+  });
+
+  it('starts an authorized AI Review from the drawer and shows running state', async () => {
+    workflow.activeWorkspaceId = 'ws-ai';
+    workflow.state = makeState([checkedResponse('review-001')]);
+    workflow.state.deliverables[0].fields[0].aiReviewEnabled = true;
+    let finish;
+    workflow.runAiReview.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Student review-001 response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student review-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Run AI Review' }));
+    await waitFor(() => expect(api.getAiReviewStatus).toHaveBeenCalled());
+    const modal = await screen.findByRole('dialog', { name: 'AI review submission' });
+    fireEvent.click(within(modal).getByRole('button', { name: 'Start review' }));
+    await waitFor(() => expect(workflow.runAiReview).toHaveBeenCalledWith('ws-ai', 'review-001', null, false, null, expect.any(Function), false));
+    expect(screen.getByText(/1 PDF review is running/)).toBeInTheDocument();
+    await act(async () => { finish({ ok: true, review: { status: 'COMPLETED', report: { summary: 'Review complete.' } } }); });
+    expect(screen.queryByText(/1 PDF review is running/)).not.toBeInTheDocument();
+  });
+
+  it('reruns a completed PDF through the API and replaces View AI Review with its newly saved output', async () => {
+    workflow.activeWorkspaceId = 'ws-rerun';
+    const old = { status: 'COMPLETED', sourceUrl: 'https://drive.google.com/file/d/review-001/view',
+      generatedAt: '2026-09-21T08:00:00Z', report: { summary: 'Previously saved AI findings.' } };
+    workflow.state = makeState([checkedResponse('review-001', { aiReviewState: old })]);
+    workflow.state.deliverables[0].fields[0].aiReviewEnabled = true;
+    let finish;
+    workflow.runAiReview.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Student review-001 response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student review-001' });
+    expect(within(drawer).getByText('Previously saved AI findings.')).toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun AI Review' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Rerun AI Review?' });
+    expect(confirmation).toHaveTextContent('sends a new request to Gemini');
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Rerun review' }));
+    await waitFor(() => expect(workflow.runAiReview).toHaveBeenCalledWith(
+      'ws-rerun', 'review-001', null, false, null, expect.any(Function), true));
+    expect(within(drawer).getByRole('button', { name: 'AI Review running' })).toBeDisabled();
+    expect(within(drawer).getByText('Previously saved AI findings.')).toBeInTheDocument();
+    const fresh = { status: 'COMPLETED', fieldId: 'documentPdf', sourceUrl: old.sourceUrl,
+      generatedAt: '2026-09-22T09:00:00Z', report: { summary: 'Fresh rerun findings from Gemini.' } };
+    await act(async () => { finish({ ok: true, review: fresh }); });
+    expect(within(drawer).queryByText('Previously saved AI findings.')).not.toBeInTheDocument();
+    expect(within(drawer).getByText('Fresh rerun findings from Gemini.')).toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'View AI Review' }));
+    expect(await screen.findByRole('dialog', { name: 'AI Review: PDF Drive link' }))
+      .toHaveTextContent('Fresh rerun findings from Gemini.');
+  });
+
+  it('shows quota/rate-limit failures after rerun and never pretends a fresh report was saved', async () => {
+    workflow.activeWorkspaceId = 'ws-rerun-error';
+    const old = { status: 'COMPLETED', sourceUrl: 'https://drive.google.com/file/d/review-001/view',
+      generatedAt: '2026-09-21T08:00:00Z', report: { summary: 'Previously saved findings.' } };
+    workflow.state = makeState([checkedResponse('review-001', { aiReviewState: old })]);
+    workflow.state.deliverables[0].fields[0].aiReviewEnabled = true;
+    workflow.runAiReview.mockResolvedValueOnce({ ok: false, pauseBatch: true,
+      error: "Gemini's quota or rate limit was reached.", review: {
+        fieldId: 'documentPdf', sourceUrl: old.sourceUrl, status: 'UNCERTAIN',
+        failureCode: 'RATE_LIMITED', retryToken: 'retry-1', message: "Gemini's quota or rate limit was reached."
+      } });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Student review-001 response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student review-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun AI Review' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Rerun AI Review?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Rerun review' }));
+    await waitFor(() => expect(within(drawer).getByText("Gemini's quota or rate limit was reached.")).toBeInTheDocument());
+    expect(within(drawer).queryByRole('button', { name: 'View AI Review' })).not.toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: 'Retry AI review' })).toBeInTheDocument();
+    expect(workflow.runAiReview).toHaveBeenCalledTimes(1);
   });
 });
 

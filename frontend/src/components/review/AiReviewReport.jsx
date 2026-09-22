@@ -9,15 +9,21 @@ const SOURCE_LABELS = {
 export function AiReviewReport({ report }) {
   if (!report) return null;
   const findings = report.findings || legacyFindings(report.flags);
+  const uniqueFindings = findings.filter((finding, index) =>
+    findings.findIndex(candidate => [candidate.source, candidate.issue, candidate.evidence, candidate.requirement]
+      .every((value, part) => normalized(value) === normalized(
+        [finding.source, finding.issue, finding.evidence, finding.requirement][part]))) === index);
   const missingRequiredSections = report.missingRequiredSections || legacyMissingSections(report.missingSections);
+  const summary = uniqueSummary(report.summary, uniqueFindings, missingRequiredSections, report.limitations || []);
 
   return (
     <Stack gap="sm" className="wt-ai-review-report">
-      <Text size="md" lh={1.55}>{report.summary}</Text>
-      {findings.map((finding, index) => (
+      {summary ? <Text size="md" lh={1.55}>{summary}</Text> : null}
+      {uniqueFindings.map((finding, index) => (
         <Text size="sm" lh={1.55} key={`${finding.source || 'legacy'}:${finding.issue}:${index}`}>
           <strong>{sourceLabel(finding.source)}:</strong> {finding.issue}
-          {finding.evidence ? <Text component="span" c="dimmed"> Evidence: {finding.evidence}</Text> : null}
+          {finding.evidence && !sameClaim(finding.evidence, finding.issue)
+            ? <Text component="span" c="dimmed"> Evidence: {finding.evidence}</Text> : null}
           {finding.requirement ? <Text component="span" c="dimmed"> Authority: {finding.requirement}</Text> : null}
         </Text>
       ))}
@@ -35,6 +41,26 @@ export function AiReviewReport({ report }) {
       {report.suggestedAction ? <Text size="sm" lh={1.55}><strong>Suggested action:</strong> {report.suggestedAction}</Text> : null}
     </Stack>
   );
+}
+
+function normalized(text) {
+  return String(text || '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+function sameClaim(left, right) {
+  return Boolean(normalized(left)) && normalized(left) === normalized(right);
+}
+
+function uniqueSummary(summary, findings, missing, limitations) {
+  if (!summary) return '';
+  // Saved reports can contain a backend-generated summary that repeats the exact first
+  // two findings. Keep any separate observation or qualification in the summary visible.
+  const shown = findings.flatMap(finding => [finding.issue, finding.evidence])
+    .concat(limitations, missing.map(item => item.section), missing.map(item => item.section).join(', '));
+  return String(summary).split(/(?<=[.!?])\s+(?=[A-Z])/u).filter(sentence => {
+    const candidate = sentence.replace(/^(?:Document evidence|Grounded requirement finding|Advisory template comparison|Explicitly required sections not detected):\s*/i, '');
+    return !shown.some(detail => sameClaim(candidate, detail));
+  }).join(' ');
 }
 
 function sourceLabel(source) {

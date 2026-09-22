@@ -492,8 +492,15 @@ export function artifactAiReview(response, field) {
   if (field.definitionId && response.artifactAiReviews?.[field.definitionId]) {
     return response.artifactAiReviews[field.definitionId];
   }
+  // A legacy single-PDF deliverable has no definitionId, but the backend
+  // persists its review under <deliverableId>:legacy. Read that scoped result
+  // (or the legacy mirror) even after the field-review map becomes nonempty.
+  if (!field.definitionId && field.id === 'documentPdf') {
+    return response.artifactAiReviews?.[`${response.deliverableId}:legacy`]
+      || response.aiReviewState || null;
+  }
   if ((response.artifactAiReviews == null || !Object.keys(response.artifactAiReviews).length)
-      && (field.id === 'documentPdf' || !field.definitionId)) {
+      && !field.definitionId) {
     return response.aiReviewState || null;
   }
   return null;

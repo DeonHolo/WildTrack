@@ -36,6 +36,12 @@ capvault:
     maximum-added-content-ratio: ${CAPVAULT_FILE_CHECK_MAX_ADDED_RATIO:0.25}
 
 wildtrack:
+  file-monitor:
+    # Opt-in: no real semester is polled or modified until explicitly enabled.
+    enabled: ${WILDTRACK_FILE_MONITOR_ENABLED:false}
+    workspace-id: ${WILDTRACK_FILE_MONITOR_WORKSPACE_ID:}
+    max-files-per-cycle: ${WILDTRACK_FILE_MONITOR_MAX_FILES_PER_CYCLE:20}
+    tick-ms: ${WILDTRACK_FILE_MONITOR_TICK_MS:60000}
   drive-history:
     oauth:
       enabled: ${WILDTRACK_DRIVE_HISTORY_OAUTH_ENABLED:false}

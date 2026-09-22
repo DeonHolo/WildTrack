@@ -37,7 +37,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class AiReviewService {
     // Post-validation behavior is part of the persisted review cache fingerprint. Leave v4
     // reports intact; new crosschecked reviews must not reuse pre-crosscheck cached results.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v5";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v6";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -60,6 +60,10 @@ public class AiReviewService {
         A heading that is present but has inadequate content is not a missing heading. Distinguish these
         findings explicitly. A requirement to provide some content (such as evidence, results or test cases)
         does not independently require a body section with a newly invented label.
+        An official template's example bullets or numbered points do not require a prose paragraph instead.
+        Do not criticize bullet formatting or claim that prose is mandatory unless an exact supplied
+        Deliverable Instructions or official-template passage explicitly establishes that formatting rule.
+        A source passage that merely names a section does not impose a prose or paragraph requirement.
         Avoid absolute claims that every section is blank if any body section contains substantive content.
         Do not assume a conditional requirement (such as reporting incidents WHEN outcomes differ) is
         violated if the condition has not been established by the submitted document.
@@ -116,9 +120,17 @@ public class AiReviewService {
 
     public View review(UUID workspaceId, UUID responseId, String fieldId, String subject,
             boolean retryAcknowledged, UUID expectedRetryToken) {
+        return review(workspaceId, responseId, fieldId, subject, retryAcknowledged, expectedRetryToken, false);
+    }
+
+    public View review(UUID workspaceId, UUID responseId, String fieldId, String subject,
+            boolean retryAcknowledged, UUID expectedRetryToken, boolean rerunRequested) {
         FormResponse response = authorized(workspaceId, responseId, subject);
         if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Only administrators can start AI reviews.");
         if (!provider.isConfigured()) return empty("UNAVAILABLE", "Gemini API key is not configured. No AI request was made.");
+        if (retryAcknowledged && rerunRequested) {
+            throw new IllegalArgumentException("Choose either retrying an uncertain request or rerunning a completed review.");
+        }
         if (retryAcknowledged && expectedRetryToken == null)
             throw new IllegalArgumentException("Reload the uncertain review before confirming a retry.");
         ReviewTarget target = target(response, fieldId);
@@ -147,7 +159,8 @@ public class AiReviewService {
         String key = digest(List.of(workspaceId.toString(), response.getDeliverableId().toString(), target.fieldId(), team, documentHash, context.hash()));
         String sourceValueHash = sha256(source.getBytes(StandardCharsets.UTF_8));
         assertCurrent(response, target, context, subject);
-        var claim = store.claim(key, workspaceId, response.getDeliverableId(), team, documentHash, context.hash(), retryAcknowledged ? expectedRetryToken : null);
+        var claim = store.claim(key, workspaceId, response.getDeliverableId(), team, documentHash,
+            context.hash(), retryAcknowledged ? expectedRetryToken : null, rerunRequested);
         link(target, response, sourceValueHash, key);
         if (claim.acquired()) {
             try {

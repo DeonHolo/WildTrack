@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   activeSubmissionValues,
   isArtifactAiReviewCurrent,
+  artifactAiReview,
+  artifactAiReviewStatus,
   isArtifactDocumentCheckCurrent,
   dedupeDeliverables,
   findOwnedResponse,
@@ -66,6 +68,17 @@ describe('Google-attributed response ownership', () => {
 });
 
 describe('artifact-scoped review currentness', () => {
+  it('shows newly rerun legacy single-PDF feedback after the field-review map becomes nonempty', () => {
+    const url = 'https://drive.google.com/file/d/legacy-shared-pdf/view';
+    const legacy = { status: 'COMPLETED', sourceUrl: url,
+      generatedAt: '2026-09-22T06:00:00Z', report: { summary: 'Updated AI Review.' } };
+    const response = { deliverableId: 'deliverable-srs', values: { documentPdf: url },
+      artifactAiReviews: { 'deliverable-srs:legacy': legacy }, aiReviewState: legacy };
+    const field = { id: 'documentPdf', pdfRequired: true, aiReviewEnabled: true };
+    expect(artifactAiReview(response, field)).toBe(legacy);
+    expect(isArtifactAiReviewCurrent(response, field)).toBe(true);
+    expect(artifactAiReviewStatus(response, field)).toBe('Reviewed');
+  });
   it('keeps unchanged artifact reviews current when another artifact changes', () => {
     const first = { id: 'frameworkPdf', definitionId: 'field-framework', aiReviewEnabled: true };
     const second = { id: 'highlightsPdf', definitionId: 'field-highlights', aiReviewEnabled: true };

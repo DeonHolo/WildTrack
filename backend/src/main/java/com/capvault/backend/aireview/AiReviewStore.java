@@ -45,6 +45,11 @@ public class AiReviewStore {
 
     public Claim claim(String key, UUID workspaceId, UUID deliverableId, String team, String pdfHash,
                        String contextHash, UUID expectedRetryToken) {
+        return claim(key, workspaceId, deliverableId, team, pdfHash, contextHash, expectedRetryToken, false);
+    }
+
+    public Claim claim(String key, UUID workspaceId, UUID deliverableId, String team, String pdfHash,
+                       String contextHash, UUID expectedRetryToken, boolean rerunRequested) {
         UUID token = UUID.randomUUID();
         Job existing = find(key).orElse(null);
         if (existing == null) {
@@ -61,6 +66,19 @@ public class AiReviewStore {
             existing = find(key).orElseThrow();
         }
         boolean abandoned = existing.state().equals("RUNNING") && existing.startedAt().isBefore(clock.instant().minus(ABANDONED_AFTER));
+        // Deliberate rerun is different from reusing an identical completed PDF
+        // and from retrying an uncertain request. The CAS claim gives all five
+        // students sharing this context ONE in-flight provider call across nodes.
+        if (rerunRequested && existing.state().equals("COMPLETED") && expectedRetryToken == null) {
+            Job prior = existing;
+            int changed = tx.execute(status -> jdbc.update("""
+                UPDATE ai_review_jobs SET state = 'RUNNING', claim_token = ?, started_at = ?,
+                    completed_at = NULL, report_json = NULL, failure_code = NULL
+                WHERE cache_key = ? AND claim_token = ? AND state = 'COMPLETED'
+                """, token, Timestamp.from(clock.instant()), key, prior.token()));
+            if (changed == 1) return new Claim(find(key).orElseThrow(), true);
+            return new Claim(find(key).orElseThrow(), false);
+        }
         if (existing.token().equals(expectedRetryToken) && (existing.state().equals("UNCERTAIN") || abandoned)) {
             Job prior = existing;
             int changed = tx.execute(status -> jdbc.update("""

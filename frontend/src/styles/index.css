@@ -4425,7 +4425,7 @@ textarea:not(.mantine-Input-input):focus {
 }
 
 .wt-template-table {
-  min-width: 1180px;
+  min-width: 1050px;
 }
 
 .wt-source-table th:nth-child(1) { width: 29%; }
@@ -4469,24 +4469,39 @@ textarea:not(.mantine-Input-input):focus {
   padding: 13px 14px;
 }
 
-.wt-template-table th:nth-child(1) { width: 160px; }
-.wt-template-table th:nth-child(2) { width: 200px; }
-.wt-template-table th:nth-child(3) { width: 210px; }
-.wt-template-table th:nth-child(4) { width: 230px; }
-.wt-template-table th:nth-child(5) { width: 145px; }
-.wt-template-table th:nth-child(6) { width: 235px; }
+.wt-template-table th:nth-child(1) { width: 145px; }
+.wt-template-table th:nth-child(2) { width: 180px; }
+.wt-template-table th:nth-child(3) { width: 190px; }
+.wt-template-table th:nth-child(4) { width: 200px; }
+.wt-template-table th:nth-child(5) { width: 125px; }
+.wt-template-table th:nth-child(6) { width: 210px; }
+
+.wt-template-table td {
+  overflow-wrap: anywhere;
+}
 
 .wt-template-table td:nth-child(6) {
-  min-width: 235px;
+  min-width: 210px;
 }
 
 .wt-template-table .wt-row-actions {
-  flex-wrap: nowrap;
-  justify-content: flex-start;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  justify-content: stretch;
 }
 
 .wt-template-table .wt-row-actions .mantine-Button-root {
-  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  padding-inline: 6px;
+}
+
+.wt-template-table .wt-row-actions .mantine-Button-section {
+  margin-inline-end: 4px;
+}
+
+.wt-template-table .wt-row-actions .mantine-Button-root:nth-child(3):last-child {
+  grid-column: 1 / -1;
 }
 
 .wt-row-actions {

@@ -189,7 +189,8 @@ class DeliverableServiceMultiArtifactTest {
                 DocumentCheckPolicy.OFF, true, List.of())
         )));
         assertThat(aiOnly.fields()).singleElement().satisfies(field -> {
-            assertThat(field.documentCheckPolicy()).isEqualTo(DocumentCheckPolicy.OFF);
+            // PDF Document Check is mandatory even for older clients sending OFF.
+            assertThat(field.documentCheckPolicy()).isEqualTo(DocumentCheckPolicy.AUTO);
             assertThat(field.aiReviewEnabled()).isTrue();
         });
     }

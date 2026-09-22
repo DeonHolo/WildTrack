@@ -1,6 +1,40 @@
 # WildTrack MVP Validation — Progress and Handoff Notes
 
-Last updated: 2026-09-15
+Last updated: 2026-09-22
+
+## 2026-09-22 — Final local release-readiness test checkpoint
+
+After the legacy PDF AI Review View/Rerun state fix, **all 427 frontend unit/component tests passed** across 48 test files and the production Vite build succeeded. The default full backend suite passed again after test-only browser-journey corrections, with **357 tests, zero failures/errors and eight skipped**. The explicit, separately run `BrowserPersistenceJourneyIT` also passed **1/1**, executing both real-local-backend Playwright scenarios successfully, including clearing browser storage and reloading after student submission, scoped adviser feedback, acceptance/archive, Academic Data deliverable creation and staff administration. That test's fixture/runner was updated to seed an authorized adviser team and run only its own journey rather than a differently seeded form-editor test. No production role-checking rules were weakened.
+
+All of these outcomes are **local code/test verification**. A live Gemini rerun of the owner's original SRS, real Google Drive access/change detection on Heroku, desktop screenshot proof of the official-template layout, adviser endorsement, actual consenting student Goal 3 evidence, PR merge and production deployment have not been claimed or performed. Technical feature readiness must remain separate from research-score claims.
+
+## 2026-09-22 — Full local regression green, explicit AI Review rerun repaired
+
+The previously reported four canonical-response fixture errors were resolved without weakening first-save account binding. A fresh **entire default backend Maven test run passed: 357 tests, zero failures or errors, eight skipped**. Following the faculty PDF workflow changes, the **entire frontend Vitest suite also passed: 426/426 in 48 files**. The frontend production build and document package validator passed. The historical browser E2E target is separate from these suites and must not be assumed passing from these results alone.
+
+The owner reported that `Rerun AI Review` appeared to reuse old feedback. Review of the actual cache/POST path confirmed it *did* send an ordinary WildTrack backend request but did **not** cause a new Gemini generation when an identical saved review was already completed. A deliberate rerun now sends an explicit flag, atomically starts a replacement Gemini job for a matching team/document/context, and updates the saved report and student-specific View AI Review display after completion. Identical PDF bytes, same team and same review context reuse **one Gemini generation** during ordinary review even if five student responses link the same PDF; separate Drive metadata/download operations can still be required to establish identity. Tests cover the shared-team rerun, independent second PDF artifact, old-to-new View updates and provider failure states, all with a mocked provider, not a live paid Gemini call.
+
+The student's SRS `2.4 Constraints` heading was present. The earlier AI output incorrectly called it missing and treated sample template bullet points as an unwritten prose requirement. Updated source-text safeguards suppress those unsupported claims when an existing body heading is detected, verified with synthetic heading variants. A separately mentioned historical STD all-placeholders regression was unrelated to this SRS false finding. The actual private SRS PDF was not sent for a new live Gemini retest, and no student research benchmark results were modified.
+
+## 2026-09-22 — Submitted PDF monitoring and faculty workflow engineering checkpoint
+
+The uncommitted `wildtrack-rebrand` working tree includes the requested deadline-aware, unique-file-ID PDF monitor (opt-in and **not deployed**), deduplicated manual bulk Document Check, Today's Work persistent Open/Dismissed notifications and in-place response review drawer, Academic Data row/deliverable/search/jump/CSV/cached-snapshot refinements, mandatory PDF Document Check in the form editor and backend, AI Review duplicate/heading/formatting guards, and compact Workspace official-template actions. Monitoring avoids synchronous Drive checks while students submit and does not retain downloaded PDF copies. Staff event association is restricted to submitted PDF fields and authorized teams; checksum-less metadata observations do not prove edited bytes.
+
+Local targeted integration checks passed: **45/45 backend tests** across ten classes including real PostgreSQL migration, **102/102 frontend tests** across eight files, production Vite build and documentation package validation. The Workspace template layout was statically reviewed, without a real desktop screenshot; the owner's exact PDFs were not rerun against live Gemini. A previous full backend run was not green because of four outdated account-binding test fixtures and two regressions. The AI Review and Flyway assertion regressions were subsequently corrected and passed targeted tests; the four historical canonical fixture errors have not been resolved, and a full-suite green result is **not** claimed.
+
+These are technical feature checks only. They are **not** a new Goal 1/2 benchmark, current student Goal 3 evidence, actual Google Drive monitoring event, activated Heroku feature, adviser endorsement, PR merge or production deployment. See `capstone-2-build/deliverables/DRIVE_FILE_MONITOR_20260922.md` and the dated checkpoint in `capstone-2-build/PROGRESS.md`.
+
+## 2026-09-22 — Continue existing validation; do not reopen Goal 3
+
+The owner confirms the questionnaire is already distributed and ten days late. Proceed with the existing study; do not require another adviser consultation before continuing collection, preparation or analysis, restart SMART-goal selection, or replace the Google Form.
+
+- Keep **Student initial submission record correctness**, with the existing 95% team-defined target and the documented initial-saved-record amendment. This supersedes the old T1/T2 requirement and earlier status-scenario proposal.
+- Preserve all real questionnaire responses and historical T1/T2 records. Students do not need to perform an artificial revision; the old Validation Study overall-pass score is supporting historical diagnostics, not the revised Goal 3 score.
+- Use the revised researcher log to check eligible, consenting initial saved records against the five required checks. Keep FAIL/UNVERIFIED cases and evidence limitations visible; do not infer correctness from questionnaire ratings or claim success across every attempted submission.
+- At the latest read-only check this session, PR #57 was OPEN and the connected Sheet still contained the old T1/T2 Task Log and Protocol. The live response tab was verified as **Form Responses 1**. Do not assume a merge or Sheet migration has occurred; verify before acting.
+- The archive-and-replace instructions/script are in `capstone-2-build/deliverables/GOAL3_SHEET_REPLACEMENT_SETUP.md` and `replace_existing_goal3_tabs.gs`. They concern only the two Goal 3 tabs; preserve the existing Form and response tab. No live Sheet change was performed in this session.
+
+Next work: continue response collection, complete the revised initial-record evidence log, and report actual findings. Describe Goal 3 as the team's selected objective without claiming adviser endorsement. Preserve the dated amendment and actual consent boundaries; lateness is not permission to invent evidence. See `capstone-2-build/PROGRESS.md` for the operational handoff. Older entries below are historical.
 
 ## 2026-09-15 AI Review grounding hardening
 

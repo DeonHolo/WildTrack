@@ -14,7 +14,8 @@ public class AiReviewController {
     public AiReviewController(AiReviewService service, StudentAssociationSecurity security) {
         this.service = service; this.security = security;
     }
-    public record ReviewRequest(String fieldId, boolean retryAcknowledged, UUID retryToken) { }
+    public record ReviewRequest(String fieldId, boolean retryAcknowledged, UUID retryToken,
+                                boolean rerunRequested) { }
     @GetMapping("/status")
     public Map<String, Object> status(HttpServletRequest http) {
         return service.status(security.requireSession(http).googleSubject());
@@ -23,7 +24,8 @@ public class AiReviewController {
     public AiReviewService.View review(@PathVariable UUID responseId, @RequestParam UUID workspaceId,
             @RequestBody(required = false) ReviewRequest body, HttpServletRequest http) {
         return service.review(workspaceId, responseId, body == null ? null : body.fieldId(),
-            security.requireSession(http).googleSubject(), body != null && body.retryAcknowledged(), body == null ? null : body.retryToken());
+            security.requireSession(http).googleSubject(), body != null && body.retryAcknowledged(),
+            body == null ? null : body.retryToken(), body != null && body.rerunRequested());
     }
     @GetMapping("/{responseId}")
     public AiReviewService.View saved(@PathVariable UUID responseId, @RequestParam UUID workspaceId,

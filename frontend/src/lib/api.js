@@ -294,7 +294,7 @@ export async function saveBackendDeliverable(workspaceId, payload) {
         fieldType: toApiFieldType(field.type),
         required: Boolean(field.required),
         displayOrder: index,
-        documentCheckPolicy: field.type === 'drive' ? String(field.documentCheckPolicy || 'AUTO').toUpperCase() : 'OFF',
+        documentCheckPolicy: field.type === 'drive' ? 'AUTO' : 'OFF',
         aiReviewEnabled: field.type === 'drive' && Boolean(field.aiReviewEnabled),
         active: field.active !== false,
         options: (field.options || []).map((option) => ({
@@ -355,6 +355,31 @@ export async function runDocumentCheck(workspaceId, payload) {
     method: 'POST',
     body: payload
   });
+}
+
+export function runDocumentCheckBatch(workspaceId, checks) {
+  return request(withWorkspace('/file-checks/batch', workspaceId), {
+    method: 'POST', body: { checks }
+  });
+}
+
+export function getFileMonitorEvents(workspaceId) {
+  return request(withWorkspace('/file-monitor/events', workspaceId));
+}
+
+export function getWorkTaskDismissals(workspaceId) {
+  return request(withWorkspace('/work-task-dismissals', workspaceId));
+}
+
+export function dismissWorkTask(workspaceId, taskKey) {
+  return request('/work-task-dismissals', {
+    method: 'POST', body: { workspaceId, taskKey }
+  });
+}
+
+export function restoreWorkTask(workspaceId, taskKey) {
+  const query = new URLSearchParams({ workspaceId, taskKey });
+  return request('/work-task-dismissals?' + query.toString(), { method: 'DELETE' });
 }
 
 export async function uploadDocumentTemplate(workspaceId, payload) {
@@ -660,8 +685,9 @@ export function getSavedAiReview(workspaceId, responseId, fieldId = null) {
   const fieldQuery = fieldId ? `?fieldId=${encodeURIComponent(fieldId)}` : '';
   return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}${fieldQuery}`, workspaceId));
 }
-export function requestAiReview(workspaceId, responseId, retryAcknowledged = false, retryToken = null, fieldId = null) {
+export function requestAiReview(workspaceId, responseId, retryAcknowledged = false, retryToken = null,
+    fieldId = null, rerunRequested = false) {
   return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}`, workspaceId), {
-    method: 'POST', body: { fieldId, retryAcknowledged, retryToken }
+    method: 'POST', body: { fieldId, retryAcknowledged, retryToken, rerunRequested }
   });
 }

@@ -314,6 +314,60 @@ describe('deliverable-first submission review', () => {
     expect(screen.getByText('No current AI Review is available for this PDF.')).toBeInTheDocument();
   });
 
+  it('explicitly reruns an already reviewed PDF and updates View AI Review with the new saved output', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    const original = ron.aiReviewState.report.summary;
+    const fresh = { status: 'COMPLETED', sourceUrl: ron.values.documentPdf,
+      sourceResponseUpdatedAt: ron.updatedAt, generatedAt: '2026-09-22T09:00:00Z',
+      report: { summary: 'Fresh rerun feedback after Gemini completed.', findings: [],
+        missingRequiredSections: [], limitations: [], suggestedAction: 'Verify the updated observations.' } };
+    let complete;
+    workflow.runAiReviews.mockImplementationOnce(async (_workspace, targets, { onResult }) => {
+      await new Promise(resolve => { complete = resolve; });
+      onResult(targets[0], { ok: true, review: fresh });
+    });
+    renderPage('/review?response=response-ron-srs');
+    const drawer = await screen.findByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' });
+    expect(within(drawer).getByText(original)).toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun AI Review' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Rerun AI Review?' });
+    expect(confirmation).toHaveTextContent('sends a new request to Gemini');
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Rerun review' }));
+    await waitFor(() => expect(workflow.runAiReviews).toHaveBeenCalledTimes(1));
+    const [workspace, targets, options] = workflow.runAiReviews.mock.calls[0];
+    expect(workspace).toBe('workspace-it');
+    expect(targets).toEqual([{ key: 'response-ron-srs:documentPdf', responseId: 'response-ron-srs', fieldId: null }]);
+    expect(options.rerunKeys).toEqual({ 'response-ron-srs:documentPdf': true });
+    expect(within(drawer).getByRole('button', { name: 'AI Review running' })).toBeDisabled();
+    await act(async () => { complete(); });
+    await waitFor(() => expect(within(drawer).getByText('Fresh rerun feedback after Gemini completed.')).toBeInTheDocument());
+    expect(within(drawer).queryByText(original)).not.toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'View AI Review' }));
+    expect(screen.getByRole('dialog', { name: 'AI Review: PDF Drive Link' }))
+      .toHaveTextContent('Fresh rerun feedback after Gemini completed.');
+  });
+
+  it('surfaces quota-limited rerun failures and shows Retry AI review instead of stale View AI Review', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    workflow.runAiReviews.mockImplementationOnce(async (_workspace, targets, { onResult }) => {
+      onResult(targets[0], { ok: false, pauseBatch: true, uncertain: true,
+        error: "Gemini's quota or rate limit was reached.", review: {
+          status: 'UNCERTAIN', retryToken: 'retry-current', failureCode: 'RATE_LIMITED',
+          sourceUrl: ron.values.documentPdf, sourceResponseUpdatedAt: ron.updatedAt,
+          message: "Gemini's quota or rate limit was reached."
+        } });
+    });
+    renderPage('/review?response=response-ron-srs');
+    const drawer = await screen.findByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun AI Review' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Rerun AI Review?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Rerun review' }));
+    await waitFor(() => expect(within(drawer).getByText(/Gemini's quota or rate limit was reached/)).toBeInTheDocument());
+    expect(within(drawer).queryByRole('button', { name: 'View AI Review' })).not.toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: 'Retry AI review' })).toBeInTheDocument();
+    expect(workflow.runAiReviews).toHaveBeenCalledTimes(1);
+  });
+
   it('AI review all carries retry tokens only for retry-required responses in a mixed batch', async () => {
     const muriel = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
     const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
@@ -436,10 +490,53 @@ describe('deliverable-first submission review', () => {
     await waitFor(() => expect(workflow.runDocumentChecks).toHaveBeenCalled());
     const [targets, options] = workflow.runDocumentChecks.mock.calls[0];
     expect(targets.map(target => target.response.id)).toEqual(['response-muriel-srs', 'response-ron-srs']);
-    expect(options).toEqual(expect.objectContaining({ onProgress: expect.any(Function) }));
+    expect(options).toEqual(expect.objectContaining({ useDedup: true, onProgress: expect.any(Function), shouldContinue: expect.any(Function) }));
     const completionAlert = await screen.findByRole('status');
     expect(completionAlert).toHaveTextContent('2 of 2 completed | 1 could not be checked');
     expect(completionAlert).toHaveTextContent('Taghoy, Ron Luigi F.: Download is disabled.');
+  });
+
+  it('applies every returned deduplicated report to its own response and PDF field', async () => {
+    const base = createState();
+    const deliverable = base.deliverables.find((item) => item.id === 'deliverable-srs');
+    deliverable.fields[0].definitionId = 'field-pdf';
+    deliverable.fields.push({ id: 'appendixPdf', definitionId: 'field-appendix', label: 'Appendix PDF',
+      type: 'drive', pdfRequired: true, documentCheckPolicy: 'AUTO', aiReviewEnabled: true });
+    const muriel = base.attempts.find((item) => item.id === 'response-muriel-srs');
+    const ron = base.attempts.find((item) => item.id === 'response-ron-srs');
+    muriel.values.appendixPdf = 'https://drive.google.com/open?id=shared-review-file';
+    ron.values.appendixPdf = 'https://drive.google.com/file/d/shared-review-file/view';
+    workflow.state = base;
+    workflow.runDocumentChecks.mockImplementationOnce(async (targets, { onProgress }) => {
+      expect(targets).toHaveLength(4);
+      onProgress?.({ completed: 4, total: 4 });
+      return {
+        completed: 4, total: 4, failed: 0,
+        results: targets.map(({ response, field }) => ({
+          attemptId: response.id, fieldId: field.definitionId, fieldKey: field.id, ok: true,
+          report: { ...currentDocumentCheck(response.updatedAt), fieldId: field.definitionId,
+            summary: `Checked ${response.id}:${field.definitionId}` }
+        }))
+      };
+    });
+
+    renderPage();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select all visible responses' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check selected' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Check 4 selected PDF artifacts?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Start Document Check' }));
+
+    await waitFor(() => expect(workflow.runDocumentChecks).toHaveBeenCalledTimes(1));
+    expect(workflow.runDocumentChecks.mock.calls[0][1]).toEqual(expect.objectContaining({ useDedup: true }));
+    await waitFor(() => {
+      const currentMuriel = workflow.state.attempts.find((item) => item.id === muriel.id);
+      const currentRon = workflow.state.attempts.find((item) => item.id === ron.id);
+      expect(currentMuriel.artifactChecks['field-pdf'].summary).toBe(`Checked ${muriel.id}:field-pdf`);
+      expect(currentMuriel.artifactChecks['field-appendix'].summary).toBe(`Checked ${muriel.id}:field-appendix`);
+      expect(currentRon.artifactChecks['field-pdf'].summary).toBe(`Checked ${ron.id}:field-pdf`);
+      expect(currentRon.artifactChecks['field-appendix'].summary).toBe(`Checked ${ron.id}:field-appendix`);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('4 of 4 completed');
   });
 
   it('checks every unchecked response for the selected deliverable in one action', async () => {

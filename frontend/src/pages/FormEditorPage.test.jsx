@@ -307,13 +307,20 @@ describe('full-page form editor', () => {
     expect(saved.fields.filter((field) => field.type === 'academicStudentNumber')).toHaveLength(1);
   });
 
-  it('keeps PDF Document Check and AI Review independent and previews locally without saving', async () => {
+  it('forces automatic PDF Document Check on legacy OFF fields while keeping AI Review independent', async () => {
     renderEditor('/forms/form-srs/edit');
     await screen.findByDisplayValue('SRS Submission');
     const aiReview = screen.getByRole('checkbox', { name: 'Allow AI Review' });
     expect(aiReview).toBeChecked();
     expect(aiReview).toBeEnabled();
-    expect(screen.getByRole('textbox', { name: 'Document Check' })).toHaveValue('Off');
+    expect(screen.queryByRole('textbox', { name: 'Document Check' })).not.toBeInTheDocument();
+    expect(screen.getByText('Document Check runs automatically for PDF submissions.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalled());
+    expect(submissionClient.saveDeliverable.mock.calls[0][1].fields.find((field) => field.id === 'framework'))
+      .toMatchObject({ documentCheckPolicy: 'AUTO', aiReviewEnabled: true });
+    submissionClient.saveDeliverable.mockClear();
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     const preview = await screen.findByRole('dialog', { name: 'Student preview' });

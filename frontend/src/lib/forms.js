@@ -191,7 +191,7 @@ export function normalizeEditorField(field) {
     type,
     required: field?.required !== false,
     pdfRequired: type === 'drive',
-    documentCheckPolicy: type === 'drive' ? field?.documentCheckPolicy || 'AUTO' : 'OFF',
+    documentCheckPolicy: type === 'drive' ? 'AUTO' : 'OFF',
     aiReviewEnabled: type === 'drive' && Boolean(field?.aiReviewEnabled),
     active: field?.active !== false,
     options: (field?.options || []).map((option) => ({

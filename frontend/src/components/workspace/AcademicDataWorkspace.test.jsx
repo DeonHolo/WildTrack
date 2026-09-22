@@ -6,12 +6,22 @@ import { AcademicDataWorkspace } from './AcademicDataWorkspace.jsx';
 
 const client = vi.hoisted(() => ({
   loadAcademicData: vi.fn(),
-  saveAcademicRows: vi.fn()
+  saveAcademicRows: vi.fn(),
+  getAcademicDataSnapshot: vi.fn(),
+  clearAcademicDataSnapshot: vi.fn(),
+  addAcademicDeliverableColumn: vi.fn()
 }));
+
+const csv = vi.hoisted(() => ({ downloadAcademicCsv: vi.fn() }));
+
+vi.mock('../../lib/academicDataCsv.js', () => ({ downloadAcademicCsv: (...args) => csv.downloadAcademicCsv(...args) }));
 
 vi.mock('../../lib/academicDataClient.js', () => ({
   loadAcademicData: (...args) => client.loadAcademicData(...args),
-  saveAcademicRows: (...args) => client.saveAcademicRows(...args)
+  saveAcademicRows: (...args) => client.saveAcademicRows(...args),
+  getAcademicDataSnapshot: (...args) => client.getAcademicDataSnapshot(...args),
+  clearAcademicDataSnapshot: (...args) => client.clearAcademicDataSnapshot(...args),
+  addAcademicDeliverableColumn: (...args) => client.addAcademicDeliverableColumn(...args)
 }));
 
 function snapshot(overrides = {}) {
@@ -77,6 +87,10 @@ describe('AcademicDataWorkspace', () => {
   beforeEach(() => {
     client.loadAcademicData.mockReset().mockResolvedValue(snapshot());
     client.saveAcademicRows.mockReset().mockResolvedValue([]);
+    client.getAcademicDataSnapshot.mockReset().mockReturnValue(null);
+    client.clearAcademicDataSnapshot.mockReset();
+    client.addAcademicDeliverableColumn.mockReset().mockResolvedValue({ columnKey: 'New PDF', label: 'New PDF' });
+    csv.downloadAcademicCsv.mockReset();
   });
 
   it('edits an imported row and saves its stable id/version while keeping provenance visible', async () => {
@@ -219,5 +233,137 @@ describe('AcademicDataWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: '2' }));
     expect(await screen.findByRole('textbox', { name: 'Student name for 26-0051' })).toBeInTheDocument();
     expect(screen.getByText('51–55 of 55')).toBeInTheDocument();
+  });
+
+  it('adds a new student on the last page and focuses its editable row', async () => {
+    const students = Array.from({ length: 55 }, (_, index) => ({
+      ...snapshot().students[0],
+      id: `student-${index + 1}`,
+      studentNumber: `26-${String(index + 1).padStart(4, '0')}`,
+      studentName: `STUDENT, ${index + 1}`
+    }));
+    client.loadAcademicData.mockResolvedValueOnce(snapshot({ students }));
+    renderWorkspace();
+    await openStudents();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add row' }));
+    const newNumber = screen.getByRole('textbox', { name: 'Student Number for new row' });
+    expect(newNumber).toHaveFocus();
+    expect(screen.getByText('51–56 of 56')).toBeInTheDocument();
+    fireEvent.change(newNumber, { target: { value: '26-0999' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Student name for 26-0999' }), { target: { value: 'NEW, STUDENT' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Team code for 26-0999' }), { target: { value: 'TEAM-99' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes (1)' }));
+    await waitFor(() => expect(client.saveAcademicRows).toHaveBeenCalledWith('workspace-it', 'students', [expect.objectContaining({ id: null, studentNumber: '26-0999' })]));
+  });
+
+  it('saving a project does not discard an unsaved new student or an edited deliverable in other tabs', async () => {
+    renderWorkspace();
+    await openStudents();
+    fireEvent.click(screen.getByRole('button', { name: 'Add row' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Student Number for new row' }), {
+      target: { value: '26-0999' }
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Student name for 26-0999' }), {
+      target: { value: 'UNSAVED STUDENT' }
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Team code for 26-0999' }), {
+      target: { value: 'TEAM-99' }
+    });
+    fireEvent.click(screen.getByRole('tab', { name: /Deliverables/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title for Refactored SRS' }), {
+      target: { value: 'UNSAVED DELIVERABLE' }
+    });
+    fireEvent.click(screen.getByRole('tab', { name: /Teams \/ Projects/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Project title for TEAM-01' }), {
+      target: { value: 'SAVED PROJECT' }
+    });
+    client.loadAcademicData.mockResolvedValueOnce(snapshot({
+      projects: [{ ...snapshot().projects[0], projectTitle: 'SAVED PROJECT' }]
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes (1)' }));
+    await waitFor(() => expect(screen.getByText('1 row saved to WildTrack.')).toBeInTheDocument());
+    expect(client.saveAcademicRows).toHaveBeenCalledWith('workspace-it', 'projects', [expect.objectContaining({
+      groupCode: 'TEAM-01', projectTitle: 'SAVED PROJECT'
+    })]);
+
+    fireEvent.click(screen.getByRole('tab', { name: /Students/ }));
+    expect(screen.getByRole('textbox', { name: 'Student name for 26-0999' })).toHaveValue('UNSAVED STUDENT');
+    expect(screen.getByRole('button', { name: 'Save changes (1)' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('tab', { name: /Deliverables/ }));
+    expect(screen.getByRole('textbox', { name: 'Title for Refactored SRS' })).toHaveValue('UNSAVED DELIVERABLE');
+    expect(screen.getByRole('button', { name: 'Save changes (1)' })).toBeEnabled();
+  });
+
+  it('searches the entire grid across pages and exports all matching rows', async () => {
+    const students = Array.from({ length: 55 }, (_, index) => ({
+      ...snapshot().students[0],
+      id: `student-${index + 1}`,
+      studentNumber: `26-${String(index + 1).padStart(4, '0')}`,
+      studentName: index % 2 ? 'MATCH' : 'OTHER'
+    }));
+    client.loadAcademicData.mockResolvedValueOnce(snapshot({ students }));
+    renderWorkspace();
+    await openStudents();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search students' }), { target: { value: '26-0055' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    const table = screen.getByRole('table', { name: 'Students academic data' });
+    expect(within(table).getByRole('textbox', { name: 'Student Number for 26-0055' })).toBeInTheDocument();
+    expect(within(table).queryByRole('textbox', { name: 'Student Number for 26-0001' })).not.toBeInTheDocument();
+    expect(screen.getByText('1–1 of 1 matching of 55')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV (filtered)' }));
+    expect(csv.downloadAcademicCsv).toHaveBeenCalledWith('students', expect.any(Array), [expect.objectContaining({ studentNumber: '26-0055' })]);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(screen.getByText('1–50 of 55')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    expect(csv.downloadAcademicCsv.mock.calls[1][2]).toHaveLength(55);
+  });
+
+  it('uses the server-backed tracker-column endpoint and jumps to its form row for later saving', async () => {
+    const original = snapshot();
+    client.loadAcademicData.mockResolvedValueOnce(original).mockResolvedValueOnce(snapshot({
+      trackerColumns: [...original.trackerColumns, { columnKey: 'New PDF', label: 'New PDF', active: true, pdfRequired: true }]
+    }));
+    renderWorkspace();
+    await openStudents();
+    fireEvent.click(screen.getByRole('tab', { name: /Deliverables/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add row' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add deliverable' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Deliverable name' }), { target: { value: 'New PDF' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create tracker column' }));
+
+    await waitFor(() => expect(client.addAcademicDeliverableColumn).toHaveBeenCalledWith('workspace-it', 'New PDF', true, original.trackerColumns));
+    const dueDate = await screen.findByLabelText('Due date for New PDF');
+    expect(screen.getByText(/Tracker column New PDF created/)).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Title for New PDF' })).toHaveFocus();
+    fireEvent.change(dueDate, { target: { value: '2026-10-01T23:59' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes (1)' }));
+    await waitFor(() => expect(client.saveAcademicRows).toHaveBeenCalledWith('workspace-it', 'deliverables', [expect.objectContaining({
+      id: null, trackerColumnKey: 'New PDF', title: 'New PDF Submission', dueAt: '2026-10-01T23:59:00', status: 'UNPUBLISHED'
+    })]));
+  });
+
+  it('shows cached records immediately and preserves edits during background refresh', async () => {
+    let release;
+    client.getAcademicDataSnapshot.mockReturnValue(snapshot());
+    client.loadAcademicData.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
+    renderWorkspace({ cacheScope: 'admin-1' });
+    const table = screen.getByRole('table', { name: 'Students academic data' });
+    expect(screen.queryByText('Loading academic records…')).not.toBeInTheDocument();
+    const name = within(table).getByRole('textbox', { name: 'Student name for 26-0001' });
+    fireEvent.change(name, { target: { value: 'UNSAVED EDIT' } });
+    release(snapshot({ students: [{ ...snapshot().students[0], studentName: 'UPDATED FROM SERVER' }] }));
+    expect(await screen.findByText(/Newer academic records are available/)).toBeInTheDocument();
+    expect(name).toHaveValue('UNSAVED EDIT');
+  });
+
+  it('clears previously cached academic records when the server rejects the account', async () => {
+    client.getAcademicDataSnapshot.mockReturnValueOnce(snapshot()).mockReturnValueOnce(snapshot()).mockReturnValue(null);
+    client.loadAcademicData.mockRejectedValueOnce(Object.assign(new Error('Access revoked'), { status: 403 }));
+    renderWorkspace({ cacheScope: 'admin-1' });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Access revoked');
+    expect(client.clearAcademicDataSnapshot).toHaveBeenCalledWith('workspace-it', 'admin-1');
+    expect(screen.getByRole('table', { name: 'Students academic data' })).not.toHaveTextContent('DOE, JANE');
   });
 });
