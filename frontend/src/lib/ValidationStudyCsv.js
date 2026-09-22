@@ -22,7 +22,8 @@ const COLUMNS = [
   'materialEditHistoryPresent',
   'pdfUnchanged',
   'nonDesignatedValuesPreserved',
-  'overallPass'
+  'overallPass',
+  'scoreScope'
 ];
 
 export function buildValidationStudyCsv(evidence) {
@@ -43,7 +44,7 @@ export function downloadValidationStudyCsv(evidence) {
   const link = document.createElement('a');
   const key = safeFilePart(evidence?.trackerColumnKey || evidence?.deliverableTitle || 'deliverable');
   link.href = url;
-  link.download = `validation-study-${key}.csv`;
+  link.download = `validation-study-OLD-T1-T2-NOT-GOAL3-${key}.csv`;
   link.style.display = 'none';
   document.body.appendChild(link);
   link.click();
@@ -77,7 +78,8 @@ function csvRow(response, recordType, revision) {
     boolLabel(checks.materialEditHistoryPresent),
     boolLabel(checks.pdfUnchanged),
     boolLabel(checks.nonDesignatedValuesPreserved),
-    boolLabel(checks.overallPass)
+    boolLabel(checks.overallPass),
+    'HISTORICAL_T1_T2_ONLY_NOT_CURRENT_GOAL_3'
   ];
 }
 

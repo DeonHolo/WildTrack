@@ -8,14 +8,14 @@ WildTrack MVP validation evaluates three primary objectives:
 
 1. Document Check project-reference component classifications on a frozen controlled fixture set (post-benchmark scope clarification; no live Drive accuracy claim).
 2. AI Review grounded-content screening on a frozen fresh-run pilot.
-3. Student submission transaction correctness using the Refactored SRS T1/T2 controlled task.
+3. Initial saved Refactored SRS record correctness among appropriately consented eligible students (Goal 3 amended after Form distribution on 2026-09-22).
 
 Role-specific questionnaire feedback is descriptive supporting evidence and does not score the three technical/transaction objectives.
 
 ## 2. Participants and evidence channels
 
 - Unique consenting questionnaire participants: `[pending real data]`
-- Eligible students completing Objective 3 tasks: `[pending real data]`
+- Eligible, genuinely consenting students with selected initial saved Goal 3 records: `[pending real data]`
 - Adviser respondents: `[pending real data]`
 - Sole planned Admin/beneficiary: **Sir Ralph Laviste**, represented by **one** genuine September 14 consultation; its four source-linked qualitative findings appear in `MVP_VALIDATION_HIGHLIGHTS_DRAFT.md`. Other teacher/adviser/user perspectives in that conversation are from the same person, not additional participants. Any later follow-up: `[include only if genuinely collected]`.
 - Document Check component benchmark: 25 families / 30 conditions; 52/52 recorded classifications matched the frozen project-defined reference.
@@ -53,23 +53,23 @@ Results:
 
 The original v3 STD pilot remains **7/10 (70%) checklist agreement and 24/43 (55.8%) claim support**, below its targets. Do not blend cohorts or claim general AI accuracy beyond the applicable synthetic fixture scope.
 
-## 5. Objective 3 - Student submission transaction correctness
+## 5. Objective 3 - Initial saved student-record correctness
 
-Frozen protocol: T1 blank required-link attempt is blocked, then valid Refactored SRS link + `Initial submission`; T2 edits the same response, changes only `Validation step` to `Revised submission`, preserves the PDF link and other values.
+The originally distributed T1/T2 controlled-task protocol was superseded after the Form was circulated. See `GOAL3_INITIAL_SUBMISSION_AMENDMENT_20260922.md` and the canonical `MVP_VALIDATION_HIGHLIGHTS_DRAFT.md` for the full methodology and original protocol chronology. No natural student must complete an artificial edit. The retained historical Admin T1/T2 result is not a revised Goal 3 score.
 
-Results:
+Results (all pending genuine consent, inclusion and verifiable original saved-system evidence):
 
-- Unique eligible students: `[pending]`
-- Scheduled T1/T2 transactions: `[pending]`
-- Scored transactions `N_STU_TXN`: `[pending]`
-- Correct transactions `C_STU_TXN`: `[pending]`
-- `STU_TXN_accuracy`: `[pending]`
-- Students whose T1 and T2 both passed: `[pending]`
-- Runtime/system errors: `[pending]`
-- Unassessable/withdrawn transactions: `[pending]`
-- Working 95% target met: `[pending]`
+- Selected eligible consenting students, one initial saved Refactored SRS record each: `[pending]`
+- Previously inspected versus new post-amendment cases: `[pending]`
+- Included records `N_INITIAL`, retaining FAIL and UNVERIFIED: `[pending]`
+- All-five-primary-check PASS records `C_INITIAL`: `[pending]`
+- Per-check FAIL, UNVERIFIED and reasons: `[pending]`
+- `C_INITIAL / N_INITIAL` (if denominator >0): `[pending]`
+- Proposed >=95% conditional saved-record target, subject to academic endorsement: `[pending]`
+- Optional student-visible readback actually observed: `[pending]`
+- Separately logged researcher blank-link, DOCX/non-PDF and true edit/revision tests: `[pending]`
 
-List assertion-level failures rather than reducing everything to a single percentage.
+This metric cannot establish the success rate of all submission attempts, including attempts that never persisted. Do not turn survey answers or missing revisions into technical PASS/FAIL observations.
 
 ## 6. Questionnaire feedback
 

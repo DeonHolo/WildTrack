@@ -44,6 +44,7 @@ describe('Validation Study CSV export', () => {
     expect(csv).toContain('Initial submission');
     expect(csv).toContain('Revised submission');
     expect(csv).toContain('PASS');
+    expect(csv).toContain('HISTORICAL_T1_T2_ONLY_NOT_CURRENT_GOAL_3');
     expect(csv).not.toContain('must-not-export');
     expect(csv).not.toContain('secret@example.test');
     expect(csv).not.toContain('googleSubject');

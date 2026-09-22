@@ -1,8 +1,8 @@
 # Validation invitation and participant setup text
 
-**Status:** copy-ready owner/team text. Do not send automatically.
+**Status:** historical original pre-amendment invitation/setup text. It may already have been sent; preserve it as the original wording rather than representing it as the current invitation. **Do not distribute this T1/T2 invitation again.** Goal 3 changed after Form distribution on 2026-09-22; see `GOAL3_INITIAL_SUBMISSION_AMENDMENT_20260922.md`. Current participants are not required to make an artificial revision.
 
-## Short participant invitation
+## Historical short participant invitation (superseded; preserve if previously sent)
 
 Hello! We're currently gathering responses for our capstone, **WildTrack**, and we'd really appreciate your help if you have a few minutes.
 
@@ -19,7 +19,7 @@ Google Form: `[link]`
 
 Thank you so much for helping us out!
 
-## Researcher setup checklist before sharing
+## Historical researcher setup checklist (superseded)
 
 - Refactored SRS is the frozen common Objective 3 deliverable.
 - Old official SRS template is mapped so normal Document Check is available.
@@ -29,6 +29,10 @@ Thank you so much for helping us out!
 - Google Form routes and required fields have been dry-run with dummy rows removed before real analysis.
 - Team members are told not to coach scores, create duplicate responses or alter the live questionnaire during collection.
 
-## Team distribution note
+## Historical team distribution note (superseded)
 
 Share the same frozen invitation/instructions. Track response counts, not desired scores. If a participant cannot complete the prescribed WildTrack flow, record the problem as evidence rather than telling them which questionnaire rating to choose.
+
+## Current handling after the amendment
+
+Do not resend the superseded task steps to ordinary students. Leave the already-distributed Google Form and its existing responses intact, and invite descriptive feedback only from workflows a participant actually used or saw. Do not treat the old invitation or controlled-task consent as automatic permission to score every unrelated natural submission. The researcher separately verifies consent/inclusion and original saved-record evidence for the current Goal 3, with the synthetic invalid-field/type/edit checks kept outside the student denominator.

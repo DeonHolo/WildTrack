@@ -110,16 +110,17 @@ describe('Validation Study page', () => {
 
     await waitFor(() => expect(study.loadEvidence).toHaveBeenCalledWith('workspace-1', 'srs-runtime-id'));
     await waitFor(() => expect(screen.getByRole('textbox', { name: 'Study deliverable' })).toHaveValue('Refactored SRS'));
-    expect(screen.getByText('Current responses').parentElement).toHaveTextContent('3');
-    expect(screen.getByText('Unique students').parentElement).toHaveTextContent('3');
-    expect(screen.getByText('T1 observed').parentElement).toHaveTextContent('3');
-    expect(screen.getByText('T2 complete').parentElement).toHaveTextContent('2');
-    expect(screen.getByText('Passing both').parentElement).toHaveTextContent('1');
+    expect(screen.getByText('Current saved responses (unscored)').parentElement).toHaveTextContent('3');
+    expect(screen.getByText('Students with current response (not verified participants)').parentElement).toHaveTextContent('3');
+    expect(screen.getByText('Old T1 observed').parentElement).toHaveTextContent('3');
+    expect(screen.getByText('Old T2 complete').parentElement).toHaveTextContent('2');
+    expect(screen.getByText('Old T1+T2 passed').parentElement).toHaveTextContent('1');
 
     const table = screen.getByRole('table', { name: 'Validation Study evidence table' });
     expect(within(table).getByText('Passing Student')).toBeInTheDocument();
     expect(within(table).getByText('Revised submission')).toBeInTheDocument();
-    expect(within(table).getByText('Overall pass')).toBeInTheDocument();
+    expect(within(table).getByText('Old T1+T2 pass (not current Goal 3)')).toBeInTheDocument();
+    expect(screen.getByText(/No student is required to revise solely/)).toBeInTheDocument();
     expect(within(table).getAllByText('Pass').length).toBeGreaterThan(0);
     fireEvent.click(within(table).getByText('1 historical revision'));
     expect(within(table).getByText('Initial submission')).toBeInTheDocument();
@@ -137,7 +138,7 @@ describe('Validation Study page', () => {
     await waitFor(() => expect(study.loadEvidence).toHaveBeenCalledWith('workspace-1', 'mvp-runtime-id'));
     expect(await screen.findByText(/No Validation Step field was detected/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export historical CSV' }));
     expect(study.downloadCsv).toHaveBeenCalledWith(evidenceByDeliverable['mvp-runtime-id']);
   });
 });
