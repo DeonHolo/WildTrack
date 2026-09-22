@@ -4,6 +4,16 @@ Session opened: 2026-09-16
 
 Purpose: Record the project owner's answers to the consultation, resolve scope and evaluation questions, and turn confirmed decisions into next actions. This is a working session record, not completed validation results.
 
+## Proceed with existing validation — 2026-09-22
+
+The owner states distribution is already ten days late and there is no time for another Goal 3 consultation. Proceed with the existing distributed Google Form and the documented initial-saved-record amendment. Do not restart goal selection, replace the questionnaire, require students to perform artificial revisions, or make another adviser meeting a prerequisite to collection/preparation/analysis.
+
+Use **Student initial submission record correctness**, with the existing 95% team-defined target and five evidence-backed checks for selected consenting initial saved records. Keep its saved-record-only denominator, FAIL/UNVERIFIED handling, evidence requirements and post-distribution amendment history. Report it as the team's selected objective, without claiming adviser endorsement or success over all attempted submissions.
+
+Preserve existing Form responses, original T1/T2 evidence and the Validation Study diagnostic. The historical T1/T2 overall-pass result is not the revised Goal 3 score. Continue collecting feedback and complete the separate revised researcher record log; do not interpret missing natural revisions as failed initial submissions. Lack of time does not authorize invented results or broader use of records than the actual research consent permits.
+
+This decision supersedes earlier suggestions to seek another consultation before proceeding. The assistant's concern about objective strength is a reporting limitation, not a reason to discard or restart the study.
+
 ## Superseding Objective 3 decision — 2026-09-19
 
 After re-reviewing the September 14 consultation, the actual student UI, and the friction/validity problems in the scenario questionnaire, the owner explicitly accepted **student submission transaction correctness** as the third SMART goal.

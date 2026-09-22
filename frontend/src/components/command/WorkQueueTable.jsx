@@ -21,10 +21,11 @@ const TYPE_ICONS = {
   'Integrity check failed': WarningCircle
 };
 
-export function WorkQueueTable({ tasks, runningIds, onCheck, onArchive, onDecideConflict }) {
+export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchive, onDecideConflict,
+  onReview, onDismiss, onRestore, dismissed = false }) {
   return (
     <div className="wt-command-table-wrap">
-      <Table.ScrollContainer minWidth={700} type="native">
+      <Table.ScrollContainer minWidth={940} type="native">
         <Table aria-label="Today's work queue" className="wt-command-table" verticalSpacing={0} horizontalSpacing={0}>
           <Table.Thead>
             <Table.Tr>
@@ -33,6 +34,7 @@ export function WorkQueueTable({ tasks, runningIds, onCheck, onArchive, onDecide
               <Table.Th>Context</Table.Th>
               <Table.Th>Updated</Table.Th>
               <Table.Th>Action</Table.Th>
+              <Table.Th>{dismissed ? 'Restore' : 'Dismiss'}</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -85,6 +87,9 @@ export function WorkQueueTable({ tasks, runningIds, onCheck, onArchive, onDecide
                       >
                         {task.actionLabel}
                       </Button>
+                    ) : task.action === 'review' ? (
+                      <Button variant="default" size="sm" leftSection={<FileMagnifyingGlass size={17} />}
+                        aria-label={task.actionAriaLabel} onClick={() => onReview(task)}>{task.actionLabel}</Button>
                     ) : (
                       <Button
                         component={Link}
@@ -97,6 +102,13 @@ export function WorkQueueTable({ tasks, runningIds, onCheck, onArchive, onDecide
                         {task.actionLabel}
                       </Button>
                     )}
+                  </Table.Td>
+                  <Table.Td>
+                    <Button variant="subtle" color={dismissed ? 'wildtrackMaroon' : 'gray'} size="xs"
+                      loading={runningIds.has(task.id)} onClick={() => dismissed ? onRestore(task) : onDismiss(task)}
+                      aria-label={(dismissed ? 'Restore ' : 'Dismiss ') + task.type + ': ' + task.title}>
+                      {dismissed ? 'Restore' : 'Dismiss'}
+                    </Button>
                   </Table.Td>
                 </Table.Tr>
               );

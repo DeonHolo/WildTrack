@@ -148,6 +148,53 @@ class AiReviewDeduplicationTest {
         verify(provider, times(1)).review(any());
     }
 
+    @Test void deliberateRerunCallsGeminiAgainAndReplacesSavedReviewForAllIdenticalTeamFiles() {
+        assertThat(run(first).status()).isEqualTo("COMPLETED");
+        assertThat(run(second).reused()).isTrue();
+        verify(provider, times(1)).review(any());
+
+        var updated = new AiReviewProvider.Result(
+            "Updated verified document feedback",
+            List.of(new AiReviewProvider.Finding("The current PDF has an updated issue.",
+                AiReviewProvider.FindingSource.DOCUMENT, "Current PDF page 2", "")),
+            List.of(), List.of(), "Read the new review.");
+        when(provider.review(any())).thenReturn(updated);
+        var rerun = service.review(workspace, first.getId(), null, "admin", false, null, true);
+        assertThat(rerun.status()).isEqualTo("COMPLETED");
+        assertThat(rerun.reused()).isFalse();
+        assertThat(rerun.report().summary()).contains("updated issue");
+        assertThat(service.saved(workspace, second.getId(), "admin").report().summary()).contains("updated issue");
+        assertThat(run(second).reused()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isEqualTo(1);
+        verify(provider, times(2)).review(any());
+    }
+
+    @Test void twoConcurrentRerunRequestsForOneSharedFileDoNotStartTwoGeminiJobs() {
+        assertThat(run(first).status()).isEqualTo("COMPLETED");
+        var tasks = new java.util.ArrayList<Runnable>();
+        service = newService(store, tasks::add);
+        var started = service.review(workspace, first.getId(), null, "admin", false, null, true);
+        assertThat(started.status()).isEqualTo("RUNNING");
+        var duplicate = service.review(workspace, second.getId(), null, "admin", false, null, true);
+        assertThat(duplicate.status()).isEqualTo("RUNNING");
+        assertThat(duplicate.reused()).isTrue();
+        assertThat(tasks).hasSize(1);
+        tasks.get(0).run();
+        assertThat(service.saved(workspace, first.getId(), "admin").status()).isEqualTo("COMPLETED");
+        assertThat(service.saved(workspace, second.getId(), "admin").status()).isEqualTo("COMPLETED");
+        verify(provider, times(2)).review(any());
+    }
+
+    @Test void ordinaryRunAfterCompletionReusesSavedReportWithoutBillingGeminiAgain() {
+        run(first);
+        run(second);
+        assertThat(service.review(workspace, second.getId(), null, "admin", false, null, false).reused()).isTrue();
+        verify(provider, times(1)).review(any());
+        assertThatThrownBy(() -> service.review(workspace, second.getId(), null, "admin", true,
+            UUID.randomUUID(), true)).isInstanceOf(IllegalArgumentException.class);
+        verify(provider, times(1)).review(any());
+    }
+
     @Test void simultaneousRequestsAcrossServiceInstancesMakeOnlyOneProviderCall() throws Exception {
         var entered = new CountDownLatch(1); var release = new CountDownLatch(1);
         when(provider.review(any())).thenAnswer(inv -> { entered.countDown(); assertThat(release.await(5, TimeUnit.SECONDS)).isTrue(); return result; });
@@ -289,6 +336,47 @@ class AiReviewDeduplicationTest {
         assertThat(highlightsSaved.sourceUrl()).contains("highlights-file");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_field_links WHERE response_id = ?", Integer.class, response.getId())).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isEqualTo(2);
+    }
+
+    @Test void fieldScopedRerunUpdatesSamePdfForEveryTeamMemberWithoutOverwritingAnotherArtifact() {
+        var framework = new DeliverableField("framework-field", deliverableId, "frameworkModel", "Framework / Model",
+            DeliverableFieldType.DRIVE_PDF, true, 0, DocumentCheckPolicy.AUTO, true, true);
+        var highlights = new DeliverableField("highlights-field", deliverableId, "validationHighlights", "MVP Validation Highlights",
+            DeliverableFieldType.DRIVE_PDF, true, 1, DocumentCheckPolicy.AUTO, true, true);
+        when(fields.findAllByDeliverableIdAndActiveTrueOrderByDisplayOrderAscLabelAsc(deliverableId))
+            .thenReturn(List.of(framework, highlights));
+        String submitted = """
+            {"frameworkModel":"https://drive.google.com/file/d/framework-file/view",
+             "validationHighlights":"https://drive.google.com/file/d/highlights-file/view"}
+            """;
+        var studentOne = responseWithValues("member-one", "team-shared", submitted);
+        var studentTwo = responseWithValues("member-two", "team-shared", submitted);
+        files.put("framework-file", "%PDF-shared-framework".getBytes(StandardCharsets.UTF_8));
+        files.put("highlights-file", "%PDF-shared-highlights".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(service.review(workspace, studentOne.getId(), "framework-field", "admin", false, null).status())
+            .isEqualTo("COMPLETED");
+        assertThat(service.review(workspace, studentTwo.getId(), "framework-field", "admin", false, null).reused())
+            .isTrue();
+        var independent = service.review(workspace, studentOne.getId(), "highlights-field", "admin", false, null);
+        assertThat(independent.status()).isEqualTo("COMPLETED");
+        var formerSummary = service.saved(workspace, studentOne.getId(), "framework-field", "admin").report().summary();
+
+        var updated = new AiReviewProvider.Result("New Gemini review",
+            List.of(new AiReviewProvider.Finding("A new artifact-level observation appears.",
+                AiReviewProvider.FindingSource.DOCUMENT, "Page 1", "")),
+            List.of(), List.of(), "Inspect the new observation.");
+        when(provider.review(any())).thenReturn(updated);
+        var rerun = service.review(workspace, studentOne.getId(), "framework-field", "admin", false, null, true);
+        assertThat(rerun.status()).isEqualTo("COMPLETED");
+        assertThat(rerun.report().summary()).contains("new artifact-level observation");
+        assertThat(rerun.report().summary()).isNotEqualTo(formerSummary);
+        assertThat(service.saved(workspace, studentTwo.getId(), "framework-field", "admin")
+            .report().summary()).isEqualTo(rerun.report().summary());
+        assertThat(service.saved(workspace, studentOne.getId(), "highlights-field", "admin")
+            .report().summary()).isEqualTo(independent.report().summary());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isEqualTo(2);
+        verify(provider, times(3)).review(any());
     }
 
     @Test void multiPdfResponseRequiresExplicitArtifactInsteadOfReviewingTheFirstPdf() {

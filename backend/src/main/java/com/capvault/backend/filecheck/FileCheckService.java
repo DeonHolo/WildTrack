@@ -71,10 +71,95 @@ public class FileCheckService {
 
     @Transactional
     public FileCheckResponse check(UUID workspaceId, FileCheckRequest request) {
-        LocalDateTime checkedAt = LocalDateTime.now();
-        if (request.fieldId() != null) {
-            validateFieldAssociation(workspaceId, request);
+        return checkInternal(workspaceId, request, null);
+    }
+
+    /** A single in-memory capture can be associated with several submitted responses.
+     * No PDF bytes are persisted and each response still receives its own field-scoped report. */
+    public record CapturedPdf(DriveFileMetadata metadata, byte[] bytes, PdfInspection inspection) { }
+
+    public CapturedPdf capture(DriveFileReference reference, DriveFileMetadata metadata) {
+        requireMatchingMetadata(reference, metadata);
+        if (!PDF_MIME_TYPE.equalsIgnoreCase(metadata.mimeType()) || !metadata.canDownload()
+                || (metadata.size() != null && metadata.size() > driveProperties.maximumFileSizeBytes())) {
+            return new CapturedPdf(metadata, null, null);
         }
+        byte[] bytes = driveGateway.download(reference);
+        if (bytes == null || bytes.length == 0 || bytes.length > driveProperties.maximumFileSizeBytes()
+                || (metadata.size() != null && metadata.size() != bytes.length)) {
+            throw new GoogleDriveUnavailableException("The downloaded PDF did not match its Drive metadata. Try checking the latest version again.");
+        }
+        if (metadata.md5Checksum() != null && !metadata.md5Checksum().isBlank()) {
+            try {
+                byte[] digest = java.security.MessageDigest.getInstance("MD5").digest(bytes);
+                String downloadedChecksum = java.util.HexFormat.of().formatHex(digest);
+                if (!downloadedChecksum.equalsIgnoreCase(metadata.md5Checksum())) {
+                    throw new GoogleDriveUnavailableException("The Drive PDF changed during download. Try checking the latest version again.");
+                }
+            } catch (java.security.NoSuchAlgorithmException noMd5) {
+                throw new IllegalStateException("MD5 provider is unavailable.", noMd5);
+            }
+        }
+        return new CapturedPdf(metadata, bytes, pdfInspector.inspect(bytes));
+    }
+
+    @Transactional
+    public FileCheckResponse checkCaptured(UUID workspaceId, FileCheckRequest request, CapturedPdf captured) {
+        if (captured == null || captured.metadata() == null) throw new IllegalArgumentException("Captured Drive metadata is required.");
+        return checkInternal(workspaceId, request, captured);
+    }
+
+    @Transactional(readOnly = true)
+    public FileCheckRequest validateBatchTarget(UUID workspaceId, FileCheckRequest request) {
+        if (request == null || request.fieldId() == null || request.fieldId().isBlank()) {
+            throw new IllegalArgumentException("A submitted PDF field is required.");
+        }
+        FieldAssociation association = validateFieldAssociation(workspaceId, request);
+        String canonicalKey = association.deliverable().getTrackerColumnKey();
+        if (canonicalKey == null || canonicalKey.isBlank()) canonicalKey = association.deliverable().getTitle();
+        var updatedAt = association.response().getUpdatedAt() == null
+            ? association.response().getSubmittedAt() : association.response().getUpdatedAt();
+        return new FileCheckRequest(request.responseId(), request.fieldId().trim(), canonicalKey,
+            request.sourceUrl().trim(), updatedAt == null ? null : updatedAt.toString());
+    }
+
+    @Transactional
+    public FileCheckResponse recordBatchProviderFailure(UUID workspaceId, FileCheckRequest request,
+            boolean metadataFailure, String message) {
+        requireCurrentSubmissionRevision(validateFieldAssociation(workspaceId, request), request);
+        String flag = metadataFailure
+            ? (message != null && message.contains("Drive file is inaccessible")
+                ? "Inaccessible" : "Provider Unavailable")
+            : "Download Failed";
+        // Upstream failures may include request URLs, tokens or raw provider JSON.
+        // Keep only explicitly recognized safe descriptions in persisted reports.
+        String summary = "Inaccessible".equals(flag)
+            ? "The submitted Drive file is inaccessible. Confirm its sharing permissions and retry."
+            : metadataFailure ? "Google Drive could not verify the submitted file metadata. Try again."
+                : "Google Drive could not safely download and verify the submitted PDF. Try again.";
+        return persist(workspaceId, request, blocked(request, LocalDateTime.now(),
+            summary,
+            flag, "Check the submitted file's access, then try Document Check again.", null));
+    }
+
+    private static void requireMatchingMetadata(DriveFileReference reference, DriveFileMetadata metadata) {
+        if (reference == null || metadata == null || reference.fileId() == null
+                || !reference.fileId().equals(metadata.id())) {
+            throw new GoogleDriveUnavailableException("Drive returned metadata for a different or unknown file. Try checking the latest version again.");
+        }
+    }
+
+    private static void requireCurrentSubmissionRevision(FieldAssociation association, FileCheckRequest request) {
+        var response = association.response();
+        var updatedAt = response.getUpdatedAt() == null ? response.getSubmittedAt() : response.getUpdatedAt();
+        if (updatedAt == null || !updatedAt.toString().equals(request.sourceResponseUpdatedAt())) {
+            throw new IllegalArgumentException("The response changed while Document Check was running. Refresh and retry.");
+        }
+    }
+
+    private FileCheckResponse checkInternal(UUID workspaceId, FileCheckRequest request, CapturedPdf captured) {
+        LocalDateTime checkedAt = LocalDateTime.now();
+        FieldAssociation association = request.fieldId() == null ? null : validateFieldAssociation(workspaceId, request);
         if (!driveGateway.isConfigured()) {
             return persist(workspaceId, request, unavailable(request, checkedAt));
         }
@@ -93,9 +178,14 @@ public class FileCheckService {
             ));
         }
 
+        if (captured != null) {
+            requireMatchingMetadata(reference, captured.metadata());
+            if (association != null) requireCurrentSubmissionRevision(association, request);
+        }
+
         DriveFileMetadata metadata;
         try {
-            metadata = driveGateway.getMetadata(reference);
+            metadata = captured == null ? driveGateway.getMetadata(reference) : captured.metadata();
         } catch (GoogleDriveUnavailableException exception) {
             return persist(workspaceId, request, blocked(
                 request,
@@ -141,7 +231,8 @@ public class FileCheckService {
 
         byte[] bytes;
         try {
-            bytes = driveGateway.download(reference);
+            bytes = captured == null ? driveGateway.download(reference) : captured.bytes();
+            if (bytes == null) throw new GoogleDriveUnavailableException("The captured Drive file could not be downloaded.");
         } catch (GoogleDriveUnavailableException | IllegalArgumentException exception) {
             return persist(workspaceId, request, blocked(
                 request,
@@ -153,7 +244,7 @@ public class FileCheckService {
             ), metadata);
         }
 
-        PdfInspection inspection = pdfInspector.inspect(bytes);
+        PdfInspection inspection = captured == null ? pdfInspector.inspect(bytes) : captured.inspection();
         if (!inspection.readable()) {
             String flag = inspection.encrypted() ? "Password Protected" : "Corrupt PDF";
             return persist(workspaceId, request, blocked(
@@ -181,7 +272,9 @@ public class FileCheckService {
         ), metadata);
     }
 
-    private void validateFieldAssociation(UUID workspaceId, FileCheckRequest request) {
+    private record FieldAssociation(FormResponse response, Deliverable deliverable) { }
+
+    private FieldAssociation validateFieldAssociation(UUID workspaceId, FileCheckRequest request) {
         UUID responseId;
         try {
             responseId = UUID.fromString(request.responseId());
@@ -218,6 +311,7 @@ public class FileCheckService {
         if (submittedUrl.isBlank() || !submittedUrl.equals(request.sourceUrl().trim())) {
             throw new IllegalArgumentException("Document Check source does not match the submitted value for this field.");
         }
+        return new FieldAssociation(response, deliverable);
     }
 
     private static boolean matchesDeliverableKey(String requestedKey, Deliverable deliverable) {

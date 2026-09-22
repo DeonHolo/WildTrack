@@ -5,6 +5,7 @@ import {
   getReviewState,
   revokeReviewResponse,
   runDocumentCheck as requestDocumentCheck,
+  runDocumentCheckBatch as requestDocumentCheckBatch,
   saveReviewFeedback
 } from './api.js';
 import {
@@ -69,6 +70,65 @@ export async function runDocumentChecks(workspaceId, candidates, deliverables, o
   });
   const results = [];
   let completed = 0;
+  if (options.useDedup === true) {
+    // Group the entire selection before chunking. The server reuses one capture per
+    // Drive file ID within a request; splitting a group would capture it twice.
+    const groups = new Map();
+    targets.forEach(({ response, field }, index) => {
+      const payload = {
+        responseId: response.id,
+        fieldId: field?.definitionId || null,
+        deliverableKey: byId.get(response.deliverableId)?.trackerColumn
+          || byId.get(response.deliverableId)?.shortTitle || response.deliverableId,
+        sourceUrl: String(response.values?.[field?.id] || '').trim(),
+        sourceResponseUpdatedAt: response.updatedAt || response.submittedAt
+      };
+      // Invalid links get their own groups so they cannot create false file matches.
+      const fileId = canonicalDriveFileId(payload.sourceUrl);
+      const groupKey = fileId === null ? `invalid:${index}` : `drive:${fileId}`;
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey).push({ payload, fieldKey: field?.id || null });
+    });
+    const chunks = groupDocumentCheckTargets([...groups.values()]);
+    for (const chunk of chunks) {
+      if (options.shouldContinue?.() === false) break;
+      const payload = chunk.map((item) => item.payload);
+      try {
+        // The server enforces a 400-artifact request limit. A single larger shared
+        // file group cannot be split without breaking the one-capture guarantee.
+        if (chunk.length > 400) throw new Error('More than 400 submissions share this file. Check a smaller selection.');
+        const batch = await requestDocumentCheckBatch(workspaceId, payload);
+        const received = new Map();
+        for (const entry of Array.isArray(batch) ? batch : []) {
+          const key = documentCheckResultKey(entry.responseId, entry.fieldId);
+          if (!received.has(key)) received.set(key, []);
+          received.get(key).push(entry);
+        }
+        for (const item of chunk) {
+          const entry = received.get(documentCheckResultKey(item.payload.responseId, item.payload.fieldId))?.shift();
+          results.push({
+            attemptId: item.payload.responseId, fieldId: item.payload.fieldId,
+            fieldKey: item.fieldKey, ok: Boolean(entry?.report), report: entry?.report || null,
+            error: entry?.error || (entry?.report ? '' : 'Document Check did not return a report for this PDF artifact.')
+          });
+        }
+      } catch (error) {
+        chunk.forEach(({ payload: target, fieldKey }) => results.push({
+          attemptId: target.responseId, fieldId: target.fieldId, fieldKey,
+          ok: false, error: error?.message || 'Document Check batch could not finish.'
+        }));
+      }
+      completed += chunk.length;
+      options.onProgress?.({ completed, total: targets.length });
+    }
+    return {
+      ok: completed === targets.length && results.every(item => item.ok),
+      cancelled: completed < targets.length,
+      total: targets.length, completed,
+      failed: results.filter(item => !item.ok).length,
+      results
+    };
+  }
   let cursor = 0;
   const runWorker = async () => {
     while (cursor < targets.length && options.shouldContinue?.() !== false) {
@@ -91,9 +151,46 @@ export async function runDocumentChecks(workspaceId, candidates, deliverables, o
   };
 }
 
-export async function runAiReview(workspaceId, responseId, fieldId = null, retryAcknowledged = false, retryToken = null, shouldContinue = () => true) {
+function canonicalDriveFileId(sourceUrl) {
   try {
-    let review = await requestAiReview(workspaceId, responseId, retryAcknowledged, retryToken, fieldId);
+    const url = new URL(sourceUrl);
+    if (url.hostname.toLowerCase() !== 'drive.google.com') return null;
+    const pathId = url.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/)?.[1];
+    if (pathId) return pathId;
+    const queryId = [...url.searchParams.entries()].find(([key]) => key.toLowerCase() === 'id')?.[1];
+    return queryId || null;
+  } catch {
+    return null;
+  }
+}
+
+function groupDocumentCheckTargets(groups) {
+  const MAX_FILES = 8;
+  const TARGET_LIMIT = 40;
+  const chunks = [];
+  let current = [];
+  let fileCount = 0;
+  for (const group of groups) {
+    if (current.length && (fileCount >= MAX_FILES || current.length + group.length > TARGET_LIMIT)) {
+      chunks.push(current);
+      current = [];
+      fileCount = 0;
+    }
+    current.push(...group);
+    fileCount += 1;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
+function documentCheckResultKey(responseId, fieldId) {
+  return JSON.stringify([responseId, fieldId || null]);
+}
+
+export async function runAiReview(workspaceId, responseId, fieldId = null, retryAcknowledged = false, retryToken = null,
+    shouldContinue = () => true, rerunRequested = false) {
+  try {
+    let review = await requestAiReview(workspaceId, responseId, retryAcknowledged, retryToken, fieldId, rerunRequested);
     const reused = review.reused;
     // Poll saved state only. Never repeat the generation POST after a timeout or lost connection.
     const deadline = Date.now() + 8 * 60 * 1000;
@@ -108,7 +205,8 @@ export async function runAiReview(workspaceId, responseId, fieldId = null, retry
           'PROVIDER_TIMEOUT', 'PROVIDER_CONNECTION_FAILED', 'MODEL_UNAVAILABLE'].includes(review.failureCode),
       pending: review.status === 'RUNNING', uncertain: review.status === 'UNCERTAIN', review,
       error: review.status === 'COMPLETED' ? '' : review.status === 'RUNNING'
-        ? 'The review is still running. Its saved result will appear when ready; no new AI request was sent.' : review.message };
+        ? 'The review is still running. Open View AI Review after its saved result is ready; no additional AI request was sent.'
+        : review.message || (review.failureCode ? `AI Review failed: ${review.failureCode}.` : 'AI Review could not finish.') };
   } catch (error) {
     return { ok: false, pauseBatch: true, error: error?.message || 'AI Review could not finish.' };
   }
@@ -121,7 +219,8 @@ export async function runAiReviews(workspaceId, targets, options = {}) {
     const normalized = typeof target === 'string' ? { responseId: target, fieldId: null } : target;
     const targetKey = normalized.key || (normalized.fieldId ? `${normalized.responseId}:${normalized.fieldId}` : normalized.responseId);
     const retryToken = options.retryTokens?.[targetKey] || null;
-    const result = await runAiReview(workspaceId, normalized.responseId, normalized.fieldId, Boolean(retryToken), retryToken, shouldContinue);
+    const result = await runAiReview(workspaceId, normalized.responseId, normalized.fieldId, Boolean(retryToken), retryToken,
+      shouldContinue, !retryToken && Boolean(options.rerunKeys?.[targetKey]));
     if (!shouldContinue() || result.cancelled) break;
     options.onResult?.(normalized, result);
     // Document-specific failures remain available for explicit retry, but do not block other documents.
@@ -145,5 +244,12 @@ export function applyDocumentCheck(response, report) {
 
 export function applyArtifactAiReview(response, review) {
   if (!review?.fieldId) return applyAiReview(response, review);
+  // The backend identifies its fallback PDF as `${deliverableId}:legacy`, even
+  // when an older client maps that PDF to `documentPdf` without a definitionId.
+  // Keep both representations aligned so View AI Review updates immediately in
+  // those legacy drawers as well as in the persisted field-scoped version.
+  if (review.fieldId === `${response.deliverableId}:legacy`) {
+    return applyAiReview(applyFieldAiReviews(response, { [review.fieldId]: review }), review);
+  }
   return applyFieldAiReviews(response, { [review.fieldId]: review });
 }

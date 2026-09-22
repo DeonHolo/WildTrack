@@ -161,6 +161,7 @@ public class DeliverableService {
                 repository.save(deliverable);
             } else if (!creating) {
                 // Older API clients do not know about field definitions. Preserve the existing field model.
+                normalizeStoredPolicies(existing);
                 deliverable.setPdfRequired(existing.stream().anyMatch(this::isPdfField));
                 repository.save(deliverable);
             }
@@ -194,7 +195,7 @@ public class DeliverableService {
                     item.fieldType(),
                     item.required(),
                     index,
-                    item.documentCheckPolicy(),
+                    persistedPolicy(item.fieldType()),
                     item.aiReviewEnabled(),
                     item.active()
                 );
@@ -207,7 +208,7 @@ public class DeliverableService {
                         "A submission field type cannot be changed after responses exist. Remove it from the form and add a new field instead.");
                 }
                 field.update(item.label().trim(), normalizeNullable(item.helpText()), item.fieldType(), item.required(), index,
-                    item.documentCheckPolicy(), item.aiReviewEnabled(), item.active());
+                    persistedPolicy(item.fieldType()), item.aiReviewEnabled(), item.active());
             }
             retainedIds.add(field.getId());
             fieldRepository.saveAndFlush(field);
@@ -217,7 +218,7 @@ public class DeliverableService {
         for (DeliverableField old : existing) {
             if (!retainedIds.contains(old.getId()) && old.isActive()) {
                 old.update(old.getLabel(), old.getHelpText(), old.getFieldType(), old.isRequired(), old.getDisplayOrder(),
-                    old.getDocumentCheckPolicy(), old.isAiReviewEnabled(), false);
+                    persistedPolicy(old.getFieldType()), old.isAiReviewEnabled(), false);
                 fieldRepository.save(old);
             }
         }
@@ -333,6 +334,24 @@ public class DeliverableService {
 
     private boolean isPdfField(DeliverableField field) {
         return field.isActive() && field.getFieldType() == DeliverableFieldType.DRIVE_PDF;
+    }
+
+    /** Legacy/alternate clients may omit the field model entirely. Do not let that
+     * preserve a previously saved OFF/MANUAL policy on a PDF. Only change invalid
+     * policies: no form fields, timestamps, or review evidence are reset here. */
+    private void normalizeStoredPolicies(List<DeliverableField> existing) {
+        for (DeliverableField field : existing) {
+            DocumentCheckPolicy policy = persistedPolicy(field.getFieldType());
+            if (field.getDocumentCheckPolicy() != policy) {
+                field.update(field.getLabel(), field.getHelpText(), field.getFieldType(), field.isRequired(),
+                    field.getDisplayOrder(), policy, field.isAiReviewEnabled(), field.isActive());
+                fieldRepository.save(field);
+            }
+        }
+    }
+
+    private DocumentCheckPolicy persistedPolicy(DeliverableFieldType type) {
+        return type == DeliverableFieldType.DRIVE_PDF ? DocumentCheckPolicy.AUTO : DocumentCheckPolicy.OFF;
     }
 
     private DeliverableField legacyField(Deliverable deliverable, boolean pdfRequired) {

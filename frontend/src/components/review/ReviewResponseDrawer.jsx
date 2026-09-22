@@ -42,6 +42,7 @@ export function ReviewResponseDrawer({
   state,
   deliverable,
   checkingFields = new Set(),
+  checkingAiFields = new Set(),
   checkError = '',
   onClose,
   onDocumentCheck,
@@ -99,6 +100,7 @@ export function ReviewResponseDrawer({
                 response={response}
                 field={field}
                 checking={checkingFields.has(artifactKey(response.id, field))}
+                reviewing={checkingAiFields.has(`${response.id}:${field.definitionId || field.id}`)}
                 onDocumentCheck={() => onDocumentCheck?.(field)}
                 onFileHistory={() => onFileHistory?.(field)}
                 onViewAiReview={() => onViewAiReview?.(field)}
@@ -143,7 +145,7 @@ export function ReviewResponseDrawer({
   );
 }
 
-function ArtifactCard({ response, field, checking, onDocumentCheck, onFileHistory, onViewAiReview, onAiReview }) {
+function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, onFileHistory, onViewAiReview, onAiReview }) {
   const value = String(response.values?.[field.id] || '').trim();
   const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
   const report = artifactDocumentCheck(response, field);
@@ -191,8 +193,9 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onFileHistor
               ) : null}
               {field.aiReviewEnabled ? (
                 <Button variant="light" color="wildtrackGold" size="xs" leftSection={<Sparkle size={15} />}
-                  disabled={!isArtifactDocumentCheckCurrent(response, field)} onClick={onAiReview}>
-                  {aiStatus === 'Retry required' ? 'Retry AI review' : aiCurrent ? 'Rerun AI Review' : 'Run AI Review'}
+                  loading={reviewing} disabled={reviewing || aiStatus === 'Reviewing' || !isArtifactDocumentCheckCurrent(response, field)} onClick={onAiReview}>
+                  {reviewing || aiStatus === 'Reviewing' ? 'AI Review running'
+                    : aiStatus === 'Retry required' ? 'Retry AI review' : aiCurrent ? 'Rerun AI Review' : 'Run AI Review'}
                 </Button>
               ) : null}
             </Group>
@@ -205,7 +208,10 @@ function ArtifactCard({ response, field, checking, onDocumentCheck, onFileHistor
             ) : <Text size="xs" c="dimmed">No Document Check result is available for this PDF yet.</Text>}
             {field.aiReviewEnabled ? (
               <Stack gap={3}>
-                <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={aiStatus} /></Group>
+                <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={reviewing ? 'Reviewing' : aiStatus} /></Group>
+                {reviewing && aiReport ? (
+                  <Text size="xs" c="dimmed">A new review is running. The previous report remains available until the new result is saved.</Text>
+                ) : null}
                 {aiReport ? (
                   <Text size="sm" c="dimmed" lineClamp={3}>{aiReport.summary}</Text>
                 ) : <Text size="xs" c="dimmed">{aiState?.message || 'No current AI Review is available for this PDF.'}</Text>}

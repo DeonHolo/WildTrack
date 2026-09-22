@@ -40,6 +40,9 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         incomplete prose is not an absent heading. A request for particular content is not an instruction to add
         a separately named required section; do not invent headings such as "Supporting Evidence" from a requirement
         merely to supply evidence. An official-template example project name does not define the student's identity.
+        Do not mark bullets or lists incorrect because they are not paragraphs. An exact supplied authoritative
+        passage must explicitly require prose or prohibit bullet formatting before making that claim; a template's
+        sample bullet points demonstrate that bullets may be valid for that section.
         An explicit synthetic/sample label alone does not mean the document is the wrong deliverable: distinguish
         actual document type and body relevance from whether the synthetic fixture demonstrates real-world testing.
         Do not call every section blank or every passage irrelevant if meaningful project-specific content exists.

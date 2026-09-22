@@ -604,7 +604,7 @@ function QuestionCard({ field, selected, position, total, first, last, onSelect,
     onUpdate({
       type,
       pdfRequired: type === 'drive',
-      documentCheckPolicy: type === 'drive' ? (field.documentCheckPolicy === 'OFF' ? 'AUTO' : field.documentCheckPolicy || 'AUTO') : 'OFF',
+      documentCheckPolicy: type === 'drive' ? 'AUTO' : 'OFF',
       aiReviewEnabled: type === 'drive' ? (field.type === 'drive' ? field.aiReviewEnabled !== false : true) : false,
       options: nextChoice ? (field.options?.length ? field.options : [newChoiceOption('Option 1'), newChoiceOption('Option 2')]) : []
     });
@@ -660,13 +660,11 @@ function QuestionCard({ field, selected, position, total, first, last, onSelect,
         {isChoice ? <ChoiceEditor field={field} onUpdate={onUpdate} /> : null}
 
         {isPdf ? (
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>
-            <Select label="Document Check" value={field.documentCheckPolicy || 'AUTO'} allowDeselect={false}
-              data={[{ value: 'AUTO', label: 'Automatic' }, { value: 'MANUAL', label: 'Manual' }, { value: 'OFF', label: 'Off' }]}
-              onChange={(value) => onUpdate({ documentCheckPolicy: value })} />
-            <Checkbox mt="xl" label="Allow AI Review" checked={Boolean(field.aiReviewEnabled)}
+          <Stack gap="xs">
+            <Text size="sm" c="dimmed">Document Check runs automatically for PDF submissions.</Text>
+            <Checkbox label="Allow AI Review" checked={Boolean(field.aiReviewEnabled)}
               onChange={(event) => onUpdate({ aiReviewEnabled: event.currentTarget.checked })} />
-          </SimpleGrid>
+          </Stack>
         ) : null}
       </Stack>
     </Paper>

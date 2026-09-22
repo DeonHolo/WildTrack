@@ -14,7 +14,18 @@ async function clearStorageAndReload(page) {
 }
 
 async function selectStaffWorkspace(page) {
-  await page.getByRole('textbox', { name: 'Academic workspace' }).click();
+  const selector = page.getByRole('textbox', { name: 'Academic workspace' });
+  await expect(selector).toBeVisible();
+  // Session and workspace load asynchronously. A deep-linked Review drawer can
+  // open over the header before the persisted workspace value is hydrated.
+  // Observe the actual selected workspace before trying to click through it.
+  try {
+    await expect(selector).toHaveValue('Browser persistence', { timeout: 4000 });
+    return;
+  } catch {
+    // A different workspace is selected, so explicitly choose the fixture.
+  }
+  await selector.click();
   await page.getByRole('listbox').getByRole('option', { name: /Browser persistence/ }).click();
 }
 
@@ -55,8 +66,11 @@ test('student draft/submission and staff acceptance/archive survive clean-storag
     await signIn(staffContext, process.env.JOURNEY_ADMIN_SESSION);
     const staff = await staffContext.newPage();
     const reviewPath = `http://127.0.0.1:4181/review?response=${response.responseId}`;
-    await staff.goto('http://127.0.0.1:4181/adviser');
+    // Adviser feedback is scoped to assigned teams. The real fixture grants
+    // this administrator a JOURNEY team assignment rather than impersonating one.
+    await staff.goto(`http://127.0.0.1:4181/adviser?team=JOURNEY&deliverable=${form}`);
     await selectStaffWorkspace(staff);
+    await expect(staff.getByRole('textbox', { name: 'Feedback for student' })).toBeEnabled();
     await staff.getByRole('textbox', { name: 'Feedback for student' }).fill('Please explain your design choices.');
     await staff.getByRole('button', { name: 'Save feedback', exact: true }).click();
     await expect(staff.getByRole('button', { name: 'Update feedback', exact: true })).toBeDisabled();
@@ -64,19 +78,23 @@ test('student draft/submission and staff acceptance/archive survive clean-storag
     await selectStaffWorkspace(staff);
     await expect(staff.getByRole('textbox', { name: 'Feedback for student' })).toHaveValue('Please explain your design choices.');
     await staff.goto(reviewPath);
-    await expect(staff.getByRole('button', { name: 'Accept response', exact: true })).toBeVisible();
-    await staff.getByRole('button', { name: 'Accept response', exact: true }).click();
-    await expect(staff.getByRole('button', { name: 'Revoke acceptance', exact: true })).toBeEnabled();
+    await selectStaffWorkspace(staff);
+    const review = staff.getByRole('dialog', { name: 'Review Journey Student' });
+    await expect(review.getByRole('button', { name: 'Accept response', exact: true })).toBeEnabled();
+    await review.getByRole('button', { name: 'Accept response', exact: true }).click();
+    await expect(review.getByRole('button', { name: 'Revoke acceptance', exact: true })).toBeEnabled();
     await clearStorageAndReload(staff);
     await selectStaffWorkspace(staff);
-    await expect(staff.getByRole('button', { name: 'Revoke acceptance', exact: true })).toBeEnabled();
-    await staff.getByRole('button', { name: 'Archive response', exact: true }).click();
+    await expect(review.getByRole('button', { name: 'Revoke acceptance', exact: true })).toBeEnabled();
+    await review.getByRole('button', { name: 'Archive response', exact: true }).click();
     await staff.getByRole('dialog', { name: 'Archive this accepted response?' }).getByRole('button', { name: 'Archive response', exact: true }).click();
-    await expect(staff.getByRole('dialog', { name: 'Review Journey Student' }).getByRole('button', { name: 'Archived', exact: true })).toBeDisabled();
+    await expect(review.getByRole('button', { name: 'Archived', exact: true })).toBeDisabled();
     await clearStorageAndReload(staff);
     await selectStaffWorkspace(staff);
-    await expect(staff.getByRole('dialog', { name: 'Review Journey Student' }).getByRole('button', { name: 'Archived', exact: true })).toBeDisabled();
-    await expect(staff.getByRole('button', { name: 'Revoke acceptance', exact: true })).toBeDisabled();
+    await expect(review.getByRole('button', { name: 'Archived', exact: true })).toBeDisabled();
+    // Archiving retains immutable history but no longer locks staff out of
+    // revoking an erroneous acceptance.
+    await expect(review.getByRole('button', { name: 'Revoke acceptance', exact: true })).toBeEnabled();
   } finally {
     await studentContext.close();
     await staffContext.close();
@@ -88,21 +106,33 @@ test('tracker configuration and staff records survive clean-storage reload', asy
   try {
     await signIn(context, process.env.JOURNEY_ADMIN_SESSION);
     const page = await context.newPage();
+    await page.goto('http://127.0.0.1:4181/academic-data');
+    await selectStaffWorkspace(page);
+    await page.getByRole('tab', { name: /Deliverables/ }).click();
+    await page.getByRole('button', { name: 'Add row', exact: true }).click();
+    const addDeliverable = page.getByRole('dialog', { name: 'Add deliverable' });
+    await addDeliverable.getByRole('textbox', { name: 'Deliverable name' }).fill('Journey milestone');
+    await addDeliverable.getByRole('button', { name: 'Create tracker column' }).click();
+    await expect(page.getByRole('textbox', { name: 'Title for Journey milestone' })).toBeVisible();
+    await page.getByRole('textbox', { name: 'Title for Journey milestone' }).fill('Journey milestone');
+    await page.getByRole('textbox', { name: 'Due date for Journey milestone' }).fill('2098-12-31T23:59');
+    await page.getByRole('button', { name: /Save changes/ }).click();
+    await expect(page.getByText(/1 row saved to WildTrack/)).toBeVisible();
+    await clearStorageAndReload(page);
+    await selectStaffWorkspace(page);
+    await page.getByRole('tab', { name: /Deliverables/ }).click();
+    await expect(page.getByRole('textbox', { name: 'Title for Journey milestone' })).toHaveValue('Journey milestone');
+    await expect(page.getByRole('textbox', { name: 'Due date for Journey milestone' })).toHaveValue('2098-12-31T23:59');
+
     await page.goto('http://127.0.0.1:4181/workspace');
     await selectStaffWorkspace(page);
-    await page.getByRole('button', { name: /Deliverable columns/ }).click();
-    await page.getByRole('textbox', { name: 'New Tracker column' }).fill('Journey milestone');
-    await page.getByRole('button', { name: 'Add column', exact: true }).click();
-    await expect(page.getByRole('textbox', { name: 'Journey milestone display name' })).toHaveValue('Journey milestone');
-    await page.getByRole('button', { name: /Add staff/ }).click();
+    await page.getByRole('button', { name: 'Add staff / adviser' }).click();
     await page.getByRole('textbox', { name: 'Google Email', exact: true }).fill('journey-adviser@example.test');
     await page.getByRole('button', { name: 'Save staff member', exact: true }).click();
     await expect(page.getByText('journey-adviser@example.test', { exact: true })).toBeVisible();
     await clearStorageAndReload(page);
     await selectStaffWorkspace(page);
     await expect(page.getByText('journey-adviser@example.test', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: /Deliverable columns/ }).click();
-    await expect(page.getByRole('textbox', { name: 'Journey milestone display name' })).toHaveValue('Journey milestone');
     await page.goto('http://127.0.0.1:4181/tracker');
     await expect(page.getByRole('columnheader', { name: /Journey milestone/ })).toBeVisible();
     await clearStorageAndReload(page);

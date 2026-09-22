@@ -69,8 +69,8 @@ describe('SubmittedFileHistory', () => {
   it('explains absent consent and offers it without browsing Drive', async () => {
     getSubmittedFileHistory.mockResolvedValue({ status: 'NOT_CONNECTED', revisions: [] });
     renderHistory({ audience: 'student' });
-    expect(await screen.findByText(/Drive metadata permission has not been granted/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow read-only Drive metadata' }));
+    expect(await screen.findByText(/No submitter of this file currently has usable Drive history access/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Optionally allow Drive metadata' }));
     expect(startDriveHistoryConsent).toHaveBeenCalledTimes(1);
     expect(getSubmittedFileHistory).toHaveBeenCalledTimes(1);
   });

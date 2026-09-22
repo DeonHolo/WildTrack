@@ -99,12 +99,13 @@ export function ReviewPage() {
   const [aiReportDialogTarget, setAiReportDialogTarget] = useState(null);
   const [batchProgress, setBatchProgress] = useState(null);
   const [aiProgress, setAiProgress] = useState(null);
+  const [aiRunningKeys, setAiRunningKeys] = useState(new Set());
   const aiBusy = useRef(false);
   const [checkingIds, setCheckingIds] = useState(new Set());
   const [checkError, setCheckError] = useState(null);
   const [page, setPage] = useState(1);
   useEffect(() => {
-    setAiProgress(null); aiBusy.current = false;
+    setAiProgress(null); setAiRunningKeys(new Set()); aiBusy.current = false;
     setSelectedDeliverableId(linkedDeliverableId || '');
     setBatchProgress(null);
     setCheckingIds(new Set());
@@ -268,6 +269,7 @@ export function ReviewPage() {
     if (!isCurrentScope()) return;
     setBatchProgress({ completed: 0, total: targets.length, failed: 0, done: false });
     const result = await runReviewDocumentChecks(activeWorkspaceId, targets, state.deliverables, {
+      useDedup: true,
       shouldContinue: isCurrentScope,
       onProgress: ({ completed, total }) => {
         if (isCurrentScope()) setBatchProgress((current) => ({ ...current, completed, total }));
@@ -297,7 +299,8 @@ export function ReviewPage() {
     setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, failures, done: true });
   }
 
-  async function requestAiReview(targetsOrIds, retryAcknowledged = false, retryTokens = {}, excludeArchived = false) {
+  async function requestAiReview(targetsOrIds, retryAcknowledged = false, retryTokens = {}, excludeArchived = false,
+      rerunRequested = false) {
     if (aiBusy.current || !isCurrentScope()) return;
     const candidates = normalizeAiTargets(targetsOrIds, state)
       .filter((target) => isArtifactDocumentCheckCurrent(target.response, target.field));
@@ -321,28 +324,35 @@ export function ReviewPage() {
           labels: { confirm: 'Understood', cancel: 'Close' } });
         return;
       }
-      const modalId = modals.open({ title: retryAcknowledged ? 'Retry AI reviews?' : 'AI review submissions', centered: true,
+      const modalId = modals.open({ title: retryAcknowledged ? 'Retry AI reviews?'
+        : rerunRequested ? 'Rerun AI Review?' : 'AI review submissions', centered: true,
         children: <AiReviewDialog targets={candidates}
-          excludeArchived={excludeArchived} retry={retryAcknowledged} retryTokens={effectiveRetryTokens}
+          excludeArchived={excludeArchived} retry={retryAcknowledged} rerun={rerunRequested} retryTokens={effectiveRetryTokens}
           onCancel={() => modals.close(modalId)}
           onConfirm={selected => {
             const selectedRetryTokens = Object.fromEntries(selected
               .filter(target => effectiveRetryTokens[target.key])
               .map(target => [target.key, effectiveRetryTokens[target.key]]));
+            const selectedRerunKeys = Object.fromEntries(selected
+              .filter(target => rerunRequested && !effectiveRetryTokens[target.key]
+                && isArtifactAiReviewCurrent(target.response, target.field))
+              .map(target => [target.key, true]));
             modals.close(modalId);
-            runAiBatch(selected, selectedRetryTokens);
+            runAiBatch(selected, selectedRetryTokens, selectedRerunKeys);
           }} /> });
     } catch (error) { if (isCurrentScope()) notifications.show({ color: 'red', message: error.message || 'AI review status could not be loaded.' }); }
   }
 
-  async function runAiBatch(targets, retryTokens = {}) {
+  async function runAiBatch(targets, retryTokens = {}, rerunKeys = {}) {
     if (aiBusy.current || !isCurrentScope()) return;
     aiBusy.current = true;
+    setAiRunningKeys(new Set(targets.map(target => target.key)));
     let progress = { total: targets.length, completed: 0, available: 0, reused: 0, failures: [], uncertainTargets: [], retryTokens: {}, done: false };
     setAiProgress(progress);
     try {
-      await runAiReviews(activeWorkspaceId, targets.map(({ key, responseId, fieldId }) => ({ key, responseId, fieldId })), { retryTokens, shouldContinue: isCurrentScope,
+      await runAiReviews(activeWorkspaceId, targets.map(({ key, responseId, fieldId }) => ({ key, responseId, fieldId })), { retryTokens, rerunKeys, shouldContinue: isCurrentScope,
         onResult: (targetRef, result) => {
+          setAiRunningKeys(current => new Set([...current].filter(key => key !== targetRef.key)));
           const target = targets.find((item) => item.responseId === targetRef.responseId && item.fieldId === targetRef.fieldId);
           const response = state.attempts.find(attempt => attempt.id === targetRef.responseId);
           const deliverable = state.deliverables.find(item => item.id === response?.deliverableId);
@@ -352,14 +362,14 @@ export function ReviewPage() {
           progress = { ...progress, completed: progress.completed + 1,
             available: progress.available + (result.ok ? 1 : 0),
             reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
-            failures: result.ok ? progress.failures : [...progress.failures, `${label}: ${result.error}`],
+            failures: result.ok ? progress.failures : [...progress.failures, `${label}: ${result.error || 'AI Review could not finish.'}`],
             uncertainTargets: result.uncertain ? [...progress.uncertainTargets, target] : progress.uncertainTargets,
             retryTokens: result.uncertain ? { ...progress.retryTokens, [targetKey]: result.review.retryToken } : progress.retryTokens };
           setAiProgress(progress);
         }
       });
     } finally {
-      if (isCurrentScope()) { aiBusy.current = false; setAiProgress({ ...progress, done: true }); }
+      if (isCurrentScope()) { aiBusy.current = false; setAiRunningKeys(new Set()); setAiProgress({ ...progress, done: true }); }
     }
   }
 
@@ -649,6 +659,7 @@ export function ReviewPage() {
         state={state}
         deliverable={selectedDeliverable}
         checkingFields={checkingIds}
+        checkingAiFields={aiRunningKeys}
         checkError={checkError?.targetKey?.startsWith(`${selectedResponse?.id}:`) ? checkError?.message : ''}
         onClose={() => setSelectedResponseId('')}
         onDocumentCheck={(field) => openOrRunDocumentCheck(selectedResponse, field)}
@@ -665,7 +676,8 @@ export function ReviewPage() {
           const review = artifactAiReview(selectedResponse, field);
           const retry = artifactAiReviewStatus(selectedResponse, field) === 'Retry required' && Boolean(review?.retryToken);
           const target = aiTarget(selectedResponse, field);
-          requestAiReview([target], retry, retry ? { [target.key]: review.retryToken } : {});
+          requestAiReview([target], retry, retry ? { [target.key]: review.retryToken } : {}, false,
+            !retry && isArtifactAiReviewCurrent(selectedResponse, field));
         }}
         onAccept={() => acceptReview(selectedResponse)}
         onRevoke={() => confirmRevoke(selectedResponse)}

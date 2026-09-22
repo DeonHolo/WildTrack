@@ -1,6 +1,7 @@
 package com.capvault.backend.response;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -22,6 +23,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -30,6 +32,9 @@ class CanonicalResponseServiceTest {
 
     @Autowired
     private CanonicalResponseService canonicalService;
+
+    @Autowired
+    private FormResponseRepository responseRepository;
 
     @Autowired
     private FormResponseService responseService;
@@ -67,32 +72,43 @@ class CanonicalResponseServiceTest {
             "Submit a PDF Drive link.", LocalDateTime.parse("2026-04-18T23:59:00"),
             true, DeliverableStatus.PUBLISHED));
         deliverableId = deliverable.getId();
-        // Two Google identities associate the same roster record (conflict scenario)
         associationService.confirmAssociation(workspaceId, "sub-A", "a@gmail.com", rosterNumber);
-        associationService.confirmAssociation(workspaceId, "sub-B", "b@gmail.com", rosterNumber);
     }
 
     private UUID submitFor(String subject, String marker) {
         return responseService.submit(new FormResponseService.SubmitCommand(
             workspaceId, deliverableId, subject, subject + "@gmail.com",
-            Map.of("driveLink", "https://drive.example/" + marker)))
+            rosterNumber, Map.of("driveLink", "https://drive.example/" + marker), null))
             .response().getId();
     }
 
+    /** Historical collision fixture: legacy responses existed before first-save account binding.
+     * Never submit under the second Google identity to bypass today's binding rules. */
+    private UUID saveHistoricalConflictingResponse(String marker) {
+        var existing = responseService.ownedResponse(workspaceId, deliverableId, "sub-A").orElseThrow();
+        Instant savedAt = existing.getSubmittedAt();
+        var legacy = new FormResponse(UUID.randomUUID(), workspaceId, deliverableId, "sub-B", "b@gmail.com",
+            studentRecordId, rosterNumber, existing.getStudentName(), existing.getTeamCode(),
+            "{\"driveLink\":\"https://drive.example/" + marker + "\"}", savedAt, savedAt);
+        return responseRepository.saveAndFlush(legacy).getId();
+    }
+
     @Test
-    void duplicateIdentitySubmissionRecordsConflictWithoutOverwriting() {
-        UUID responseA = submitFor("sub-A", "a-version");
-        UUID responseB = submitFor("sub-B", "b-version");
-
-        // Separate preserved responses:
-        assertThat(responseA).isNotEqualTo(responseB);
-        var viewA = responseService.ownedResponse(workspaceId, deliverableId, "sub-A").orElseThrow();
-        var viewB = responseService.ownedResponse(workspaceId, deliverableId, "sub-B").orElseThrow();
-        assertThat(viewA.getValuesJson()).contains("a-version").doesNotContain("b-version");
-        assertThat(viewB.getValuesJson()).contains("b-version").doesNotContain("a-version");
-
-        // Conflict was recorded from ticket 03 flow:
+    void unresolvedCompetingLegacyClaimsBlockBothFirstSubmissionsWithoutOverwriting() {
+        // Multiple historical self-declared associations are a real conflict, not
+        // permission for either Google subject to win the first-successful-save claim.
+        associationService.confirmAssociation(workspaceId, "sub-B", "b@gmail.com", rosterNumber);
         assertThat(conflictRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(workspaceId)).hasSize(1);
+        assertThatThrownBy(() -> submitFor("sub-A", "a-version"))
+            .isInstanceOf(StudentAssociationService.AccountBindingConflictException.class)
+            .hasMessageContaining("unresolved account claims");
+        assertThatThrownBy(() -> submitFor("sub-B", "b-version"))
+            .isInstanceOf(StudentAssociationService.AccountBindingConflictException.class)
+            .hasMessageContaining("unresolved account claims");
+        assertThat(responseRepository.findByWorkspaceIdAndDeliverableIdAndGoogleSubject(workspaceId, deliverableId, "sub-A"))
+            .isEmpty();
+        assertThat(responseRepository.findByWorkspaceIdAndDeliverableIdAndGoogleSubject(workspaceId, deliverableId, "sub-B"))
+            .isEmpty();
     }
 
     @Test
@@ -101,7 +117,8 @@ class CanonicalResponseServiceTest {
         canonicalService.recordAcceptanceIfFirst(
             responseService.ownedResponse(workspaceId, deliverableId, "sub-A").orElseThrow(), "admin-sir");
 
-        submitFor("sub-B", "second"); // conflicting later response
+        UUID historicalResponseB = saveHistoricalConflictingResponse("second");
+        canonicalService.recordAcceptanceIfFirst(responseRepository.findById(historicalResponseB).orElseThrow(), "admin-sir");
 
         var canonicalId = canonicalService.canonicalResponseId(workspaceId, deliverableId, studentRecordId).orElseThrow();
         assertThat(canonicalId).isEqualTo(responseA); // later conflict did NOT replace it
@@ -112,7 +129,7 @@ class CanonicalResponseServiceTest {
         UUID responseA = submitFor("sub-A", "original");
         canonicalService.recordAcceptanceIfFirst(
             responseService.ownedResponse(workspaceId, deliverableId, "sub-A").orElseThrow(), "admin-sir");
-        UUID responseB = submitFor("sub-B", "corrected");
+        UUID responseB = saveHistoricalConflictingResponse("corrected");
 
         var selection = canonicalService.selectCanonical(
             workspaceId, deliverableId, studentRecordId, responseB, "admin-sir", "Student confirmed correct author");

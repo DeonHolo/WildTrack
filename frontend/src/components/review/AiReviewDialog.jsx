@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, Checkbox, Group, Stack, Text } from '@mantine/core';
 
-export function AiReviewDialog({ targets = null, responses = [], excludeArchived = false, retry = false, retryTokens = {}, onConfirm, onCancel }) {
+export function AiReviewDialog({ targets = null, responses = [], excludeArchived = false, retry = false, rerun = false, retryTokens = {}, onConfirm, onCancel }) {
   const [includeArchived, setIncludeArchived] = useState(false);
   const items = targets || responses.map((response) => ({
     key: response.id,
@@ -22,14 +22,16 @@ export function AiReviewDialog({ targets = null, responses = [], excludeArchived
       description="Archived submissions are excluded by default." /> : null}
     <Text size="sm">{retryCount > 0
       ? `${retryCount} ${retryCount === 1 ? 'review needs' : 'reviews need'} an explicit retry. Previous attempts may already have used tokens; retrying may use additional tokens or incur charges.${mixedBatch ? ' Other selected responses will start normally or reuse a saved matching review.' : ''}`
-      : retry
+      : rerun
+        ? 'Rerunning a completed review sends a new request to Gemini for this PDF, uses additional tokens, and replaces the saved result shared by identical team documents after completion. This is not a cached review.'
+        : retry
         ? 'This sends a new request for each selected review that needs retrying. Previous attempts may already have used tokens; retrying may use additional tokens or incur charges.'
         : 'New reviews send document contents to Gemini and use AI tokens. Saved matching reviews are reused.'}</Text>
     <Text size="sm" c="dimmed">AI feedback is advisory. Review it before making an academic decision.</Text>
     <Group justify="flex-end" gap="sm" wrap="nowrap" pt="sm">
       <Button variant="default" onClick={onCancel}>Cancel</Button>
       <Button disabled={!selected.length} onClick={() => onConfirm(targets ? selected : selected.map(item => item.responseId))}>
-        {retry ? 'Retry reviews' : retryCount > 0 ? 'Start / retry reviews' : 'Start review'}
+        {retry ? 'Retry reviews' : rerun ? 'Rerun review' : retryCount > 0 ? 'Start / retry reviews' : 'Start review'}
       </Button>
     </Group>
   </Stack>;

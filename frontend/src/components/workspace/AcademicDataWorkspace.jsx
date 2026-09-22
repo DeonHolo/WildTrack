@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Badge,
   Button,
+  Checkbox,
   Group,
   Modal,
   Pagination,
@@ -13,8 +14,9 @@ import {
   Textarea,
   TextInput
 } from '@mantine/core';
-import { ArrowClockwise, Plus, UploadSimple } from '@phosphor-icons/react';
-import { loadAcademicData, saveAcademicRows } from '../../lib/academicDataClient.js';
+import { ArrowClockwise, DownloadSimple, MagnifyingGlass, Plus, UploadSimple } from '@phosphor-icons/react';
+import { addAcademicDeliverableColumn, clearAcademicDataSnapshot, getAcademicDataSnapshot, loadAcademicData, saveAcademicRows } from '../../lib/academicDataClient.js';
+import { downloadAcademicCsv } from '../../lib/academicDataCsv.js';
 
 const PAGE_SIZE_OPTIONS = ['25', '50', '100'];
 
@@ -73,49 +75,93 @@ const HEADER_ALIASES = {
   title: 'title', duedate: 'dueAt', dueat: 'dueAt'
 };
 
-export function AcademicDataWorkspace({ workspaceId, onSaved }) {
+export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   const [activeGrid, setActiveGrid] = useState('students');
-  const [status, setStatus] = useState('idle');
+  const [status, setStatus] = useState(() => getAcademicDataSnapshot(workspaceId, cacheScope) ? 'ready' : 'idle');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [data, setData] = useState(emptyData);
+  const [data, setData] = useState(() => normalizeSnapshot(getAcademicDataSnapshot(workspaceId, cacheScope) || emptyData()));
   const [dirty, setDirty] = useState(emptyDirty);
   const [pasteOpened, setPasteOpened] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [search, setSearch] = useState('');
+  const [searchDraft, setSearchDraft] = useState('');
+  const [newDeliverableOpened, setNewDeliverableOpened] = useState(false);
+  const [newDeliverableName, setNewDeliverableName] = useState('');
+  const [newDeliverablePdf, setNewDeliverablePdf] = useState(true);
+  const [creatingColumn, setCreatingColumn] = useState(false);
+  const [focusRow, setFocusRow] = useState('');
+  const gridRef = useRef(null);
+  const dirtyRef = useRef(false);
+  const workspaceRef = useRef(`${cacheScope || ''}\u0000${workspaceId || ''}`);
+  const requestSequence = useRef(0);
 
   useEffect(() => {
-    setStatus('idle');
-    setData(emptyData());
+    workspaceRef.current = `${cacheScope || ''}\u0000${workspaceId || ''}`;
+    const cached = getAcademicDataSnapshot(workspaceId, cacheScope);
+    setStatus(cached ? 'ready' : 'idle');
+    setData(normalizeSnapshot(cached || emptyData()));
     setDirty(emptyDirty());
+    dirtyRef.current = false;
     setError('');
     setNotice('');
     setPage(1);
-    if (workspaceId) void load();
-  }, [workspaceId]);
+    setSearch('');
+    setSearchDraft('');
+    setFocusRow('');
+    if (workspaceId) void load({ quiet: Boolean(cached) });
+    return () => { requestSequence.current += 1; };
+  }, [workspaceId, cacheScope]);
 
-  async function load() {
+  async function load({ quiet = false, discardEdits = false } = {}) {
     if (!workspaceId) return;
-    setStatus('loading');
+    const requestId = ++requestSequence.current;
+    if (!quiet) setStatus(getAcademicDataSnapshot(workspaceId, cacheScope) ? 'refreshing' : 'loading');
     setError('');
     try {
-      const snapshot = await loadAcademicData(workspaceId);
+      const snapshot = await loadAcademicData(workspaceId, cacheScope);
+      if (requestId !== requestSequence.current || workspaceRef.current !== `${cacheScope || ''}\u0000${workspaceId || ''}`) return;
+      if (dirtyRef.current && !discardEdits) {
+        setStatus('ready');
+        setNotice('Newer academic records are available. Save your edits or reload to view them.');
+        return;
+      }
       setData(normalizeSnapshot(snapshot));
       setDirty(emptyDirty());
+      dirtyRef.current = false;
       setStatus('ready');
     } catch (loadError) {
+      if (requestId !== requestSequence.current || workspaceRef.current !== `${cacheScope || ''}\u0000${workspaceId || ''}`) return;
+      if (loadError?.status === 401 || loadError?.status === 403) {
+        clearAcademicDataSnapshot(workspaceId, cacheScope);
+        setData(emptyData());
+        setDirty(emptyDirty());
+        dirtyRef.current = false;
+      }
       setError(loadError?.message || 'Academic data could not be loaded.');
-      setStatus('error');
+      setStatus(getAcademicDataSnapshot(workspaceId, cacheScope) ? 'ready' : 'error');
     }
+  }
+
+  function reload() {
+    if (dirtyRef.current && !window.confirm('Discard unsaved edits and reload academic data?')) return;
+    dirtyRef.current = false;
+    void load({ discardEdits: true });
   }
 
   const config = GRID_CONFIG[activeGrid];
   const rows = data[activeGrid] || [];
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
-  const firstVisible = rows.length ? ((page - 1) * pageSize) + 1 : 0;
-  const lastVisible = Math.min(page * pageSize, rows.length);
-  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  const filteredRows = useMemo(() => {
+    const query = normalize(search);
+    return query ? rows.filter((row) => config.columns.some((item) => normalize(row[item.key]).includes(query))
+      || normalize(row._sourceColumn || row.sourceGroupCode || row.teamFormationCode).includes(query)) : rows;
+  }, [rows, config, search]);
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const firstVisible = filteredRows.length ? ((page - 1) * pageSize) + 1 : 0;
+  const lastVisible = Math.min(page * pageSize, filteredRows.length);
+  const pageRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
   const errors = useMemo(() => validateRows(activeGrid, rows, data.trackerColumns), [activeGrid, rows, data.trackerColumns]);
   const dirtyKeys = dirty[activeGrid];
   const dirtyRows = rows.filter((row) => dirtyKeys.has(rowKey(row)));
@@ -129,8 +175,18 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
   }, [page, pageCount]);
+  useEffect(() => {
+    if (!focusRow) return;
+    const target = Array.from(gridRef.current?.querySelectorAll('tbody tr') || [])
+      .find((row) => row.dataset.rowKey === focusRow);
+    if (!target) return;
+    target.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    target.querySelector('input')?.focus();
+    setFocusRow('');
+  }, [focusRow, pageRows]);
 
   function updateCell(key, field, value) {
+    if (status === 'saving') return;
     setData((current) => ({
       ...current,
       [activeGrid]: current[activeGrid].map((row) => rowKey(row) === key ? { ...row, [field]: value } : row)
@@ -140,6 +196,7 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
   }
 
   function markDirty(kind, key) {
+    dirtyRef.current = true;
     setDirty((current) => {
       const next = new Set(current[kind]);
       next.add(key);
@@ -148,13 +205,62 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
   }
 
   function addRow() {
-    const row = newRow(activeGrid, data);
-    if (!row) {
-      setNotice('Every tracker column already has a deliverable form.');
+    if (status === 'saving') return;
+    if (activeGrid === 'deliverables') {
+      setNewDeliverableName('');
+      setNewDeliverablePdf(true);
+      setNewDeliverableOpened(true);
       return;
     }
+    const row = newRow(activeGrid, data);
     setData((current) => ({ ...current, [activeGrid]: [...current[activeGrid], row] }));
     markDirty(activeGrid, rowKey(row));
+    jumpToRow(row, [...rows, row]);
+  }
+
+  function jumpToRow(row, nextRows) {
+    setSearch('');
+    setSearchDraft('');
+    setPage(Math.ceil((nextRows.findIndex((item) => rowKey(item) === rowKey(row)) + 1) / pageSize));
+    setFocusRow(rowKey(row));
+  }
+
+  async function createDeliverableColumn() {
+    if (!newDeliverableName.trim()) return;
+    const requestId = ++requestSequence.current;
+    setCreatingColumn(true);
+    setError('');
+    let createdColumn = null;
+    try {
+      createdColumn = await addAcademicDeliverableColumn(workspaceId, newDeliverableName, newDeliverablePdf, data.trackerColumns);
+      if (requestId !== requestSequence.current || workspaceRef.current !== `${cacheScope || ''}\u0000${workspaceId || ''}`) return;
+      setNewDeliverableOpened(false);
+      const snapshot = await loadAcademicData(workspaceId, cacheScope);
+      if (requestId !== requestSequence.current || workspaceRef.current !== `${cacheScope || ''}\u0000${workspaceId || ''}`) return;
+      const next = normalizeSnapshot(snapshot);
+      const addedRow = next.deliverables.find((row) => normalize(row.trackerColumnKey) === normalize(createdColumn.columnKey));
+      const nextRows = dirtyRef.current
+        ? [...data.deliverables, ...next.deliverables.filter((row) => !data.deliverables.some((prior) => normalize(prior.trackerColumnKey) === normalize(row.trackerColumnKey)))]
+        : next.deliverables;
+      if (dirtyRef.current) {
+        setData((current) => ({
+          ...current,
+          trackerColumns: next.trackerColumns,
+          deliverables: [...current.deliverables, ...next.deliverables.filter((row) => !current.deliverables.some((prior) => normalize(prior.trackerColumnKey) === normalize(row.trackerColumnKey)))]
+        }));
+      } else {
+        setData(next);
+      }
+      if (addedRow) jumpToRow(addedRow, nextRows);
+      setNotice(`Tracker column ${createdColumn.label || createdColumn.columnKey} created. Set the due date and save the deliverable form.`);
+      void onSaved?.();
+    } catch (createError) {
+      setError(createdColumn
+        ? `Tracker column ${createdColumn.label || createdColumn.columnKey} was created, but its form row could not be loaded. Reload to complete it.`
+        : createError?.message || 'Could not create the deliverable column.');
+    } finally {
+      setCreatingColumn(false);
+    }
   }
 
   async function save() {
@@ -163,14 +269,34 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
       setError('Fix the highlighted cells before saving. Nothing was written.');
       return;
     }
+    const savingGrid = activeGrid;
+    const savingScope = `${cacheScope || ''}\u0000${workspaceId || ''}`;
+    const requestId = ++requestSequence.current;
+    const savedCount = dirtyRows.length;
     setStatus('saving');
     setError('');
     try {
-      await saveAcademicRows(workspaceId, activeGrid, dirtyRows.map((row) => toPayload(activeGrid, row)));
-      await load();
+      await saveAcademicRows(workspaceId, savingGrid, dirtyRows.map((row) => toPayload(savingGrid, row)));
+      const snapshot = await loadAcademicData(workspaceId, cacheScope);
+      if (requestId !== requestSequence.current || workspaceRef.current !== savingScope) return;
+      const fresh = normalizeSnapshot(snapshot);
+      // Saving one tab must never discard unsaved work in the other two tabs.
+      // Refresh the saved tab from the server, but retain each locally edited
+      // row (including newly added rows) in every other tab.
+      setData((current) => Object.fromEntries(Object.keys(fresh).map((kind) => [
+        kind,
+        kind !== 'trackerColumns' && kind !== savingGrid && dirty[kind]?.size
+          ? preserveDirtyRows(fresh[kind], current[kind], dirty[kind])
+          : fresh[kind]
+      ])));
+      const remainingDirty = { ...dirty, [savingGrid]: new Set() };
+      setDirty(remainingDirty);
+      dirtyRef.current = Object.values(remainingDirty).some((keys) => keys.size > 0);
+      setStatus('ready');
       await onSaved?.();
-      setNotice(`${dirtyRows.length} ${dirtyRows.length === 1 ? 'row' : 'rows'} saved to WildTrack.`);
+      setNotice(`${savedCount} ${savedCount === 1 ? 'row' : 'rows'} saved to WildTrack.`);
     } catch (saveError) {
+      if (requestId !== requestSequence.current || workspaceRef.current !== savingScope) return;
       setStatus('ready');
       setError(saveError?.status === 409
         ? 'Academic data changed after you opened it. Reload before saving your edits.'
@@ -179,7 +305,9 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
   }
 
   function applyPaste() {
+    if (status === 'saving') return;
     if (!pastePreview.rows.length || pastePreview.errors.length) return;
+    dirtyRef.current = true;
     setData((current) => ({ ...current, [activeGrid]: pastePreview.nextRows }));
     setDirty((current) => ({ ...current, [activeGrid]: new Set([...current[activeGrid], ...pastePreview.dirtyKeys]) }));
     setPasteOpened(false);
@@ -193,8 +321,9 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
         {error ? <Alert color="red" role="alert">{error}</Alert> : null}
         {notice ? <Alert color="green" role="status">{notice}</Alert> : null}
         {status === 'loading' ? <Text size="sm" c="dimmed">Loading academic records…</Text> : null}
+        {status === 'refreshing' ? <Text size="xs" c="dimmed">Refreshing academic records…</Text> : null}
         {status !== 'loading' ? (
-          <Tabs value={activeGrid} onChange={(value) => value && setActiveGrid(value)}>
+          <Tabs value={activeGrid} onChange={(value) => { if (value && status !== 'saving') { setActiveGrid(value); setSearch(''); setSearchDraft(''); } }}>
             <Tabs.List className="wt-academic-sheet-tabs">
               <Tabs.Tab value="students">Students ({data.students.length})</Tabs.Tab>
               <Tabs.Tab value="projects">Teams / Projects ({data.projects.length})</Tabs.Tab>
@@ -207,19 +336,25 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
                   <Text fw={750}>{config.label}</Text>
                   <Text size="xs" c="dimmed">Columns marked * are required. Existing imported source references stay attached when you edit values.</Text>
                 </div>
-                <Group gap="xs">
-                  <Button variant="default" leftSection={<ArrowClockwise size={16} />} onClick={load} disabled={status === 'saving'}>Reload</Button>
-                  <Button variant="default" leftSection={<UploadSimple size={16} />} onClick={() => { setPasteText(''); setPasteOpened(true); }}>Paste rows</Button>
-                  {activeGrid === 'deliverables' ? null : (
-                    <Button variant="default" leftSection={<Plus size={16} />} onClick={addRow}>Add row</Button>
-                  )}
-                  <Button color="wildtrackMaroon" onClick={save} loading={status === 'saving'} disabled={!dirtyRows.length || dirtyHasErrors}>
+                <Group gap="xs" wrap="wrap">
+                  <TextInput aria-label={`Search ${config.label.toLowerCase()}`} placeholder={`Search ${config.label.toLowerCase()}…`} value={searchDraft}
+                    onChange={(event) => setSearchDraft(event.currentTarget.value)}
+                    onKeyDown={(event) => { if (event.key === 'Enter') { setSearch(searchDraft); setPage(1); } }} />
+                  <Button variant="default" leftSection={<MagnifyingGlass size={16} />} onClick={() => { setSearch(searchDraft); setPage(1); }}>Search</Button>
+                  {search ? <Button variant="subtle" onClick={() => { setSearch(''); setSearchDraft(''); setPage(1); }}>Clear search</Button> : null}
+                  <Button variant="default" leftSection={<ArrowClockwise size={16} />} onClick={reload} disabled={status === 'saving'}>Reload</Button>
+                  <Button variant="default" leftSection={<UploadSimple size={16} />} disabled={status === 'saving'} onClick={() => { setPasteText(''); setPasteOpened(true); }}>Paste rows</Button>
+                  <Button variant="default" leftSection={<Plus size={16} />} disabled={status === 'saving'} onClick={addRow}>Add row</Button>
+                  <Button variant="default" leftSection={<DownloadSimple size={16} />} onClick={() => downloadAcademicCsv(activeGrid, config.columns, filteredRows)}
+                    disabled={!filteredRows.length}>Export CSV{search.trim() ? ' (filtered)' : ''}</Button>
+                  <Button color="wildtrackMaroon" onClick={save} loading={status === 'saving'} disabled={!dirtyRows.length || dirtyHasErrors || status === 'refreshing'}>
                     Save changes{dirtyRows.length ? ` (${dirtyRows.length})` : ''}
                   </Button>
                 </Group>
               </Group>
 
               <AcademicGrid
+                gridRef={gridRef}
                 kind={activeGrid}
                 rows={pageRows}
                 rowOffset={(page - 1) * pageSize}
@@ -232,7 +367,7 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
 
               <Group className="wt-academic-pagination" justify="space-between" gap="md" wrap="wrap">
                 <Text size="sm" c="dimmed" className="wt-tabular">
-                  {rows.length ? `${firstVisible}–${lastVisible} of ${rows.length}` : '0 rows'}
+                  {filteredRows.length ? `${firstVisible}–${lastVisible} of ${filteredRows.length}${search ? ` matching of ${rows.length}` : ''}` : `0 of ${rows.length} rows`}
                 </Text>
                 <Group gap="sm" wrap="wrap">
                   <Select
@@ -251,6 +386,19 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
           </Tabs>
         ) : null}
       </Stack>
+
+      <Modal opened={newDeliverableOpened} onClose={() => { if (!creatingColumn) setNewDeliverableOpened(false); }} title="Add deliverable" centered>
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">Create a WildTrack tracker column for this deliverable. After it appears in the grid, enter its due date and save the form.</Text>
+          <TextInput label="Deliverable name" required value={newDeliverableName} maxLength={160} autoFocus
+            onChange={(event) => setNewDeliverableName(event.currentTarget.value)} />
+          <Checkbox label="PDF required" checked={newDeliverablePdf} onChange={(event) => setNewDeliverablePdf(event.currentTarget.checked)} />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setNewDeliverableOpened(false)} disabled={creatingColumn}>Cancel</Button>
+            <Button color="wildtrackMaroon" loading={creatingColumn} disabled={!newDeliverableName.trim()} onClick={createDeliverableColumn}>Create tracker column</Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal opened={pasteOpened} onClose={() => setPasteOpened(false)} title={`Paste ${config.label.toLowerCase()} rows`} size="xl" centered>
         <Stack gap="md">
@@ -292,9 +440,9 @@ export function AcademicDataWorkspace({ workspaceId, onSaved }) {
   );
 }
 
-function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColumns, dirtyKeys, onChange }) {
+function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColumns, dirtyKeys, onChange, gridRef }) {
   return (
-    <div className="wt-academic-grid-scroll">
+    <div className="wt-academic-grid-scroll" ref={gridRef}>
       <table className="wt-academic-grid" aria-label={`${GRID_CONFIG[kind].label} academic data`}>
         <thead>
           <tr>
@@ -308,7 +456,7 @@ function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColum
             const key = rowKey(row);
             const rowErrors = errors.get(key) || {};
             return (
-              <tr key={key} className={dirtyKeys.has(key) ? 'is-dirty' : undefined}>
+              <tr key={key} data-row-key={key} className={dirtyKeys.has(key) ? 'is-dirty' : undefined}>
                 <td className="wt-academic-row-number">{rowOffset + index + 1}</td>
                 <td className="wt-academic-source-cell">{sourceLabel(kind, row)}</td>
                 {columns.map((item) => (
@@ -490,6 +638,17 @@ function normalizeSnapshot(snapshot = {}) {
     deliverables,
     trackerColumns
   };
+}
+
+function preserveDirtyRows(freshRows, localRows, dirtyKeys) {
+  const pending = new Map(localRows.filter((row) => dirtyKeys.has(rowKey(row))).map((row) => [rowKey(row), row]));
+  const merged = freshRows.map((row) => {
+    const original = pending.get(rowKey(row));
+    if (!original) return row;
+    pending.delete(rowKey(row));
+    return original;
+  });
+  return [...merged, ...pending.values()];
 }
 
 function toPayload(kind, row) {

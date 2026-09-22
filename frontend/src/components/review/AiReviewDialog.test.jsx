@@ -41,6 +41,14 @@ it('keeps retries explicit with short footer labels and a visible cost explanati
   expect(confirm).toHaveBeenCalledWith(['active', 'archived']);
 });
 
+it('makes a deliberate rerun and its new provider cost explicit rather than promising a cached result', () => {
+  const confirm = show({ rerun: true, excludeArchived: false });
+  expect(screen.getByText(/sends a new request to Gemini/)).toBeInTheDocument();
+  expect(screen.getByText(/replaces the saved result shared by identical team documents/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Rerun review' }));
+  expect(confirm).toHaveBeenCalledWith(['active', 'archived']);
+});
+
 it('warns about retry cost in a mixed batch without treating fresh reviews as retries', () => {
   const confirm = show({ excludeArchived: false, retryTokens: { active: 'retry-token' } });
   expect(screen.getByText(/1 review needs an explicit retry/)).toBeInTheDocument();

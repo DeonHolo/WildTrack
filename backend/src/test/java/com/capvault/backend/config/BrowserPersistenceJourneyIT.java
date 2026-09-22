@@ -35,6 +35,7 @@ class BrowserPersistenceJourneyIT {
     @Autowired StudentRecordRepository students;
     @Autowired DeliverableRepository deliverables;
     @Autowired StaffRoleAssignmentRepository roles;
+    @Autowired AdviserTeamAssignmentRepository teamAssignments;
     @Autowired WildTrackSessionService sessions;
 
     @Test
@@ -45,10 +46,18 @@ class BrowserPersistenceJourneyIT {
             "Submit your project link.", LocalDateTime.of(2099, 1, 1, 23, 59), false, DeliverableStatus.PUBLISHED));
         roles.save(new StaffRoleAssignment(UUID.randomUUID(), "journey-admin", "journey-admin@example.test", StaffRole.ADMIN,
             true, Instant.now(), Instant.now()));
+        // The adviser view intentionally only exposes the staff member's assigned
+        // teams. Give this fixture's administrator a real team assignment so its
+        // feedback journey exercises authorized team review rather than a blank UI.
+        teamAssignments.save(new AdviserTeamAssignment(UUID.randomUUID(), workspace.getId(),
+            "journey-admin", "JOURNEY", Instant.now()));
         var student = sessions.create(new GoogleIdentity("journey-student", "journey-student@example.test", "Journey Student", ""));
         var admin = sessions.create(new GoogleIdentity("journey-admin", "journey-admin@example.test", "Journey Admin", ""));
         var frontend = Path.of("..", "frontend").toAbsolutePath().normalize();
-        var builder = new ProcessBuilder("node", "node_modules/@playwright/test/cli.js", "test", "--config", "playwright.persistence.config.js")
+        // The form-editor journey requires a different isolated workspace/fixture.
+        // Run only the browser journey whose credentials and records were seeded here.
+        var builder = new ProcessBuilder("node", "node_modules/@playwright/test/cli.js", "test", "--config",
+            "playwright.persistence.config.js", "tests/persistence/backend-journey.spec.js")
             .directory(frontend.toFile()).inheritIO();
         builder.environment().put("WILDTRACK_LOCAL_BACKEND_ORIGIN", "http://127.0.0.1:" + port);
         builder.environment().put("JOURNEY_WORKSPACE", workspace.getId().toString());
