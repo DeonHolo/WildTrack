@@ -3,6 +3,7 @@ package com.capvault.backend.academic;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -39,6 +40,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -57,6 +59,7 @@ class AcademicDataControllerTest {
     @Autowired TrackerColumnRepository trackerColumns;
     @Autowired DeliverableRepository deliverables;
     @Autowired EntityManager entityManager;
+    @Autowired JdbcTemplate jdbc;
 
     @Test
     void adminCanLoadImportedRowsWhileOrdinaryUserCannotOpenAcademicGrid() throws Exception {
@@ -222,6 +225,99 @@ class AcademicDataControllerTest {
             .andExpect(jsonPath("$.projects[0].projectTitle").value("Edited title"))
             .andExpect(jsonPath("$.projects[0].groupCode").value("MANUAL-TEAM"))
             .andExpect(jsonPath("$.deliverables[0].title").value("Refactored SRS Final"));
+    }
+
+    @Test
+    void deleteIsAdminOnlyWorkspaceScopedVersionCheckedAndRemovesOnlyRequestedUnreferencedRow() throws Exception {
+        AcademicWorkspace workspace = workspace("delete");
+        AcademicWorkspace other = workspace("delete-other");
+        StudentRecord student = students.saveAndFlush(new StudentRecord(
+            workspace.getId(), "26-DEL-1", "Synthetic Student", "TEAM-DEL", "1", "G7", null, null, null));
+        ProjectMetadata project = projects.saveAndFlush(new ProjectMetadata(
+            workspace.getId(), "TEAM-DEL", "Synthetic project", "Sample", "", "", "", "", "", "", null));
+        entityManager.clear();
+        student = students.findById(student.getId()).orElseThrow();
+        Cookie admin = adminCookie("academic-delete-admin");
+        var target = "/api/academic-data/students/" + student.getId();
+        var body = objectMapper.writeValueAsString(Map.of("expectedUpdatedAt", student.getUpdatedAt()));
+
+        mockMvc.perform(delete(target).param("workspaceId", workspace.getId().toString())
+            .cookie(userCookie("academic-delete-student")).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
+        mockMvc.perform(delete(target).param("workspaceId", other.getId().toString())
+            .cookie(admin).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isNotFound());
+        mockMvc.perform(delete(target).param("workspaceId", workspace.getId().toString())
+            .cookie(admin).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON).content("{\"expectedUpdatedAt\":\"2000-01-01T00:00:00\"}"))
+            .andExpect(status().isConflict());
+        assertThat(students.findById(student.getId())).isPresent();
+        mockMvc.perform(delete(target).param("workspaceId", workspace.getId().toString())
+            .cookie(admin).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
+        assertThat(students.findById(student.getId())).isEmpty();
+        assertThat(projects.findById(project.getId())).isPresent();
+    }
+
+    @Test
+    void cannotDeleteStudentOrDeliverableWithSavedSubmissionEvidence() throws Exception {
+        AcademicWorkspace workspace = workspace("protected-delete");
+        StudentRecord student = students.saveAndFlush(new StudentRecord(workspace.getId(),
+            "26-DEL-2", "Protected Student", "TEAM-P", "1", "G7", null, null, null));
+        Deliverable deliverable = deliverables.saveAndFlush(new Deliverable(workspace.getId(),
+            "SRS-P", "Protected SRS", "protected-srs", "", LocalDateTime.of(2026, 9, 19, 23, 59),
+            true, DeliverableStatus.UNPUBLISHED));
+        jdbc.update("""
+            INSERT INTO form_responses(id,workspace_id,deliverable_id,google_subject,google_email,
+              student_record_id,student_number,student_name,team_code,values_json,revision,submitted_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+            """, UUID.randomUUID(), workspace.getId(), deliverable.getId(), "synthetic-protected-user",
+            "protected@example.invalid", student.getId(), student.getStudentNumber(), student.getStudentName(),
+            student.getTeamCode(), "{}");
+        entityManager.clear();
+        student = students.findById(student.getId()).orElseThrow();
+        deliverable = deliverables.findById(deliverable.getId()).orElseThrow();
+        Cookie admin = adminCookie("academic-protected-admin");
+        for (var target : List.of(Map.entry("students", student.getId()),
+            Map.entry("deliverables", deliverable.getId()))) {
+            var updatedAt = target.getKey().equals("students") ? student.getUpdatedAt() : deliverable.getUpdatedAt();
+            mockMvc.perform(delete("/api/academic-data/" + target.getKey() + "/" + target.getValue())
+                .param("workspaceId", workspace.getId().toString()).cookie(admin).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("expectedUpdatedAt", updatedAt))))
+                .andExpect(status().isConflict());
+        }
+        assertThat(students.findById(student.getId())).isPresent();
+        assertThat(deliverables.findById(deliverable.getId())).isPresent();
+    }
+
+    @Test
+    void unreferencedProjectAndUnpublishedDeliverableCanBeDeletedWithoutRemovingTrackerColumn() throws Exception {
+        AcademicWorkspace workspace = workspace("delete-project-form");
+        ProjectMetadata project = projects.saveAndFlush(new ProjectMetadata(workspace.getId(),
+            "TEAM-UNLINKED", "Synthetic", "Sample", "", "", "", "", "", "", null));
+        TrackerColumn tracker = trackerColumns.saveAndFlush(new TrackerColumn(workspace.getId(),
+            "SRS-UNUSED", "Unused document", "Unused document", 2, 0, true, true));
+        Deliverable deliverable = deliverables.saveAndFlush(new Deliverable(workspace.getId(),
+            tracker.getColumnKey(), "Unused document", "unused-document", "", LocalDateTime.of(2099, 9, 19, 23, 59),
+            true, DeliverableStatus.UNPUBLISHED));
+        entityManager.clear();
+        project = projects.findById(project.getId()).orElseThrow();
+        deliverable = deliverables.findById(deliverable.getId()).orElseThrow();
+        Cookie admin = adminCookie("academic-delete-unreferenced-admin");
+        mockMvc.perform(delete("/api/academic-data/projects/" + project.getId())
+            .param("workspaceId", workspace.getId().toString()).cookie(admin).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of("expectedUpdatedAt", project.getUpdatedAt()))))
+            .andExpect(status().isOk());
+        mockMvc.perform(delete("/api/academic-data/deliverables/" + deliverable.getId())
+            .param("workspaceId", workspace.getId().toString()).cookie(admin).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of("expectedUpdatedAt", deliverable.getUpdatedAt()))))
+            .andExpect(status().isOk());
+        assertThat(projects.findById(project.getId())).isEmpty();
+        assertThat(deliverables.findById(deliverable.getId())).isEmpty();
+        assertThat(trackerColumns.findById(tracker.getId())).isPresent();
     }
 
     private Map<String, Object> studentRow(StudentRecord row, String number, String name, String team) {

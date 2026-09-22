@@ -95,6 +95,21 @@ public class FileMonitorEventController {
             }
         }
         if (fileResponses.isEmpty()) return List.of();
+        // A file ID may also occur in an excluded deliverable. The source file
+        // remains one monitored object, but notifications must not imply that
+        // submissions outside the Admin's selected deliverables were checked.
+        List<Boolean> configuredSelection = db.query("""
+            SELECT file_monitor_selection_configured FROM academic_workspaces WHERE id = ?
+            """, (rs, row) -> rs.getBoolean(1), workspaceId);
+        if (!configuredSelection.isEmpty() && configuredSelection.get(0)) {
+            Set<UUID> selectedDeliverables = new HashSet<>(db.query("""
+                SELECT deliverable_id FROM workspace_file_monitor_deliverables WHERE workspace_id = ?
+                """, (rs, row) -> rs.getObject(1, UUID.class), workspaceId));
+            fileResponses.values().forEach(linked -> linked.removeIf(response ->
+                !selectedDeliverables.contains(response.getDeliverableId())));
+            fileResponses.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+            if (fileResponses.isEmpty()) return List.of();
+        }
         return db.query("""
             SELECT id,file_id,kind,detail,observed_at,provider_modified_at
             FROM monitored_drive_events WHERE workspace_id=? ORDER BY observed_at DESC

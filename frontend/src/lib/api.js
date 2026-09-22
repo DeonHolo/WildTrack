@@ -104,10 +104,10 @@ export function getFileMonitorSettings(workspaceId) {
   return request(`/workspaces/${encodeURIComponent(workspaceId)}/file-monitor`);
 }
 
-export function setFileMonitorSettings(workspaceId, enabled) {
+export function setFileMonitorSettings(workspaceId, enabled, deliverableIds) {
   return request(`/workspaces/${encodeURIComponent(workspaceId)}/file-monitor`, {
     method: 'PUT',
-    body: { enabled: Boolean(enabled) }
+    body: { enabled: Boolean(enabled), ...(Array.isArray(deliverableIds) ? { deliverableIds } : {}) }
   });
 }
 

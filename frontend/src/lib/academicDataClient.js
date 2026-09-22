@@ -51,6 +51,21 @@ export async function saveAcademicRows(workspaceId, kind, rows) {
   return saved;
 }
 
+export async function deleteAcademicRow(workspaceId, kind, rowId, expectedUpdatedAt) {
+  if (!['students', 'projects', 'deliverables'].includes(kind)) {
+    throw new Error('Unknown academic data grid.');
+  }
+  if (!rowId || !expectedUpdatedAt) {
+    throw new Error('Reload this row before deleting it.');
+  }
+  const result = await request(`/academic-data/${kind}/${encodeURIComponent(rowId)}?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: 'DELETE',
+    body: { expectedUpdatedAt }
+  });
+  invalidateWorkspace(workspaceId);
+  return result;
+}
+
 export async function addAcademicDeliverableColumn(workspaceId, label, pdfRequired, currentColumns = []) {
   const clean = String(label || '').trim();
   if (!clean) throw new Error('Enter a deliverable name.');

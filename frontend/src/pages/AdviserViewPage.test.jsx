@@ -291,7 +291,9 @@ describe('adviser My advised teams review', () => {
   it('shows existing AI Review results without exposing run or rerun controls', () => {
     renderPage();
 
-    expect(screen.getByText('Requirements are present, but traceability needs staff review.')).toBeInTheDocument();
+    // Structured, source-labeled findings replace the overlapping top-level
+    // narrative when both are available; the underlying saved report remains intact.
+    expect(screen.queryByText('Requirements are present, but traceability needs staff review.')).not.toBeInTheDocument();
     expect(screen.getByText(/Document evidence:/)).toBeInTheDocument();
     expect(screen.getByText(/Missing required sections:/)).toBeInTheDocument();
     expect(screen.getByText(/Acceptance criteria/)).toBeInTheDocument();

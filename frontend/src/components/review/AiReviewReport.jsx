@@ -14,7 +14,11 @@ export function AiReviewReport({ report }) {
       .every((value, part) => normalized(value) === normalized(
         [finding.source, finding.issue, finding.evidence, finding.requirement][part]))) === index);
   const missingRequiredSections = report.missingRequiredSections || legacyMissingSections(report.missingSections);
-  const summary = uniqueSummary(report.summary, uniqueFindings, missingRequiredSections, report.limitations || []);
+  // The provider/server narrative often restates the same two structured findings
+  // in different words, so sentence-level text matching cannot remove the duplicate.
+  // When evidence-backed findings exist, show those once with their exact source
+  // passages instead of a second, unstructured account of the same concerns.
+  const summary = uniqueFindings.length || missingRequiredSections.length ? '' : report.summary;
 
   return (
     <Stack gap="sm" className="wt-ai-review-report">
@@ -49,18 +53,6 @@ function normalized(text) {
 
 function sameClaim(left, right) {
   return Boolean(normalized(left)) && normalized(left) === normalized(right);
-}
-
-function uniqueSummary(summary, findings, missing, limitations) {
-  if (!summary) return '';
-  // Saved reports can contain a backend-generated summary that repeats the exact first
-  // two findings. Keep any separate observation or qualification in the summary visible.
-  const shown = findings.flatMap(finding => [finding.issue, finding.evidence])
-    .concat(limitations, missing.map(item => item.section), missing.map(item => item.section).join(', '));
-  return String(summary).split(/(?<=[.!?])\s+(?=[A-Z])/u).filter(sentence => {
-    const candidate = sentence.replace(/^(?:Document evidence|Grounded requirement finding|Advisory template comparison|Explicitly required sections not detected):\s*/i, '');
-    return !shown.some(detail => sameClaim(candidate, detail));
-  }).join(' ');
 }
 
 function sourceLabel(source) {

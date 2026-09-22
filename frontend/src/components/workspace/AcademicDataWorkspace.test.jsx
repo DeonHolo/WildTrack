@@ -9,19 +9,23 @@ const client = vi.hoisted(() => ({
   saveAcademicRows: vi.fn(),
   getAcademicDataSnapshot: vi.fn(),
   clearAcademicDataSnapshot: vi.fn(),
-  addAcademicDeliverableColumn: vi.fn()
+  addAcademicDeliverableColumn: vi.fn(),
+  deleteAcademicRow: vi.fn()
 }));
 
 const csv = vi.hoisted(() => ({ downloadAcademicCsv: vi.fn() }));
+const workbook = vi.hoisted(() => ({ downloadAcademicWorkbook: vi.fn() }));
 
 vi.mock('../../lib/academicDataCsv.js', () => ({ downloadAcademicCsv: (...args) => csv.downloadAcademicCsv(...args) }));
+vi.mock('../../lib/academicDataWorkbook.js', () => ({ downloadAcademicWorkbook: (...args) => workbook.downloadAcademicWorkbook(...args) }));
 
 vi.mock('../../lib/academicDataClient.js', () => ({
   loadAcademicData: (...args) => client.loadAcademicData(...args),
   saveAcademicRows: (...args) => client.saveAcademicRows(...args),
   getAcademicDataSnapshot: (...args) => client.getAcademicDataSnapshot(...args),
   clearAcademicDataSnapshot: (...args) => client.clearAcademicDataSnapshot(...args),
-  addAcademicDeliverableColumn: (...args) => client.addAcademicDeliverableColumn(...args)
+  addAcademicDeliverableColumn: (...args) => client.addAcademicDeliverableColumn(...args),
+  deleteAcademicRow: (...args) => client.deleteAcademicRow(...args)
 }));
 
 function snapshot(overrides = {}) {
@@ -90,7 +94,9 @@ describe('AcademicDataWorkspace', () => {
     client.getAcademicDataSnapshot.mockReset().mockReturnValue(null);
     client.clearAcademicDataSnapshot.mockReset();
     client.addAcademicDeliverableColumn.mockReset().mockResolvedValue({ columnKey: 'New PDF', label: 'New PDF' });
+    client.deleteAcademicRow.mockReset().mockResolvedValue({});
     csv.downloadAcademicCsv.mockReset();
+    workbook.downloadAcademicWorkbook.mockReset();
   });
 
   it('edits an imported row and saves its stable id/version while keeping provenance visible', async () => {
@@ -295,7 +301,7 @@ describe('AcademicDataWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Save changes (1)' })).toBeEnabled();
   });
 
-  it('searches the entire grid across pages and exports all matching rows', async () => {
+  it('searches the entire grid across pages but exports the full current dataset', async () => {
     const students = Array.from({ length: 55 }, (_, index) => ({
       ...snapshot().students[0],
       id: `student-${index + 1}`,
@@ -312,11 +318,12 @@ describe('AcademicDataWorkspace', () => {
     expect(within(table).getByRole('textbox', { name: 'Student Number for 26-0055' })).toBeInTheDocument();
     expect(within(table).queryByRole('textbox', { name: 'Student Number for 26-0001' })).not.toBeInTheDocument();
     expect(screen.getByText('1–1 of 1 matching of 55')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Export CSV (filtered)' }));
-    expect(csv.downloadAcademicCsv).toHaveBeenCalledWith('students', expect.any(Array), [expect.objectContaining({ studentNumber: '26-0055' })]);
+    fireEvent.click(screen.getByRole('button', { name: 'Export Students CSV' }));
+    expect(csv.downloadAcademicCsv.mock.calls[0][2]).toHaveLength(55);
+    expect(csv.downloadAcademicCsv.mock.calls[0][2][54]).toMatchObject({ studentNumber: '26-0055' });
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
     expect(screen.getByText('1–50 of 55')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export Students CSV' }));
     expect(csv.downloadAcademicCsv.mock.calls[1][2]).toHaveLength(55);
   });
 
@@ -356,6 +363,96 @@ describe('AcademicDataWorkspace', () => {
     release(snapshot({ students: [{ ...snapshot().students[0], studentName: 'UPDATED FROM SERVER' }] }));
     expect(await screen.findByText(/Newer academic records are available/)).toBeInTheDocument();
     expect(name).toHaveValue('UNSAVED EDIT');
+  });
+
+  it('undoes and redoes unsaved edits per grid while keeping stable row identity', async () => {
+    renderWorkspace();
+    await openStudents();
+    const name = screen.getByRole('textbox', { name: 'Student name for 26-0001' });
+    fireEvent.change(name, { target: { value: 'STEP ONE' } });
+    fireEvent.change(name, { target: { value: 'STEP TWO' } });
+    fireEvent.keyDown(name, { key: 'z', ctrlKey: true });
+    expect(name).toHaveValue('STEP ONE');
+    fireEvent.keyDown(name, { key: 'z', ctrlKey: true, shiftKey: true });
+    expect(name).toHaveValue('STEP TWO');
+    fireEvent.click(screen.getByRole('tab', { name: /Teams \/ Projects/ }));
+    const title = screen.getByRole('textbox', { name: 'Project title for TEAM-01' });
+    fireEvent.change(title, { target: { value: 'OTHER TAB' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(title).toHaveValue('WildTrack');
+    fireEvent.click(screen.getByRole('tab', { name: /Students/ }));
+    expect(screen.getByRole('textbox', { name: 'Student name for 26-0001' })).toHaveValue('STEP TWO');
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes (1)' }));
+    await waitFor(() => expect(client.saveAcademicRows).toHaveBeenCalledWith('workspace-it', 'students', [expect.objectContaining({
+      id: 'student-1', studentName: 'STEP TWO', expectedUpdatedAt: '2026-09-19T08:00:00'
+    })]));
+  });
+
+  it('deletes an unsaved row after confirmation and can undo and redo removal before saving', async () => {
+    renderWorkspace();
+    await openStudents();
+    fireEvent.click(screen.getByRole('button', { name: 'Add row' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Student Number for new row' }), { target: { value: '26-0999' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete row 26-0999' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete academic data row?' });
+    expect(within(dialog).getByText(/has not been saved/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete row' }));
+    expect(screen.queryByRole('textbox', { name: 'Student Number for 26-0999' })).not.toBeInTheDocument();
+    expect(client.deleteAcademicRow).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByRole('textbox', { name: 'Student Number for 26-0999' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(screen.queryByRole('textbox', { name: 'Student Number for 26-0999' })).not.toBeInTheDocument();
+  });
+
+  it('confirms persisted deletion with the row id/version and preserves edits on other tabs', async () => {
+    renderWorkspace();
+    await openStudents();
+    fireEvent.click(screen.getByRole('tab', { name: /Teams \/ Projects/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Project title for TEAM-01' }), { target: { value: 'STILL UNSAVED' } });
+    fireEvent.click(screen.getByRole('tab', { name: /Students/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete row 26-0001' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete academic data row?' });
+    expect(within(dialog).getByText(/committed deletion cannot be undone/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete row' }));
+    await waitFor(() => expect(client.deleteAcademicRow).toHaveBeenCalledWith('workspace-it', 'students', 'student-1', '2026-09-19T08:00:00'));
+    await waitFor(() => expect(screen.getByRole('table', { name: 'Students academic data' })).not.toHaveTextContent('DOE, JANE'));
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('tab', { name: /Teams \/ Projects/ }));
+    expect(screen.getByRole('textbox', { name: 'Project title for TEAM-01' })).toHaveValue('STILL UNSAVED');
+    expect(screen.getByRole('button', { name: 'Save changes (1)' })).toBeEnabled();
+  });
+
+  it('keeps a saved row and its unsaved edits visible when deletion conflicts', async () => {
+    client.deleteAcademicRow.mockRejectedValueOnce(Object.assign(new Error('Conflict'), { status: 409 }));
+    renderWorkspace();
+    await openStudents();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Student name for 26-0001' }), { target: { value: 'PRESERVED' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete row 26-0001' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Delete academic data row?' })).getByRole('button', { name: 'Delete row' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('changed or has linked records');
+    expect(screen.getByRole('textbox', { name: 'Student name for 26-0001' })).toHaveValue('PRESERVED');
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  });
+
+  it('exports all datasets on separate XLSX sheets, including tracker columns and unsaved edits', async () => {
+    renderWorkspace();
+    await openStudents();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Student name for 26-0001' }), { target: { value: 'UNSAVED EXPORT' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Export all XLSX' }));
+    const sheets = workbook.downloadAcademicWorkbook.mock.calls[0][0];
+    expect(Object.keys(sheets)).toEqual(['students', 'projects', 'deliverables', 'trackerColumns']);
+    expect(sheets.students.rows[0]).toMatchObject({
+      id: 'student-1', studentName: 'UNSAVED EXPORT', sourceRowNumber: 12, recordState: 'Saved record with unsaved edits'
+    });
+    expect(sheets.deliverables.rows.find((row) => row.trackerColumnKey === 'Refactored SDD')).toMatchObject({
+      recordState: 'Tracker column only, no deliverable form'
+    });
+    expect(sheets.trackerColumns.rows).toHaveLength(2);
+    expect(sheets.projects.rows).toHaveLength(1);
+    fireEvent.click(screen.getByRole('tab', { name: /Deliverables/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export tracker columns CSV' }));
+    expect(csv.downloadAcademicCsv).toHaveBeenCalledWith('tracker-columns', expect.any(Array), sheets.trackerColumns.rows);
   });
 
   it('clears previously cached academic records when the server rejects the account', async () => {

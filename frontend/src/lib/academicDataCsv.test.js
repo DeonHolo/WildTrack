@@ -16,4 +16,12 @@ describe('Academic Data CSV export', () => {
       + '"26-0001","DOE, ""JANE""","\'=HYPERLINK(""x"")"\r\n'
       + '"26-0002","Niño","TEAM-02"\r\n');
   });
+
+  it('keeps nested field metadata as escaped JSON and protects whitespace-prefixed formulas', () => {
+    const csv = buildAcademicCsv([{ key: 'fields', label: 'Fields' }, { key: 'title', label: 'Title' }], [{
+      fields: [{ key: 'pdf', label: 'Framework' }], title: '\t=1+2'
+    }]);
+    expect(csv).toContain('"[{""key"":""pdf"",""label"":""Framework""}]"');
+    expect(csv).toContain('"\'\t=1+2"');
+  });
 });

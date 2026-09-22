@@ -6,6 +6,9 @@ import static org.mockito.Mockito.*;
 
 import com.capvault.backend.auth.StoredWildTrackSession;
 import com.capvault.backend.deliverable.DeliverableFieldRepository;
+import com.capvault.backend.deliverable.DeliverableField;
+import com.capvault.backend.deliverable.DeliverableFieldType;
+import com.capvault.backend.deliverable.DocumentCheckPolicy;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseRepository;
 import com.capvault.backend.staff.StaffManagementService;
@@ -14,11 +17,14 @@ import com.capvault.backend.student.StudentAssociationSecurity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
+import java.sql.Timestamp;
+import java.sql.ResultSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.security.access.AccessDeniedException;
 
 /** Staff-scoped monitor notifications and personal dismissals never expose cross-team events. */
@@ -78,6 +84,52 @@ class FileMonitorStaffSecurityTest {
             .thenReturn(List.of());
         assertThat(monitor.events(workspace, http)).isEmpty();
         verifyNoInteractions(db);
+    }
+
+    @Test
+    void sharedFileEventNamesOnlyResponsesFromSelectedDeliverables() throws Exception {
+        var controller = new FileMonitorEventController(db, responses, fields, security, staff,
+            new ObjectMapper());
+        when(security.requireSession(http)).thenReturn(session());
+        when(security.activeRoles(http)).thenReturn(Set.of(StaffRole.ADMIN));
+        UUID selectedDeliverable = UUID.randomUUID();
+        UUID excludedDeliverable = UUID.randomUUID();
+        String link = "https://drive.google.com/file/d/fictional-shared-monitor-pdf/view";
+        var selected = new FormResponse(UUID.randomUUID(), workspace, selectedDeliverable,
+            "selected-student", "selected@example.invalid", UUID.randomUUID(), "99-1001", "Selected Student",
+            "team-one", "{\"pdf\":\"" + link + "\"}", Instant.now(), Instant.now());
+        var excluded = new FormResponse(UUID.randomUUID(), workspace, excludedDeliverable,
+            "excluded-student", "excluded@example.invalid", UUID.randomUUID(), "99-1002", "Excluded Student",
+            "team-two", "{\"pdf\":\"" + link + "\"}", Instant.now(), Instant.now());
+        when(responses.findAllByWorkspaceId(workspace)).thenReturn(List.of(selected, excluded));
+        var pdfField = new DeliverableField(UUID.randomUUID().toString(), selectedDeliverable,
+            "pdf", "Submitted PDF", DeliverableFieldType.DRIVE_PDF, true, 0,
+            DocumentCheckPolicy.MANUAL, false, true);
+        when(fields.findAllByDeliverableIdOrderByDisplayOrderAscLabelAsc(selectedDeliverable))
+            .thenReturn(List.of(pdfField));
+        when(fields.findAllByDeliverableIdOrderByDisplayOrderAscLabelAsc(excludedDeliverable))
+            .thenReturn(List.of(pdfField));
+        UUID eventId = UUID.randomUUID();
+        when(db.query(anyString(), any(RowMapper.class), eq(workspace))).thenAnswer(call -> {
+            String sql = call.getArgument(0);
+            if (sql.contains("file_monitor_selection_configured")) return List.of(true);
+            if (sql.contains("SELECT deliverable_id")) return List.of(selectedDeliverable);
+            if (sql.contains("FROM monitored_drive_events")) {
+                ResultSet rs = mock(ResultSet.class);
+                when(rs.getObject("id")).thenReturn(eventId);
+                when(rs.getString("file_id")).thenReturn("fictional-shared-monitor-pdf");
+                when(rs.getString("kind")).thenReturn("CONTENT_CHANGED");
+                when(rs.getString("detail")).thenReturn("A verified content change.");
+                when(rs.getTimestamp("observed_at")).thenReturn(Timestamp.from(Instant.now()));
+                RowMapper<?> mapper = call.getArgument(1);
+                return List.of(mapper.mapRow(rs, 0));
+            }
+            throw new IllegalStateException("Unexpected monitor query: " + sql);
+        });
+        var events = controller.events(workspace, http);
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).responseIds()).containsExactly(selected.getId());
+        assertThat(events.get(0).teamCodes()).containsExactly("team-one");
     }
 
     private static StoredWildTrackSession session() {

@@ -377,6 +377,7 @@ describe("today's work queues", () => {
     const queue = screen.getByRole('table', { name: "Today's work queue" });
     expect(within(queue).getAllByText('PDF content changed')).toHaveLength(1);
     expect(within(queue).getByText(/2 affected responses across 1 team/)).toBeInTheDocument();
+    expect(within(queue).getByText(/Linked submissions: Student shared-001, Student shared-002/)).toBeInTheDocument();
     expect(within(queue).queryByText('Drive metadata changed')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Check all unchecked/ })).not.toBeInTheDocument();
     fireEvent.click(within(queue).getByRole('button', { name: 'Review affected response for PDF content changed' }));
@@ -440,6 +441,7 @@ describe("today's work queues", () => {
 
     const open = screen.getByRole('tabpanel', { name: 'Open notifications' });
     expect(within(open).getByText('PDF access unavailable')).toBeInTheDocument();
+    expect(within(open).getByText(/Linked submission: Student shared-001/)).toBeInTheDocument();
     expect(within(open).queryByText('PDF access restored')).not.toBeInTheDocument();
     expect(within(open).getAllByRole('button', { name: 'Review affected response for PDF access unavailable' })).toHaveLength(1);
   });
@@ -480,6 +482,43 @@ describe("today's work queues", () => {
     expect(screen.getByText('No dismissed notifications')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Open (1)' }));
     expect(screen.getByRole('button', { name: 'Review Student review-001 response' })).toBeInTheDocument();
+  });
+
+  it('dismisses and restores only the selected work section across search and pagination', async () => {
+    workflow.activeWorkspaceId = 'ws-bulk-dismiss';
+    workflow.state = makeState([
+      checkedResponse('review-001'), checkedResponse('review-002'), response('unchecked-003')
+    ]);
+    renderPage();
+    const filters = screen.getByRole('group', { name: 'Work queue filter' });
+    fireEvent.click(within(filters).getByRole('button', { name: 'Review' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search work queue' }),
+      { target: { value: 'review-001' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss all Review notifications' }));
+    await waitFor(() => expect(api.dismissWorkTask).toHaveBeenCalledTimes(2));
+    expect(api.dismissWorkTask).toHaveBeenCalledWith('ws-bulk-dismiss', 'review:review-001');
+    expect(api.dismissWorkTask).toHaveBeenCalledWith('ws-bulk-dismiss', 'review:review-002');
+    expect(api.dismissWorkTask).not.toHaveBeenCalledWith('ws-bulk-dismiss', 'document:unchecked-003');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Dismissed (2)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore all Review notifications' }));
+    await waitFor(() => expect(api.restoreWorkTask).toHaveBeenCalledTimes(2));
+    expect(api.restoreWorkTask).toHaveBeenCalledWith('ws-bulk-dismiss', 'review:review-001');
+    expect(api.restoreWorkTask).toHaveBeenCalledWith('ws-bulk-dismiss', 'review:review-002');
+    expect(screen.getByRole('tab', { name: 'Dismissed (0)' })).toBeInTheDocument();
+  });
+
+  it('keeps failed bulk dismissal items open and gives an accurate partial-failure notice', async () => {
+    workflow.activeWorkspaceId = 'ws-bulk-partial';
+    workflow.state = makeState([checkedResponse('review-001'), checkedResponse('review-002')]);
+    api.dismissWorkTask.mockImplementation((_workspace, taskId) => taskId === 'review:review-002'
+      ? Promise.reject(new Error('Temporary server error')) : Promise.resolve());
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss all work notifications' }));
+    await waitFor(() => expect(api.dismissWorkTask).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('tab', { name: 'Open (1)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review Student review-002 response' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review Student review-001 response' })).not.toBeInTheDocument();
   });
 
   it('loads server-dismissed keys for the current staff member and hides only matching notifications', () => {
