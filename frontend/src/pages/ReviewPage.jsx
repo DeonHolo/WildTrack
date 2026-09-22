@@ -18,7 +18,7 @@ import {
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { CheckCircle, Files, MagnifyingGlass, Sparkle, X } from '@phosphor-icons/react';
-import { getAiReviewStatus, getIdentityConflicts } from '../lib/api.js';
+import { getAiReviewStatus, getIdentityConflicts, getSavedAiReview } from '../lib/api.js';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
@@ -52,11 +52,25 @@ import {
   getIdentityStudents,
   isArtifactAiReviewCurrent,
   isArtifactDocumentCheckCurrent,
+  isInconclusiveAiReviewReport,
   reviewableSubmissionFields,
   sortDeliverables
 } from '../lib/workflow.js';
 
 const REVIEW_PAGE_SIZE = 50;
+
+function progressPercent(completed, total) {
+  return Math.round((Math.min(completed || 0, total || 0) / Math.max(total || 0, 1)) * 100);
+}
+
+function reviewTargetLabel(target) {
+  return target?.label || `${target?.responseId || 'Response'} / ${target?.field?.label || 'PDF'}`;
+}
+
+function documentTargetLabel(target) {
+  const response = target?.response;
+  return `${response?.studentName || response?.studentNumber || response?.id || 'Response'} / ${target?.field?.label || 'PDF'}`;
+}
 
 export function ReviewPage() {
   const { activeWorkspaceId, refreshSession } = useWorkspaceSession();
@@ -103,6 +117,8 @@ export function ReviewPage() {
   const [acceptProgress, setAcceptProgress] = useState(null);
   const acceptBusy = useRef(false);
   const [aiProgress, setAiProgress] = useState(null);
+  const aiProgressSequence = useRef(0);
+  const savedRefreshBusy = useRef(false);
   const [aiRunningKeys, setAiRunningKeys] = useState(new Set());
   const aiBusy = useRef(false);
   const [checkingIds, setCheckingIds] = useState(new Set());
@@ -110,6 +126,8 @@ export function ReviewPage() {
   const [page, setPage] = useState(1);
   useEffect(() => {
     setAiProgress(null); setAiRunningKeys(new Set()); aiBusy.current = false;
+    aiProgressSequence.current += 1;
+    savedRefreshBusy.current = false;
     setSelectedDeliverableId(linkedDeliverableId || '');
     setBatchProgress(null);
     setAcceptProgress(null);
@@ -273,12 +291,15 @@ export function ReviewPage() {
 
   async function runDocumentCheckBatch(targets) {
     if (!isCurrentScope()) return;
-    setBatchProgress({ completed: 0, total: targets.length, failed: 0, done: false });
+    const sample = targets[0] ? documentTargetLabel(targets[0]) : '';
+    setBatchProgress({ completed: 0, total: targets.length, failed: 0, done: false,
+      phase: 'Checking submitted PDFs in shared-file batches', sample });
     const result = await runReviewDocumentChecks(activeWorkspaceId, targets, state.deliverables, {
       useDedup: true,
       shouldContinue: isCurrentScope,
       onProgress: ({ completed, total }) => {
-        if (isCurrentScope()) setBatchProgress((current) => ({ ...current, completed, total }));
+        if (isCurrentScope()) setBatchProgress((current) => ({ ...current, completed, total,
+          phase: completed < total ? 'Checking remaining submitted PDFs' : 'Collecting Document Check results' }));
       }
     });
     if (!isCurrentScope()) return;
@@ -302,7 +323,9 @@ export function ReviewPage() {
           error: item.error || 'Document Check could not finish.'
         };
       });
-    setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed, failures, done: true });
+    setBatchProgress({ completed: result.completed, total: result.total, failed: result.failed,
+      failures, done: true,
+      phase: result.completed < result.total ? 'Batch stopped before all PDFs were checked' : 'Document Check results saved', sample });
   }
 
   async function requestAiReview(targetsOrIds, retryAcknowledged = false, retryTokens = {}, excludeArchived = false,
@@ -353,6 +376,7 @@ export function ReviewPage() {
         if (!isCurrentScope()) return;
         setAiProgress({ total: candidates.length, completed: 0, available: 0, reused: 0,
           failures: [diagnosis.error], uncertainTargets: [], retryTokens: {}, done: true,
+          batchId: ++aiProgressSequence.current, targets: candidates, phase: 'AI Review availability check',
           paused: true, authenticationRequired: diagnosis.authenticationRequired,
           sessionConfirmed: diagnosis.sessionConfirmed });
       } else notifications.show({ color: 'red', message: error.message || 'AI review status could not be loaded.' });
@@ -370,7 +394,9 @@ export function ReviewPage() {
     if (aiBusy.current || !isCurrentScope()) return;
     aiBusy.current = true;
     setAiRunningKeys(new Set(targets.map(target => target.key)));
-    let progress = { total: targets.length, completed: 0, available: 0, reused: 0, failures: [], uncertainTargets: [], retryTokens: {}, done: false };
+    let progress = { batchId: ++aiProgressSequence.current, targets, total: targets.length,
+      completed: 0, available: 0, reused: 0, failures: [], uncertainTargets: [],
+      retryTokens: {}, done: false, phase: 'Starting AI Review', currentItem: reviewTargetLabel(targets[0]) };
     setAiProgress(progress);
     let outcome = null;
     try {
@@ -390,7 +416,9 @@ export function ReviewPage() {
             reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
             failures: result.ok ? progress.failures : [...progress.failures, `${label}: ${result.error || 'AI Review could not finish.'}`],
             uncertainTargets: result.uncertain ? [...progress.uncertainTargets, target] : progress.uncertainTargets,
-            retryTokens: result.uncertain ? { ...progress.retryTokens, [targetKey]: result.review.retryToken } : progress.retryTokens };
+            retryTokens: result.uncertain ? { ...progress.retryTokens, [targetKey]: result.review?.retryToken } : progress.retryTokens,
+            phase: 'Checking AI Review and saved report status',
+            currentItem: progress.completed + 1 < targets.length ? reviewTargetLabel(targets[progress.completed + 1]) : '' };
           setAiProgress(progress);
         }
       });
@@ -402,8 +430,92 @@ export function ReviewPage() {
     } finally {
       if (isCurrentScope()) { aiBusy.current = false; setAiRunningKeys(new Set());
         setAiProgress({ ...progress, done: true, paused: Boolean(outcome?.paused || progress.completed < progress.total),
+          phase: outcome?.paused || progress.completed < progress.total
+            ? 'Batch paused; saved status can be checked without a new AI request' : 'AI Review batch finished',
+          currentItem: '',
           authenticationRequired: Boolean(progress.authenticationRequired || outcome?.authenticationRequired),
           sessionConfirmed: Boolean(progress.sessionConfirmed || outcome?.sessionConfirmed) }); }
+    }
+  }
+
+  async function checkSavedReviews() {
+    const batch = aiProgress;
+    if (!batch?.done || aiBusy.current || savedRefreshBusy.current || !isCurrentScope()) return;
+    const targets = batch.targets || [];
+    const batchId = batch.batchId;
+    savedRefreshBusy.current = true;
+    const refresh = { checked: 0, total: targets.length, available: 0, running: 0,
+      uncertain: 0, unavailable: 0, failed: 0, updated: 0, errors: [], done: false,
+      currentItem: '', phase: 'Reading saved AI Review status (GET only)' };
+    const update = () => {
+      if (isCurrentScope()) setAiProgress(current => current?.batchId === batchId
+        ? { ...current, savedRefresh: { ...refresh, errors: [...refresh.errors] } } : current);
+    };
+    update();
+    try {
+      for (const target of targets) {
+        if (!isCurrentScope() || aiProgressSequence.current !== batchId) return;
+        refresh.currentItem = reviewTargetLabel(target);
+        update();
+        try {
+          // This is intentionally read-only. Do not call runAiReview, runAiReviews,
+          // or the generation POST to resolve an uncertain/billable request.
+          const saved = await getSavedAiReview(activeWorkspaceId, target.responseId, target.fieldId);
+          if (!isCurrentScope() || aiProgressSequence.current !== batchId) return;
+          const currentResponse = reviewStateRef.current.attempts.find(response => response.id === target.responseId);
+          const currentUrl = String(currentResponse?.values?.[target.field?.id] || '').trim();
+          const initialUrl = String(target.response?.values?.[target.field?.id] || '').trim();
+          if (!currentResponse || currentResponse.deliverableId !== target.response?.deliverableId
+              || !currentUrl || currentUrl !== initialUrl || (saved?.sourceUrl && String(saved.sourceUrl).trim() !== currentUrl)) {
+            refresh.unavailable++;
+            refresh.errors.push(`${reviewTargetLabel(target)}: Submitted PDF changed; saved review was not applied.`);
+          } else if (saved?.status === 'COMPLETED' && saved.report) {
+            if (isInconclusiveAiReviewReport(saved.report)) {
+              refresh.uncertain++;
+              refresh.errors.push(`${reviewTargetLabel(target)}: The saved review is inconclusive.`);
+            } else refresh.available++;
+            setState(current => ({ ...current, attempts: current.attempts.map(response => response.id === target.responseId
+              ? applyArtifactAiReview(response, saved) : response) }));
+            refresh.updated++;
+          } else if (saved?.status === 'RUNNING') {
+            refresh.running++;
+            setState(current => ({ ...current, attempts: current.attempts.map(response => response.id === target.responseId
+              ? applyArtifactAiReview(response, saved) : response) }));
+            refresh.updated++;
+          } else if (saved?.status === 'UNCERTAIN') {
+            refresh.uncertain++;
+            refresh.errors.push(`${reviewTargetLabel(target)}: ${saved.message || 'The saved review needs attention.'}`);
+            setState(current => ({ ...current, attempts: current.attempts.map(response => response.id === target.responseId
+              ? applyArtifactAiReview(response, saved) : response) }));
+            refresh.updated++;
+          } else {
+            refresh.unavailable++;
+            refresh.errors.push(`${reviewTargetLabel(target)}: ${saved?.message || 'No completed saved AI Review is available.'}`);
+          }
+        } catch (error) {
+          if (!isCurrentScope() || aiProgressSequence.current !== batchId) return;
+          refresh.failed++;
+          refresh.errors.push(`${reviewTargetLabel(target)}: ${error?.message || 'Saved review status could not be read.'}`);
+          if (error?.status === 401) {
+            const diagnosis = await diagnoseAiReviewAuthFailure(error, 'Saved AI Review status check');
+            if (!isCurrentScope() || aiProgressSequence.current !== batchId) return;
+            setAiProgress(current => current?.batchId === batchId
+              ? { ...current, authenticationRequired: diagnosis.authenticationRequired,
+                sessionConfirmed: diagnosis.sessionConfirmed } : current);
+            refresh.checked++;
+            update();
+            break;
+          }
+        }
+        refresh.checked++;
+        update();
+      }
+    } finally {
+      savedRefreshBusy.current = false;
+      refresh.currentItem = '';
+      refresh.done = true;
+      refresh.phase = 'Saved status check finished; no new AI request was sent';
+      update();
     }
   }
 
@@ -627,17 +739,59 @@ export function ReviewPage() {
           <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done) || !allAiTargets.length} onClick={() => requestAiReview(allAiTargets, false, {}, true)}>AI review all</Button>
           <Button variant="subtle" onClick={() => setOverviewOpen(value => !value)} aria-expanded={overviewOpen}>{overviewOpen ? 'Hide overview' : 'Deliverable overview'}</Button></Group>
       </Group></Paper>
-      {aiProgress ? <Alert role="status" color={aiProgress.failures.length ? 'orange' : 'blue'} title={aiProgress.done ? (aiProgress.paused ? 'AI review paused' : aiProgress.failures.length ? 'AI review needs attention' : 'AI review complete') : 'Reviewing documents'}
+      {aiProgress ? <Alert role="status" color={aiProgress.failures.length || aiProgress.savedRefresh?.errors.length ? 'orange' : 'blue'} title={aiProgress.savedRefresh?.done
+        ? aiProgress.savedRefresh.checked === aiProgress.savedRefresh.total
+          && aiProgress.savedRefresh.available === aiProgress.savedRefresh.total
+          ? 'Saved AI Reviews available'
+          : aiProgress.savedRefresh.running ? 'Saved AI Reviews still running' : 'Saved AI Review status checked'
+        : aiProgress.done ? (aiProgress.paused ? 'AI review paused' : aiProgress.failures.length ? 'AI review needs attention' : 'AI review complete') : 'Reviewing documents'}
         withCloseButton={aiProgress.done} onClose={() => setAiProgress(null)}>
-        <Text size="sm">{aiProgress.available} {aiProgress.available === 1 ? 'review' : 'reviews'} available · {aiProgress.uncertainTargets.length} awaiting retry
-          {aiProgress.failures.length > aiProgress.uncertainTargets.length ? ` · ${aiProgress.failures.length - aiProgress.uncertainTargets.length} incomplete` : ''}</Text>
-        <Text size="xs" c="dimmed">{aiProgress.completed} of {aiProgress.total} PDF artifacts attempted · {aiProgress.reused} saved reviews reused
-          {aiProgress.done && aiProgress.completed < aiProgress.total ? ` · ${aiProgress.total - aiProgress.completed} not attempted` : ''}</Text>
-        {[...new Set(aiProgress.failures)].map(message => <Text size="sm" key={message}>{message}</Text>)}
+        <Stack gap="xs">
+          <Group justify="space-between" align="center" wrap="wrap" gap="xs">
+            <Text size="sm" fw={700}>{aiProgress.savedRefresh?.done
+              ? 'Original AI Review batch (attempted actions)' : aiProgress.phase || 'AI Review batch'}</Text>
+            <Text size="sm" fw={700} className="wt-tabular">{progressPercent(aiProgress.completed, aiProgress.total)}%</Text>
+          </Group>
+          <Progress value={progressPercent(aiProgress.completed, aiProgress.total)} size="lg" radius="xl"
+            striped animated={!aiProgress.done} aria-label="AI Review batch progress" />
+          <Text size="sm">{aiProgress.completed} of {aiProgress.total} PDF artifacts attempted · {aiProgress.reused} saved reviews reused
+            {aiProgress.done && aiProgress.completed < aiProgress.total ? ` · ${aiProgress.total - aiProgress.completed} not attempted` : ''}</Text>
+          {aiProgress.currentItem && !aiProgress.done ? <Text size="sm" c="dimmed">Current PDF: {aiProgress.currentItem}</Text> : null}
+          <Text size="sm">{aiProgress.savedRefresh?.done ? aiProgress.savedRefresh.available : aiProgress.available}{' '}
+            {(aiProgress.savedRefresh?.done ? aiProgress.savedRefresh.available : aiProgress.available) === 1 ? 'review' : 'reviews'} available
+            {aiProgress.savedRefresh ? ` · ${aiProgress.savedRefresh.running} still running · ${aiProgress.savedRefresh.uncertain} inconclusive · ${aiProgress.savedRefresh.unavailable} unavailable`
+              : ` · ${aiProgress.uncertainTargets.length} awaiting retry`}
+            {!aiProgress.savedRefresh && aiProgress.failures.length > aiProgress.uncertainTargets.length
+              ? ` · ${aiProgress.failures.length - aiProgress.uncertainTargets.length} incomplete` : ''}</Text>
+          {aiProgress.savedRefresh && aiProgress.failures.length ? (
+            <Stack gap={2}>
+              <Text size="xs" fw={700}>Original batch messages (before saved-status check)</Text>
+              {[...new Set(aiProgress.failures)].map(message => <Text size="sm" key={message}>{message}</Text>)}
+            </Stack>
+          ) : !aiProgress.savedRefresh ? [...new Set(aiProgress.failures)]
+            .map(message => <Text size="sm" key={message}>{message}</Text>) : null}
+          {aiProgress.savedRefresh ? (
+            <Stack gap={4}>
+              <Group justify="space-between" gap="xs" wrap="wrap">
+                <Text size="sm" fw={700}>{aiProgress.savedRefresh.phase}</Text>
+                <Text size="sm" fw={700} className="wt-tabular">{progressPercent(aiProgress.savedRefresh.checked, aiProgress.savedRefresh.total)}%</Text>
+              </Group>
+              <Progress value={progressPercent(aiProgress.savedRefresh.checked, aiProgress.savedRefresh.total)} size="lg"
+                striped animated={!aiProgress.savedRefresh.done} aria-label="Saved AI Review status check progress" />
+              <Text size="sm">{aiProgress.savedRefresh.checked} of {aiProgress.savedRefresh.total} saved statuses checked · {aiProgress.savedRefresh.updated} response states refreshed
+                {aiProgress.savedRefresh.failed ? ` · ${aiProgress.savedRefresh.failed} status checks failed` : ''}
+                {aiProgress.savedRefresh.done && aiProgress.savedRefresh.checked < aiProgress.savedRefresh.total
+                  ? ` · ${aiProgress.savedRefresh.total - aiProgress.savedRefresh.checked} not checked` : ''}</Text>
+              {aiProgress.savedRefresh.currentItem ? <Text size="sm" c="dimmed">Checking saved status: {aiProgress.savedRefresh.currentItem}</Text> : null}
+              {[...new Set(aiProgress.savedRefresh.errors)].map(message => <Text size="sm" key={message}>{message}</Text>)}
+            </Stack>
+          ) : null}
+        </Stack>
         {aiProgress.done && aiProgress.authenticationRequired ? <Button variant="default" size="xs" mt="sm"
           onClick={reconnectGoogle}>Continue with Google</Button> : null}
-        {aiProgress.done && aiProgress.paused && !aiProgress.authenticationRequired ? <Button variant="default" size="xs" mt="sm"
-          onClick={() => reload()}>Check saved reviews</Button> : null}
+        {aiProgress.done && (aiProgress.paused || aiProgress.savedRefresh) && !aiProgress.authenticationRequired
+          ? <Button variant="default" size="xs" mt="sm" disabled={savedRefreshBusy.current || !aiProgress.targets?.length}
+            loading={Boolean(aiProgress.savedRefresh && !aiProgress.savedRefresh.done)} onClick={checkSavedReviews}>Check saved reviews</Button> : null}
         {aiProgress.done && !aiProgress.authenticationRequired && aiProgress.uncertainTargets.length ? <Button variant="default" size="xs" mt="sm" onClick={() => requestAiReview(aiProgress.uncertainTargets, true, aiProgress.retryTokens)}>Review retry options</Button> : null}
       </Alert> : null}
       <Collapse in={overviewOpen}><ReviewDeliverablesTable summaries={summaries} selectedId={activeDeliverableId} onSelect={chooseDeliverable} /></Collapse>
@@ -742,17 +896,31 @@ export function ReviewPage() {
               role="status"
               color={!batchProgress.done ? 'blue' : batchProgress.failed ? 'orange' : 'green'}
               variant="light"
-              title={batchProgress.done ? 'Document checks complete' : 'Checking documents'}
+              title={batchProgress.done
+                ? batchProgress.completed < batchProgress.total ? 'Document checks stopped early' : 'Document checks complete'
+                : 'Checking documents'}
               icon={<Files size={19} />}
               withCloseButton={batchProgress.done}
               onClose={() => setBatchProgress(null)}
               className="wt-review-batch-progress"
             >
               <Stack gap="xs">
-                <Text size="sm">
-                  {batchProgress.completed} of {batchProgress.total} completed
+                <Group justify="space-between" align="center" wrap="wrap" gap="xs">
+                  <Text fw={700} size="sm">{batchProgress.phase || 'Checking submitted PDFs'}</Text>
+                  <Text fw={700} size="sm" className="wt-tabular">{progressPercent(batchProgress.completed, batchProgress.total)}%</Text>
+                </Group>
+                <Progress value={progressPercent(batchProgress.completed, batchProgress.total)}
+                  color="wildtrackMaroon" size="lg" radius="xl" striped animated={!batchProgress.done}
+                  aria-label="Document Check batch progress" />
+                <Text size="sm">{batchProgress.completed} of {batchProgress.total} completed
                   {batchProgress.failed ? ` | ${batchProgress.failed} could not be checked` : ''}
+                  {batchProgress.done && batchProgress.completed < batchProgress.total
+                    ? ` | ${batchProgress.total - batchProgress.completed} not attempted` : ''}
                 </Text>
+                {!batchProgress.done && batchProgress.sample ? <Text size="sm" c="dimmed">
+                  {batchProgress.total === 1 ? 'Current PDF' : 'Batch includes'}: {batchProgress.sample}
+                  {batchProgress.total > 1 ? ' (shared-file batching may change processing order; current file is not reported)' : ''}
+                </Text> : null}
                 {batchProgress.failures?.length ? (
                   <Stack gap={2} className="wt-review-batch-failures">
                     {batchProgress.failures.map((failure) => (
@@ -760,7 +928,6 @@ export function ReviewPage() {
                     ))}
                   </Stack>
                 ) : null}
-                <Progress value={(batchProgress.completed / Math.max(batchProgress.total, 1)) * 100} color="wildtrackMaroon" size="sm" />
               </Stack>
             </Alert>
           ) : null}
