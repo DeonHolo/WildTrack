@@ -39,7 +39,7 @@ describe('StudentDeliverableList artifacts', () => {
     });
     renderList([submitted, missing, secondSubmitted]);
     const filter = screen.getByRole('group', { name: 'Filter deliverables' });
-    expect(filter).toHaveTextContent('Show deliverables');
+    expect(filter).not.toHaveTextContent('Show deliverables');
     expect(filter.querySelector('.mantine-SegmentedControl-root')).not.toBeInTheDocument();
     expect(within(filter).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(screen.getByRole('list', { name: 'Your deliverables' })).getAllByRole('listitem')).toHaveLength(3);
