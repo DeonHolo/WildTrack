@@ -17,6 +17,7 @@ const workflow = vi.hoisted(() => ({
   runDocumentCheck: vi.fn(),
   runDocumentChecks: vi.fn(),
   getAiReviewStatus: vi.fn(),
+  diagnoseSubmittedAiDriveAccess: vi.fn(),
   runAiReviews: vi.fn(),
   getSavedAiReview: vi.fn(),
   refreshSession: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock('../lib/api.js', () => ({
   getIdentityConflicts: vi.fn().mockResolvedValue([]),
   getSubmittedFileHistory: vi.fn().mockResolvedValue({ status: 'UNAVAILABLE', revisions: [], historyMayBeIncomplete: true }),
   getAiReviewStatus: (...args) => workflow.getAiReviewStatus(...args),
+  diagnoseSubmittedAiDriveAccess: (...args) => workflow.diagnoseSubmittedAiDriveAccess(...args),
   getSavedAiReview: (...args) => workflow.getSavedAiReview(...args)
 }));
 
@@ -285,6 +287,8 @@ describe('deliverable-first submission review', () => {
       return { completed: ids.length, total: ids.length, failed: 0 };
     });
     workflow.getAiReviewStatus.mockResolvedValue({ configured: true, message: 'Gemini connected.' });
+    workflow.diagnoseSubmittedAiDriveAccess.mockResolvedValue({ status: 'ACCESSIBLE', step: 'complete',
+      message: 'Backend can download this submitted PDF; no Gemini request was made.' });
     workflow.runAiReviews.mockResolvedValue(undefined);
     workflow.archiveAttempt.mockResolvedValue({ ok: true, archived: 1 });
     workflow.markAccepted.mockImplementation(async (id) => ({
@@ -521,6 +525,20 @@ describe('deliverable-first submission review', () => {
     expect(status).toHaveTextContent('2 of 2 PDF artifacts attempted');
     expect(status).not.toHaveTextContent('not attempted');
     expect(within(status).getByRole('progressbar', { name: 'AI Review batch progress' })).toHaveAttribute('aria-valuenow', '100');
+  });
+
+  it('checks the selected submitted PDF through a read-only backend GET without starting Gemini', async () => {
+    workflow.diagnoseSubmittedAiDriveAccess.mockResolvedValueOnce({ status: 'API_NOT_FOUND', step: 'metadata',
+      message: 'Google Drive API returned HTTP 404 during metadata. No AI review was started.' });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Taghoy, Ron Luigi F. response' }));
+    const drawer = screen.getByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Check Drive API access' }));
+
+    await waitFor(() => expect(drawer).toHaveTextContent('Google Drive API returned HTTP 404 during metadata'));
+    expect(drawer).toHaveTextContent('Checked stage: metadata');
+    expect(workflow.diagnoseSubmittedAiDriveAccess).toHaveBeenCalledWith('workspace-it', 'response-ron-srs', null);
+    expect(workflow.runAiReviews).not.toHaveBeenCalled();
   });
 
   it('counts inaccessible PDFs separately, keeps reviewing later PDFs, and links each skipped submission', async () => {

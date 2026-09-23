@@ -129,7 +129,8 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
         int status = exception.getStatusCode().value();
         if (status == 403 || status == 404) {
             return new GoogleDriveUnavailableException(
-                "The Drive file is inaccessible. Set it to Anyone with the link - Viewer and allow downloads.",
+                "WildTrack's backend Google Drive API could not access this submitted file. "
+                    + "A browser link may still work; check the saved link and the backend's Drive API access.",
                 exception
             );
         }
