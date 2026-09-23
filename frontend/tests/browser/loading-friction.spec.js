@@ -28,12 +28,15 @@ for (const width of [1440, 375]) {
     const answer = page.getByLabel('PDF Drive Link');
     await expect(answer).toHaveValue('https://drive.google.com/file/d/browser-pdf/view');
     await expect(answer).toBeEnabled();
-    await expect(page.getByLabel('Student Number')).toBeDisabled();
+    // A previously bound student identity stays visible and usable while the
+    // roster refresh is pending. Saving must wait for the roster to finish.
+    await expect(page.getByLabel('Student Number')).toHaveValue('22-1001-001');
+    await expect(page.getByRole('button', { name: 'Save response changes' })).toBeDisabled();
     await answer.focus();
     await page.keyboard.press('ControlOrMeta+A');
     await page.keyboard.type('https://example.test/keyboard-edit');
     roster.release();
-    await expect(page.getByLabel('Student Number')).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Save response changes' })).toBeEnabled();
     await expect(answer).toHaveValue('https://example.test/keyboard-edit');
     await expect(page.getByText('Draft saved', { exact: true })).toBeVisible();
     expect(await page.evaluate(() => window.reopened)).toBe(false);
@@ -59,9 +62,9 @@ for (const width of [1440, 375]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     await edit.focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('dialog')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog')).not.toBeVisible();
+    // Editing now opens the full-page form editor rather than the old dialog.
+    await expect(page).toHaveURL(/\/forms\/deliverable-srs\/edit$/);
+    await expect(page.getByRole('heading', { name: 'Edit form' })).toBeVisible();
     await page.screenshot({ path: `test-results/friction-forms-${width}.png`, fullPage: true });
     refresh.release();
     await page.waitForLoadState('networkidle');
