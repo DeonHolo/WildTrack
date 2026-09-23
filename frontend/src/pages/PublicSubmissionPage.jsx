@@ -473,7 +473,7 @@ export function PublicSubmissionPage() {
                     </Group>
                     {activeAccount && ownedResponse ? (
                       <Alert color="blue" variant="light">
-                        Your previous response is ready to edit. Saving material changes records a new response-history event.
+                        You can edit your previous submission below. When you're done, select Save response changes.
                       </Alert>
                     ) : null}
                   </Stack>
@@ -520,7 +520,7 @@ export function PublicSubmissionPage() {
 
                       <Divider />
                       <Group justify="space-between" gap="md" wrap="wrap">
-                        <Text c="dimmed" size="xs" maw={460}>Submitting records your Google account, selected class identity, and response time.</Text>
+                        <Text c="dimmed" size="xs" maw={460}>When you submit, we save your Google account, student details, and submission time.</Text>
                   {draftStatus && (
                     <Text size="sm" c="dimmed" role="status">
                       {draftStatus === 'saving' ? 'Saving draft…' : draftStatus === 'saved' ? 'Draft saved' : draftStatus === 'conflict' ? 'Draft changed in another session. Reload to continue.' : draftStatus === 'error' ? 'Draft not saved' : ''
