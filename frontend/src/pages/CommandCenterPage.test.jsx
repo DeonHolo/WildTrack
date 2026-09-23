@@ -474,14 +474,41 @@ describe("today's work queues", () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss Review decision: Student review-001 | SRS' }));
     await waitFor(() => expect(api.dismissWorkTask).toHaveBeenCalledWith('ws-dismiss', 'review:review-001'));
     expect(screen.queryByRole('button', { name: 'Review Student review-001 response' })).not.toBeInTheDocument();
+    expect(workflow.state.dismissedKeys).toEqual(['review:review-001']);
 
     fireEvent.click(screen.getByRole('tab', { name: 'Dismissed (1)' }));
     expect(screen.getByRole('button', { name: 'Review Student review-001 response' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Restore Review decision: Student review-001 | SRS' }));
     await waitFor(() => expect(api.restoreWorkTask).toHaveBeenCalledWith('ws-dismiss', 'review:review-001'));
     expect(screen.getByText('No dismissed notifications')).toBeInTheDocument();
+    expect(workflow.state.dismissedKeys).toEqual([]);
     fireEvent.click(screen.getByRole('tab', { name: 'Open (1)' }));
     expect(screen.getByRole('button', { name: 'Review Student review-001 response' })).toBeInTheDocument();
+  });
+
+  it('does not flash a dismissed task when returning before the fresh queue request completes', async () => {
+    workflow.activeWorkspaceId = 'ws-return';
+    workflow.state = makeState([checkedResponse('review-001'), checkedResponse('review-002')]);
+    const firstVisit = renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss Review decision: Student review-001 | SRS' }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Open (1)' })).toBeInTheDocument());
+    expect(workflow.state.dismissedKeys).toContain('review:review-001');
+    firstVisit.unmount();
+
+    // The real resource hook reads its previous workspace/account snapshot on
+    // remount. Keep the server response unresolved to catch a one-frame flash.
+    let finishRefresh;
+    api.getWorkTaskDismissals.mockReturnValueOnce(new Promise(resolve => { finishRefresh = resolve; }));
+    workflow.loadFromServer = true;
+    renderPage();
+    expect(screen.getByRole('tab', { name: 'Open (1)' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review Student review-001 response' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review Student review-002 response' })).toBeInTheDocument();
+
+    await waitFor(() => expect(api.getWorkTaskDismissals).toHaveBeenCalledWith('ws-return'));
+    await act(async () => { finishRefresh(['review:review-001']); });
+    expect(screen.getByRole('tab', { name: 'Open (1)' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review Student review-001 response' })).not.toBeInTheDocument();
   });
 
   it('dismisses and restores only the selected work section across search and pagination', async () => {
@@ -496,6 +523,7 @@ describe("today's work queues", () => {
       { target: { value: 'review-001' } });
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss all Review notifications' }));
     await waitFor(() => expect(api.dismissWorkTask).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(workflow.state.dismissedKeys).toEqual(['review:review-001', 'review:review-002']));
     expect(api.dismissWorkTask).toHaveBeenCalledWith('ws-bulk-dismiss', 'review:review-001');
     expect(api.dismissWorkTask).toHaveBeenCalledWith('ws-bulk-dismiss', 'review:review-002');
     expect(api.dismissWorkTask).not.toHaveBeenCalledWith('ws-bulk-dismiss', 'document:unchecked-003');
@@ -503,6 +531,7 @@ describe("today's work queues", () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Dismissed (2)' }));
     fireEvent.click(screen.getByRole('button', { name: 'Restore all Review notifications' }));
     await waitFor(() => expect(api.restoreWorkTask).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(workflow.state.dismissedKeys).toEqual([]));
     expect(api.restoreWorkTask).toHaveBeenCalledWith('ws-bulk-dismiss', 'review:review-001');
     expect(api.restoreWorkTask).toHaveBeenCalledWith('ws-bulk-dismiss', 'review:review-002');
     expect(screen.getByRole('tab', { name: 'Dismissed (0)' })).toBeInTheDocument();
