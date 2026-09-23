@@ -324,7 +324,7 @@ describe('public submission form', () => {
     renderForm('/submit/week-9-srs?student=22-1001-001');
 
     await waitFor(() => {
-      expect(screen.getByText(/Your previous response is ready to edit/i)).toBeInTheDocument();
+      expect(screen.getByText(/You can edit your previous submission below/i)).toBeInTheDocument();
       expect(screen.getByDisplayValue('https://drive.google.com/file/d/my-prior-srs/view')).toBeInTheDocument();
     });
   });
@@ -1005,6 +1005,15 @@ describe('public submission form', () => {
     expect(refreshResources).toHaveBeenCalledTimes(1);
     window.removeEventListener('wildtrack:server-mutation', serverMutation);
     window.removeEventListener('wildtrack:refresh-resources', refreshResources);
+  });
+
+  it('explains editing an existing submission in plain language without developer terminology', async () => {
+    api.getMyResponse.mockResolvedValue({ id: 'server-response', revision: 1, valuesJson: '{}' });
+    renderForm();
+    expect(await screen.findByText('You can edit your previous submission below. When you\'re done, select Save response changes.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save response changes' })).toBeInTheDocument();
+    expect(screen.getByText('When you submit, we save your Google account, student details, and submission time.')).toBeInTheDocument();
+    expect(screen.queryByText(/material changes|response-history event/i)).not.toBeInTheDocument();
   });
 
   it('shows an unavailable state for an unpublished form', async () => {
