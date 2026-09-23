@@ -33,7 +33,11 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.server.ResponseStatusException;
 
 class AiReviewDeduplicationTest {
     private final UUID workspace = UUID.randomUUID(), deliverableId = UUID.randomUUID();
@@ -113,6 +117,63 @@ class AiReviewDeduplicationTest {
         return response;
     }
     private AiReviewService.View run(FormResponse response) { return service.review(workspace, response.getId(), "admin", false); }
+
+    @Test void missingSubmittedDriveFileFailsBeforeClaimWithActionable422() {
+        doThrow(new GoogleDriveUnavailableException("Private Drive 404 text should not leak",
+            new HttpClientErrorException(HttpStatus.NOT_FOUND)))
+            .when(drive).getMetadata(any());
+        assertPreclaimDriveFailure(HttpStatus.UNPROCESSABLE_ENTITY,
+            "The submitted Drive PDF could not be opened.");
+        verify(drive, never()).download(any());
+    }
+
+    @Test void inaccessibleDriveDownloadFailsBeforeClaimWithActionable422() {
+        doThrow(new GoogleDriveUnavailableException("Private Drive 403 text should not leak",
+            new HttpClientErrorException(HttpStatus.FORBIDDEN)))
+            .when(drive).download(any());
+        assertPreclaimDriveFailure(HttpStatus.UNPROCESSABLE_ENTITY,
+            "The submitted Drive PDF could not be opened.");
+        verify(drive, times(1)).getMetadata(any());
+    }
+
+    @Test void secondMetadataFailureFailsBeforeClaimWithoutStartingGemini() {
+        var firstMetadata = new DriveFileMetadata("file-first", "document.pdf", "application/pdf", 100L,
+            "same-checksum", OffsetDateTime.parse("2026-09-09T00:00:00Z"), true, "");
+        doReturn(firstMetadata).doThrow(new GoogleDriveUnavailableException("Private Drive 404 detail",
+            new HttpClientErrorException(HttpStatus.NOT_FOUND)))
+            .when(drive).getMetadata(any());
+        assertPreclaimDriveFailure(HttpStatus.UNPROCESSABLE_ENTITY,
+            "The submitted Drive PDF could not be opened.");
+        verify(drive).download(any());
+        verify(drive, times(2)).getMetadata(any());
+    }
+
+    @Test void upstreamDriveFailureBeforeClaimIs503NotDocumentSpecific422() {
+        doThrow(new GoogleDriveUnavailableException("Private backend/provider information",
+            new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE)))
+            .when(drive).getMetadata(any());
+        assertPreclaimDriveFailure(HttpStatus.SERVICE_UNAVAILABLE,
+            "WildTrack could not retrieve the submitted PDF from Google Drive.");
+    }
+
+    private void assertPreclaimDriveFailure(HttpStatus expectedStatus, String expectedMessage) {
+        var tasks = new java.util.ArrayList<Runnable>();
+        service = newService(store, tasks::add);
+        assertThatThrownBy(() -> run(first))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(problem -> {
+                var http = (ResponseStatusException) problem;
+                assertThat(http.getStatusCode()).isEqualTo(expectedStatus);
+                assertThat(http.getReason()).startsWith(expectedMessage)
+                    .contains("No AI review was started.")
+                    .doesNotContain("Private", "file-first", "403", "404");
+            });
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_response_links", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_field_links", Integer.class)).isZero();
+        assertThat(tasks).isEmpty();
+        verify(provider, never()).review(any());
+    }
 
     @Test void backgroundReviewReturnsImmediatelyAndDuplicateResponsesPollTheSameJob() {
         var tasks = new java.util.ArrayList<Runnable>();

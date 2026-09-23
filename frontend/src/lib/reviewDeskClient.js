@@ -272,6 +272,14 @@ export async function runAiReview(workspaceId, responseId, fieldId = null, retry
         ? 'The review is still running. Open View AI Review after its saved result is ready; no additional AI request was sent.'
         : review.message || (review.failureCode ? `AI Review failed: ${review.failureCode}.` : 'AI Review could not finish.') };
   } catch (error) {
+    // The AI start endpoint reserves HTTP 422 for a confirmed inaccessible
+    // submitted Drive PDF before any AI job is claimed or provider called.
+    // Keep the artifact's failure visible while letting other PDFs proceed.
+    // Errors after a job might have started remain ambiguous and pause the batch.
+    if (phase === 'AI Review start' && error?.status === 422) {
+      return { ok: false, pauseBatch: false, notStarted: true,
+        error: error?.message || 'The submitted PDF is inaccessible. Check the Drive sharing link before reviewing this artifact.' };
+    }
     const diagnosed = authDiagnosis || await diagnoseAiReviewAuthFailure(error, phase);
     return { ok: false, pauseBatch: true, ...diagnosed };
   }

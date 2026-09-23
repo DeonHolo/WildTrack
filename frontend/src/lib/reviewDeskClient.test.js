@@ -104,6 +104,27 @@ it('surfaces a forbidden AI POST without claiming session expiry or automaticall
   expect(ai.session).not.toHaveBeenCalled();
 });
 
+it('continues past a confirmed preclaim inaccessible PDF without a Gemini retry or a false completed report', async () => {
+  ai.start.mockRejectedValueOnce(Object.assign(new Error(
+    'The submitted Drive PDF is inaccessible. Check its link and sharing permissions.'), { status: 422 }));
+  ai.start.mockResolvedValueOnce({ status: 'COMPLETED', report: {
+    summary: 'Source-grounded observations', verifiedChecks: twoVerifiedChecks
+  } });
+  const onResult = vi.fn();
+
+  const outcome = await runAiReviews('workspace', ['inaccessible-pdf', 'next-pdf'], { onResult });
+
+  expect(outcome).toEqual({ completed: 2, total: 2, paused: false });
+  expect(onResult.mock.calls[0][1]).toMatchObject({
+    ok: false, pauseBatch: false, notStarted: true,
+    error: expect.stringContaining('Drive PDF is inaccessible')
+  });
+  expect(onResult.mock.calls[1][1]).toMatchObject({ ok: true, pauseBatch: false });
+  expect(ai.start.mock.calls.map(args => args[1])).toEqual(['inaccessible-pdf', 'next-pdf']);
+  expect(ai.saved).not.toHaveBeenCalled();
+  expect(ai.session).not.toHaveBeenCalled();
+});
+
 it('recovers a transient polling 401 with one read-only retry only after Administrator session verification', async () => {
   vi.useFakeTimers();
   ai.start.mockResolvedValueOnce({ status: 'RUNNING', fieldId: 'field-pdf', reused: false });
