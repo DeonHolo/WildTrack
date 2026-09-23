@@ -4528,19 +4528,19 @@ textarea:not(.mantine-Input-input):focus {
 .wt-template-table th:nth-child(3) { width: 190px; }
 .wt-template-table th:nth-child(4) { width: 200px; }
 .wt-template-table th:nth-child(5) { width: 125px; }
-.wt-template-table th:nth-child(6) { width: 210px; }
+.wt-template-table th:nth-child(6) { width: 350px; }
 
 .wt-template-table td {
   overflow-wrap: anywhere;
 }
 
 .wt-template-table td:nth-child(6) {
-  min-width: 210px;
+  min-width: 350px;
 }
 
 .wt-template-table .wt-row-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   justify-content: stretch;
 }
 
@@ -4552,10 +4552,6 @@ textarea:not(.mantine-Input-input):focus {
 
 .wt-template-table .wt-row-actions .mantine-Button-section {
   margin-inline-end: 4px;
-}
-
-.wt-template-table .wt-row-actions .mantine-Button-root:nth-child(3):last-child {
-  grid-column: 1 / -1;
 }
 
 .wt-row-actions {

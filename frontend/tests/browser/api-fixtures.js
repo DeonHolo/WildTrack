@@ -52,6 +52,18 @@ export async function installApiFixtures(page, {
   };
   let draft = null;
   let deliverableRevision = 0;
+  const dismissedTaskKeys = new Set();
+  let fileMonitorSettings = {
+    enabled: false,
+    configured: true,
+    deliverableSelectionConfigured: false,
+    deliverables: deliverables.map((item) => ({
+      id: item.id,
+      title: item.title,
+      dueAt: item.dueAt,
+      enabled: true
+    }))
+  };
   const unexpected = [];
   const calls = [];
 
@@ -82,6 +94,56 @@ export async function installApiFixtures(page, {
       return reply({ workspace, deliverable });
     }
     if (method === 'GET' && path === '/workspaces') return reply([workspace]);
+    if (path === `/workspaces/${workspace.id}/file-monitor` && method === 'GET') {
+      expect(role).toBe('admin');
+      return reply(fileMonitorSettings);
+    }
+    if (path === `/workspaces/${workspace.id}/file-monitor` && method === 'PUT') {
+      expect(role).toBe('admin');
+      const body = request.postDataJSON();
+      expect(typeof body.enabled).toBe('boolean');
+      expect(body.deliverableIds === undefined || Array.isArray(body.deliverableIds)).toBe(true);
+      if (body.deliverableIds) {
+        expect(body.deliverableIds.every((id) => fileMonitorSettings.deliverables.some((item) => item.id === id))).toBe(true);
+      }
+      fileMonitorSettings = {
+        ...fileMonitorSettings,
+        enabled: body.enabled,
+        deliverableSelectionConfigured: body.deliverableIds ? true : fileMonitorSettings.deliverableSelectionConfigured,
+        deliverables: fileMonitorSettings.deliverables.map((item) => ({
+          ...item,
+          enabled: body.deliverableIds ? body.deliverableIds.includes(item.id) : item.enabled
+        }))
+      };
+      return reply(fileMonitorSettings);
+    }
+    if (path === '/file-monitor/events' && method === 'GET') {
+      expect(['admin', 'adviser']).toContain(role);
+      expect(url.searchParams.get('workspaceId')).toBe(workspace.id);
+      return reply([]);
+    }
+    if (path === '/work-task-dismissals' && method === 'GET') {
+      expect(['admin', 'adviser']).toContain(role);
+      expect(url.searchParams.get('workspaceId')).toBe(workspace.id);
+      return reply([...dismissedTaskKeys]);
+    }
+    if (path === '/work-task-dismissals' && method === 'POST') {
+      expect(['admin', 'adviser']).toContain(role);
+      const body = request.postDataJSON();
+      expect(body.workspaceId).toBe(workspace.id);
+      expect(typeof body.taskKey).toBe('string');
+      expect(body.taskKey.trim()).not.toBe('');
+      dismissedTaskKeys.add(body.taskKey);
+      return route.fulfill({ status: 204 });
+    }
+    if (path === '/work-task-dismissals' && method === 'DELETE') {
+      expect(['admin', 'adviser']).toContain(role);
+      expect(url.searchParams.get('workspaceId')).toBe(workspace.id);
+      const taskKey = url.searchParams.get('taskKey');
+      expect(taskKey).toBeTruthy();
+      dismissedTaskKeys.delete(taskKey);
+      return route.fulfill({ status: 204 });
+    }
     if (method === 'GET' && path === '/workspace/staff/me') return reply(role === 'adviser'
       ? {
           adviserName: student.adviserName,

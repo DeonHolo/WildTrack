@@ -200,11 +200,16 @@ test('compact statuses remain readable in narrow staff tables', async ({ page })
   await page.setViewportSize({ width: 768, height: 912 });
   await openAs(page, 'admin', '/forms');
   await expect(page.getByRole('heading', { name: 'Forms', exact: true })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Submission forms' })).toBeVisible();
   await expectStatusIndicatorsReadable(page);
 
   await page.goto('/workspace');
   await expect(page.getByRole('heading', { name: 'Workspace setup', exact: true })).toBeVisible();
+  const sources = page.getByRole('table', { name: 'Workspace source sheets' });
+  await expect(sources).toBeVisible();
+  await expect(sources.getByRole('row', { name: /Team Formation/ }).locator('.wt-status-indicator')).toContainText('Imported');
   await expectStatusIndicatorsReadable(page);
+  await expectNoPageOverflow(page);
 });
 
 test('workspace source imports fit at desktop width', async ({ page }) => {
@@ -213,26 +218,47 @@ test('workspace source imports fit at desktop width', async ({ page }) => {
 
   const sourceTable = page.getByRole('table', { name: 'Workspace source sheets' });
   await expect(sourceTable).toBeVisible();
-  for (const name of ['Import Team Formation', 'Import Tracker', 'Import Project Monitor']) {
-    const action = sourceTable.getByRole('button', { name });
+  for (const [source, name] of [['Team Formation', 'Import Team Formation'], ['Tracker', 'Import Tracker'], ['Software Project Monitor', 'Import Project Monitor']]) {
+    // Anchor to the action in that row. Playwright filter({has}) evaluates
+    // nested locators relative to each candidate row; a locator already
+    // rooted at sourceTable cannot match there, even though its textbox exists.
+    const sourceRow = sourceTable.getByRole('button', { name, exact: true }).locator('xpath=ancestor::tr');
+    const action = sourceRow.getByRole('button', { name });
+    await expect(sourceRow.locator('td:first-child > strong')).toHaveText(source);
+    await expect(sourceRow.getByRole('textbox', { name: `${source} published Google Sheet link` })).toBeVisible();
     await expect(action).toBeVisible();
     await expect(action).toHaveText('Import');
+    await expect(action).toBeEnabled();
   }
-  expect(await page.locator('.wt-source-table-wrap').evaluate((element) => (
-    element.scrollWidth <= element.clientWidth + 1
-  ))).toBe(true);
+  // Desktop source rows must not hide their import actions behind a horizontal
+  // scroll; any narrow-device table scrolling is handled separately.
+  const sourceLayout = await sourceTable.evaluate((table) => {
+    const wrap = table.closest('.wt-source-table-wrap');
+    const bounds = wrap.getBoundingClientRect();
+    return { horizontalOverflow: wrap.scrollWidth > wrap.clientWidth + 1,
+      insideViewport: bounds.left >= -1 && bounds.right <= window.innerWidth + 1 };
+  });
+  expect(sourceLayout).toEqual({ horizontalOverflow: false, insideViewport: true });
+  await expectNoPageOverflow(page);
 });
 
 test('workspace re-import previews conflicts and applies only after an explicit resolution', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openAs(page, 'admin', '/workspace');
 
-  await page.getByRole('button', { name: 'Import Tracker' }).click();
+  const sourceTable = page.getByRole('table', { name: 'Workspace source sheets' });
+  const trackerRow = sourceTable.getByRole('button', { name: 'Import Tracker', exact: true }).locator('xpath=ancestor::tr');
+  await expect(trackerRow).toBeVisible();
+  await expect(trackerRow.locator('td:first-child > strong')).toHaveText('Tracker');
+  await expect(trackerRow.getByRole('textbox', { name: 'Tracker published Google Sheet link' })).not.toHaveValue('');
+  await trackerRow.getByRole('button', { name: 'Import Tracker' }).click();
   const dialog = page.getByRole('dialog', { name: 'Tracker re-import preview' });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText('Read-only preview')).toBeVisible();
+  await expect(dialog.getByText('Read-only preview', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Review source changes before applying')).toBeVisible();
+  await expect(dialog.getByText('DELA CRUZ, JUAN CARLOS M.')).toBeVisible();
   await expect(dialog.getByText('Source: 2627-sem1-it411-11')).toBeVisible();
-  await expect(dialog.getByText(`Local: 2526-sem2-it332-11`)).toBeVisible();
+  await expect(dialog.getByText('Local: 2526-sem2-it332-11')).toBeVisible();
 
   const apply = dialog.getByRole('button', { name: 'Apply re-import' });
   await expect(apply).toBeDisabled();
@@ -240,7 +266,12 @@ test('workspace re-import previews conflicts and applies only after an explicit 
   await expect(apply).toBeEnabled();
   await apply.click();
 
-  await expect(page.getByText('Tracker imported.', { exact: true })).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Tracker imported.' })).toBeVisible();
+  await expect(trackerRow.getByRole('button', { name: 'Import Tracker' })).toBeEnabled();
+  const previewCalls = page.apiFixture.calls.filter((call) => call.method === 'POST' && call.path === '/sheets/preview/TRACKER');
+  expect(previewCalls).toHaveLength(1);
+  expect(previewCalls[0].workspaceId).toBeTruthy();
   const applyCall = page.apiFixture.calls.find((call) => call.method === 'POST' && call.path === '/sheets/apply/TRACKER');
   expect(applyCall?.body).toEqual({
     previewId: 'browser-preview-TRACKER',
@@ -253,25 +284,36 @@ for (const viewport of artworkViewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await openAs(page, 'admin', '/workspace');
 
-    const workspaceToggle = page.getByRole('button', { name: /Academic workspaces/i });
-    const staffToggle = page.getByRole('button', { name: 'Collapse Staff & Advisers' });
+    const management = page.getByRole('region', { name: 'Academic workspace management' });
+    const workspaceToggle = management.getByRole('button', { name: 'Expand Academic workspaces' });
+    const staff = page.getByRole('region', { name: 'Staff and advisers' });
+    const staffToggle = staff.getByRole('button', { name: 'Collapse Staff & Advisers' });
     await expect(workspaceToggle).toHaveClass(/wt-collapsible-trigger/);
     await expect(staffToggle).toHaveClass(/wt-collapsible-trigger/);
     await expect(workspaceToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(workspaceToggle).toContainText('Show');
+    await expect(management.getByRole('table', { name: 'Academic workspaces' })).toHaveCount(0);
     await expect(page.getByText('Deliverable columns', { exact: true })).toHaveCount(0);
     await workspaceToggle.click();
-    await expect(workspaceToggle).toContainText('Hide');
-    await expect(page.getByRole('table', { name: 'Academic workspaces' })).toBeVisible();
+    await expect(management.getByRole('button', { name: 'Collapse Academic workspaces' })).toHaveAttribute('aria-expanded', 'true');
+    const workspaceTable = management.getByRole('table', { name: 'Academic workspaces' });
+    await expect(workspaceTable).toBeVisible();
+    const currentWorkspace = workspaceTable.getByRole('row').filter({ hasText: 'IT Capstone' });
+    await expect(currentWorkspace.getByRole('button', { name: 'Archive' })).toBeVisible();
+    await expect(currentWorkspace.getByRole('button', { name: 'Edit' })).toBeVisible();
+    await expect(currentWorkspace.getByRole('button', { name: 'Restore' })).toHaveCount(0);
 
-    await expect(page.getByText('1 assigned capstone team. Open Edit access to review assignments.')).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Revoked access (1)' })).toBeVisible();
-    await expect(page.getByText('revoked.browser-test@gmail.com')).toHaveCount(0);
-    await page.getByRole('tab', { name: 'Revoked access (1)' }).click();
-    await expect(page.getByText('revoked.browser-test@gmail.com')).toBeVisible();
+    await expect(staff.getByText('1 assigned capstone team. Open Edit access to review assignments.')).toBeVisible();
+    await expect(staff.getByRole('tab', { name: 'Revoked access (1)' })).toBeVisible();
+    await expect(staff.getByText('revoked.browser-test@gmail.com')).toHaveCount(0);
+    await staff.getByRole('tab', { name: 'Revoked access (1)' }).click();
+    await expect(staff.getByText('revoked.browser-test@gmail.com')).toBeVisible();
+    await expect(staff.getByText('Access revoked. Open Edit access to review or reactivate this account.')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Collapse Staff & Advisers' }).click();
-    await expect(page.getByRole('button', { name: 'Expand Staff & Advisers' })).toHaveAttribute('aria-expanded', 'false');
+    await staffToggle.click();
+    await expect(staff.getByRole('button', { name: 'Expand Staff & Advisers' })).toHaveAttribute('aria-expanded', 'false');
+    // Collapse may retain inactive panels in the DOM for animation, but their
+    // controls must leave the accessible page until the section is reopened.
+    await expect(staff.getByRole('tab', { name: 'Revoked access (1)' })).toHaveCount(0);
     await expectNoPageOverflow(page);
   });
 }
@@ -279,15 +321,22 @@ for (const viewport of artworkViewports) {
 test('workspace archive closeout preflight stays readable without overlapping controls on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openAs(page, 'admin', '/workspace');
-  await page.getByRole('button', { name: 'Expand Academic workspaces' }).click();
-  await page.getByRole('button', { name: 'Archive' }).click();
+  const management = page.getByRole('region', { name: 'Academic workspace management' });
+  await management.getByRole('button', { name: 'Expand Academic workspaces' }).click();
+  const workspace = management.getByRole('table', { name: 'Academic workspaces' })
+    .getByRole('row').filter({ hasText: 'IT Capstone' });
+  await expect(workspace.getByRole('button', { name: 'Archive' })).toBeVisible();
+  await workspace.getByRole('button', { name: 'Archive' }).click();
 
   const dialog = page.getByRole('dialog', { name: 'Archive workspace?' });
   await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Existing data, reviews, and archive history are preserved.');
   await expect(dialog.getByText('Submissions archived')).toBeVisible();
   await expect(dialog.getByText('Forms unpublished')).toBeVisible();
+  await expect(dialog.getByText('1 still need adviser acceptance.')).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Manage forms' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Archive anyway' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Archive anyway' })).toBeEnabled();
 
   const metrics = await dialog.evaluate((element) => {
     const dialogBox = element.getBoundingClientRect();
@@ -369,18 +418,36 @@ test('official template actions stay in one readable row instead of collapsing i
 
   const table = page.getByRole('table', { name: 'Official document templates' });
   await expect(table).toBeVisible();
-  const actions = table.locator('.wt-row-actions');
+  const templateRow = table.getByRole('row').filter({ hasText: 'SRS official template' });
+  await expect(templateRow).toBeVisible();
+  await expect(templateRow).toContainText('SRS TEMPLATE (1).pdf');
+  const actions = templateRow.locator('.wt-row-actions');
   await actions.scrollIntoViewIfNeeded();
   await expect(actions.getByRole('link', { name: 'Open' })).toBeVisible();
   await expect(actions.getByRole('button', { name: 'Replace' })).toBeVisible();
   await expect(actions.getByRole('button', { name: 'Remove' })).toBeVisible();
 
-  const boxes = await actions.locator('a, button').evaluateAll((controls) => controls.map((control) => {
+  // On desktop all three actions must remain fully labeled on one row without
+  // overlapping. A 2-column grid with the third action spanning a second row
+  // is a real regression, not a reason to loosen this contract.
+  const controlLayout = await actions.locator('a, button').evaluateAll((controls) => controls.map((control) => {
     const box = control.getBoundingClientRect();
-    return { top: Math.round(box.top), width: Math.round(box.width) };
+    const label = control.querySelector('.mantine-Button-label') || control;
+    return { left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+      width: box.width, text: label.textContent.trim(), labelClipped: label.scrollWidth > label.clientWidth + 1 };
   }));
-  expect(new Set(boxes.map((box) => box.top)).size).toBe(1);
-  expect(boxes.every((box) => box.width >= 56)).toBe(true);
+  expect(controlLayout.map((item) => item.text)).toEqual(['Open', 'Replace', 'Remove']);
+  expect(controlLayout.every((item) => item.width >= 56 && !item.labelClipped)).toBe(true);
+  expect(new Set(controlLayout.map((item) => Math.round(item.top))).size).toBe(1);
+  for (let index = 0; index < controlLayout.length; index += 1) {
+    for (let other = index + 1; other < controlLayout.length; other += 1) {
+      const a = controlLayout[index];
+      const b = controlLayout[other];
+      expect(a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1).toBe(false);
+    }
+  }
+  await expect(actions.getByRole('button', { name: 'Replace' })).toBeEnabled();
+  await expect(actions.getByRole('button', { name: 'Remove' })).toBeEnabled();
 });
 
 for (const viewport of editorViewports) {
