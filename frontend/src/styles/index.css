@@ -4825,3 +4825,97 @@ textarea:not(.mantine-Input-input):focus {
     width: 100%;
   }
 }
+
+/* Deliverable filters are explicit buttons, not a stretched mobile segmented
+   control that can look like an empty table/slider. Only student deliverables
+   use these styles; other dashboard controls retain their existing layout. */
+.wt-student-deliverables .wt-deliverable-filter {
+  display: grid;
+  gap: 7px;
+  width: min(100%, 350px);
+  min-width: 0;
+  flex: 0 1 350px;
+}
+
+.wt-student-deliverables .wt-deliverable-filter-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wt-student-deliverables .wt-deliverable-filter-tabs .mantine-Button-root {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding-inline: 6px;
+  border-radius: 7px;
+}
+
+.wt-student-deliverables .wt-deliverable-filter-tabs .mantine-Button-label {
+  overflow: visible;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+/* A subtle alternate surface makes separate deliverable rows easier to track
+   without changing the status badge colors or the rest of the dashboard. */
+.wt-student-deliverables .wt-student-deliverable-row:nth-child(even) {
+  background: #fbf8f9;
+}
+
+.wt-student-deliverables .wt-student-deliverable-row:focus-within {
+  background: var(--mantine-color-wildtrackMaroon-0);
+}
+
+.wt-student-deliverables .wt-student-team-progress-trigger {
+  height: auto;
+  min-height: 30px;
+  padding-inline: 0;
+  justify-self: start;
+  max-width: 100%;
+  text-align: left;
+}
+
+.wt-student-deliverables .wt-student-team-progress-trigger .mantine-Button-label {
+  white-space: normal;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.wt-student-team-pending-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.wt-student-team-pending-list li {
+  padding-block: 4px;
+}
+
+@media (max-width: 560px) {
+  .wt-student-deliverables .wt-student-section-head {
+    gap: 12px;
+    min-height: 0;
+  }
+
+  .wt-student-deliverables .wt-deliverable-filter {
+    width: 100%;
+    flex: none;
+  }
+
+  .wt-student-deliverables .wt-deliverable-filter-tabs {
+    gap: 5px;
+  }
+
+  .wt-student-deliverables .wt-deliverable-filter-tabs .mantine-Button-root {
+    min-height: 40px;
+    padding-inline: 3px;
+  }
+
+  .wt-student-deliverables .wt-deliverable-filter-tabs .mantine-Button-label {
+    font-size: 0.76rem;
+  }
+}

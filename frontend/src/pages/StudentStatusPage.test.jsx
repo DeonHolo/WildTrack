@@ -406,6 +406,48 @@ describe('student dashboard', () => {
     expect(document.body).not.toHaveTextContent('teammate-private-response');
   });
 
+  it('does not repeat successful PDF read or staff-only template guidance beside File accessible', () => {
+    associateAccount();
+    const ownedSrs = workflow.state.attempts.find((response) => response.id === 'owned-srs');
+    ownedSrs.documentCheck.summary = 'The PDF is readable. Upload an official template to enable instruction and template comparison.';
+    ownedSrs.timing = { effectiveSubmittedAt: ownedSrs.submittedAt, effectiveReason: 'Initial submission', late: false };
+    renderDashboard();
+
+    const srs = within(screen.getByRole('list', { name: 'Your deliverables' })).getByText('SRS').closest('article');
+    expect(srs).toHaveTextContent('File accessible');
+    expect(srs).not.toHaveTextContent('The PDF is readable');
+    expect(srs).not.toHaveTextContent('Upload an official template');
+    expect(srs).toHaveTextContent('Saved Apr 18, 2026');
+    expect(srs).toHaveTextContent('On time');
+    expect(srs).not.toHaveTextContent('Effective submission');
+  });
+
+  it('counts only recorded responses for the current team despite case changes or historical team membership', () => {
+    associateAccount();
+    workflow.state.students[1].teamCode = '2526-SEM2-IT332-11';
+    const teammateResponse = workflow.state.attempts.find((response) => response.id === 'teammate-srs');
+    teammateResponse.teamCode = '2526-sem2-it332-OTHER';
+    renderDashboard();
+
+    const srs = within(screen.getByRole('list', { name: 'Your deliverables' })).getByText('SRS').closest('article');
+    expect(srs).toHaveTextContent('1 of 2 team members submitted');
+  });
+
+  it('lets students inspect teammates without a recorded response without exposing their private responses', async () => {
+    associateAccount();
+    renderDashboard();
+
+    const sdd = within(screen.getByRole('list', { name: 'Your deliverables' })).getByText('SDD').closest('article');
+    fireEvent.click(within(sdd).getByRole('button', { name: /1 of 2 team members submitted.*view teammates not submitted/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Team submission progress' });
+    expect(dialog).toHaveTextContent('SANTOS, MARIA L.');
+    expect(dialog).not.toHaveTextContent('DELA CRUZ, JUAN CARLOS M.');
+    expect(dialog).not.toHaveTextContent('teammate-private-response');
+    expect(dialog).not.toHaveTextContent('foreign-private-response');
+    expect(dialog).not.toHaveTextContent('maria.student@gmail.com');
+    expect(within(dialog).queryByRole('link')).not.toBeInTheDocument();
+  });
+
   it('explains numeric tracker values with one concise shared tooltip', async () => {
     associateAccount();
     renderDashboard();
