@@ -42,6 +42,10 @@ function show(props = {}) {
   </MantineProvider>);
 }
 
+function identityFact(dialog, label) {
+  return within(dialog).getByText(label).closest('.document-check-fact--identity');
+}
+
 describe('DocumentCheck shared submitted-file metadata', () => {
   beforeEach(() => { getSubmittedFileHistory.mockReset().mockResolvedValue(sharedHistory); });
 
@@ -70,12 +74,77 @@ describe('DocumentCheck shared submitted-file metadata', () => {
   it('fills unavailable staff facts from newly shared metadata and reuses its first history page', async () => {
     show();
     const dialog = screen.getByRole('dialog');
-    expect(await within(dialog).findByText('Staff Editor (editor.secret@example.test)')).toBeInTheDocument();
-    expect(within(dialog).getByText('Private Owner (owner.secret@example.test)')).toBeInTheDocument();
+    await waitFor(() => expect(identityFact(dialog, 'Last modified by')).toHaveTextContent('editor.secret@example.test'));
+    expect(identityFact(dialog, 'Last modified by')).toHaveTextContent('Staff Editor');
+    expect(identityFact(dialog, 'Drive owner')).toHaveTextContent('Private Owner');
+    expect(identityFact(dialog, 'Drive owner')).toHaveTextContent('owner.secret@example.test');
     expect(getSubmittedFileHistory).toHaveBeenCalledExactlyOnceWith('workspace-it', 'response-1', 'pdf-field-1');
     fireEvent.click(within(dialog).getByRole('tab', { name: 'File history' }));
     expect(await within(dialog).findByRole('group', { name: 'Drive revision 1 on page 1' })).toHaveTextContent('Staff Editor');
     expect(getSubmittedFileHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders only backend-verified student matches as separate staff-only name and full unbroken email rows', async () => {
+    const ownerEmail = 'very.long.ownername@gmail.com';
+    const editorEmail = 'very.long.editorname@university.edu.ph';
+    getSubmittedFileHistory.mockResolvedValueOnce({ ...sharedHistory, fileMetadata: {
+      ...sharedHistory.fileMetadata,
+      driveOwner: 'Untrusted Google Profile Name (unverified@example.test)',
+      driveOwnerStudent: { studentName: 'TAGHOY, RON LUIGI F.', email: ownerEmail },
+      lastModifiedBy: 'Other Google Profile (other@example.test)',
+      lastModifiedByStudent: { studentName: 'PACIO, MURIEL D.', email: editorEmail }
+    } });
+    show();
+    const dialog = screen.getByRole('dialog');
+    await waitFor(() => expect(identityFact(dialog, 'Drive owner')).toHaveTextContent(ownerEmail));
+
+    const owner = identityFact(dialog, 'Drive owner');
+    const editor = identityFact(dialog, 'Last modified by');
+    expect(owner).toHaveTextContent('TAGHOY, RON LUIGI F.');
+    expect(editor).toHaveTextContent('PACIO, MURIEL D.');
+    expect(editor).toHaveTextContent(editorEmail);
+    expect(owner).not.toHaveTextContent('Untrusted Google Profile Name');
+    expect(editor).not.toHaveTextContent('Other Google Profile');
+    expect(owner.querySelector('.document-check-identity-email')).toHaveAttribute('title', ownerEmail);
+    expect(editor.querySelector('.document-check-identity-email')).toHaveAttribute('title', editorEmail);
+    expect(owner.querySelector('.document-check-identity-email').textContent).toBe(`(${ownerEmail})`);
+    expect(editor.querySelector('.document-check-identity-email').textContent).toBe(`(${editorEmail})`);
+    expect(owner.querySelector('.document-check-identity-email')).toContainHTML('<wbr>');
+    expect(editor.querySelector('.document-check-identity-email')).toContainHTML('<wbr>');
+    expect(owner).toHaveClass('document-check-fact--identity');
+  });
+
+  it('uses same-source observed verified student identity when shared-file metadata does not contain an owner/editor identity', async () => {
+    getSubmittedFileHistory.mockResolvedValueOnce({ ...sharedHistory, fileMetadata: {
+      createdTime: '2026-09-18T10:00:00+08:00', lastModifiedTime: '2026-09-19T11:00:00+08:00',
+      driveOwner: null, lastModifiedBy: null, driveOwnerStudent: null, lastModifiedByStudent: null
+    } });
+    show({ observedHistory: { observations: [{
+      driveOwner: 'Old Provider Owner (old.owner@example.test)',
+      modifiedBy: 'Old Provider Editor (old.editor@example.test)',
+      driveOwnerStudent: { studentName: 'TAGHOY, RON LUIGI F.', email: 'ron@gmail.com' },
+      modifiedByStudent: { studentName: 'PACIO, MURIEL D.', email: 'muriel@gmail.com' }
+    }] } });
+    const dialog = screen.getByRole('dialog');
+    await waitFor(() => expect(identityFact(dialog, 'Drive owner')).toHaveTextContent('ron@gmail.com'));
+    expect(identityFact(dialog, 'Drive owner')).toHaveTextContent('TAGHOY, RON LUIGI F.');
+    expect(identityFact(dialog, 'Last modified by')).toHaveTextContent('muriel@gmail.com');
+    expect(identityFact(dialog, 'Last modified by')).toHaveTextContent('PACIO, MURIEL D.');
+  });
+
+  it('keeps provider-only identity unverified when shared source has no student match, even if an older observed source has one', async () => {
+    show({ observedHistory: { observations: [{
+      driveOwner: 'Former owner (former@example.test)',
+      driveOwnerStudent: { studentName: 'OLD MATCH', email: 'former@example.test' },
+      modifiedBy: 'Former editor (former.editor@example.test)',
+      modifiedByStudent: { studentName: 'OLD EDITOR', email: 'former.editor@example.test' }
+    }] } });
+    const dialog = screen.getByRole('dialog');
+    await waitFor(() => expect(identityFact(dialog, 'Drive owner')).toHaveTextContent('owner.secret@example.test'));
+    expect(identityFact(dialog, 'Drive owner')).not.toHaveTextContent('OLD MATCH');
+    expect(identityFact(dialog, 'Last modified by')).not.toHaveTextContent('OLD EDITOR');
+    expect(identityFact(dialog, 'Drive owner')).toHaveTextContent('Private Owner');
+    expect(identityFact(dialog, 'Last modified by')).toHaveTextContent('Staff Editor');
   });
 
   it('shows students created/modified times while preventing owner/editor identity disclosure', async () => {
@@ -89,6 +158,23 @@ describe('DocumentCheck shared submitted-file metadata', () => {
     expect(await within(dialog).findByRole('group', { name: 'Drive revision 1 on page 1' })).toBeInTheDocument();
     expect(dialog.textContent).not.toMatch(/owner\.secret@example\.test|editor\.secret@example\.test|Staff Editor|Private Owner/);
     expect(getSubmittedFileHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('never renders matched registered student names or emails in the student-facing result', async () => {
+    getSubmittedFileHistory.mockResolvedValueOnce({ ...sharedHistory, fileMetadata: {
+      ...sharedHistory.fileMetadata,
+      driveOwnerStudent: { studentName: 'PRIVATE OWNER STUDENT', email: 'student.owner@gmail.com' },
+      lastModifiedByStudent: { studentName: 'PRIVATE EDITOR STUDENT', email: 'student.editor@gmail.com' }
+    } });
+    show({ audience: 'student', observedHistory: { observations: [{
+      driveOwnerStudent: { studentName: 'OBSERVED OWNER', email: 'observed.owner@gmail.com' },
+      modifiedByStudent: { studentName: 'OBSERVED EDITOR', email: 'observed.editor@gmail.com' }
+    }] } });
+    const dialog = screen.getByRole('dialog');
+    await waitFor(() => expect(within(dialog).getByText('Created time').parentElement).not.toHaveTextContent('Unavailable'));
+    expect(dialog.textContent).not.toMatch(/PRIVATE OWNER STUDENT|PRIVATE EDITOR STUDENT|OBSERVED OWNER|OBSERVED EDITOR|student\.owner@gmail\.com|student\.editor@gmail\.com|observed\.owner@gmail\.com|observed\.editor@gmail\.com/);
+    expect(within(dialog).queryByText('Drive owner')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('Last modified by')).not.toBeInTheDocument();
   });
 
   it('opens directly on file history without issuing duplicate first-page requests', async () => {

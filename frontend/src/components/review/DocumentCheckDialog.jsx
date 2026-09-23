@@ -58,6 +58,14 @@ export function DocumentCheckDialog({
   const successful = currentStatus === 'Ready for review';
   const latestObservation = studentView ? null : observedHistory?.observations?.[0];
   const sharedMetadata = sharedHistory?.key === targetKey && open ? sharedHistory?.data?.fileMetadata : null;
+  const ownerSource = sharedMetadata?.driveOwner || sharedMetadata?.driveOwnerStudent
+    ? sharedMetadata : latestObservation;
+  const editorSource = sharedMetadata?.lastModifiedBy || sharedMetadata?.lastModifiedByStudent
+    ? sharedMetadata : latestObservation;
+  const ownerDisplay = ownerSource === sharedMetadata ? sharedMetadata?.driveOwner : latestObservation?.driveOwner;
+  const editorDisplay = editorSource === sharedMetadata ? sharedMetadata?.lastModifiedBy : latestObservation?.modifiedBy;
+  const ownerStudent = ownerSource === sharedMetadata ? sharedMetadata?.driveOwnerStudent : latestObservation?.driveOwnerStudent;
+  const editorStudent = editorSource === sharedMetadata ? sharedMetadata?.lastModifiedByStudent : latestObservation?.modifiedByStudent;
   const checkExplanation = studentView
     ? 'Document Check checks whether your PDF can be accessed and read and, when an official template is available, compares its structure. It does not grade your work or decide whether it is accepted.'
     : 'Document Check verifies file access and readability, then compares deterministic template structure when an official template is available. It does not grade the submission or replace staff review.';
@@ -136,8 +144,10 @@ export function DocumentCheckDialog({
               {!studentView ? (
                 <>
                   <CheckFact label="Created time" value={sharedMetadata?.createdTime || latestObservation?.driveCreatedTime ? formatDateTime(sharedMetadata?.createdTime || latestObservation?.driveCreatedTime) : 'Unavailable'} ready={Boolean(sharedMetadata?.createdTime || latestObservation?.driveCreatedTime)} neutral />
-                  <CheckFact label="Drive owner" value={sharedMetadata?.driveOwner || (latestObservation?.driveOwner !== 'Unavailable' ? latestObservation?.driveOwner : null) || 'Unavailable'} ready={Boolean(sharedMetadata?.driveOwner || (latestObservation?.driveOwner !== 'Unavailable' && latestObservation?.driveOwner))} neutral />
-                  <CheckFact label="Last modified by" value={sharedMetadata?.lastModifiedBy || (latestObservation?.modifiedBy !== 'Unavailable' ? latestObservation?.modifiedBy : null) || 'Unavailable'} ready={Boolean(sharedMetadata?.lastModifiedBy || (latestObservation?.modifiedBy !== 'Unavailable' && latestObservation?.modifiedBy))} neutral />
+                  <CheckFact label="Drive owner" wide neutral
+                    value={<DriveIdentityValue registeredStudent={ownerStudent} providerValue={ownerDisplay} />} />
+                  <CheckFact label="Last modified by" wide neutral
+                    value={<DriveIdentityValue registeredStudent={editorStudent} providerValue={editorDisplay} />} />
                 </>
               ) : null}
             </div>
@@ -305,14 +315,45 @@ function studentSummary(report, response) {
   return report?.summary || response?.checkSummary || 'Document Check finished. Review the details below.';
 }
 
-function CheckFact({ label, value, ready, neutral = false }) {
+function CheckFact({ label, value, ready, neutral = false, wide = false }) {
   return (
-    <div className="document-check-fact">
+    <div className={`document-check-fact${wide ? ' document-check-fact--identity' : ''}`}>
       {ready || neutral ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
       <span>{label}</span>
-      <strong>{value}</strong>
+      {wide ? value : <strong>{value}</strong>}
     </div>
   );
+}
+
+function DriveIdentityValue({ registeredStudent, providerValue }) {
+  const studentName = String(registeredStudent?.studentName || '').trim();
+  const googleEmail = String(registeredStudent?.email || '').trim();
+  const verified = Boolean(studentName && googleEmail);
+  const raw = String(providerValue || '').trim();
+  if (!verified && (!raw || raw === 'Unavailable')) return <strong>Unavailable</strong>;
+
+  // Existing provider-only strings can be "Display name (email)". Splitting
+  // their layout does not establish a verified registered WildTrack identity.
+  const providerParts = !verified && /^(.*?)\s*\(([^()\s]+@[^()\s]+)\)$/.exec(raw);
+  const emailOnly = !verified && !providerParts && /^[^\s()@]+@[^\s()@]+$/.test(raw);
+  const name = verified ? studentName : providerParts ? providerParts[1].trim() : emailOnly ? '' : raw;
+  const email = verified ? googleEmail : providerParts ? providerParts[2] : emailOnly ? raw : '';
+  return (
+    <div className="document-check-identity-value">
+      {name ? <strong className="document-check-identity-name">{name}</strong> : null}
+      {email ? <span className="document-check-identity-email" title={email}>
+        {name ? '(' : null}<EmailWithBreaks email={email} />{name ? ')' : null}
+      </span> : null}
+    </div>
+  );
+}
+
+function EmailWithBreaks({ email }) {
+  return String(email).split(/([@.+_-])/g).map((part, index) => (
+    // Allow wrapping *after* email separators, never at arbitrary characters
+    // inside a domain (such as "gma/il.com"). Full text stays accessible.
+    <span key={index}>{part}{/^[@.+_-]$/.test(part) ? <wbr /> : null}</span>
+  ));
 }
 
 function formatBytes(value) {

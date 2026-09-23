@@ -28,6 +28,7 @@ import com.capvault.backend.staff.StaffManagementService;
 import com.capvault.backend.staff.StaffRole;
 import com.capvault.backend.student.StudentAssociationService;
 import com.capvault.backend.student.StudentAssociationSecurity;
+import com.capvault.backend.student.RegisteredDriveStudentResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -59,6 +60,7 @@ public class SharedDriveHistoryService {
     private final ObjectMapper json;
     private final DelegatedDriveAccessService access;
     private final DelegatedDriveGateway gateway;
+    private final RegisteredDriveStudentResolver registeredStudents;
     // An opaque, short-lived cursor pins every subsequent Google page to the
     // same submitting grant. Provider page tokens are never sent to browsers.
     // A restarted instance invalidates cursors safely; clients can restart at page one.
@@ -75,7 +77,8 @@ public class SharedDriveHistoryService {
         DeliverableFieldRepository fields,
         ObjectMapper json,
         DelegatedDriveAccessService access,
-        DelegatedDriveGateway gateway
+        DelegatedDriveGateway gateway,
+        RegisteredDriveStudentResolver registeredStudents
     ) {
         this.security = security;
         this.associations = associations;
@@ -86,6 +89,7 @@ public class SharedDriveHistoryService {
         this.json = json;
         this.access = access;
         this.gateway = gateway;
+        this.registeredStudents = registeredStudents;
     }
 
     public SharedDriveHistoryView forSubmission(
@@ -163,7 +167,9 @@ public class SharedDriveHistoryService {
                                 details.createdTime(),
                                 staffViewer ? details.driveOwner() : null,
                                 details.lastModifiedTime(),
-                                staffViewer ? details.lastModifiedBy() : null);
+                                staffViewer ? details.lastModifiedBy() : null,
+                                staffViewer ? registeredStudents.resolve(workspaceId, details.driveOwnerEmail()).orElse(null) : null,
+                                staffViewer ? registeredStudents.resolve(workspaceId, details.lastModifiedByEmail()).orElse(null) : null);
                         }
                     } catch (DelegatedDriveException metadataFailure) {
                         // A successful revisions.list result stays valid if the
