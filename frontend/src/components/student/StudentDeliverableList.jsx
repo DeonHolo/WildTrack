@@ -1,4 +1,4 @@
-import { Button, Group, Modal, Paper, SegmentedControl, Stack, Text, Title } from '@mantine/core';
+import { Button, Group, Modal, Paper, Stack, Text, Title } from '@mantine/core';
 import { ArrowSquareOut, NotePencil } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { formatDate, formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
@@ -17,6 +17,11 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
   const [activeFeedback, setActiveFeedback] = useState(null);
   const [activeCheck, setActiveCheck] = useState(null);
   const [activeArtifacts, setActiveArtifacts] = useState(null);
+  const [activeTeamProgress, setActiveTeamProgress] = useState(null);
+  const activeTeamRow = activeTeamProgress?.workspaceId === workspaceId
+    && activeTeamProgress?.workspaceKey === workspaceKey
+    && activeTeamProgress?.studentNumber === studentNumber
+    ? rows.find(row => row.deliverable.id === activeTeamProgress.deliverableId) : null;
   const filteredRows = useMemo(() => rows.filter((row) => {
     if (filter === 'missing') return row.status === 'Not submitted';
     if (filter === 'submitted') return row.status !== 'Not submitted';
@@ -33,14 +38,20 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
             {submittedCount} of {rows.length} submitted
           </Text>
         </div>
-        <SegmentedControl
-          aria-label="Filter deliverables"
-          value={filter}
-          onChange={setFilter}
-          data={FILTERS}
-          color="wildtrackMaroon"
-          size="sm"
-        />
+        <div className="wt-deliverable-filter" role="group" aria-label="Filter deliverables">
+          <Text size="xs" fw={700} c="dimmed">Show deliverables</Text>
+          <div className="wt-deliverable-filter-tabs">
+            {FILTERS.map((option) => <Button
+              key={option.value}
+              type="button"
+              variant={filter === option.value ? 'filled' : 'default'}
+              color="wildtrackMaroon"
+              size="sm"
+              aria-pressed={filter === option.value}
+              onClick={() => setFilter(option.value)}
+            >{option.label}</Button>)}
+          </div>
+        </div>
       </div>
 
       <div className="wt-student-deliverable-list" role="list" aria-label="Your deliverables">
@@ -53,17 +64,23 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                 <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">{row.deliverable.shortTitle}</Text>
                 <Text fw={750}>{row.deliverable.title}</Text>
                 <Text size="xs" c="dimmed">
-                  Due {formatDate(row.deliverable.dueAt)} | {row.deliverable.trackerColumn}
+                  Due {formatDate(row.deliverable.dueAt)}
                 </Text>
               </div>
 
               <div className="wt-student-deliverable-state">
                 <StatusIndicator status={row.status} />
                 {row.savedAt ? <Text size="xs" c="dimmed">Saved {formatDateTime(row.savedAt)}</Text> : null}
-                {row.response?.timing ? <ResponseTimingSummary timing={row.response.timing} /> : null}
-                <Text size="xs" c="dimmed" className="wt-nowrap wt-tabular">
-                  {formatTeamProgress(row.teamProgress)}
-                </Text>
+                {row.response?.timing ? <ResponseTimingSummary timing={row.response.timing} showEffective={false} /> : null}
+                {row.teamProgress?.members?.some(member => member.submitted === false) ? (
+                  <Button type="button" className="wt-student-team-progress-trigger" variant="subtle" size="compact-sm"
+                    color="wildtrackMaroon" aria-label={`${formatTeamProgress(row.teamProgress)}. View teammates not submitted for ${row.deliverable.title}`}
+                    onClick={() => setActiveTeamProgress({ workspaceId, workspaceKey, studentNumber, deliverableId: row.deliverable.id })}>
+                    {formatTeamProgress(row.teamProgress)}
+                  </Button>
+                ) : (
+                  <Text size="xs" c="dimmed" className="wt-tabular">{formatTeamProgress(row.teamProgress)}</Text>
+                )}
               </div>
 
               {row.response || row.recorded ? <div className="wt-student-deliverable-detail">
@@ -71,7 +88,9 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                   <>
                     <div className="wt-student-document-check-line">
                       <StatusIndicator status={row.fileCheck.label} />
-                      <Text size="sm" c="dimmed" lineClamp={2}>{row.fileCheck.summary}</Text>
+                      {visibleFileCheckSummary(row.fileCheck) ? (
+                        <Text size="sm" c="dimmed" lineClamp={2}>{visibleFileCheckSummary(row.fileCheck)}</Text>
+                      ) : null}
                     </div>
                     <Group gap="md" mt={4}>
                       {!hasMultipleArtifacts && row.documentCheck ? (
@@ -153,6 +172,32 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
           </div>
         ) : null}
       </div>
+
+      <Modal
+        opened={Boolean(activeTeamRow?.teamProgress?.members?.some(member => member.submitted === false))}
+        onClose={() => setActiveTeamProgress(null)}
+        title="Team submission progress"
+        closeButtonProps={{ 'aria-label': 'Close team submission progress' }}
+        centered
+        size="md"
+      >
+        {activeTeamRow ? (
+          <Stack gap="sm">
+            <Text fw={700}>{activeTeamRow.deliverable.title}</Text>
+            <Text size="sm" c="dimmed">{formatTeamProgress(activeTeamRow.teamProgress)}. Submission means a response was recorded for this deliverable, not that it was accepted or reviewed.</Text>
+            <Text fw={700}>Teammates who have not submitted</Text>
+            <ul className="wt-student-team-pending-list">
+              {activeTeamRow.teamProgress.members
+                .filter(member => member.submitted === false)
+                .map(member => (
+                  <li key={member.studentNumber}>
+                    <Text>{member.name || member.studentNumber}</Text>
+                  </li>
+                ))}
+            </ul>
+          </Stack>
+        ) : null}
+      </Modal>
 
       <Modal
         opened={Boolean(activeFeedback)}
@@ -239,11 +284,7 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                       }}>File history</Button>
                     ) : null}
                   </Group>
-                  {artifact.reviewablePdf ? (
-                    <Text size="xs" c="dimmed">
-                      {artifact.documentCheck?.summary || 'No current Document Check is available for this PDF.'}
-                    </Text>
-                  ) : null}
+                  <ArtifactCheckSummary artifact={artifact} />
                 </Stack>
               </Paper>
             ))}
@@ -277,4 +318,26 @@ function formatTeamProgress(progress) {
     return `All ${expected} team member${expected === 1 ? '' : 's'} submitted`;
   }
   return `${submitted} of ${expected} team member${expected === 1 ? '' : 's'} submitted`;
+}
+
+function visibleFileCheckSummary(fileCheck) {
+  const summary = String(fileCheck?.summary || '').trim();
+  if (fileCheck?.label !== 'File accessible') return summary;
+  // These exact success statements repeat the visible status badge. The
+  // official-template upload suggestion is an admin-only action, not student guidance.
+  return summary
+    .replace(/^(?:The PDF is readable|The submitted PDF is accessible and readable)\.\s*/i, '')
+    .replace(/^Upload an official template to enable instruction and template comparison\.\s*/i, '')
+    .trim();
+}
+
+function ArtifactCheckSummary({ artifact }) {
+  if (!artifact.reviewablePdf) return null;
+  const summary = artifact.documentCheck?.summary
+    ? visibleFileCheckSummary({
+      label: artifact.documentCheckStatus === 'Ready for review' ? 'File accessible' : artifact.documentCheckStatus,
+      summary: artifact.documentCheck.summary
+    })
+    : artifact.documentCheck ? '' : 'No current Document Check is available for this PDF.';
+  return summary ? <Text size="xs" c="dimmed">{summary}</Text> : null;
 }

@@ -333,7 +333,7 @@ function getStudentFileCheck(response, artifacts = []) {
     if (reviewableArtifacts.every((artifact) => artifact.documentCheckStatus === 'Ready for review')) {
       return {
         label: 'All files accessible',
-        summary: 'All submitted PDF artifacts with Document Check enabled are accessible and current.',
+        summary: '',
         tone: 'success'
       };
     }
@@ -359,11 +359,22 @@ function getStudentFileCheck(response, artifacts = []) {
     const needsAttention = !accessible || !isPdf || !readable;
     return {
       label: needsAttention ? 'File needs attention' : 'File accessible',
-      summary: check.summary || (needsAttention ? 'Review the Document Check details.' : 'The submitted PDF is accessible and readable.'),
+      // A successful accessibility indicator already says the file is readable.
+      // The provider summary often adds staff-only template-upload guidance that
+      // students cannot act on. Preserve distinct student-relevant findings.
+      summary: needsAttention ? (check.summary || 'Review the Document Check details.')
+        : studentRelevantCheckSummary(check.summary),
       tone: needsAttention ? 'warning' : 'success'
     };
   }
   return { label: 'Not checked', summary: 'Document Check has not inspected this response yet.', tone: 'neutral' };
+}
+
+function studentRelevantCheckSummary(summary) {
+  return String(summary || '')
+    .replace(/\b(?:The PDF is readable(?: and accessible)?|The submitted PDF is accessible and readable)\.\s*/gi, '')
+    .replace(/\bUpload an official template to enable instruction and template comparison\.\s*/gi, '')
+    .trim();
 }
 
 function artifactNeedsAttention(artifact) {
@@ -410,20 +421,31 @@ function submissionFieldTypeLabel(field) {
 }
 
 function buildDeliverableTeamProgress(state, student, deliverableId) {
-  if (!student) return { expected: 0, submitted: 0, names: [] };
-  const teamMembers = state.students.filter((item) => item.teamCode === student.teamCode);
+  if (!student) return { expected: 0, submitted: 0, names: [], members: [] };
+  const currentTeam = String(student.teamCode || '').trim().toLowerCase();
+  if (!currentTeam) return { expected: 0, submitted: 0, names: [], members: [] };
+  const teamMembers = state.students.filter((item) => String(item.teamCode || '').trim().toLowerCase() === currentTeam);
   const teamNumbers = new Set(teamMembers.map((item) => normalizeStudentNumber(item.studentNumber)));
   const submittedMembers = new Set(state.attempts
     .filter((response) => (
       response.deliverableId === deliverableId
+      // Own historical responses can still be present after a team transfer.
+      // Only a record for this current team counts toward its completion.
+      && (!response.teamCode || String(response.teamCode).trim().toLowerCase() === currentTeam)
       && teamNumbers.has(normalizeStudentNumber(response.studentNumber))
     ))
     .map((response) => normalizeStudentNumber(response.studentNumber)));
+  // A team's roster and recorded-submission yes/no are visible here. Never pass
+  // teammates' response contents, links, Google identities, or feedback to UI.
+  const members = teamMembers.map((member) => ({
+    studentNumber: member.studentNumber,
+    name: member.name || member.studentNumber,
+    submitted: submittedMembers.has(normalizeStudentNumber(member.studentNumber))
+  }));
   return {
-    expected: teamMembers.length,
-    submitted: submittedMembers.size,
-    names: teamMembers
-      .filter((member) => submittedMembers.has(normalizeStudentNumber(member.studentNumber)))
-      .map((member) => member.name)
+    expected: members.length,
+    submitted: members.filter((member) => member.submitted).length,
+    names: members.filter((member) => member.submitted).map((member) => member.name),
+    members
   };
 }

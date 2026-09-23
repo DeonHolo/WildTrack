@@ -4,10 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
 import { ResponseTimingSummary } from './ResponseTimingSummary.jsx';
 
-function renderSummary(timing) {
+function renderSummary(timing, props = {}) {
   return render(
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
-      <ResponseTimingSummary timing={timing} />
+      <ResponseTimingSummary timing={timing} {...props} />
     </MantineProvider>
   );
 }
@@ -36,5 +36,12 @@ describe('ResponseTimingSummary', () => {
     expect(screen.getByText('2 days late')).toBeInTheDocument();
     expect(screen.queryByText('Timing evidence')).not.toBeInTheDocument();
     expect(screen.queryByText(/Drive\/content evidence is unavailable/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the lateness badge without duplicating the saved timestamp in student deliverable rows', () => {
+    renderSummary({ effectiveSubmittedAt: '2026-09-21T00:01:00+08:00',
+      effectiveReason: 'Material artifact save', late: false }, { showEffective: false });
+    expect(screen.getByText('On time')).toBeInTheDocument();
+    expect(screen.queryByText(/Effective submission/)).not.toBeInTheDocument();
   });
 });
