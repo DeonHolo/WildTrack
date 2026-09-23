@@ -32,4 +32,13 @@ public class AiReviewController {
             @RequestParam(required = false) String fieldId, HttpServletRequest http) {
         return service.saved(workspaceId, responseId, fieldId, security.requireSession(http).googleSubject());
     }
+
+    /** Explicit, read-only access check for the submitted PDF. Never claims an AI job. */
+    @GetMapping("/{responseId}/drive-access")
+    public AiReviewService.DriveAccessDiagnostic driveAccess(@PathVariable UUID responseId,
+            @RequestParam UUID workspaceId, @RequestParam(required = false) String fieldId,
+            HttpServletRequest http) {
+        return service.diagnoseDriveAccess(workspaceId, responseId, fieldId,
+            security.requireSession(http).googleSubject());
+    }
 }
