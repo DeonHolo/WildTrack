@@ -39,7 +39,6 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
           </Text>
         </div>
         <div className="wt-deliverable-filter" role="group" aria-label="Filter deliverables">
-          <Text size="xs" fw={700} c="dimmed">Show deliverables</Text>
           <div className="wt-deliverable-filter-tabs">
             {FILTERS.map((option) => <Button
               key={option.value}

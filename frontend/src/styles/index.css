@@ -4830,8 +4830,6 @@ textarea:not(.mantine-Input-input):focus {
    control that can look like an empty table/slider. Only student deliverables
    use these styles; other dashboard controls retain their existing layout. */
 .wt-student-deliverables .wt-deliverable-filter {
-  display: grid;
-  gap: 7px;
   width: min(100%, 350px);
   min-width: 0;
   flex: 0 1 350px;
@@ -4857,16 +4855,6 @@ textarea:not(.mantine-Input-input):focus {
   overflow: visible;
   font-size: 0.82rem;
   white-space: nowrap;
-}
-
-/* A subtle alternate surface makes separate deliverable rows easier to track
-   without changing the status badge colors or the rest of the dashboard. */
-.wt-student-deliverables .wt-student-deliverable-row:nth-child(even) {
-  background: #fbf8f9;
-}
-
-.wt-student-deliverables .wt-student-deliverable-row:focus-within {
-  background: var(--mantine-color-wildtrackMaroon-0);
 }
 
 .wt-student-deliverables .wt-student-team-progress-trigger {
