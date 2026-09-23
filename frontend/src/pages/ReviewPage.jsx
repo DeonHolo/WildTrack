@@ -72,6 +72,19 @@ function documentTargetLabel(target) {
   return `${response?.studentName || response?.studentNumber || response?.id || 'Response'} / ${target?.field?.label || 'PDF'}`;
 }
 
+function currentSkippedDriveUrl(target, attempts) {
+  const current = attempts.find(response => response.id === target.responseId);
+  const originalUrl = String(target.response?.values?.[target.field?.id] || '').trim();
+  const currentUrl = String(current?.values?.[target.field?.id] || '').trim();
+  if (!current || current.deliverableId !== target.response?.deliverableId || !originalUrl || currentUrl !== originalUrl) return '';
+  try {
+    const parsed = new URL(currentUrl);
+    return parsed.protocol === 'https:' && parsed.hostname.toLowerCase() === 'drive.google.com' ? parsed.href : '';
+  } catch {
+    return '';
+  }
+}
+
 export function ReviewPage() {
   const { activeWorkspaceId, refreshSession } = useWorkspaceSession();
   const navigate = useNavigate();
@@ -117,6 +130,7 @@ export function ReviewPage() {
   const [acceptProgress, setAcceptProgress] = useState(null);
   const acceptBusy = useRef(false);
   const [aiProgress, setAiProgress] = useState(null);
+  const [skippedAiOpen, setSkippedAiOpen] = useState(false);
   const aiProgressSequence = useRef(0);
   const savedRefreshBusy = useRef(false);
   const [aiRunningKeys, setAiRunningKeys] = useState(new Set());
@@ -126,6 +140,7 @@ export function ReviewPage() {
   const [page, setPage] = useState(1);
   useEffect(() => {
     setAiProgress(null); setAiRunningKeys(new Set()); aiBusy.current = false;
+    setSkippedAiOpen(false);
     aiProgressSequence.current += 1;
     savedRefreshBusy.current = false;
     setSelectedDeliverableId(linkedDeliverableId || '');
@@ -393,9 +408,11 @@ export function ReviewPage() {
   async function runAiBatch(targets, retryTokens = {}, rerunKeys = {}) {
     if (aiBusy.current || !isCurrentScope()) return;
     aiBusy.current = true;
+    setSkippedAiOpen(false);
     setAiRunningKeys(new Set(targets.map(target => target.key)));
     let progress = { batchId: ++aiProgressSequence.current, targets, total: targets.length,
       completed: 0, available: 0, reused: 0, failures: [], uncertainTargets: [],
+      skippedInaccessible: [],
       retryTokens: {}, done: false, phase: 'Starting AI Review', currentItem: reviewTargetLabel(targets[0]) };
     setAiProgress(progress);
     let outcome = null;
@@ -414,7 +431,10 @@ export function ReviewPage() {
             sessionConfirmed: Boolean(progress.sessionConfirmed || result.sessionConfirmed),
             available: progress.available + (result.ok ? 1 : 0),
             reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
-            failures: result.ok ? progress.failures : [...progress.failures, `${label}: ${result.error || 'AI Review could not finish.'}`],
+            failures: result.ok || result.notStarted ? progress.failures : [...progress.failures, `${label}: ${result.error || 'AI Review could not finish.'}`],
+            skippedInaccessible: result.notStarted
+              ? [...progress.skippedInaccessible, { ...target, key: targetKey, label, error: result.error || 'Submitted PDF could not be opened.' }]
+              : progress.skippedInaccessible,
             uncertainTargets: result.uncertain ? [...progress.uncertainTargets, target] : progress.uncertainTargets,
             retryTokens: result.uncertain ? { ...progress.retryTokens, [targetKey]: result.review?.retryToken } : progress.retryTokens,
             phase: 'Checking AI Review and saved report status',
@@ -739,12 +759,12 @@ export function ReviewPage() {
           <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done) || !allAiTargets.length} onClick={() => requestAiReview(allAiTargets, false, {}, true)}>AI review all</Button>
           <Button variant="subtle" onClick={() => setOverviewOpen(value => !value)} aria-expanded={overviewOpen}>{overviewOpen ? 'Hide overview' : 'Deliverable overview'}</Button></Group>
       </Group></Paper>
-      {aiProgress ? <Alert role="status" color={aiProgress.failures.length || aiProgress.savedRefresh?.errors.length ? 'orange' : 'blue'} title={aiProgress.savedRefresh?.done
+      {aiProgress ? <Alert role="status" color={aiProgress.failures.length || aiProgress.skippedInaccessible?.length || aiProgress.savedRefresh?.errors.length ? 'orange' : 'blue'} title={aiProgress.savedRefresh?.done
         ? aiProgress.savedRefresh.checked === aiProgress.savedRefresh.total
           && aiProgress.savedRefresh.available === aiProgress.savedRefresh.total
           ? 'Saved AI Reviews available'
           : aiProgress.savedRefresh.running ? 'Saved AI Reviews still running' : 'Saved AI Review status checked'
-        : aiProgress.done ? (aiProgress.paused ? 'AI review paused' : aiProgress.failures.length ? 'AI review needs attention' : 'AI review complete') : 'Reviewing documents'}
+        : aiProgress.done ? (aiProgress.paused ? 'AI review paused' : aiProgress.failures.length || aiProgress.skippedInaccessible?.length ? 'AI review finished with items needing attention' : 'AI review complete') : 'Reviewing documents'}
         withCloseButton={aiProgress.done} onClose={() => setAiProgress(null)}>
         <Stack gap="xs">
           <Group justify="space-between" align="center" wrap="wrap" gap="xs">
@@ -759,10 +779,43 @@ export function ReviewPage() {
           {aiProgress.currentItem && !aiProgress.done ? <Text size="sm" c="dimmed">Current PDF: {aiProgress.currentItem}</Text> : null}
           <Text size="sm">{aiProgress.savedRefresh?.done ? aiProgress.savedRefresh.available : aiProgress.available}{' '}
             {(aiProgress.savedRefresh?.done ? aiProgress.savedRefresh.available : aiProgress.available) === 1 ? 'review' : 'reviews'} available
+            {aiProgress.skippedInaccessible?.length ? ` · ${aiProgress.skippedInaccessible.length} skipped: inaccessible ${aiProgress.skippedInaccessible.length === 1 ? 'PDF' : 'PDFs'}` : ''}
             {aiProgress.savedRefresh ? ` · ${aiProgress.savedRefresh.running} still running · ${aiProgress.savedRefresh.uncertain} inconclusive · ${aiProgress.savedRefresh.unavailable} unavailable`
               : ` · ${aiProgress.uncertainTargets.length} awaiting retry`}
             {!aiProgress.savedRefresh && aiProgress.failures.length > aiProgress.uncertainTargets.length
               ? ` · ${aiProgress.failures.length - aiProgress.uncertainTargets.length} incomplete` : ''}</Text>
+          {aiProgress.skippedInaccessible?.length ? (
+            <Stack gap="xs">
+              <Text size="xs" c="dimmed">No Gemini request was started for these PDFs. Ask their owners to restore Drive access before trying them again.</Text>
+              <Button variant="default" size="xs" w="fit-content" aria-expanded={skippedAiOpen}
+                aria-controls="wt-skipped-inaccessible-pdfs"
+                onClick={() => setSkippedAiOpen(open => !open)}>
+                {skippedAiOpen ? 'Hide' : 'Show'} skipped inaccessible PDFs ({aiProgress.skippedInaccessible.length})
+              </Button>
+              <Collapse in={skippedAiOpen}>
+                <Stack id="wt-skipped-inaccessible-pdfs" gap="xs" aria-label="Skipped inaccessible PDF submissions">
+                  {aiProgress.skippedInaccessible.map(target => {
+                    const link = currentSkippedDriveUrl(target, state.attempts);
+                    return <Paper key={target.key} withBorder p="xs" radius="sm">
+                      <Stack gap={4}>
+                        <Text size="sm" fw={650}>{target.label}</Text>
+                        <Text size="xs" c="dimmed">{target.error}</Text>
+                        <Group gap="xs" wrap="wrap">
+                          {link ? <Button component="a" href={link} target="_blank" rel="noopener noreferrer"
+                            variant="default" size="xs">Open submitted Drive link</Button>
+                            : <Text size="xs" c="dimmed">Original submission link changed or is not a valid Drive URL.</Text>}
+                          <Button variant="subtle" size="xs" onClick={() => {
+                            setSelectedDeliverableId(target.response?.deliverableId || '');
+                            setSelectedResponseId(target.responseId);
+                          }}>View response</Button>
+                        </Group>
+                      </Stack>
+                    </Paper>;
+                  })}
+                </Stack>
+              </Collapse>
+            </Stack>
+          ) : null}
           {aiProgress.savedRefresh && aiProgress.failures.length ? (
             <Stack gap={2}>
               <Text size="xs" fw={700}>Original batch messages (before saved-status check)</Text>

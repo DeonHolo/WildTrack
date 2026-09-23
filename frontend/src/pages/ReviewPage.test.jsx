@@ -523,6 +523,79 @@ describe('deliverable-first submission review', () => {
     expect(within(status).getByRole('progressbar', { name: 'AI Review batch progress' })).toHaveAttribute('aria-valuenow', '100');
   });
 
+  it('counts inaccessible PDFs separately, keeps reviewing later PDFs, and links each skipped submission', async () => {
+    const muriel = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    const later = workflow.state.attempts.find(item => item.id === 'response-muriel-sdd');
+    muriel.documentCheck = currentDocumentCheck(muriel.updatedAt);
+    later.documentCheck = currentDocumentCheck(later.updatedAt);
+    workflow.state.attempts = [muriel, ron, later];
+    workflow.runAiReviews.mockImplementationOnce(async (_workspace, targets, { onResult }) => {
+      expect(targets).toHaveLength(3);
+      onResult(targets[0], { ok: false, notStarted: true, pauseBatch: false,
+        error: 'The submitted Drive PDF could not be opened. No AI review was started.' });
+      onResult(targets[1], { ok: true, review: { status: 'COMPLETED', reused: false } });
+      onResult(targets[2], { ok: false, notStarted: true, pauseBatch: false,
+        error: 'The submitted Drive PDF could not be opened. No AI review was started.' });
+      return { completed: 3, total: 3, paused: false };
+    });
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'AI review submissions' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Start review' }));
+
+    const status = await screen.findByRole('status');
+    await waitFor(() => expect(status).toHaveTextContent('3 of 3 PDF artifacts attempted'));
+    expect(status).toHaveTextContent('AI review finished with items needing attention');
+    expect(status).toHaveTextContent('1 review available');
+    expect(status).toHaveTextContent('2 skipped: inaccessible PDFs');
+    expect(status).not.toHaveTextContent('2 incomplete');
+    expect(status).not.toHaveTextContent('AI review paused');
+    expect(workflow.runAiReviews).toHaveBeenCalledTimes(1);
+    const toggle = within(status).getByRole('button', { name: 'Show skipped inaccessible PDFs (2)' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(within(status).getByRole('button', { name: 'Hide skipped inaccessible PDFs (2)' })).toHaveAttribute('aria-expanded', 'true');
+    const links = await waitFor(() => within(status).getAllByRole('link', { name: 'Open submitted Drive link' }));
+    expect(links).toHaveLength(2);
+    expect(links.map(link => link.getAttribute('href'))).toEqual([
+      muriel.values.documentPdf, later.values.documentPdf
+    ]);
+    links.forEach(link => {
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    });
+    fireEvent.click(within(status).getAllByRole('button', { name: 'View response' })[1]);
+    expect(await screen.findByRole('dialog', { name: 'Review Pacio, Muriel D.' })).toBeInTheDocument();
+  });
+
+  it('never opens a stale or unsafe link from a skipped batch after the submitted PDF changes', async () => {
+    const muriel = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
+    muriel.documentCheck = currentDocumentCheck(muriel.updatedAt);
+    workflow.state.attempts = [muriel];
+    workflow.runAiReviews.mockImplementationOnce(async (_workspace, targets, { onResult }) => {
+      onResult(targets[0], { ok: false, notStarted: true, pauseBatch: false,
+        error: 'Submitted PDF inaccessible.' });
+      return { completed: 1, total: 1, paused: false };
+    });
+    const view = renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'AI review submissions' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Start review' }));
+    const status = await screen.findByRole('status');
+    await waitFor(() => expect(status).toHaveTextContent('1 skipped: inaccessible PDF'));
+    fireEvent.click(within(status).getByRole('button', { name: 'Show skipped inaccessible PDFs (1)' }));
+    expect(await waitFor(() => within(status).getByRole('link', { name: 'Open submitted Drive link' }))).toHaveAttribute('href', muriel.values.documentPdf);
+
+    workflow.state = { ...workflow.state, attempts: [{ ...muriel,
+      values: { ...muriel.values, documentPdf: 'https://drive.google.com/file/d/new-file/view' } }] };
+    view.rerender(pageTree());
+    expect(within(status).queryByRole('link', { name: 'Open submitted Drive link' })).not.toBeInTheDocument();
+    expect(status).toHaveTextContent('Original submission link changed or is not a valid Drive URL.');
+    expect(status).toHaveTextContent('1 skipped: inaccessible PDF');
+  });
+
   it('checks saved AI reports using only per-PDF GETs, replacing stale status with persisted completed and running states', async () => {
     const muriel = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
     const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
