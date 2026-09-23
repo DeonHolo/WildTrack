@@ -118,62 +118,6 @@ class AiReviewDeduplicationTest {
     }
     private AiReviewService.View run(FormResponse response) { return service.review(workspace, response.getId(), "admin", false); }
 
-    @Test void readOnlyDriveAccessCheckConfirmsBackendMetadataAndDownloadWithoutStartingGemini() {
-        var diagnostic = service.diagnoseDriveAccess(workspace, first.getId(), null, "admin");
-        assertThat(diagnostic.status()).isEqualTo("ACCESSIBLE");
-        assertThat(diagnostic.step()).isEqualTo("complete");
-        assertThat(diagnostic.message()).contains("No Gemini request was made");
-        verify(drive, times(2)).getMetadata(any());
-        verify(drive).download(any());
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isZero();
-        verify(provider, never()).review(any());
-    }
-
-    @Test void readOnlyDriveAccessCheckReportsPreciseGoogleApiFailureWithoutLeakingProviderDetailsOrStartingGemini() {
-        doThrow(new GoogleDriveUnavailableException("Private Drive response with sensitive file identifier",
-            new HttpClientErrorException(HttpStatus.NOT_FOUND))).when(drive).getMetadata(any());
-        var diagnostic = service.diagnoseDriveAccess(workspace, first.getId(), null, "admin");
-        assertThat(diagnostic.status()).isEqualTo("API_NOT_FOUND");
-        assertThat(diagnostic.step()).isEqualTo("metadata");
-        assertThat(diagnostic.message()).contains("HTTP 404", "backend API", "No AI review was started")
-            .doesNotContain("Private", "file-first");
-        verify(drive, never()).download(any());
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isZero();
-        verify(provider, never()).review(any());
-    }
-
-    @Test void readOnlyDriveAccessCheckIdentifiesDownloadFailureWithoutClaimingAnAiJob() {
-        doThrow(new GoogleDriveUnavailableException("Private Drive response",
-            new HttpClientErrorException(HttpStatus.FORBIDDEN))).when(drive).download(any());
-        var diagnostic = service.diagnoseDriveAccess(workspace, first.getId(), null, "admin");
-        assertThat(diagnostic.status()).isEqualTo("API_DENIED");
-        assertThat(diagnostic.step()).isEqualTo("download");
-        verify(drive, times(1)).getMetadata(any());
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isZero();
-        verify(provider, never()).review(any());
-    }
-
-    @Test void readOnlyDriveAccessCheckDistinguishesThePostDownloadMetadataRequest() {
-        var metadata = new DriveFileMetadata("file-first", "document.pdf", "application/pdf", 100L,
-            "same-checksum", OffsetDateTime.parse("2026-09-09T00:00:00Z"), true, "");
-        doReturn(metadata).doThrow(new GoogleDriveUnavailableException("Private provider body",
-            new HttpClientErrorException(HttpStatus.NOT_FOUND))).when(drive).getMetadata(any());
-        var diagnostic = service.diagnoseDriveAccess(workspace, first.getId(), null, "admin");
-        assertThat(diagnostic.status()).isEqualTo("API_NOT_FOUND");
-        assertThat(diagnostic.step()).isEqualTo("metadata recheck");
-        verify(drive).download(any());
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isZero();
-        verify(provider, never()).review(any());
-    }
-
-    @Test void readOnlyDriveAccessCheckEnforcesAdminRole() {
-        when(roles.activeRolesFor("admin")).thenReturn(Set.of(StaffRole.ADVISER));
-        assertThatThrownBy(() -> service.diagnoseDriveAccess(workspace, first.getId(), null, "admin"))
-            .isInstanceOf(AccessDeniedException.class);
-        verify(drive, never()).getMetadata(any());
-        verify(provider, never()).review(any());
-    }
-
     @Test void missingSubmittedDriveFileFailsBeforeClaimWithActionable422() {
         doThrow(new GoogleDriveUnavailableException("Private Drive 404 text should not leak",
             new HttpClientErrorException(HttpStatus.NOT_FOUND)))

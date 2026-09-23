@@ -608,7 +608,9 @@ describe('student dashboard', () => {
     expect(dialog).toHaveTextContent('Risk management');
     expect(within(dialog).getByRole('tab', { name: 'File history' })).toBeInTheDocument();
     expect(dialog).not.toHaveTextContent('Last modified by');
-    expect(dialog).toHaveTextContent('It does not grade your work or decide whether it is accepted.');
+    expect(dialog).not.toHaveTextContent('It does not grade your work or decide whether it is accepted.');
+    fireEvent.focus(within(dialog).getByRole('button', { name: 'About Document Check' }));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('It does not grade your work or decide whether it is accepted.');
     expect(within(dialog).queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
     expect(dialog).not.toHaveTextContent('STAFF ONLY AI ANALYSIS');
   });
