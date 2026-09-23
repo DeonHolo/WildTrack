@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.capvault.backend.student.RegisteredDriveStudentResolver;
 
 @Service
 public class ObservedFileHistoryService {
@@ -25,13 +26,16 @@ public class ObservedFileHistoryService {
 
     private final FileCheckReportRepository reports;
     private final ObjectMapper objectMapper;
+    private final RegisteredDriveStudentResolver registeredStudents;
 
     public ObservedFileHistoryService(
         FileCheckReportRepository reports,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        RegisteredDriveStudentResolver registeredStudents
     ) {
         this.reports = reports;
         this.objectMapper = objectMapper;
+        this.registeredStudents = registeredStudents;
     }
 
     public record Batch(
@@ -58,19 +62,23 @@ public class ObservedFileHistoryService {
         }
 
         Map<String, ObservedFileHistoryView> legacy = new LinkedHashMap<>();
+        // Scoped to this request: repeated Drive identities are resolved once,
+        // but an administrator's disconnect is visible on the next request.
+        Map<String, java.util.Optional<RegisteredDriveStudentResolver.Student>> identityCache = new java.util.HashMap<>();
         legacyReports.forEach((responseId, responseReports) ->
-            legacy.put(responseId, history(responseReports)));
+            legacy.put(responseId, history(workspaceId, responseReports, identityCache)));
 
         Map<String, Map<String, ObservedFileHistoryView>> byField = new LinkedHashMap<>();
         fieldReports.forEach((responseId, fields) -> {
             Map<String, ObservedFileHistoryView> histories = new LinkedHashMap<>();
-            fields.forEach((fieldId, fieldHistory) -> histories.put(fieldId, history(fieldHistory)));
+            fields.forEach((fieldId, fieldHistory) -> histories.put(fieldId, history(workspaceId, fieldHistory, identityCache)));
             byField.put(responseId, histories);
         });
         return new Batch(legacy, byField);
     }
 
-    private ObservedFileHistoryView history(List<FileCheckReport> sourceReports) {
+    private ObservedFileHistoryView history(UUID workspaceId, List<FileCheckReport> sourceReports,
+            Map<String, java.util.Optional<RegisteredDriveStudentResolver.Student>> identityCache) {
         List<MutableObservation> distinct = new ArrayList<>();
         String previousFileKey = null;
         String previousChecksum = null;
@@ -115,7 +123,12 @@ public class ObservedFileHistoryService {
         }
 
         List<ObservedFileHistoryView.Observation> observations = distinct.stream()
-            .map(MutableObservation::toView)
+            .map(observation -> observation.toView(email -> {
+                String key = normalize(email);
+                if (key == null) return null;
+                return identityCache.computeIfAbsent(key.toLowerCase(java.util.Locale.ROOT),
+                    ignored -> registeredStudents.resolve(workspaceId, key)).orElse(null);
+            }))
             .sorted((left, right) -> right.firstObservedAt().compareTo(left.firstObservedAt()))
             .toList();
         return new ObservedFileHistoryView(SOURCE_LABEL, COVERAGE, OLDER_HISTORY, observations);
@@ -126,10 +139,11 @@ public class ObservedFileHistoryService {
         String editorDisplayName = normalize(report.getDriveLastModifyingUserDisplayName());
         OffsetDateTime createdTime = parseOffsetDateTime(report.getDriveCreatedTime());
         String driveOwner = normalize(report.getDriveOwnerDisplay());
+        String ownerEmail = normalize(report.getDriveOwnerEmail());
         try {
             JsonNode root = objectMapper.readTree(report.getReportJson());
             JsonNode metadata = root == null ? null : root.get("metadata");
-            if (metadata == null || metadata.isNull()) return ParsedMetadata.staffOnly(editorEmail, editorDisplayName, createdTime, driveOwner);
+            if (metadata == null || metadata.isNull()) return ParsedMetadata.staffOnly(editorEmail, editorDisplayName, createdTime, driveOwner, ownerEmail);
             return new ParsedMetadata(
                 text(metadata.get("fileId")),
                 text(metadata.get("name")),
@@ -138,10 +152,11 @@ public class ObservedFileHistoryService {
                 editorEmail,
                 editorDisplayName,
                 createdTime,
-                driveOwner
+                driveOwner,
+                ownerEmail
             );
         } catch (Exception ignored) {
-            return ParsedMetadata.staffOnly(editorEmail, editorDisplayName, createdTime, driveOwner);
+            return ParsedMetadata.staffOnly(editorEmail, editorDisplayName, createdTime, driveOwner, ownerEmail);
         }
     }
 
@@ -195,11 +210,12 @@ public class ObservedFileHistoryService {
         String editorEmail,
         String editorDisplayName,
         OffsetDateTime createdTime,
-        String driveOwner
+        String driveOwner,
+        String ownerEmail
     ) {
         private static ParsedMetadata staffOnly(String email, String displayName,
-                OffsetDateTime createdTime, String driveOwner) {
-            return new ParsedMetadata(null, null, null, null, email, displayName, createdTime, driveOwner);
+                OffsetDateTime createdTime, String driveOwner, String ownerEmail) {
+            return new ParsedMetadata(null, null, null, null, email, displayName, createdTime, driveOwner, ownerEmail);
         }
     }
 
@@ -217,6 +233,7 @@ public class ObservedFileHistoryService {
         private String fileName;
         private OffsetDateTime driveCreatedTime;
         private String driveOwner;
+        private String driveOwnerEmail;
         private final String sourceUrl;
 
         private MutableObservation(
@@ -250,9 +267,11 @@ public class ObservedFileHistoryService {
             if (normalize(metadata.fileName()) != null) this.fileName = metadata.fileName();
             if (metadata.createdTime() != null) this.driveCreatedTime = metadata.createdTime();
             this.driveOwner = metadata.driveOwner();
+            this.driveOwnerEmail = metadata.ownerEmail();
         }
 
-        private ObservedFileHistoryView.Observation toView() {
+        private ObservedFileHistoryView.Observation toView(
+                java.util.function.Function<String, RegisteredDriveStudentResolver.Student> resolve) {
             return new ObservedFileHistoryView.Observation(
                 changeType,
                 SOURCE_LABEL,
@@ -270,7 +289,9 @@ public class ObservedFileHistoryService {
                 fileName,
                 sourceUrl,
                 driveCreatedTime,
-                driveOwner
+                driveOwner,
+                resolve.apply(driveOwnerEmail),
+                resolve.apply(modifiedByEmail)
             );
         }
     }

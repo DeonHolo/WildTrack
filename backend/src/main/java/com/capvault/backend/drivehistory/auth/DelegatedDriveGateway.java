@@ -8,5 +8,10 @@ public interface DelegatedDriveGateway {
     FileDetails fileMetadata(String bearerAccessToken, String fileId);
 
     record Page(List<DriveRevisionMetadata> revisions, String nextPageToken) { }
-    record FileDetails(String createdTime, String driveOwner, String lastModifiedTime, String lastModifiedBy) { }
+    record FileDetails(String createdTime, String driveOwner, String lastModifiedTime, String lastModifiedBy,
+                       String driveOwnerEmail, String lastModifiedByEmail) {
+        public FileDetails(String createdTime, String driveOwner, String lastModifiedTime, String lastModifiedBy) {
+            this(createdTime, driveOwner, lastModifiedTime, lastModifiedBy, null, null);
+        }
+    }
 }

@@ -79,7 +79,6 @@ export function CommandCenterPage() {
   const [accountManagementOpen, setAccountManagementOpen] = useState(false);
   const [filter, setFilter] = useState('all');
   const [taskTab, setTaskTab] = useState('open');
-  const [dismissedKeys, setDismissedKeys] = useState(null);
   const [selectedResponseId, setSelectedResponseId] = useState('');
   const [checkDialogTarget, setCheckDialogTarget] = useState(null);
   const [aiDialogTarget, setAiDialogTarget] = useState(null);
@@ -102,7 +101,6 @@ export function CommandCenterPage() {
     setBulkDismissProgress(null);
     setResolvedTaskIds(new Set());
     setBatchProgress(null);
-    setDismissedKeys(null);
     setTaskTab('open');
     setSelectedResponseId('');
     setCheckDialogTarget(null);
@@ -111,8 +109,10 @@ export function CommandCenterPage() {
     setCheckError('');
   }, [isCurrentScope]);
 
-  const dismissed = useMemo(() => new Set(dismissedKeys ?? state.dismissedKeys ?? []),
-    [dismissedKeys, state.dismissedKeys]);
+  // Keep dismissal state in the resource snapshot, not component-local state.
+  // A local-only update disappears on navigation while the cached queue still
+  // contains the old keys, briefly resurrecting dismissed work on return.
+  const dismissed = useMemo(() => new Set(state.dismissedKeys ?? []), [state.dismissedKeys]);
   const allTasks = useMemo(() => buildWorkQueue(state, openConflicts, dismissed),
     [state, openConflicts, dismissed]);
   const openTasks = useMemo(
@@ -177,11 +177,11 @@ export function CommandCenterPage() {
       if (shouldDismiss) await dismissWorkTask(workspaceId, task.id);
       else await restoreWorkTask(workspaceId, task.id);
       if (!isCurrentScope()) return;
-      setDismissedKeys(current => {
-        const next = new Set(current ?? state.dismissedKeys ?? []);
+      setState(current => {
+        const next = new Set(current.dismissedKeys ?? []);
         if (shouldDismiss) next.add(task.id);
         else next.delete(task.id);
-        return [...next];
+        return { ...current, dismissedKeys: [...next] };
       });
     } catch (error) {
       if (isCurrentScope()) notifications.show({ color: 'red', title: shouldDismiss ? 'Dismiss failed' : 'Restore failed',
@@ -206,14 +206,14 @@ export function CommandCenterPage() {
       const results = await Promise.allSettled(batch.map(task => shouldDismiss
         ? dismissWorkTask(selectedWorkspace, task.id) : restoreWorkTask(selectedWorkspace, task.id)));
       if (!isCurrentScope()) return;
-      setDismissedKeys(current => {
-        const next = new Set(current ?? state.dismissedKeys ?? []);
+      setState(current => {
+        const next = new Set(current.dismissedKeys ?? []);
         results.forEach((result, index) => {
           if (result.status !== 'fulfilled') return;
           if (shouldDismiss) next.add(batch[index].id);
           else next.delete(batch[index].id);
         });
-        return [...next];
+        return { ...current, dismissedKeys: [...next] };
       });
       failed += results.filter(result => result.status !== 'fulfilled').length;
       setBulkDismissProgress({ done: Math.min(offset + batch.length, targets.length),

@@ -62,6 +62,9 @@ public class FileCheckReport {
     @Column(name = "drive_owner_display", length = 500)
     private String driveOwnerDisplay;
 
+    @Column(name = "drive_owner_email", length = 320)
+    private String driveOwnerEmail;
+
     @Column(name = "checked_at", nullable = false)
     private LocalDateTime checkedAt;
 
@@ -100,6 +103,7 @@ public class FileCheckReport {
         this.driveCreatedTime = observedMetadata == null || observedMetadata.createdTime() == null
             ? null : observedMetadata.createdTime().toString();
         this.driveOwnerDisplay = observedMetadata == null ? null : observedMetadata.driveOwner();
+        this.driveOwnerEmail = observedMetadata == null ? null : observedMetadata.driveOwnerEmail();
         this.checkedAt = response.checkedAt();
     }
 
@@ -137,6 +141,7 @@ public class FileCheckReport {
     public String getDriveLastModifyingUserDisplayName() { return driveLastModifyingUserDisplayName; }
     public String getDriveCreatedTime() { return driveCreatedTime; }
     public String getDriveOwnerDisplay() { return driveOwnerDisplay; }
+    public String getDriveOwnerEmail() { return driveOwnerEmail; }
 
     public LocalDateTime getCheckedAt() {
         return checkedAt;

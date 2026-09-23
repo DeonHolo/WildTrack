@@ -27,7 +27,9 @@ public record ObservedFileHistoryView(
         String fileName,
         String sourceUrl,
         OffsetDateTime driveCreatedTime,
-        String driveOwner
+        String driveOwner,
+        com.capvault.backend.student.RegisteredDriveStudentResolver.Student driveOwnerStudent,
+        com.capvault.backend.student.RegisteredDriveStudentResolver.Student modifiedByStudent
     ) {
     }
 }

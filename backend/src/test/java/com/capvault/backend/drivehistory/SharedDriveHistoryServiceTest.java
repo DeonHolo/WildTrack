@@ -31,6 +31,7 @@ import com.capvault.backend.staff.StaffManagementService;
 import com.capvault.backend.staff.StaffRole;
 import com.capvault.backend.student.StudentAssociationSecurity;
 import com.capvault.backend.student.StudentAssociationService;
+import com.capvault.backend.student.RegisteredDriveStudentResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +51,7 @@ class SharedDriveHistoryServiceTest {
     private final DeliverableFieldRepository fields = mock(DeliverableFieldRepository.class);
     private final DelegatedDriveAccessService access = mock(DelegatedDriveAccessService.class);
     private final DelegatedDriveGateway gateway = mock(DelegatedDriveGateway.class);
+    private final RegisteredDriveStudentResolver registeredStudents = mock(RegisteredDriveStudentResolver.class);
     private final HttpServletRequest http = mock(HttpServletRequest.class);
     private SharedDriveHistoryService history;
     private FormResponse viewerSubmission;
@@ -58,7 +60,7 @@ class SharedDriveHistoryServiceTest {
     @BeforeEach
     void setup() {
         history = new SharedDriveHistoryService(security, associations, staff, responses, deliverables,
-            fields, new ObjectMapper(), access, gateway);
+            fields, new ObjectMapper(), access, gateway, registeredStudents);
         viewerSubmission = response("viewer-sub", studentAId, "viewer", "23-0001",
             "https://drive.google.com/open?id=shared-PDF-id");
         ownerSubmission = response("owner-sub", studentBId, "owner", "23-0002",
@@ -103,7 +105,40 @@ class SharedDriveHistoryServiceTest {
         assertThat(result.fileMetadata().lastModifiedTime()).isEqualTo("2026-09-19T00:00:00Z");
         assertThat(result.fileMetadata().driveOwner()).isNull();
         assertThat(result.fileMetadata().lastModifiedBy()).isNull();
+        assertThat(result.fileMetadata().driveOwnerStudent()).isNull();
+        assertThat(result.fileMetadata().lastModifiedByStudent()).isNull();
         assertThat(result.coverageMessage()).contains("same", "omit older revisions", "not proof");
+    }
+
+    @Test void staffIdentityComesFromVerifiedProviderMetadataNotGrantOwnerOrSubmitter() {
+        when(security.activeRoles(http)).thenReturn(Set.of(StaffRole.ADMIN));
+        var attributed = new RegisteredDriveStudentResolver.Student("LAST, FIRST", "student@example.edu");
+        when(gateway.fileMetadata("owner-secret-token", "shared-PDF-id")).thenReturn(
+            new DelegatedDriveGateway.FileDetails("2026-09-01T00:00:00Z", "Google Fake Owner",
+                "2026-09-19T00:00:00Z", "Google Fake Editor", "student@example.edu", "unmatched@example.edu"));
+        when(registeredStudents.resolve(workspaceId, "student@example.edu")).thenReturn(Optional.of(attributed));
+        SharedDriveHistoryView result = history.forSubmission(workspaceId, viewerSubmission.getId(),
+            "pdf-field-id", null, http);
+        assertThat(result.fileMetadata().driveOwnerStudent()).isEqualTo(attributed);
+        assertThat(result.fileMetadata().lastModifiedByStudent()).isNull();
+        assertThat(result.fileMetadata().driveOwner()).isEqualTo("Google Fake Owner");
+        assertThat(result.fileMetadata().lastModifiedBy()).isEqualTo("Google Fake Editor");
+        org.mockito.Mockito.verify(registeredStudents).resolve(workspaceId, "student@example.edu");
+        org.mockito.Mockito.verify(registeredStudents).resolve(workspaceId, "unmatched@example.edu");
+    }
+
+    @Test void studentViewerNeverReceivesMatchedNamesEvenWhenResolverCouldIdentifyProviderEmails() {
+        when(gateway.fileMetadata("owner-secret-token", "shared-PDF-id")).thenReturn(
+            new DelegatedDriveGateway.FileDetails("2026-09-01T00:00:00Z", "Owner Display",
+                "2026-09-19T00:00:00Z", "Editor Display", "student@example.edu", "student@example.edu"));
+        when(registeredStudents.resolve(workspaceId, "student@example.edu")).thenReturn(Optional.of(
+            new RegisteredDriveStudentResolver.Student("PRIVATE STUDENT", "student@example.edu")));
+        var result = history.forSubmission(workspaceId, viewerSubmission.getId(), "pdf-field-id", null, http);
+        assertThat(result.fileMetadata().driveOwnerStudent()).isNull();
+        assertThat(result.fileMetadata().lastModifiedByStudent()).isNull();
+        assertThat(result.fileMetadata().driveOwner()).isNull();
+        assertThat(result.fileMetadata().lastModifiedBy()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(registeredStudents);
     }
 
     @Test

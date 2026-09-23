@@ -39,7 +39,9 @@ final class GoogleDelegatedDriveGateway implements DelegatedDriveGateway {
                 .distinct().limit(3)
                 .collect(java.util.stream.Collectors.joining(", "));
             return new FileDetails(file.createdTime(), owner == null || owner.isBlank() ? null : owner,
-                file.modifiedTime(), displayName(file.lastModifyingUser()));
+                file.modifiedTime(), displayName(file.lastModifyingUser()),
+                soleOwnerEmail(file.owners()),
+                file.lastModifyingUser() == null ? null : file.lastModifyingUser().emailAddress());
         } catch (RestClientResponseException error) {
             throw classified(error.getStatusCode().value());
         } catch (ResourceAccessException error) {
@@ -98,6 +100,12 @@ final class GoogleDelegatedDriveGateway implements DelegatedDriveGateway {
         if (user == null) return null;
         if (user.displayName() != null && !user.displayName().isBlank()) return user.displayName();
         return user.emailAddress();
+    }
+
+    private static String soleOwnerEmail(List<DriveUser> owners) {
+        if (owners == null || owners.size() != 1 || owners.get(0) == null) return null;
+        String email = owners.get(0).emailAddress();
+        return email == null || email.isBlank() ? null : email.trim();
     }
 
     private record RevisionsResponse(List<Revision> revisions, String nextPageToken) { }

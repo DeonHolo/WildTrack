@@ -3304,6 +3304,64 @@ textarea:not(.mantine-Input-input):focus {
   font-size: 13px;
 }
 
+/* Staff-only Drive identities need the full dialog width, not the narrow
+   right-hand value column of an ordinary three-column validation fact. */
+.document-check-fact--identity {
+  grid-column: 1 / -1;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+}
+
+.document-check-fact--identity > svg {
+  grid-row: 1 / span 2;
+}
+
+.document-check-fact--identity > span,
+.document-check-identity-value {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.document-check-identity-value {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.document-check-fact--identity .document-check-identity-name {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  word-break: normal;
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.document-check-fact--identity > strong {
+  grid-column: 2;
+  text-align: left;
+  overflow-wrap: normal;
+}
+
+.document-check-fact--identity .document-check-identity-email {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: normal;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.document-check-fact--identity .document-check-identity-email > span {
+  color: inherit;
+  font: inherit;
+}
+
 .document-check-measures {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

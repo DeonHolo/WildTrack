@@ -3,15 +3,60 @@ package com.capvault.backend.filecheck;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+import java.util.Optional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.capvault.backend.student.RegisteredDriveStudentResolver;
 import org.junit.jupiter.api.Test;
 
 class ObservedFileHistoryServiceTest {
+
+    @Test void staffObservationAttributesOnlyStructuredProviderEmailsAndMemoizesRepeatedActors() {
+        UUID workspaceId = UUID.randomUUID();
+        String responseId = UUID.randomUUID().toString();
+        FileCheckReportRepository reports = mock(FileCheckReportRepository.class);
+        RegisteredDriveStudentResolver resolver = mock(RegisteredDriveStudentResolver.class);
+        var student = new RegisteredDriveStudentResolver.Student("LAST, FIRST", "owner@example.edu");
+        FileCheckReport observed = report(responseId, "pdf", "https://drive.google.com/file/d/a/view",
+            "2026-09-18T10:00:00", metadata("a", "report.pdf", "aaa",
+                "2026-09-18T01:00:00Z", "owner@example.edu", "Provider Pretender"),
+            "owner@example.edu", "Provider Pretender");
+        when(observed.getDriveOwnerDisplay()).thenReturn("Google Unverified Owner Name");
+        when(observed.getDriveOwnerEmail()).thenReturn("owner@example.edu");
+        when(resolver.resolve(workspaceId, "owner@example.edu")).thenReturn(Optional.of(student));
+        when(reports.findAllByWorkspaceIdAndExternalResponseIdInOrderByCheckedAtAsc(workspaceId,
+            List.of(responseId))).thenReturn(List.of(observed));
+        var item = new ObservedFileHistoryService(reports, new ObjectMapper().findAndRegisterModules(), resolver)
+            .forResponses(workspaceId, List.of(responseId)).byField().get(responseId).get("pdf").observations().get(0);
+        assertThat(item.driveOwnerStudent()).isEqualTo(student);
+        assertThat(item.modifiedByStudent()).isEqualTo(student);
+        assertThat(item.driveOwner()).isEqualTo("Google Unverified Owner Name");
+        verify(resolver, times(1)).resolve(workspaceId, "owner@example.edu");
+    }
+
+    @Test void oldOwnerDisplayAndProviderEditorDisplayAloneNeverIdentifyRegisteredStudent() {
+        UUID workspaceId = UUID.randomUUID();
+        String responseId = UUID.randomUUID().toString();
+        FileCheckReportRepository reports = mock(FileCheckReportRepository.class);
+        RegisteredDriveStudentResolver resolver = mock(RegisteredDriveStudentResolver.class);
+        FileCheckReport observed = report(responseId, "pdf", "https://drive.google.com/file/d/a/view",
+            "2026-09-18T10:00:00", metadata("a", "report.pdf", "aaa",
+                "2026-09-18T01:00:00Z", null, "LAST, FIRST"), null, "LAST, FIRST");
+        when(observed.getDriveOwnerDisplay()).thenReturn("LAST, FIRST (owner@example.edu)");
+        when(reports.findAllByWorkspaceIdAndExternalResponseIdInOrderByCheckedAtAsc(workspaceId,
+            List.of(responseId))).thenReturn(List.of(observed));
+        var item = new ObservedFileHistoryService(reports, new ObjectMapper().findAndRegisterModules(), resolver)
+            .forResponses(workspaceId, List.of(responseId)).byField().get(responseId).get("pdf").observations().get(0);
+        assertThat(item.driveOwnerStudent()).isNull();
+        assertThat(item.modifiedByStudent()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(resolver);
+    }
 
     @Test
     void deduplicatesSameContentAndMarksVerifiedChecksumChange() {
@@ -34,7 +79,7 @@ class ObservedFileHistoryServiceTest {
             .thenReturn(List.of(first, repeated, changed));
 
         ObservedFileHistoryService service = new ObservedFileHistoryService(
-            reports, new ObjectMapper().findAndRegisterModules());
+            reports, new ObjectMapper().findAndRegisterModules(), mock(RegisteredDriveStudentResolver.class));
         ObservedFileHistoryView history = service.forResponses(workspaceId, List.of(responseId))
             .byField().get(responseId).get(fieldId);
 
@@ -68,7 +113,7 @@ class ObservedFileHistoryServiceTest {
             .thenReturn(List.of(emailOnly, noEditor));
 
         ObservedFileHistoryService service = new ObservedFileHistoryService(
-            reports, new ObjectMapper().findAndRegisterModules());
+            reports, new ObjectMapper().findAndRegisterModules(), mock(RegisteredDriveStudentResolver.class));
         var observations = service.forResponses(workspaceId, List.of(responseId))
             .byField().get(responseId).get(fieldId).observations();
 
@@ -97,7 +142,7 @@ class ObservedFileHistoryServiceTest {
         when(reports.findAllByWorkspaceIdAndExternalResponseIdInOrderByCheckedAtAsc(workspaceId, List.of(responseId)))
             .thenReturn(List.of(first, metadataChanged));
 
-        var observations = new ObservedFileHistoryService(reports, new ObjectMapper().findAndRegisterModules())
+        var observations = new ObservedFileHistoryService(reports, new ObjectMapper().findAndRegisterModules(), mock(RegisteredDriveStudentResolver.class))
             .forResponses(workspaceId, List.of(responseId)).byField().get(responseId).get(fieldId).observations();
 
         assertThat(observations).hasSize(2);
@@ -117,7 +162,7 @@ class ObservedFileHistoryServiceTest {
         when(reports.findAllByWorkspaceIdAndExternalResponseIdInOrderByCheckedAtAsc(workspaceId, List.of(responseId)))
             .thenReturn(List.of(displayOnly));
 
-        var observation = new ObservedFileHistoryService(reports, new ObjectMapper().findAndRegisterModules())
+        var observation = new ObservedFileHistoryService(reports, new ObjectMapper().findAndRegisterModules(), mock(RegisteredDriveStudentResolver.class))
             .forResponses(workspaceId, List.of(responseId)).byField().get(responseId).get("pdf").observations().get(0);
 
         assertThat(observation.modifiedBy()).isEqualTo("Visible Drive Name");
@@ -139,7 +184,7 @@ class ObservedFileHistoryServiceTest {
         when(reports.findAllByWorkspaceIdAndExternalResponseIdInOrderByCheckedAtAsc(workspaceId, List.of(responseId)))
             .thenReturn(List.of(report));
 
-        var observed = new ObservedFileHistoryService(reports, new ObjectMapper().findAndRegisterModules())
+        var observed = new ObservedFileHistoryService(reports, new ObjectMapper().findAndRegisterModules(), mock(RegisteredDriveStudentResolver.class))
             .forResponses(workspaceId, List.of(responseId)).byField().get(responseId).get("pdf").observations().get(0);
         assertThat(observed.driveCreatedTime()).isEqualTo(java.time.OffsetDateTime.parse("2026-09-01T08:00:00Z"));
         assertThat(observed.driveOwner()).isEqualTo("Owner from Drive");

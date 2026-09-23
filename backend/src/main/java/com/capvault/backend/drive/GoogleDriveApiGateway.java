@@ -44,7 +44,8 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
                 response.capabilities() != null && response.capabilities().canDownload(),
                 response.webViewLink(),
                 parseTime(response.createdTime()),
-                driveOwner(response.owners())
+                driveOwner(response.owners()),
+                soleOwnerEmail(response.owners())
             );
         } catch (RestClientResponseException exception) {
             throw translate(exception);
@@ -123,6 +124,12 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
             .limit(3)
             .collect(java.util.stream.Collectors.joining(", "));
         return display.isBlank() ? null : display;
+    }
+
+    private static String soleOwnerEmail(List<DriveUser> owners) {
+        if (owners == null || owners.size() != 1 || owners.get(0) == null) return null;
+        String email = owners.get(0).emailAddress();
+        return email == null || email.isBlank() ? null : email.trim();
     }
 
     private static GoogleDriveUnavailableException translate(RestClientResponseException exception) {

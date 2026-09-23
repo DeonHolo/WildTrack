@@ -25,8 +25,14 @@ public record SharedDriveHistoryView(
         String createdTime,
         String driveOwner,
         String lastModifiedTime,
-        String lastModifiedBy
-    ) { }
+        String lastModifiedBy,
+        com.capvault.backend.student.RegisteredDriveStudentResolver.Student driveOwnerStudent,
+        com.capvault.backend.student.RegisteredDriveStudentResolver.Student lastModifiedByStudent
+    ) {
+        public FileMetadata(String createdTime, String driveOwner, String lastModifiedTime, String lastModifiedBy) {
+            this(createdTime, driveOwner, lastModifiedTime, lastModifiedBy, null, null);
+        }
+    }
 
     public record Revision(
         String id,
