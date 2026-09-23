@@ -45,6 +45,28 @@ function show(props = {}) {
 describe('DocumentCheck shared submitted-file metadata', () => {
   beforeEach(() => { getSubmittedFileHistory.mockReset().mockResolvedValue(sharedHistory); });
 
+  it('keeps the explanation in a keyboard-accessible title tooltip instead of a full-width alert', async () => {
+    show({ documentCheck: { ...response.documentCheck, metadata: {
+      ...response.documentCheck.metadata, modifiedTime: '2026-09-18T10:00:00+08:00'
+    } } });
+    const dialog = screen.getByRole('dialog');
+    const explanation = 'Document Check verifies file access and readability, then compares deterministic template structure when an official template is available. It does not grade the submission or replace staff review.';
+    expect(within(dialog).getByText('Document Check')).toBeInTheDocument();
+    expect(within(dialog).getByText('Last modified (Drive)')).toBeInTheDocument();
+    expect(within(dialog).queryByText('Drive modified when checked')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(explanation)).not.toBeInTheDocument();
+    fireEvent.focus(within(dialog).getByRole('button', { name: 'About Document Check' }));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(explanation);
+  });
+
+  it('explains student-facing check scope in the same compact tooltip', async () => {
+    show({ audience: 'student' });
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).queryByText(/It does not grade your work or decide whether it is accepted/)).not.toBeInTheDocument();
+    fireEvent.focus(within(dialog).getByRole('button', { name: 'About Document Check' }));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('It does not grade your work or decide whether it is accepted.');
+  });
+
   it('fills unavailable staff facts from newly shared metadata and reuses its first history page', async () => {
     show();
     const dialog = screen.getByRole('dialog');

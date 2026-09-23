@@ -18,7 +18,7 @@ import {
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { CheckCircle, Files, MagnifyingGlass, Sparkle, X } from '@phosphor-icons/react';
-import { diagnoseSubmittedAiDriveAccess, getAiReviewStatus, getIdentityConflicts, getSavedAiReview } from '../lib/api.js';
+import { getAiReviewStatus, getIdentityConflicts, getSavedAiReview } from '../lib/api.js';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
@@ -130,7 +130,6 @@ export function ReviewPage() {
   const [acceptProgress, setAcceptProgress] = useState(null);
   const acceptBusy = useRef(false);
   const [aiProgress, setAiProgress] = useState(null);
-  const [driveAccessCheck, setDriveAccessCheck] = useState(null);
   const [skippedAiOpen, setSkippedAiOpen] = useState(false);
   const aiProgressSequence = useRef(0);
   const savedRefreshBusy = useRef(false);
@@ -141,7 +140,6 @@ export function ReviewPage() {
   const [page, setPage] = useState(1);
   useEffect(() => {
     setAiProgress(null); setAiRunningKeys(new Set()); aiBusy.current = false;
-    setDriveAccessCheck(null);
     setSkippedAiOpen(false);
     aiProgressSequence.current += 1;
     savedRefreshBusy.current = false;
@@ -614,28 +612,6 @@ export function ReviewPage() {
     return result;
   }
 
-  async function checkSubmittedDriveAccess(response, field) {
-    if (!response || !field || !isCurrentScope() || driveAccessCheck?.running) return;
-    const key = artifactTargetKey(response.id, field);
-    const source = String(response.values?.[field.id] || '').trim();
-    if (!source) return;
-    setDriveAccessCheck({ key, source, running: true, result: null });
-    try {
-      // Metadata and download checks only. This GET never starts Gemini or a review job.
-      const result = await diagnoseSubmittedAiDriveAccess(activeWorkspaceId, response.id, field.definitionId || null);
-      if (!isCurrentScope()) return;
-      const current = reviewStateRef.current.attempts.find(item => item.id === response.id);
-      if (current?.deliverableId !== response.deliverableId || String(current.values?.[field.id] || '').trim() !== source) return;
-      setDriveAccessCheck({ key, source, running: false, result });
-    } catch (error) {
-      if (!isCurrentScope()) return;
-      setDriveAccessCheck({ key, source, running: false, result: {
-        status: 'CHECK_FAILED', step: 'request',
-        message: `Drive access check failed (${error?.status || 'network error'}). No AI review was started.`
-      } });
-    }
-  }
-
   function confirmArchive(response) {
     modals.openConfirmModal({
       title: 'Archive this accepted response?',
@@ -1051,11 +1027,9 @@ export function ReviewPage() {
         deliverable={selectedDeliverable}
         checkingFields={checkingIds}
         checkingAiFields={aiRunningKeys}
-        driveAccessCheck={driveAccessCheck}
         checkError={checkError?.targetKey?.startsWith(`${selectedResponse?.id}:`) ? checkError?.message : ''}
         onClose={() => setSelectedResponseId('')}
         onDocumentCheck={(field) => openOrRunDocumentCheck(selectedResponse, field)}
-        onDriveAccessCheck={(field) => checkSubmittedDriveAccess(selectedResponse, field)}
         onFileHistory={(field) => setCheckDialogTarget({
           responseId: selectedResponse.id,
           fieldId: field.definitionId || field.id,

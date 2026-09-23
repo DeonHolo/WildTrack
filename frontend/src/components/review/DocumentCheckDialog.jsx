@@ -1,6 +1,6 @@
-import { Alert, Badge, Modal, Tabs } from '@mantine/core';
+import { ActionIcon, Alert, Badge, Modal, Tabs, Tooltip } from '@mantine/core';
 import { useEffect, useState } from 'react';
-import { ArrowSquareOut, CheckCircle, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
+import { ArrowSquareOut, CheckCircle, Info, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
 import { Button, StatusIndicator } from '../ui.jsx';
 import { formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 import { ObservedFileHistory } from './ObservedFileHistory.jsx';
@@ -58,10 +58,22 @@ export function DocumentCheckDialog({
   const successful = currentStatus === 'Ready for review';
   const latestObservation = studentView ? null : observedHistory?.observations?.[0];
   const sharedMetadata = sharedHistory?.key === targetKey && open ? sharedHistory?.data?.fileMetadata : null;
+  const checkExplanation = studentView
+    ? 'Document Check checks whether your PDF can be accessed and read and, when an official template is available, compares its structure. It does not grade your work or decide whether it is accepted.'
+    : 'Document Check verifies file access and readability, then compares deterministic template structure when an official template is available. It does not grade the submission or replace staff review.';
 
   const title = (
     <div className="document-check-title">
-      <span>{historyOnly ? 'File history' : 'Document Check'}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span>{historyOnly ? 'File history' : 'Document Check'}</span>
+        {!historyOnly ? (
+          <Tooltip label={checkExplanation} multiline w={320} withArrow events={{ hover: true, focus: true, touch: true }}>
+            <ActionIcon variant="subtle" size={24} radius="sm" color="gray" aria-label="About Document Check">
+              <Info size={16} aria-hidden="true" />
+            </ActionIcon>
+          </Tooltip>
+        ) : null}
+      </div>
       <h2>{metadata?.name || 'Submitted PDF'}</h2>
       {!historyOnly ? <p>{report?.checkedAt ? `Checked ${formatDateTime(report.checkedAt)}` : 'This document has not been checked yet.'}</p> : null}
     </div>
@@ -114,7 +126,7 @@ export function DocumentCheckDialog({
                 ready={Number(document?.extractedCharacterCount) > 0}
                 neutral
               />
-              <CheckFact label="Drive modified when checked" value={metadata?.modifiedTime ? formatDateTime(metadata.modifiedTime) : 'Not available'} ready={Boolean(metadata?.modifiedTime)} neutral />
+              <CheckFact label="Last modified (Drive)" value={metadata?.modifiedTime ? formatDateTime(metadata.modifiedTime) : 'Not available'} ready={Boolean(metadata?.modifiedTime)} neutral />
               {sharedMetadata?.lastModifiedTime ? (
                 <CheckFact label="Latest Drive modified (Google metadata)" value={formatDateTime(sharedMetadata.lastModifiedTime)} ready neutral />
               ) : null}
@@ -182,11 +194,6 @@ export function DocumentCheckDialog({
             </section>
           ) : null}
 
-          <div className="inline-alert info document-check-limitation">
-            {studentView
-              ? 'Document Check checks whether your PDF can be accessed and read and, when an official template is available, compares its structure. It does not grade your work or decide whether it is accepted.'
-              : 'Document Check verifies file access and readability, then compares deterministic template structure when an official template is available. It does not grade the submission or replace staff review.'}
-          </div>
         </Tabs.Panel> : null}
 
         {historyAvailable ? (

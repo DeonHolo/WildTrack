@@ -43,11 +43,9 @@ export function ReviewResponseDrawer({
   deliverable,
   checkingFields = new Set(),
   checkingAiFields = new Set(),
-  driveAccessCheck = null,
   checkError = '',
   onClose,
   onDocumentCheck,
-  onDriveAccessCheck,
   onFileHistory,
   onViewAiReview,
   onAiReview,
@@ -103,10 +101,7 @@ export function ReviewResponseDrawer({
                 field={field}
                 checking={checkingFields.has(artifactKey(response.id, field))}
                 reviewing={checkingAiFields.has(`${response.id}:${field.definitionId || field.id}`)}
-                driveAccessCheck={driveAccessCheck?.key === artifactKey(response.id, field)
-                  && driveAccessCheck?.source === String(response.values?.[field.id] || '').trim() ? driveAccessCheck : null}
                 onDocumentCheck={() => onDocumentCheck?.(field)}
-                onDriveAccessCheck={() => onDriveAccessCheck?.(field)}
                 onFileHistory={() => onFileHistory?.(field)}
                 onViewAiReview={() => onViewAiReview?.(field)}
                 onAiReview={() => onAiReview?.(field)}
@@ -150,7 +145,7 @@ export function ReviewResponseDrawer({
   );
 }
 
-function ArtifactCard({ response, field, checking, reviewing, driveAccessCheck, onDocumentCheck, onDriveAccessCheck, onFileHistory, onViewAiReview, onAiReview }) {
+function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, onFileHistory, onViewAiReview, onAiReview }) {
   const value = String(response.values?.[field.id] || '').trim();
   const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
   const report = artifactDocumentCheck(response, field);
@@ -201,10 +196,6 @@ function ArtifactCard({ response, field, checking, reviewing, driveAccessCheck, 
                 </Button>
               ) : null}
               {field.aiReviewEnabled ? (
-                <Button variant="default" size="xs" loading={Boolean(driveAccessCheck?.running)} disabled={!value || reviewing}
-                  onClick={onDriveAccessCheck}>Check Drive API access</Button>
-              ) : null}
-              {field.aiReviewEnabled ? (
                 <Button variant="light" color="wildtrackGold" size="xs" leftSection={<Sparkle size={15} />}
                   loading={reviewing} disabled={reviewing || aiStatus === 'Reviewing' || !isArtifactDocumentCheckCurrent(response, field)} onClick={onAiReview}>
                   {reviewing || aiStatus === 'Reviewing' ? 'AI Review running'
@@ -212,11 +203,6 @@ function ArtifactCard({ response, field, checking, reviewing, driveAccessCheck, 
                 </Button>
               ) : null}
             </Group>
-            {driveAccessCheck?.result ? <Alert color={driveAccessCheck.result.status === 'ACCESSIBLE' ? 'green' : 'orange'}
-              title={`Drive API access: ${driveAccessCheck.result.status.replaceAll('_', ' ').toLowerCase()}`}>
-              <Text size="sm">{driveAccessCheck.result.message}</Text>
-              {driveAccessCheck.result.step ? <Text size="xs" c="dimmed">Checked stage: {driveAccessCheck.result.step}</Text> : null}
-            </Alert> : null}
             {report ? (
               <Stack gap={3}>
                 <Text size="sm">{report.summary || 'Document Check completed.'}</Text>

@@ -1,21 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, decideIdentityConflict, describeSnapshotFailures, diagnoseSubmittedAiDriveAccess, getAiReviewStatus, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getMyResponse, getSavedAiReview, logout, requestAiReview, saveBackendDeliverable, submitResponse } from './api.js';
+import { ApiError, decideIdentityConflict, describeSnapshotFailures, getAiReviewStatus, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getMyResponse, getSavedAiReview, logout, requestAiReview, saveBackendDeliverable, submitResponse } from './api.js';
 import { fetchCurrentSession, logoutSession } from './session.js';
 
 describe('production API delivery', () => {
-  it('checks the submitted PDF on the same-origin backend with GET and no paid AI start', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      status: 'API_NOT_FOUND', step: 'metadata', message: 'Backend Google Drive API returned 404.'
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-    await expect(diagnoseSubmittedAiDriveAccess('workspace-it', 'response-1', 'field-pdf')).resolves.toMatchObject({
-      status: 'API_NOT_FOUND', step: 'metadata'
-    });
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/ai-reviews/response-1/drive-access?fieldId=field-pdf&workspaceId=workspace-it',
-      expect.objectContaining({ credentials: 'include', mode: 'same-origin', method: 'GET' })
-    );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
   it('treats the backend empty 200 for an absent owned response as no response', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
     await expect(getMyResponse('workspace', 'form')).resolves.toBeNull();

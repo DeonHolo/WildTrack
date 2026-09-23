@@ -106,79 +106,6 @@ public class AiReviewService {
     private record Context(String hash, String title, String instructions, String template) { }
     private record ReviewTarget(String fieldId, String fieldKey, String label, String sourceUrl, boolean legacyStore) { }
 
-    public record DriveAccessDiagnostic(String status, String step, String message) { }
-
-    /**
-     * Read-only access test for one saved PDF artifact. Uses the same backend
-     * Drive gateway as AI Review, but never creates a job, stores bytes, or calls Gemini.
-     * The response deliberately omits file IDs, link contents, Drive identities,
-     * API keys and provider response bodies.
-     */
-    public DriveAccessDiagnostic diagnoseDriveAccess(UUID workspaceId, UUID responseId, String fieldId, String subject) {
-        FormResponse response = authorized(workspaceId, responseId, subject);
-        if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Only administrators can diagnose AI Review file access.");
-        ReviewTarget target = target(response, fieldId);
-        if (!drive.isConfigured()) return new DriveAccessDiagnostic("NOT_CONFIGURED", "configuration",
-            "WildTrack's backend Google Drive API access is not configured. No AI review was started.");
-        final var reference = DriveLinkParser.parse(target.sourceUrl());
-        com.capvault.backend.drive.DriveFileMetadata before;
-        try {
-            before = drive.getMetadata(reference);
-        } catch (GoogleDriveUnavailableException unavailable) {
-            return driveAccessFailure("metadata", unavailable);
-        }
-        if (!"application/pdf".equalsIgnoreCase(before.mimeType())) {
-            return new DriveAccessDiagnostic("NOT_PDF", "metadata",
-                "The submitted Drive item is not a PDF. No AI review was started.");
-        }
-        if (!before.canDownload()) return new DriveAccessDiagnostic("DOWNLOAD_DISABLED", "metadata",
-            "The Google Drive API reports that downloading is disabled for this file. No AI review was started.");
-        if (before.size() != null && before.size() > driveProperties.maximumFileSizeBytes()) {
-            return new DriveAccessDiagnostic("TOO_LARGE", "metadata",
-                "This PDF exceeds WildTrack's document size limit. No AI review was started.");
-        }
-        byte[] bytes;
-        try {
-            bytes = drive.download(reference);
-        } catch (GoogleDriveUnavailableException unavailable) {
-            return driveAccessFailure("download", unavailable);
-        }
-        if (bytes == null || bytes.length == 0 || bytes.length > driveProperties.maximumFileSizeBytes()) {
-            return new DriveAccessDiagnostic("DOWNLOAD_INVALID", "download",
-                "The Drive API did not return a PDF within WildTrack's size limit. No AI review was started.");
-        }
-        // The download is bounded by the configured gateway limit, held only
-        // for this request, never returned to the browser or retained in a job.
-        com.capvault.backend.drive.DriveFileMetadata after;
-        try {
-            after = drive.getMetadata(reference);
-        } catch (GoogleDriveUnavailableException unavailable) {
-            return driveAccessFailure("metadata recheck", unavailable);
-        }
-        if (!Objects.equals(before.md5Checksum(), after.md5Checksum())
-                || !Objects.equals(before.modifiedTime(), after.modifiedTime())) {
-            return new DriveAccessDiagnostic("CHANGED", "metadata recheck",
-                "The PDF changed during the Drive API access check. No AI review was started.");
-        }
-        return new DriveAccessDiagnostic("ACCESSIBLE", "complete",
-            "WildTrack's configured backend Drive API access retrieved this submitted PDF successfully. No Gemini request was made.");
-    }
-
-    private static DriveAccessDiagnostic driveAccessFailure(String step, GoogleDriveUnavailableException failure) {
-        if (failure.getCause() instanceof RestClientResponseException response) {
-            int code = response.getStatusCode().value();
-            if (code == 403 || code == 404) return new DriveAccessDiagnostic(code == 403 ? "API_DENIED" : "API_NOT_FOUND", step,
-                "Google Drive API returned HTTP " + code + " during " + step + ". A PDF may open in a browser while "
-                    + "the backend API cannot read it. Check this deployment's Drive API access and the submitted link. No AI review was started.");
-            if (code == 400 || code == 401 || code == 429) return new DriveAccessDiagnostic(
-                code == 429 ? "API_RATE_LIMITED" : "API_REQUEST_REJECTED", step,
-                "Google Drive API returned HTTP " + code + " during " + step
-                    + ". Check this deployment's Drive API configuration and limits. No AI review was started.");
-        }
-        return new DriveAccessDiagnostic("API_UNAVAILABLE", step,
-            "WildTrack could not complete the Drive API access check. No AI review was started.");
-    }
-
     public Map<String, Object> status(String subject) {
         requireRole(subject);
         return Map.of("configured", provider.isConfigured(), "message", provider.isConfigured()
@@ -291,8 +218,8 @@ public class AiReviewService {
                     && (rejected.getStatusCode().value() == 403 || rejected.getStatusCode().value() == 404)) {
                 throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "The submitted Drive PDF could not be opened. The backend Drive API could not access this file, "
-                    + "even though its browser link may work. Use Check Drive API access to identify the failing step "
-                    + "before changing the submission or retrying. No AI review was started.");
+                    + "even though its browser link may work. Check the submission link and backend Drive access "
+                    + "before retrying. No AI review was started.");
             }
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                 "WildTrack could not retrieve the submitted PDF from Google Drive. No AI review was started. Try again later.");

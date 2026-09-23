@@ -712,11 +712,6 @@ export function getSavedAiReview(workspaceId, responseId, fieldId = null) {
   const fieldQuery = fieldId ? `?fieldId=${encodeURIComponent(fieldId)}` : '';
   return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}${fieldQuery}`, workspaceId));
 }
-/** Read-only backend Drive access check; does not create an AI Review or contact Gemini. */
-export function diagnoseSubmittedAiDriveAccess(workspaceId, responseId, fieldId = null) {
-  const fieldQuery = fieldId ? `?fieldId=${encodeURIComponent(fieldId)}` : '';
-  return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}/drive-access${fieldQuery}`, workspaceId));
-}
 export function requestAiReview(workspaceId, responseId, retryAcknowledged = false, retryToken = null,
     fieldId = null, rerunRequested = false) {
   return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}`, workspaceId), {

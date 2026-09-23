@@ -3346,10 +3346,6 @@ textarea:not(.mantine-Input-input):focus {
   line-height: 1.4;
 }
 
-.document-check-limitation {
-  margin: 18px 22px 0;
-}
-
 .document-check-actions {
   position: sticky;
   bottom: 0;
