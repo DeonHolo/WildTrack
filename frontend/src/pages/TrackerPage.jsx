@@ -241,7 +241,7 @@ function buildTrackerCounts(students, activeColumns) {
 function buildSelectedStudentSummary(student, state) {
   const studentResponses = state.attempts.filter((response) => normalizeStudentNumber(response.studentNumber) === normalizeStudentNumber(student.studentNumber));
   const missingDeliverables = state.deliverables.filter((deliverable) => deliverable.status !== 'Unpublished' && !studentResponses.some((response) => response.deliverableId === deliverable.id));
-  const needsReview = studentResponses.filter((response) => response.reviewStatus === 'Needs Review' || (response.flags || []).some((flag) => ['Template-like', 'Too Short'].includes(flag)));
+  const needsReview = studentResponses.filter((response) => response.reviewStatus === 'Needs Review' || (response.flags || []).some((flag) => ['Template-like', 'Too Short', 'Sparse Content', 'Substance Inconclusive'].includes(flag)));
   const templateLike = studentResponses.filter((response) => (response.flags || []).includes('Template-like'));
   const lateCount = Object.values(student.milestones || {}).filter((value) => !Number.isNaN(Number(value)) && Number(value) > 0).length;
   const latestResponse = [...studentResponses].sort((a, b) => new Date(b.updatedAt || b.submittedAt) - new Date(a.updatedAt || a.submittedAt))[0];

@@ -2,7 +2,7 @@ import { ActionIcon, Alert, Badge, Modal, Tabs, Tooltip } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { ArrowSquareOut, CheckCircle, Info, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
 import { Button, StatusIndicator } from '../ui.jsx';
-import { formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
+import { formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../../lib/workflow.js';
 import { ObservedFileHistory } from './ObservedFileHistory.jsx';
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
 import { getSubmittedFileHistory } from '../../lib/api.js';
@@ -55,7 +55,11 @@ export function DocumentCheckDialog({
   const expectedSectionCount = comparison?.expectedTemplateHeadings?.length || 0;
   const detectedSectionCount = comparison?.detectedTemplateHeadings?.length || 0;
   const currentStatus = documentCheckStatus(effectiveResponse);
-  const successful = currentStatus === 'Ready for review';
+  const successful = currentStatus === 'Ready for review' || currentStatus === 'Looks substantially filled';
+  const substanceStatus = submissionSubstanceStatus(report);
+  const overviewNeedsAttention = substanceStatus
+    ? substanceStatus !== 'Looks substantially filled'
+    : Boolean(report?.redFlags?.length || report?.missingSections?.length);
   const latestObservation = studentView ? null : observedHistory?.observations?.[0];
   const sharedMetadata = sharedHistory?.key === targetKey && open ? sharedHistory?.data?.fileMetadata : null;
   const ownerSource = sharedMetadata?.driveOwner || sharedMetadata?.driveOwnerStudent
@@ -67,8 +71,8 @@ export function DocumentCheckDialog({
   const ownerStudent = ownerSource === sharedMetadata ? sharedMetadata?.driveOwnerStudent : latestObservation?.driveOwnerStudent;
   const editorStudent = editorSource === sharedMetadata ? sharedMetadata?.lastModifiedByStudent : latestObservation?.modifiedByStudent;
   const checkExplanation = studentView
-    ? 'Document Check checks whether your PDF can be accessed and read and, when an official template is available, compares its structure. It does not grade your work or decide whether it is accepted.'
-    : 'Document Check verifies file access and readability, then compares deterministic template structure when an official template is available. It does not grade the submission or replace staff review.';
+    ? 'Document Check checks whether your PDF can be accessed and read and whether it appears substantially filled. It does not grade your work or decide whether it is accepted.'
+    : 'Document Check verifies file access and readability, then screens whether the PDF appears substantially filled. Template structure is supporting evidence only. It does not grade the submission or replace staff review.';
 
   const title = (
     <div className="document-check-title">
@@ -111,17 +115,20 @@ export function DocumentCheckDialog({
         ) : null}
 
         {showResult ? <Tabs.Panel value="result" pt={studentView ? 0 : 'md'}>
-          <div className={'document-check-overview ' + (report?.redFlags?.length ? 'attention' : '')}>
-            {successful && !report?.redFlags?.length ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
+          <div className={'document-check-overview ' + (overviewNeedsAttention ? 'attention' : '')}>
+            {successful && !overviewNeedsAttention ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
             <div>
               <StatusIndicator status={studentView ? studentDocumentCheckStatus(effectiveResponse) : currentStatus} />
               <p>{studentView ? studentSummary(report, effectiveResponse) : report?.summary || effectiveResponse.checkSummary || 'No Document Check result is available.'}</p>
             </div>
           </div>
 
-          <section className="document-check-section">
-            <h3>File validation</h3>
-            <div className="document-check-grid">
+          <details className="document-check-details" open={!report?.submissionSubstance}>
+            <summary>{report?.submissionSubstance ? 'View details' : 'Check details'}</summary>
+            <div className="document-check-details-body">
+            <section className="document-check-section">
+              <h3>File validation</h3>
+              <div className="document-check-grid">
               <CheckFact label="Drive access" value={metadata ? 'Accessible' : unavailableValue(response)} ready={Boolean(metadata)} />
               <CheckFact label="File type" value={metadata?.mimeType === 'application/pdf' ? 'PDF' : metadata?.mimeType || 'Not available'} ready={metadata?.mimeType === 'application/pdf'} />
               <CheckFact label="Download" value={metadata ? metadata.canDownload ? 'Allowed' : 'Disabled' : 'Not available'} ready={Boolean(metadata?.canDownload)} />
@@ -150,12 +157,12 @@ export function DocumentCheckDialog({
                     value={<DriveIdentityValue registeredStudent={editorStudent} providerValue={editorDisplay} />} />
                 </>
               ) : null}
-            </div>
-          </section>
+              </div>
+            </section>
 
-          <section className="document-check-section">
-            <h3>Official template structure</h3>
-            {comparison?.available ? (
+            <section className="document-check-section">
+              <h3>Official template structure</h3>
+              {comparison?.available ? (
               <>
                 <div className="document-check-template-summary">
                   <strong>{missingSections.length ? missingSections.length + ' expected body section' + (missingSections.length === 1 ? '' : 's') + ' not detected' : 'Expected template sections detected'}</strong>
@@ -185,24 +192,26 @@ export function DocumentCheckDialog({
                   </Alert>
                 ) : null}
               </>
-            ) : (
+              ) : (
               <p className="muted-copy">
                 {studentView
                   ? 'No official template was available for comparison when your PDF was checked.'
                   : 'No official template was available for this deliverable when the document was checked.'}
               </p>
-            )}
-          </section>
-
-          {report?.redFlags?.length ? (
-            <section className="document-check-section">
-              <h3>{studentView ? 'What needs attention' : 'Findings'}</h3>
-              <div className="status-strip stable">
-                {report.redFlags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}
-              </div>
-              <p>{studentView ? 'Review the items above and update your submitted PDF link if needed.' : report.suggestedAction}</p>
+              )}
             </section>
-          ) : null}
+
+            {report?.redFlags?.length ? (
+              <section className="document-check-section">
+                <h3>{studentView ? 'What needs attention' : 'Findings'}</h3>
+                <div className="status-strip stable">
+                  {report.redFlags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}
+                </div>
+                <p>{studentView ? 'Review the items above and update your submitted PDF link if needed.' : report.suggestedAction}</p>
+              </section>
+            ) : null}
+            </div>
+          </details>
 
         </Tabs.Panel> : null}
 
@@ -288,6 +297,8 @@ export function documentCheckStatus(response) {
   if (response?.documentCheck?.status === 'Unavailable') return 'Not checked';
   if (!response?.documentCheck) return 'Not checked';
   if (response.documentCheck.sourceResponseUpdatedAt !== (response.updatedAt || response.submittedAt)) return 'Outdated';
+  const substanceStatus = submissionSubstanceStatus(response.documentCheck);
+  if (substanceStatus) return substanceStatus;
   if (response.documentCheck.redFlags?.length || response.documentCheck.missingSections?.length) return 'Needs attention';
   return 'Ready for review';
 }
@@ -304,6 +315,7 @@ function studentSummary(report, response) {
   if (['Unavailable', 'Error'].includes(report?.status)) {
     return 'Document Check could not read this PDF right now. Please try again later or update the submitted link if the file is unavailable.';
   }
+  if (report?.submissionSubstance?.reason) return report.submissionSubstance.reason;
   if (report?.redFlags?.length || report?.missingSections?.length) {
     return 'Document Check found items that may need your attention. Review the details below.';
   }

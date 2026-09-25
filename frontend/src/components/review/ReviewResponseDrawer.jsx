@@ -158,7 +158,7 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
     ? aiState.previousReport : null;
   const inconclusiveAttempt = aiState?.status === 'UNCERTAIN'
     && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED', 'INSUFFICIENT_REVIEW_EVIDENCE'].includes(aiState.failureCode);
-  const missingPreview = compactMissingSections(report?.missingSections, 4);
+  const missingPreview = report?.submissionSubstance ? '' : compactMissingSections(report?.missingSections, 4);
 
   return (
     <Paper withBorder p="md" radius="md">

@@ -24,7 +24,20 @@ class PdfInspectorTest {
         assertThat(result.readable()).isTrue();
         assertThat(result.encrypted()).isFalse();
         assertThat(result.pageCount()).isEqualTo(1);
+        assertThat(result.textBearingPageCount()).isEqualTo(1);
         assertThat(result.extractedText()).contains("Software Requirements Specification");
+    }
+
+    @Test
+    void countsOnlyPagesWithExtractableText() throws Exception {
+        byte[] pdf = readablePdfWithBlankMiddlePage();
+
+        PdfInspection result = inspector.inspect(pdf);
+
+        assertThat(result.readable()).isTrue();
+        assertThat(result.pageCount()).isEqualTo(3);
+        assertThat(result.textBearingPageCount()).isEqualTo(2);
+        assertThat(result.extractedText()).contains("Introduction", "Requirements");
     }
 
     @Test
@@ -49,6 +62,29 @@ class PdfInspectorTest {
             }
             document.save(output);
             return output.toByteArray();
+        }
+    }
+
+    private static byte[] readablePdfWithBlankMiddlePage() throws Exception {
+        try (PDDocument document = new PDDocument();
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            addTextPage(document, "Introduction with substantive project text.");
+            document.addPage(new PDPage());
+            addTextPage(document, "Requirements with substantive project text.");
+            document.save(output);
+            return output.toByteArray();
+        }
+    }
+
+    private static void addTextPage(PDDocument document, String text) throws Exception {
+        PDPage page = new PDPage();
+        document.addPage(page);
+        try (PDPageContentStream content = new PDPageContentStream(document, page)) {
+            content.beginText();
+            content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+            content.newLineAtOffset(72, 720);
+            content.showText(text);
+            content.endText();
         }
     }
 }

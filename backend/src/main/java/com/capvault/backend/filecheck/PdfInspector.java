@@ -18,7 +18,7 @@ public class PdfInspector {
             || bytes[2] != 'D'
             || bytes[3] != 'F'
             || bytes[4] != '-') {
-            return new PdfInspection(false, false, 0, 0, "", "The downloaded file is not valid PDF data.");
+            return new PdfInspection(false, false, 0, 0, 0, "", "The downloaded file is not valid PDF data.");
         }
 
         try (PDDocument document = Loader.loadPDF(bytes)) {
@@ -28,23 +28,38 @@ public class PdfInspector {
                     true,
                     document.getNumberOfPages(),
                     0,
+                    0,
                     "",
                     "The PDF is password-protected."
                 );
             }
-            String text = normalize(new PDFTextStripper().getText(document));
+            PDFTextStripper stripper = new PDFTextStripper();
+            StringBuilder extracted = new StringBuilder();
+            int textBearingPages = 0;
+            for (int page = 1; page <= document.getNumberOfPages(); page++) {
+                stripper.setStartPage(page);
+                stripper.setEndPage(page);
+                String pageText = normalize(stripper.getText(document));
+                if (!pageText.isBlank()) {
+                    textBearingPages++;
+                    if (!extracted.isEmpty()) extracted.append("\n\n");
+                    extracted.append(pageText);
+                }
+            }
+            String text = normalize(extracted.toString());
             return new PdfInspection(
                 true,
                 false,
                 document.getNumberOfPages(),
+                textBearingPages,
                 text.length(),
                 text,
                 ""
             );
         } catch (InvalidPasswordException exception) {
-            return new PdfInspection(false, true, 0, 0, "", "The PDF is password-protected.");
+            return new PdfInspection(false, true, 0, 0, 0, "", "The PDF is password-protected.");
         } catch (IOException | RuntimeException exception) {
-            return new PdfInspection(false, false, 0, 0, "", "The PDF is corrupt or unreadable.");
+            return new PdfInspection(false, false, 0, 0, 0, "", "The PDF is corrupt or unreadable.");
         }
     }
 

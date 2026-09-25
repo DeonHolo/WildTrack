@@ -473,8 +473,19 @@ export function artifactDocumentCheckStatus(response, field) {
   if (!report) return 'Not checked';
   if (report.status === 'Unavailable') return 'Not checked';
   if (!isArtifactDocumentCheckCurrent(response, field)) return 'Outdated';
+  const substanceStatus = submissionSubstanceStatus(report);
+  if (substanceStatus === 'Looks substantially filled') return 'Ready for review';
+  if (substanceStatus === 'Needs attention' || substanceStatus === 'Could not determine') return 'Needs attention';
   if (report.redFlags?.length || report.missingSections?.length || report.attentionRequired) return 'Needs attention';
   return 'Ready for review';
+}
+
+export function submissionSubstanceStatus(report) {
+  const state = report?.submissionSubstance?.state;
+  if (state === 'LOOKS_SUBSTANTIALLY_FILLED') return 'Looks substantially filled';
+  if (state === 'NEEDS_ATTENTION') return 'Needs attention';
+  if (state === 'COULD_NOT_DETERMINE') return 'Could not determine';
+  return '';
 }
 
 export function isDocumentCheckUnavailable(response) {
@@ -656,9 +667,9 @@ export function statusTone(status) {
   const key = String(status).toLowerCase();
   if (key === 'retry required') return 'warning';
   if (key === 'reviewing') return 'info';
-  if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'connected', 'imported', 'published', 'submitted', 'file accessible'].includes(key)) return 'success';
+  if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'looks substantially filled', 'connected', 'imported', 'published', 'submitted', 'file accessible'].includes(key)) return 'success';
   if (['archived', 'reviewed'].includes(key)) return 'maroon';
-  if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'outdated', 'starter data', 'late', 'needs attention'].includes(key)) return 'warning';
+  if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'outdated', 'starter data', 'late', 'needs attention', 'could not determine'].includes(key)) return 'warning';
   if (['not pdf', 'editable link', 'inaccessible', 'blocked', 'could not check', 'no file link'].includes(key)) return 'danger';
   if (['checked', 'checking', 'received'].includes(key)) return 'info';
   return 'neutral';

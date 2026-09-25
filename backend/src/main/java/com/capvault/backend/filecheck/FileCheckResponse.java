@@ -21,6 +21,7 @@ public record FileCheckResponse(
     DriveMetadata metadata,
     DocumentResult document,
     TemplateComparison templateComparison,
+    SubmissionSubstanceResult submissionSubstance,
     String checkedBy,
     LocalDateTime checkedAt
 ) {
@@ -41,6 +42,48 @@ public record FileCheckResponse(
             metadata,
             document,
             templateComparison,
+            submissionSubstance,
+            checkedBy,
+            checkedAt
+        );
+    }
+
+    public FileCheckResponse(
+        UUID id,
+        String responseId,
+        String fieldId,
+        String sourceUrl,
+        String sourceResponseUpdatedAt,
+        String status,
+        boolean attentionRequired,
+        String summary,
+        List<String> flags,
+        List<String> redFlags,
+        List<String> missingSections,
+        String suggestedAction,
+        DriveMetadata metadata,
+        DocumentResult document,
+        TemplateComparison templateComparison,
+        String checkedBy,
+        LocalDateTime checkedAt
+    ) {
+        this(
+            id,
+            responseId,
+            fieldId,
+            sourceUrl,
+            sourceResponseUpdatedAt,
+            status,
+            attentionRequired,
+            summary,
+            flags,
+            redFlags,
+            missingSections,
+            suggestedAction,
+            metadata,
+            document,
+            templateComparison,
+            null,
             checkedBy,
             checkedAt
         );
@@ -62,7 +105,22 @@ public record FileCheckResponse(
         boolean readable,
         boolean encrypted,
         int pageCount,
+        int textBearingPageCount,
         int extractedCharacterCount
     ) {
+        public DocumentResult(
+            boolean readable,
+            boolean encrypted,
+            int pageCount,
+            int extractedCharacterCount
+        ) {
+            this(
+                readable,
+                encrypted,
+                pageCount,
+                readable && extractedCharacterCount > 0 ? pageCount : 0,
+                extractedCharacterCount
+            );
+        }
     }
 }

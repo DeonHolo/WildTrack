@@ -353,6 +353,28 @@ function getStudentFileCheck(response, artifacts = []) {
     return { label: 'Could not check file', summary: check?.summary || response.checkSummary || 'The submitted file could not be checked.', tone: 'danger' };
   }
   if (check) {
+    const substanceState = check.submissionSubstance?.state;
+    if (substanceState === 'NEEDS_ATTENTION') {
+      return {
+        label: 'File needs attention',
+        summary: check.submissionSubstance?.reason || check.summary || 'Review the Document Check details.',
+        tone: 'warning'
+      };
+    }
+    if (substanceState === 'COULD_NOT_DETERMINE') {
+      return {
+        label: 'Could not determine',
+        summary: check.submissionSubstance?.reason || 'Document Check could not reliably assess whether this PDF is substantially filled.',
+        tone: 'warning'
+      };
+    }
+    if (substanceState === 'LOOKS_SUBSTANTIALLY_FILLED') {
+      return {
+        label: 'Looks substantially filled',
+        summary: check.submissionSubstance?.reason || '',
+        tone: 'success'
+      };
+    }
     const accessible = check.metadata?.canDownload !== false;
     const isPdf = !check.metadata?.mimeType || check.metadata.mimeType === 'application/pdf';
     const readable = check.document?.readable !== false;
