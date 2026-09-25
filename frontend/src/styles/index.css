@@ -3253,6 +3253,38 @@ textarea:not(.mantine-Input-input):focus {
   line-height: 1.5;
 }
 
+.document-check-details {
+  margin: 12px 22px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.document-check-details > summary {
+  cursor: pointer;
+  padding: 11px 14px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.document-check-details[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.document-check-details-body {
+  padding-bottom: 14px;
+}
+
+.document-check-details .document-check-section {
+  margin-left: 14px;
+  margin-right: 14px;
+}
+
+.document-check-details .document-check-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
 .document-check-section {
   margin: 18px 22px 0;
   border-top: 1px solid var(--border);

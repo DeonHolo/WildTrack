@@ -7,6 +7,7 @@ import {
   artifactAiReview,
   artifactAiReviewStatus,
   isArtifactDocumentCheckCurrent,
+  statusTone,
   dedupeDeliverables,
   findOwnedResponse,
   getResponseOwnerKey,
@@ -109,6 +110,13 @@ describe('artifact-scoped review currentness', () => {
     expect(isArtifactDocumentCheckCurrent(response, second)).toBe(true);
     expect(isArtifactAiReviewCurrent(response, first)).toBe(false);
     expect(isArtifactAiReviewCurrent(response, second)).toBe(true);
+  });
+});
+
+describe('Document Check submission-substance status tones', () => {
+  it('renders the positive and inconclusive conclusions with meaningful tones', () => {
+    expect(statusTone('Looks substantially filled')).toBe('success');
+    expect(statusTone('Could not determine')).toBe('warning');
   });
 });
 

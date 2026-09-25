@@ -260,15 +260,23 @@ public class FileCheckService {
         }
 
         DocumentTemplate template = templateService.find(workspaceId, request.deliverableKey(), request.fieldId());
-        TemplateComparison comparison = template == null
+        String templateText = template == null ? null : template.getExtractedText();
+        TemplateComparison comparison = templateText == null || templateText.isBlank()
             ? TemplateComparison.unavailable()
-            : templateComparator.compare(template.getExtractedText(), inspection.extractedText());
+            : templateComparator.compare(templateText, inspection.extractedText());
+        SubmissionSubstanceResult submissionSubstance = SubmissionSubstanceClassifier.classify(
+            properties,
+            inspection,
+            comparison,
+            templateText == null || templateText.isBlank() ? null : templateText.length()
+        );
         return persist(workspaceId, request, completed(
             request,
             checkedAt,
             responseMetadata,
             inspection,
-            comparison
+            comparison,
+            submissionSubstance
         ), metadata);
     }
 
@@ -392,43 +400,40 @@ public class FileCheckService {
         LocalDateTime checkedAt,
         FileCheckResponse.DriveMetadata metadata,
         PdfInspection inspection,
-        TemplateComparison comparison
+        TemplateComparison comparison,
+        SubmissionSubstanceResult submissionSubstance
     ) {
         List<String> flags = new ArrayList<>();
         List<String> redFlags = new ArrayList<>();
         List<String> missingSections = new ArrayList<>();
         flags.add("PDF Verified");
 
-        if (inspection.extractedCharacterCount() < properties.minimumReadableCharacters()) {
-            flags.add("Too Short");
-            redFlags.add("Too Short");
-        }
         if (comparison.available()) {
-            if (comparison.appearsTemplateOnly()) {
-                flags.add("Template-like");
-                redFlags.add("Template-like");
-            }
             if (!comparison.missingTemplateHeadings().isEmpty()) {
-                flags.add("Template Headings Missing");
                 missingSections.addAll(comparison.missingTemplateHeadings());
             }
         } else {
             flags.add("No Template");
         }
 
-        boolean attention = !redFlags.isEmpty() || !missingSections.isEmpty();
-        String summary;
-        if (inspection.extractedCharacterCount() < properties.minimumReadableCharacters()) {
-            summary = "The PDF is readable, but it contains very little extractable text.";
-        } else if (comparison.appearsTemplateOnly()) {
-            summary = "The PDF is readable, but large portions still appear unchanged from the official template.";
-        } else if (!missingSections.isEmpty()) {
-            summary = "The PDF is readable, but some expected body sections from the official template were not detected.";
-        } else if (!comparison.available()) {
-            summary = "The PDF is readable. Upload an official template to enable instruction and template comparison.";
-        } else {
-            summary = "The PDF is readable and the expected template body sections were detected.";
+        if (SubmissionSubstanceResult.NEEDS_ATTENTION.equals(submissionSubstance.state())) {
+            redFlags.add(SubmissionSubstanceResult.TEMPLATE_LIKE.equals(submissionSubstance.reasonCode())
+                ? "Template-like" : "Sparse Content");
+        } else if (SubmissionSubstanceResult.COULD_NOT_DETERMINE.equals(submissionSubstance.state())) {
+            redFlags.add("Substance Inconclusive");
         }
+        flags.addAll(redFlags);
+
+        boolean attention = submissionSubstance.attentionRequired();
+        String summary = submissionSubstance.reason();
+        String suggestedAction = switch (submissionSubstance.state()) {
+            case SubmissionSubstanceResult.NEEDS_ATTENTION ->
+                "Open the submitted file and review why its submission substance needs attention.";
+            case SubmissionSubstanceResult.COULD_NOT_DETERMINE ->
+                "Open the submitted file and confirm whether readable text is available for Document Check.";
+            default ->
+                "Document Check found substantial content. Staff review is still required.";
+        };
 
         return new FileCheckResponse(
             null,
@@ -442,17 +447,17 @@ public class FileCheckService {
             List.copyOf(flags),
             List.copyOf(redFlags),
             List.copyOf(missingSections),
-            attention
-                ? "Open the submitted file and review the highlighted findings."
-                : "The automated checks found no immediate file-access or template-content issue. Staff review is still required.",
+            suggestedAction,
             metadata,
             new FileCheckResponse.DocumentResult(
                 true,
                 false,
                 inspection.pageCount(),
+                inspection.textBearingPageCount(),
                 inspection.extractedCharacterCount()
             ),
             comparison,
+            submissionSubstance,
             "Document Check",
             checkedAt
         );

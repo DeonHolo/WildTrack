@@ -8,6 +8,8 @@ import {
 const FLAGGED_STATUSES = new Set([
   'Template-like',
   'Too Short',
+  'Sparse Content',
+  'Substance Inconclusive',
   'Template Headings Missing',
   'Not PDF',
   'Inaccessible',

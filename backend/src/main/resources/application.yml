@@ -34,6 +34,12 @@ capvault:
     minimum-readable-characters: ${CAPVAULT_FILE_CHECK_MINIMUM_CHARACTERS:300}
     template-coverage-threshold: ${CAPVAULT_FILE_CHECK_TEMPLATE_COVERAGE:0.75}
     maximum-added-content-ratio: ${CAPVAULT_FILE_CHECK_MAX_ADDED_RATIO:0.25}
+    minimum-assessable-characters: ${CAPVAULT_FILE_CHECK_MINIMUM_ASSESSABLE_CHARACTERS:40}
+    minimum-substantial-characters: ${CAPVAULT_FILE_CHECK_MINIMUM_SUBSTANTIAL_CHARACTERS:1500}
+    minimum-text-page-ratio: ${CAPVAULT_FILE_CHECK_MINIMUM_TEXT_PAGE_RATIO:0.50}
+    minimum-characters-per-text-bearing-page: ${CAPVAULT_FILE_CHECK_MINIMUM_CHARACTERS_PER_TEXT_PAGE:300}
+    minimum-substance-added-content-ratio: ${CAPVAULT_FILE_CHECK_MINIMUM_SUBSTANCE_ADDED_RATIO:0.55}
+    minimum-substance-character-growth-ratio: ${CAPVAULT_FILE_CHECK_MINIMUM_SUBSTANCE_GROWTH_RATIO:1.75}
 
 wildtrack:
   file-monitor:

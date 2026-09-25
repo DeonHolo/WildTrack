@@ -2,7 +2,7 @@ import { MantineProvider } from '@mantine/core';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
-import { DocumentCheckDialog } from './DocumentCheckDialog.jsx';
+import { DocumentCheckDialog, documentCheckStatus } from './DocumentCheckDialog.jsx';
 
 const getSubmittedFileHistory = vi.fn();
 vi.mock('../../lib/api.js', () => ({
@@ -54,7 +54,7 @@ describe('DocumentCheck shared submitted-file metadata', () => {
       ...response.documentCheck.metadata, modifiedTime: '2026-09-18T10:00:00+08:00'
     } } });
     const dialog = screen.getByRole('dialog');
-    const explanation = 'Document Check verifies file access and readability, then compares deterministic template structure when an official template is available. It does not grade the submission or replace staff review.';
+    const explanation = 'Document Check verifies file access and readability, then screens whether the PDF appears substantially filled. Template structure is supporting evidence only. It does not grade the submission or replace staff review.';
     expect(within(dialog).getByText('Document Check')).toBeInTheDocument();
     expect(within(dialog).getByText('Last modified (Drive)')).toBeInTheDocument();
     expect(within(dialog).queryByText('Drive modified when checked')).not.toBeInTheDocument();
@@ -214,5 +214,91 @@ describe('DocumentCheck shared submitted-file metadata', () => {
   it('does not prefetch when Document Check is closed', () => {
     show({ open: false });
     expect(getSubmittedFileHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe('DocumentCheck submission substance', () => {
+  beforeEach(() => { getSubmittedFileHistory.mockReset().mockResolvedValue(sharedHistory); });
+
+  function report(state, reason, extras = {}) {
+    return {
+      ...response.documentCheck,
+      summary: reason,
+      flags: ['PDF Verified'],
+      redFlags: [],
+      missingSections: [],
+      document: { readable: true, pageCount: 10, textBearingPageCount: 10, extractedCharacterCount: 12000 },
+      templateComparison: {
+        available: true,
+        templateCoverage: 0.33,
+        addedContentRatio: 0.79,
+        expectedTemplateHeadings: ['Introduction', 'Requirements'],
+        detectedTemplateHeadings: ['Introduction'],
+        sectionEvidence: [
+          { expectedHeading: 'Introduction', status: 'DETECTED', matchedLine: '1. Introduction', extractedTextLine: 20 },
+          { expectedHeading: 'Requirements', status: 'NOT_DETECTED' }
+        ]
+      },
+      submissionSubstance: {
+        state,
+        reason,
+        reasonCode: state === 'LOOKS_SUBSTANTIALLY_FILLED' ? 'SUBSTANTIAL_CONTENT' : 'SPARSE_CONTENT',
+        evidence: { templateAvailable: true, textPageRatio: 1, charactersPerTextBearingPage: 1200 }
+      },
+      ...extras
+    };
+  }
+
+  it('uses submission substance as the result even when informational template headings are missing', () => {
+    const reason = 'WildTrack found substantial content beyond the official template.';
+    const current = report('LOOKS_SUBSTANTIALLY_FILLED', reason, { missingSections: ['Requirements'] });
+    show({ documentCheck: current });
+    const dialog = screen.getByRole('dialog');
+
+    expect(within(dialog).getByText('Looks substantially filled')).toBeInTheDocument();
+    expect(within(dialog).getByText(reason)).toBeInTheDocument();
+    expect(documentCheckStatus({ ...response, documentCheck: current })).toBe('Looks substantially filled');
+    expect(within(dialog).getByText('View details')).toBeInTheDocument();
+    expect(within(dialog).getByText('Official template structure')).not.toBeVisible();
+
+    fireEvent.click(within(dialog).getByText('View details'));
+    expect(within(dialog).getByText('Official template structure')).toBeVisible();
+    expect(within(dialog).getByText('File validation')).toBeVisible();
+  });
+
+  it('shows a concise Needs attention reason without opening detailed evidence', () => {
+    const reason = 'The PDF contains too little extractable text across its pages to look substantially filled.';
+    show({ documentCheck: report('NEEDS_ATTENTION', reason, {
+      redFlags: ['Sparse Content'],
+      submissionSubstance: {
+        state: 'NEEDS_ATTENTION', reason, reasonCode: 'SPARSE_CONTENT',
+        evidence: { templateAvailable: false, textPageRatio: 1, charactersPerTextBearingPage: 120 }
+      },
+      templateComparison: { available: false }
+    }) });
+    const dialog = screen.getByRole('dialog');
+
+    expect(within(dialog).getByText('Needs attention')).toBeInTheDocument();
+    expect(within(dialog).getByText(reason)).toBeInTheDocument();
+    expect(within(dialog).getByText('File validation')).not.toBeVisible();
+  });
+
+  it('separates extraction uncertainty from a sparse submission', () => {
+    const reason = 'The PDF opens, but there is not enough extractable text to assess whether it is substantially filled.';
+    show({ documentCheck: report('COULD_NOT_DETERMINE', reason, {
+      redFlags: ['Substance Inconclusive'],
+      submissionSubstance: {
+        state: 'COULD_NOT_DETERMINE', reason, reasonCode: 'INSUFFICIENT_TEXT_EXTRACTION',
+        evidence: { templateAvailable: false, textPageRatio: 0, charactersPerTextBearingPage: 0 }
+      },
+      templateComparison: { available: false }
+    }) });
+
+    expect(within(screen.getByRole('dialog')).getByText('Could not determine')).toBeInTheDocument();
+  });
+
+  it('keeps legacy saved reports on the old flag and missing-section fallback', () => {
+    const legacy = { ...response.documentCheck, redFlags: [], missingSections: ['Scope'] };
+    expect(documentCheckStatus({ ...response, documentCheck: legacy })).toBe('Needs attention');
   });
 });
