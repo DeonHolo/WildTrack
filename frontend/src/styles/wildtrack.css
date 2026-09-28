@@ -1729,10 +1729,10 @@
   grid-template-areas:
     "title state actions"
     "detail detail detail";
-  grid-template-columns: minmax(240px, 1.15fr) minmax(210px, 0.72fr) minmax(300px, auto);
+  grid-template-columns: minmax(220px, 1.2fr) minmax(175px, 0.7fr) minmax(330px, auto);
   align-items: start;
   column-gap: 24px;
-  row-gap: 16px;
+  row-gap: 12px;
   padding: 22px 20px;
   border-bottom: 1px solid var(--wt-border);
 }
@@ -1755,37 +1755,27 @@
 
 .wt-student-deliverable-state {
   grid-area: state;
-  gap: 5px;
 }
 
 .wt-student-deliverable-detail {
   grid-area: detail;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 14px 20px;
-  min-height: 68px;
-  padding: 11px 14px;
-  border: 1px solid var(--wt-border);
-  border-radius: 8px;
-  background: #fbfaf9;
+  column-gap: 10px;
 }
 
-.wt-student-deliverable-state-label,
-.wt-student-document-check-label {
-  letter-spacing: 0.045em;
-}
-
-.wt-student-document-check-block {
-  display: grid;
-  min-width: 0;
-  gap: 5px;
+.wt-student-deliverable-status-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .wt-student-document-check-line {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .wt-student-document-check-line p {
@@ -1817,7 +1807,7 @@
 }
 
 .wt-student-deliverable-review-actions .mantine-Button-root {
-  min-height: 32px;
+  min-height: 40px;
 }
 
 .wt-student-deliverable-actions .mantine-Button-root {
@@ -2037,7 +2027,6 @@
 
   .wt-student-deliverable-detail {
     grid-template-columns: 1fr;
-    padding: 12px;
   }
 
   .wt-student-document-check-line {

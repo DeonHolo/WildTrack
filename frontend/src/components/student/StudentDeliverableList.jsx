@@ -3,7 +3,6 @@ import { ArrowSquareOut, NotePencil } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { formatDate, formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 import { DocumentCheckDialog } from '../review/DocumentCheckDialog.jsx';
-import { ResponseTimingSummary } from '../ResponseTimingSummary.jsx';
 import { StatusIndicator } from '../ui.jsx';
 
 const FILTERS = [
@@ -68,49 +67,32 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
               </div>
 
               <div className="wt-student-deliverable-state">
-                <Text size="xs" fw={750} tt="uppercase" c="dimmed" className="wt-student-deliverable-state-label">
-                  Submission
-                </Text>
-                <StatusIndicator status={row.status} />
+                <div className="wt-student-deliverable-status-line">
+                  <StatusIndicator status={row.status} />
+                  {row.response?.timing ? <StatusIndicator status={formatTimingStatus(row.response.timing)} /> : null}
+                </div>
                 {row.savedAt ? <Text size="xs" c="dimmed">Saved {formatDateTime(row.savedAt)}</Text> : null}
-                {row.response?.timing ? <ResponseTimingSummary timing={row.response.timing} showEffective={false} /> : null}
                 {row.teamProgress?.members?.some(member => member.submitted === false) ? (
                   <Button type="button" className="wt-student-team-progress-trigger" variant="subtle" size="compact-sm"
                     color="wildtrackMaroon" aria-label={`${formatTeamProgress(row.teamProgress)}. View teammates not submitted for ${row.deliverable.title}`}
                     onClick={() => setActiveTeamProgress({ workspaceId, workspaceKey, studentNumber, deliverableId: row.deliverable.id })}>
-                    <span className="wt-student-team-progress-copy">
-                      <span>Team</span>
-                      <strong>{formatTeamProgressCompact(row.teamProgress)}</strong>
-                    </span>
+                    {formatTeamProgress(row.teamProgress)}
                   </Button>
                 ) : (
-                  <Text size="xs" c="dimmed" className="wt-tabular wt-student-team-progress-static">
-                    <span>Team</span>
-                    <strong>{formatTeamProgressCompact(row.teamProgress)}</strong>
-                  </Text>
+                  <Text size="xs" c="dimmed" className="wt-tabular">{formatTeamProgress(row.teamProgress)}</Text>
                 )}
               </div>
 
               {row.response || row.recorded ? <div className="wt-student-deliverable-detail">
                 {row.response ? (
                   <>
-                    <div className="wt-student-document-check-block">
-                      <Text size="xs" fw={750} tt="uppercase" c="dimmed" className="wt-student-document-check-label">
-                        Document Check
-                      </Text>
-                      <div className="wt-student-document-check-line">
-                        <StatusIndicator status={row.fileCheck.label} />
-                        {visibleFileCheckSummary(row.fileCheck) ? (
-                          <Text size="sm" c="dimmed" lineClamp={2}>{visibleFileCheckSummary(row.fileCheck)}</Text>
-                        ) : null}
-                      </div>
+                    <div className="wt-student-document-check-line">
+                      <StatusIndicator status={row.fileCheck.label} />
                     </div>
                     <Group className="wt-student-deliverable-review-actions" gap="xs" wrap="wrap">
                       {!hasMultipleArtifacts && row.documentCheck ? (
                         <Button
-                          variant="subtle"
-                          size="compact-sm"
-                          color="wildtrackMaroon"
+                          variant="default"
                           onClick={() => setActiveCheck({
                             response: row.response,
                             documentCheck: row.documentCheck,
@@ -122,7 +104,7 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                         </Button>
                       ) : null}
                       {!hasMultipleArtifacts && row.artifacts?.[0]?.drivePdf && !row.documentCheck ? (
-                        <Button variant="subtle" size="compact-sm" color="wildtrackMaroon" onClick={() => setActiveCheck({
+                        <Button variant="default" onClick={() => setActiveCheck({
                           response: row.response,
                           documentCheck: row.documentCheck,
                           fileLink: row.artifacts[0].value,
@@ -132,7 +114,7 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                         })}>File history</Button>
                       ) : null}
                       {row.feedback ? (
-                        <Button variant="subtle" size="compact-sm" color="wildtrackMaroon" onClick={() => setActiveFeedback(row)}>
+                        <Button variant="outline" color="wildtrackMaroon" onClick={() => setActiveFeedback(row)}>
                           Read feedback
                         </Button>
                       ) : null}
@@ -333,12 +315,11 @@ function formatTeamProgress(progress) {
   return `${submitted} of ${expected} team member${expected === 1 ? '' : 's'} submitted`;
 }
 
-function formatTeamProgressCompact(progress) {
-  const submitted = Number(progress?.submitted) || 0;
-  const expected = Number(progress?.expected) || 0;
-  if (!submitted) return expected > 0 ? `0 of ${expected} submitted` : 'No submissions yet';
-  if (expected > 0 && submitted >= expected) return `${expected} of ${expected} submitted`;
-  return `${submitted} of ${expected} submitted`;
+function formatTimingStatus(timing) {
+  if (!timing?.effectiveSubmittedAt) return '';
+  if (!timing.late) return 'On time';
+  const daysLate = Number(timing.daysLate) || 1;
+  return `${daysLate} day${daysLate === 1 ? '' : 's'} late`;
 }
 
 function visibleFileCheckSummary(fileCheck) {

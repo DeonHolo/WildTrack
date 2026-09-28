@@ -667,6 +667,7 @@ export function statusTone(status) {
   const key = String(status).toLowerCase();
   if (key === 'retry required') return 'warning';
   if (key === 'reviewing') return 'info';
+  if (/^\d+\s+days?\s+late$/.test(key)) return 'warning';
   if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'looks substantially filled', 'connected', 'imported', 'published', 'submitted', 'file accessible'].includes(key)) return 'success';
   if (['archived', 'reviewed'].includes(key)) return 'maroon';
   if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'outdated', 'starter data', 'late', 'needs attention', 'could not determine'].includes(key)) return 'warning';

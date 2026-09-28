@@ -258,10 +258,7 @@ describe('DocumentCheck submission substance', () => {
     expect(within(dialog).getByText('Looks substantially filled')).toBeInTheDocument();
     expect(within(dialog).getByText(reason)).toBeInTheDocument();
     expect(documentCheckStatus({ ...response, documentCheck: current })).toBe('Looks substantially filled');
-    expect(within(dialog).getByText('View details')).toBeInTheDocument();
-    expect(within(dialog).getByText('Official template structure')).not.toBeVisible();
-
-    fireEvent.click(within(dialog).getByText('View details'));
+    expect(within(dialog).queryByText('View details')).not.toBeInTheDocument();
     expect(within(dialog).getByText('Official template structure')).toBeVisible();
     expect(within(dialog).getByText('File validation')).toBeVisible();
   });
@@ -280,7 +277,8 @@ describe('DocumentCheck submission substance', () => {
 
     expect(within(dialog).getByText('Needs attention')).toBeInTheDocument();
     expect(within(dialog).getByText(reason)).toBeInTheDocument();
-    expect(within(dialog).getByText('File validation')).not.toBeVisible();
+    expect(within(dialog).queryByText('View details')).not.toBeInTheDocument();
+    expect(within(dialog).getByText('File validation')).toBeVisible();
   });
 
   it('separates extraction uncertainty from a sparse submission', () => {
