@@ -68,6 +68,9 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
               </div>
 
               <div className="wt-student-deliverable-state">
+                <Text size="xs" fw={750} tt="uppercase" c="dimmed" className="wt-student-deliverable-state-label">
+                  Submission
+                </Text>
                 <StatusIndicator status={row.status} />
                 {row.savedAt ? <Text size="xs" c="dimmed">Saved {formatDateTime(row.savedAt)}</Text> : null}
                 {row.response?.timing ? <ResponseTimingSummary timing={row.response.timing} showEffective={false} /> : null}
@@ -75,23 +78,34 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                   <Button type="button" className="wt-student-team-progress-trigger" variant="subtle" size="compact-sm"
                     color="wildtrackMaroon" aria-label={`${formatTeamProgress(row.teamProgress)}. View teammates not submitted for ${row.deliverable.title}`}
                     onClick={() => setActiveTeamProgress({ workspaceId, workspaceKey, studentNumber, deliverableId: row.deliverable.id })}>
-                    {formatTeamProgress(row.teamProgress)}
+                    <span className="wt-student-team-progress-copy">
+                      <span>Team</span>
+                      <strong>{formatTeamProgressCompact(row.teamProgress)}</strong>
+                    </span>
                   </Button>
                 ) : (
-                  <Text size="xs" c="dimmed" className="wt-tabular">{formatTeamProgress(row.teamProgress)}</Text>
+                  <Text size="xs" c="dimmed" className="wt-tabular wt-student-team-progress-static">
+                    <span>Team</span>
+                    <strong>{formatTeamProgressCompact(row.teamProgress)}</strong>
+                  </Text>
                 )}
               </div>
 
               {row.response || row.recorded ? <div className="wt-student-deliverable-detail">
                 {row.response ? (
                   <>
-                    <div className="wt-student-document-check-line">
-                      <StatusIndicator status={row.fileCheck.label} />
-                      {visibleFileCheckSummary(row.fileCheck) ? (
-                        <Text size="sm" c="dimmed" lineClamp={2}>{visibleFileCheckSummary(row.fileCheck)}</Text>
-                      ) : null}
+                    <div className="wt-student-document-check-block">
+                      <Text size="xs" fw={750} tt="uppercase" c="dimmed" className="wt-student-document-check-label">
+                        Document Check
+                      </Text>
+                      <div className="wt-student-document-check-line">
+                        <StatusIndicator status={row.fileCheck.label} />
+                        {visibleFileCheckSummary(row.fileCheck) ? (
+                          <Text size="sm" c="dimmed" lineClamp={2}>{visibleFileCheckSummary(row.fileCheck)}</Text>
+                        ) : null}
+                      </div>
                     </div>
-                    <Group gap="md" mt={4}>
+                    <Group className="wt-student-deliverable-review-actions" gap="xs" wrap="wrap">
                       {!hasMultipleArtifacts && row.documentCheck ? (
                         <Button
                           variant="subtle"
@@ -317,6 +331,14 @@ function formatTeamProgress(progress) {
     return `All ${expected} team member${expected === 1 ? '' : 's'} submitted`;
   }
   return `${submitted} of ${expected} team member${expected === 1 ? '' : 's'} submitted`;
+}
+
+function formatTeamProgressCompact(progress) {
+  const submitted = Number(progress?.submitted) || 0;
+  const expected = Number(progress?.expected) || 0;
+  if (!submitted) return expected > 0 ? `0 of ${expected} submitted` : 'No submissions yet';
+  if (expected > 0 && submitted >= expected) return `${expected} of ${expected} submitted`;
+  return `${submitted} of ${expected} submitted`;
 }
 
 function visibleFileCheckSummary(fileCheck) {

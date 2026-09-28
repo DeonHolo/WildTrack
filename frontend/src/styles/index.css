@@ -4887,8 +4887,9 @@ textarea:not(.mantine-Input-input):focus {
 
 .wt-student-deliverables .wt-student-team-progress-trigger {
   height: auto;
-  min-height: 30px;
-  padding-inline: 0;
+  min-height: 28px;
+  margin-top: 2px;
+  padding: 2px 5px;
   justify-self: start;
   max-width: 100%;
   text-align: left;
@@ -4896,6 +4897,30 @@ textarea:not(.mantine-Input-input):focus {
 
 .wt-student-deliverables .wt-student-team-progress-trigger .mantine-Button-label {
   white-space: normal;
+}
+
+.wt-student-team-progress-copy,
+.wt-student-team-progress-static {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.wt-student-team-progress-copy > span,
+.wt-student-team-progress-static > span {
+  color: var(--wt-muted);
+  font-weight: 500;
+}
+
+.wt-student-team-progress-copy > strong,
+.wt-student-team-progress-static > strong {
+  color: var(--wt-maroon);
+  font-weight: 700;
+}
+
+.wt-student-team-progress-trigger:hover .wt-student-team-progress-copy > strong {
   text-decoration: underline;
   text-underline-offset: 3px;
 }

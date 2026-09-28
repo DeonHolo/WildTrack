@@ -63,7 +63,7 @@ describe('StudentDeliverableList artifacts', () => {
         { studentNumber: '26-0004', name: 'Dario', submitted: false }
       ] } } )]);
     const progressButton = screen.getByRole('button', { name: /2 of 4 team members submitted.*view teammates not submitted/i });
-    expect(progressButton).toHaveTextContent('2 of 4 team members submitted');
+    expect(progressButton).toHaveTextContent('Team2 of 4 submitted');
     fireEvent.click(progressButton);
     const modal = await screen.findByRole('dialog', { name: 'Team submission progress' });
     expect(within(modal).getByText('SRS Submission')).toBeInTheDocument();
@@ -87,7 +87,8 @@ describe('StudentDeliverableList artifacts', () => {
     const legacy = baseRow({ deliverable: { ...complete.deliverable, id: 'd2', title: 'Legacy deliverable' },
       teamProgress: { submitted: 1, expected: 2 } });
     renderList([complete, legacy]);
-    expect(screen.getByText('All 2 team members submitted')).toBeInTheDocument();
+    const completeRow = screen.getByText('SRS Submission').closest('[role="listitem"]');
+    expect(within(completeRow).getByText('2 of 2 submitted')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /view teammates not submitted/i })).not.toBeInTheDocument();
   });
 

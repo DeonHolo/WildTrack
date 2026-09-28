@@ -1729,10 +1729,10 @@
   grid-template-areas:
     "title state actions"
     "detail detail detail";
-  grid-template-columns: minmax(220px, 1.2fr) minmax(175px, 0.7fr) minmax(330px, auto);
+  grid-template-columns: minmax(240px, 1.15fr) minmax(210px, 0.72fr) minmax(300px, auto);
   align-items: start;
   column-gap: 24px;
-  row-gap: 12px;
+  row-gap: 16px;
   padding: 22px 20px;
   border-bottom: 1px solid var(--wt-border);
 }
@@ -1755,20 +1755,37 @@
 
 .wt-student-deliverable-state {
   grid-area: state;
+  gap: 5px;
 }
 
 .wt-student-deliverable-detail {
   grid-area: detail;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: 10px;
+  gap: 14px 20px;
+  min-height: 68px;
+  padding: 11px 14px;
+  border: 1px solid var(--wt-border);
+  border-radius: 8px;
+  background: #fbfaf9;
+}
+
+.wt-student-deliverable-state-label,
+.wt-student-document-check-label {
+  letter-spacing: 0.045em;
+}
+
+.wt-student-document-check-block {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
 }
 
 .wt-student-document-check-line {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .wt-student-document-check-line p {
@@ -1793,6 +1810,14 @@
   grid-area: actions;
   align-self: center;
   min-width: 0;
+}
+
+.wt-student-deliverable-review-actions {
+  justify-content: flex-end;
+}
+
+.wt-student-deliverable-review-actions .mantine-Button-root {
+  min-height: 32px;
 }
 
 .wt-student-deliverable-actions .mantine-Button-root {
@@ -1887,6 +1912,10 @@
   }
 
   .wt-student-deliverable-actions {
+    justify-content: flex-start;
+  }
+
+  .wt-student-deliverable-review-actions {
     justify-content: flex-start;
   }
 
@@ -2008,6 +2037,7 @@
 
   .wt-student-deliverable-detail {
     grid-template-columns: 1fr;
+    padding: 12px;
   }
 
   .wt-student-document-check-line {
@@ -2020,6 +2050,12 @@
     display: grid;
     grid-template-columns: 1fr;
     width: 100%;
+  }
+
+  .wt-student-deliverable-review-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
   }
 
   .wt-student-deliverable-actions .mantine-Button-root {
