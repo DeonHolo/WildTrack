@@ -61,9 +61,9 @@ describe('StudentDeliverableList artifacts', () => {
         { studentNumber: '26-0002', name: 'Brandon', submitted: false, email: 'private@school.edu', link: 'https://drive.google.com/file/d/secret/view' },
         { studentNumber: '26-0003', name: 'Cora', submitted: true },
         { studentNumber: '26-0004', name: 'Dario', submitted: false }
-      ] } } )]);
+    ] } } )]);
     const progressButton = screen.getByRole('button', { name: /2 of 4 team members submitted.*view teammates not submitted/i });
-    expect(progressButton).toHaveTextContent('Team2 of 4 submitted');
+    expect(progressButton).toHaveTextContent('2 of 4 team members submitted');
     fireEvent.click(progressButton);
     const modal = await screen.findByRole('dialog', { name: 'Team submission progress' });
     expect(within(modal).getByText('SRS Submission')).toBeInTheDocument();
@@ -88,7 +88,7 @@ describe('StudentDeliverableList artifacts', () => {
       teamProgress: { submitted: 1, expected: 2 } });
     renderList([complete, legacy]);
     const completeRow = screen.getByText('SRS Submission').closest('[role="listitem"]');
-    expect(within(completeRow).getByText('2 of 2 submitted')).toBeInTheDocument();
+    expect(within(completeRow).getByText('All 2 team members submitted')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /view teammates not submitted/i })).not.toBeInTheDocument();
   });
 
@@ -121,11 +121,15 @@ describe('StudentDeliverableList artifacts', () => {
     expect(screen.getByText('Due Sep 30, 2026')).toBeInTheDocument();
     expect(screen.queryByText(/Due Sep 30, 2026\s*\|/)).not.toBeInTheDocument();
     expect(screen.getByText(/Saved Sep 19, 2026/)).toBeInTheDocument();
-    expect(screen.getByText('1 day late')).toBeInTheDocument();
+    const timingStatus = screen.getByText('1 day late').closest('.wt-status-indicator');
+    expect(timingStatus).toHaveAttribute('data-tone', 'warning');
+    const statusLine = timingStatus.closest('.wt-student-deliverable-status-line');
+    expect(within(statusLine).getByText('Submitted')).toBeInTheDocument();
+    expect(screen.queryByText('SUBMISSION')).not.toBeInTheDocument();
     expect(screen.queryByText(/Effective submission/)).not.toBeInTheDocument();
   });
 
-  it('hides redundant readable/template-upload advice only for accessible files while retaining actionable warnings', () => {
+  it('keeps row-level Document Check summaries out of the deliverable list', () => {
     const success = baseRow({ fileCheck: { label: 'File accessible', tone: 'success',
       summary: 'The PDF is readable. Upload an official template to enable instruction and template comparison.' } });
     const warning = baseRow({ deliverable: { ...success.deliverable, id: 'd2', title: 'Attention deliverable' },
@@ -138,8 +142,8 @@ describe('StudentDeliverableList artifacts', () => {
     expect(screen.getAllByText('File accessible')).toHaveLength(2);
     expect(screen.queryByText(/Upload an official template/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^The PDF is readable\./)).not.toBeInTheDocument();
-    expect(screen.getByText('The PDF is unreadable; please correct the sharing permissions.')).toBeInTheDocument();
-    expect(screen.getByText('The template comparison detected missing required sections.')).toBeInTheDocument();
+    expect(screen.queryByText('The PDF is unreadable; please correct the sharing permissions.')).not.toBeInTheDocument();
+    expect(screen.queryByText('The template comparison detected missing required sections.')).not.toBeInTheDocument();
   });
 
   it('keeps single-artifact Open file and View Document Check row actions', () => {

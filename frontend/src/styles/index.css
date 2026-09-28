@@ -3253,34 +3253,11 @@ textarea:not(.mantine-Input-input):focus {
   line-height: 1.5;
 }
 
-.document-check-details {
-  margin: 12px 22px 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-}
-
-.document-check-details > summary {
-  cursor: pointer;
-  padding: 11px 14px;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.document-check-details[open] > summary {
-  border-bottom: 1px solid var(--border);
-}
-
 .document-check-details-body {
   padding-bottom: 14px;
 }
 
-.document-check-details .document-check-section {
-  margin-left: 14px;
-  margin-right: 14px;
-}
-
-.document-check-details .document-check-section:first-child {
+.document-check-details-body .document-check-section:first-child {
   border-top: 0;
   padding-top: 0;
 }
@@ -4887,9 +4864,8 @@ textarea:not(.mantine-Input-input):focus {
 
 .wt-student-deliverables .wt-student-team-progress-trigger {
   height: auto;
-  min-height: 28px;
-  margin-top: 2px;
-  padding: 2px 5px;
+  min-height: 30px;
+  padding-inline: 0;
   justify-self: start;
   max-width: 100%;
   text-align: left;
@@ -4897,30 +4873,6 @@ textarea:not(.mantine-Input-input):focus {
 
 .wt-student-deliverables .wt-student-team-progress-trigger .mantine-Button-label {
   white-space: normal;
-}
-
-.wt-student-team-progress-copy,
-.wt-student-team-progress-static {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  font-size: 12px;
-}
-
-.wt-student-team-progress-copy > span,
-.wt-student-team-progress-static > span {
-  color: var(--wt-muted);
-  font-weight: 500;
-}
-
-.wt-student-team-progress-copy > strong,
-.wt-student-team-progress-static > strong {
-  color: var(--wt-maroon);
-  font-weight: 700;
-}
-
-.wt-student-team-progress-trigger:hover .wt-student-team-progress-copy > strong {
   text-decoration: underline;
   text-underline-offset: 3px;
 }

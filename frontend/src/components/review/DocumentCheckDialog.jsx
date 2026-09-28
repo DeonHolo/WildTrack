@@ -123,9 +123,7 @@ export function DocumentCheckDialog({
             </div>
           </div>
 
-          <details className="document-check-details" open={!report?.submissionSubstance}>
-            <summary>{report?.submissionSubstance ? 'View details' : 'Check details'}</summary>
-            <div className="document-check-details-body">
+          <div className="document-check-details-body">
             <section className="document-check-section">
               <h3>File validation</h3>
               <div className="document-check-grid">
@@ -210,8 +208,7 @@ export function DocumentCheckDialog({
                 <p>{studentView ? 'Review the items above and update your submitted PDF link if needed.' : report.suggestedAction}</p>
               </section>
             ) : null}
-            </div>
-          </details>
+          </div>
 
         </Tabs.Panel> : null}
 
