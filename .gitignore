@@ -33,3 +33,7 @@ AGENTS.md
 # Owner-provided private SRS references in the older STD fixture folder;
 # derived, fully fictional publishable fixtures live separately under benchmarks/srs.
 docs/capstone-2-build/benchmarks/std/fixtures/SRS*.pdf
+
+# Temporarily keep the Capstone 2 research/evidence workspace out of new Git additions.
+# Existing files already tracked by Git remain tracked until deliberately changed later.
+docs/capstone-2-build/
