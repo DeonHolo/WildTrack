@@ -23,8 +23,14 @@ final class AiReviewGroundingPolicy {
     private static final Pattern TOC_LEADER = Pattern.compile("^.*[.·…]{3,}\\s*\\d+\\s*$");
     private static final Pattern TOC_PAGE_ENTRY = Pattern.compile(
         "^(?:(?:\\d+(?:\\.\\d+)*|[IVXLC]+)[.)]?\\s+)?[\\p{L}][\\p{L}\\p{N} \\t,():/&'–-]{2,100}\\s+\\d{1,4}$");
+    private static final Pattern TOC_PREFIX_LEADER_ENTRY = Pattern.compile(
+        "^((?:\\d+(?:\\.\\d+)*|[IVXLC]+)[.)]?)\\s*[.·…]{3,}\\s*(.+?)\\s+\\d{1,4}$");
     private static final Pattern TOC_NUMBERED_ENTRY = Pattern.compile(
         "^\\d+(?:\\.\\d+)*[.)]?\\s+[\\p{L}][\\p{L}\\p{N} \\t,():/&'–-]{2,100}$");
+    private static final Pattern CLAIMED_TOC_SECTION = Pattern.compile(
+        "(?i)(?:table\\s+of\\s+contents|\\btoc\\b).{0,120}"
+            + "\\b(?:lists?|includes?|contains?|shows?)\\s+(?:the\\s+)?(?:section\\s+)?"
+            + "(\\d+(?:\\.\\d+){1,5})\\b");
     private static final Pattern NUMBERED_HEADING = Pattern.compile(
         "^(?:[A-Z](?:\\.\\d+)*|\\d+(?:\\.(?:\\d+|[A-Za-z]))*|[IVXLC]+)[.)]?\\s+(.+)$");
     private static final Pattern QUOTED_HEADING = Pattern.compile("[\\\"'‘“]([^\\\"'’”]{3,100})[\\\"'’”]");
@@ -34,10 +40,22 @@ final class AiReviewGroundingPolicy {
     private static final Pattern HEADING_ABSENCE = Pattern.compile(
         "(?i)(?:\\b(?:missing|absent|omitted|not present|not included|no)\\s+(?:required\\s+)?(?:body\\s+)?(?:section|heading)\\b|"
             + "\\b(?:section|heading)\\b.{0,110}\\b(?:missing|absent|omitted|not present|not included|does not appear|does not exist)\\b|"
-            + "\\b(?:missing|absent|omitted)\\b.{0,110}\\b(?:section|heading)\\b)");
+            + "\\b(?:missing|absent|omitted|lacks?)\\b.{0,110}\\b(?:section|heading)\\b)");
     private static final Pattern CONTENT_ABSENCE = Pattern.compile(
-        "(?i)\\b(?:missing|absent|omitted|lacks?)\\s+(?:substantive\\s+)?"
-            + "(?:content|detail|information|description|explanation|prose|paragraph|evidence|example)s?\\b");
+        "(?i)\\b(?:(?:missing|absent|omitted|lacks?)\\s+(?:substantive\\s+)?"
+            + "(?:content|detail|information|description|explanation|prose|paragraph|evidence|example)s?"
+            + "|(?:fails?|does\\s+not)\\s+to\\s+(?:provide|include)\\s+(?:the\\s+)?(?:required\\s+)?"
+            + "(?:content|detail|information|description|explanation|prose|paragraph|evidence|example|"
+            + "definition|acronym|abbreviation)s?)\\b");
+    private static final Pattern GENERIC_CONTENT_ABSENCE = Pattern.compile(
+        "(?i)^\\s*(?:the\\s+document|(?:section\\s+)?[0-9.]*\\s*[a-z][a-z0-9 ,&/-]*)\\s+"
+            + "(?:(?:fails?|does\\s+not)\\s+to\\s+(?:provide|include)\\s+(?:the\\s+)?(?:required\\s+)?"
+            + "(?:content|(?:definitions?|acronyms?|abbreviations?)"
+            + "(?:\\s*,?\\s*(?:and\\s+)?(?:definitions?|acronyms?|abbreviations?))*)"
+            + "(?:\\s+for\\s+[a-z0-9 .&/-]+)?"
+            + "|(?:is\\s+)?(?:missing|lacks?)\\s+(?:the\\s+)?(?:required\\s+)?"
+            + "(?:content|details?|information|description|explanation|prose|paragraph|evidence|examples?))"
+            + "\\s*[.]?\\s*$");
     private static final Pattern NAMED_HEADING_ABSENCE = Pattern.compile(
         "(?i)\\b(?:is|are|was|were)\\s+(?:missing|absent|omitted|not\\s+present|not\\s+included)\\b");
     private static final Pattern FORMAT_REQUIREMENT = Pattern.compile(
@@ -60,6 +78,30 @@ final class AiReviewGroundingPolicy {
         "(?i)\\b(?:not\\s+(?:a\\s+)?(?:non[- ]?compliance|violation|problem|issue|error|defect)|"
             + "(?:is|are)\\s+(?:acceptable|permitted|allowed|compliant)|"
             + "no\\s+(?:correction|change|action)\\s+(?:is\\s+)?(?:needed|required))\\b");
+    private static final Pattern EXPLICIT_PLACEHOLDER = Pattern.compile(
+        "(?im)^\\s*(?:(?:placeholder|todo|tbd)\\b\\s*(?::|-|$)|"
+            + "(?:insert|replace|enter)\\b.{0,60}\\bhere\\b\\s*[.!]?\\s*$)");
+    private static final Pattern MODULE_ONE_HEADING = Pattern.compile("(?i)^module\\s+1(?:\\b|\\s*[:.-]).*$");
+    private static final Pattern MODULE_HEADING = Pattern.compile("(?i)^module\\s+(\\d+)(?:\\b|\\s*[:.-]).*$");
+    private static final Pattern TOC_LISTING_CLAIM = Pattern.compile(
+        "(?i)table\\s+of\\s+contents.{0,140}\\b(?:lists?|includes?|contains?)\\s+"
+            + "(?:the\\s+)?(?:section\\s+)?(\\d+(?:\\.\\d+)+)\\b");
+    private static final Pattern EXTERNAL_DOCUMENT_CITATION = Pattern.compile(
+        "\\b((?:(?:[A-Z][\\p{L}\\p{N}&'â€™./-]*|[A-Z]{2,}[0-9]*)\\s+){1,8}"
+            + "(?:Specification|Standard|Manual|Guide|Report|Policy|Procedure|Protocol))"
+            + "\\s*\\(([^)\\r\\n]{3,180})\\)");
+    private static final Pattern DOCUMENT_IDENTIFIER = Pattern.compile(
+        "\\b(?=[A-Z0-9./-]{4,40}\\b)(?=[A-Z0-9./-]*[A-Z])(?=[A-Z0-9./-]*\\d)"
+            + "[A-Z0-9]+(?:[-./][A-Z0-9]+)+\\b");
+    private static final Pattern NUMERIC_CAP = Pattern.compile(
+        "(?i)\\b(?:no\\s+more\\s+than|at\\s+most|up\\s+to|limit(?:ed)?\\s+(?:is|to))\\s+"
+            + "(\\d{1,6})\\s+([^.;!?\\r\\n]{4,120})");
+    private static final Pattern UPPERCASE_ACRONYM = Pattern.compile("\\b[A-Z][A-Z0-9]{2,7}\\b");
+    private static final Set<String> DOCUMENT_TYPE_ACRONYMS =
+        Set.of("SRS", "STD", "SDD", "SPMP", "PDF");
+    private static final Set<String> COMMON_TECH_ACRONYMS =
+        Set.of("API", "JSON", "HTTPS", "HTTP", "TLS", "URL", "URI", "UI", "UX",
+            "TCP", "UDP", "SQL", "HTML", "CSS", "XML", "UUID");
 
     private AiReviewGroundingPolicy() { }
 
@@ -77,14 +119,28 @@ final class AiReviewGroundingPolicy {
                     && !normalize(issue).matches("(?s).*(?:however|but|although|nevertheless)\\s+"
                         + ".*(?:missing|incorrect|incomplete|violat|noncompliance).*")) continue;
             if (unsupportedBulletFormattingClaim(finding)) continue;
+            if (unsupportedArtifactRenderingClaim(finding, documentText)) continue;
+            if (unsupportedUnspecifiedCompletenessClaim(finding)) continue;
             if (finding.source() == AiReviewProvider.FindingSource.DOCUMENT) {
                 if (wrongDeliverableFromSyntheticLabel(issue, title, documentText)
-                        || sampleNameConfusion(issue, documentText, templateText)
-                        || contradictedAbsolutePlaceholderClaim(issue, documentText, templateText)) continue;
+                        || sampleNameConfusion(issue + " " + finding.evidence(), documentText, templateText)
+                        || contradictedAbsolutePlaceholderClaim(issue, documentText, templateText)
+                        || contradictedDocumentContentReplacement(finding, documentText)
+                        || inventedTableOfContentsEntry(finding, documentText)
+                        || unsupportedDocumentSectionPlacementClaim(issue)
+                        || unsupportedDocumentStyleCriticism(issue)
+                        || unsupportedEmbeddedReviewerInstruction(issue + " " + finding.evidence())
+                        || unsupportedDocumentAuthorityClaim(issue)) continue;
+            } else if (finding.source() == AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE
+                    && unsupportedTemplateSampleIdentityClaim(
+                        issue + " " + finding.evidence(), finding.requirement(), documentText, templateText)) {
+                continue;
             } else if (unsupportedNamedSectionClaim(issue, finding.requirement(), finding.source())) {
                 continue;
             }
             if (contradictedRequiredHeadingFinding(finding, documentText)) continue;
+            if (contradictedBlanketArtifactAbsence(finding, documentText)) continue;
+            if (contradictedTocListingClaim(finding, documentText)) continue;
             accepted.add(finding);
         }
         return List.copyOf(accepted);
@@ -98,11 +154,70 @@ final class AiReviewGroundingPolicy {
         // claiming some OTHER section is mandatory.
         String normalized = normalize(requirement);
         if (!normalized.contains(title)) return false;
-        if (source == AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE) return true;
+        if (source == AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE) {
+            // Labels such as "Transaction Name" and "Module Name" are illustrative
+            // placeholders in the official template. A student's project-specific
+            // transaction/module title satisfies that shape; the literal placeholder
+            // text must never become a mandatory submitted heading.
+            if (illustrativeTemplateHeading(title)) return false;
+            // A TOC/front-matter label in a template shows structure but does not by
+            // itself make that label a mandatory submission section. Accept a
+            // structural obligation only from a numbered body heading or explicit
+            // normative language in the cited template passage.
+            for (String raw : Objects.requireNonNullElse(requirement, "").lines().toList()) {
+                Matcher numbered = TEMPLATE_BODY_NUMBERED_HEADING.matcher(raw.trim());
+                if (numbered.matches() && canonical(numbered.group(2)).equals(title)) return true;
+            }
+            return normalized.matches("(?s).*(?:must|shall|required|mandatory).{0,120}"
+                + Pattern.quote(title) + ".*")
+                || normalized.matches("(?s).*" + Pattern.quote(title)
+                    + ".{0,120}(?:must|shall|required|mandatory).*");
+        }
         // A request to include some *content* (e.g., test cases, evidence, results) does not
         // necessarily impose a separate structural heading. Instructions must name a section.
         return source == AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS
             && normalized.matches("(?s).*(?:section|heading|chapter|subsection)\\b.*");
+    }
+
+    static boolean templateHasNumberedBodyHeading(String templateText, String section) {
+        if (templateText == null || templateText.isBlank()) return false;
+        String expected = canonical(section);
+        if (expected.isBlank()) return false;
+        Layout template = layout(templateText, true);
+        if (!template.reliableBody()) return false;
+        for (int i = 0; i < template.lines().size(); i++) {
+            if (!template.inBody(i)) continue;
+            Matcher heading = TEMPLATE_BODY_NUMBERED_HEADING.matcher(template.lines().get(i));
+            if (heading.matches() && canonical(heading.group(2)).equals(expected)
+                    && convincingBodyAnchor(template.lines(), template.toc(), i)) return true;
+        }
+        return false;
+    }
+
+    static boolean templateStructuralCitationMatchesSection(String requirement, String section) {
+        String expected = canonical(section);
+        if (expected.isBlank()) return false;
+        for (String raw : Objects.requireNonNullElse(requirement, "").lines().toList()) {
+            String line = raw.trim();
+            Matcher prefixedLeader = TOC_PREFIX_LEADER_ENTRY.matcher(line);
+            if (prefixedLeader.matches()
+                    && numberedCitationMatchesSection(
+                        prefixedLeader.group(1) + " " + prefixedLeader.group(2), expected)) return true;
+            if (TOC_LEADER.matcher(line).matches()) {
+                String reconstructed = line.replaceFirst("\\s*[.·…]{3,}\\s*\\d+\\s*$", "").trim();
+                if (numberedCitationMatchesSection(reconstructed, expected)) return true;
+            }
+            if (TOC_PAGE_ENTRY.matcher(line).matches()) {
+                String reconstructed = line.replaceFirst("\\s+\\d{1,4}\\s*$", "").trim();
+                if (numberedCitationMatchesSection(reconstructed, expected)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean numberedCitationMatchesSection(String citation, String expected) {
+        Matcher numbered = TEMPLATE_BODY_NUMBERED_HEADING.matcher(citation);
+        return numbered.matches() && canonical(numbered.group(2)).equals(expected);
     }
 
     /**
@@ -156,6 +271,7 @@ final class AiReviewGroundingPolicy {
             String canonical = canonical(name);
             if (name.length() > 100 || name.split("\\s+").length > 10 || canonical.length() < 4
                     || line.contains("...") || line.contains("…")
+                    || illustrativeTemplateHeading(canonical)
                     || !deduplicated.add(canonical) || optionalHeading(line, canonical, template.lines(), i, instructions))
                 continue;
             // The exact numbered source line is a conservative, auditable template-body quote.
@@ -178,6 +294,20 @@ final class AiReviewGroundingPolicy {
         }
         var warnings = new ArrayList<AiReviewProvider.Finding>();
         for (var head : expected) {
+            String placeholder = explicitPlaceholderEvidence(document, head.title());
+            if (placeholder != null && accepted.stream().noneMatch(finding ->
+                    normalize(finding.issue()).contains(head.title())
+                        && normalize(finding.issue()).contains("placeholder"))) {
+                warnings.add(new AiReviewProvider.Finding(
+                    "Mapped-template section '" + head.quote()
+                        + "' contains explicit placeholder text in the submitted PDF body; "
+                        + "confirm applicability and replace unresolved template text before treating the section as complete.",
+                    AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
+                    placeholder,
+                    head.quote()));
+                if (warnings.size() == MAX_TEMPLATE_ALERTS) break;
+                continue;
+            }
             if (containsBodyHeading(documentText, head.quote()) || existingSections.contains(head.title())) continue;
             if (accepted.stream().anyMatch(finding -> ABSENCE.matcher(finding.issue()).find()
                     && normalize(finding.issue()).contains(head.title()))) continue;
@@ -191,6 +321,8 @@ final class AiReviewGroundingPolicy {
                 quoted));
             if (warnings.size() == MAX_TEMPLATE_ALERTS) break;
         }
+        if (warnings.size() < MAX_TEMPLATE_ALERTS)
+            addTransactionArtifactWarnings(template, document, accepted, warnings);
         return List.copyOf(warnings);
     }
 
@@ -255,6 +387,52 @@ final class AiReviewGroundingPolicy {
         return false;
     }
 
+    static boolean containsBodySectionContent(String pdfText, String sectionOrTopic) {
+        String expected = canonical(sectionOrTopic);
+        if (expected.isBlank()) return false;
+        var region = layout(pdfText, false);
+        if (!region.reliableBody()) return false;
+        int heading = bodyHeadingIndex(region, expected, true);
+        if (heading < 0) return false;
+        String inline = inlineBodyText(region.lines().get(heading), expected);
+        if (inline != null) {
+            if (EXPLICIT_PLACEHOLDER.matcher(inline).find()) return false;
+            if (inline.length() >= 12 && inline.split("\\s+").length >= 3) return true;
+        }
+        for (int i = heading + 1; i < region.lines().size(); i++) {
+            if (!region.inBody(i)) continue;
+            String line = region.lines().get(i);
+            if (line.isBlank()) continue;
+            if (isBodyBoundaryAfter(region.lines().get(heading), line)) break;
+            if (EXPLICIT_PLACEHOLDER.matcher(line).find()) return false;
+            if (line.length() >= 12 && line.split("\\s+").length >= 3) return true;
+        }
+        return false;
+    }
+
+    static boolean bodySectionContainsEvidence(String pdfText, String sectionOrTopic, String evidence) {
+        String expected = canonical(sectionOrTopic);
+        String normalizedEvidence = normalize(evidence);
+        if (expected.isBlank() || normalizedEvidence.isBlank()) return false;
+        var region = layout(pdfText, false);
+        if (!region.reliableBody()) return false;
+        int heading = bodyHeadingIndex(region, expected, true);
+        if (heading < 0 || !containsBodySectionContent(pdfText, sectionOrTopic)) return false;
+        var body = new StringBuilder(region.lines().get(heading));
+        for (int i = heading + 1; i < region.lines().size(); i++) {
+            if (!region.inBody(i)) continue;
+            String line = region.lines().get(i);
+            if (line.isBlank()) continue;
+            if (isBodyBoundaryAfter(region.lines().get(heading), line)) break;
+            body.append(' ').append(line);
+        }
+        return normalize(body.toString()).contains(normalizedEvidence);
+    }
+
+    static boolean containsExplicitPlaceholder(String value) {
+        return value != null && EXPLICIT_PLACEHOLDER.matcher(value).find();
+    }
+
     private static boolean containsTableOfContents(String pdfText) {
         List<String> lines = Objects.requireNonNullElse(pdfText, "").lines().map(String::trim).toList();
         for (int heading = 0; heading < lines.size(); heading++) {
@@ -270,7 +448,8 @@ final class AiReviewGroundingPolicy {
                 // A later occurrence of the same title is usually a TOC entry
                 // or the start of a different region, not an index entry itself.
                 if (normalize(line).equals("table of contents")) break;
-                if (TOC_LEADER.matcher(line).matches() || TOC_PAGE_ENTRY.matcher(line).matches()) formattedEntries++;
+                if (TOC_LEADER.matcher(line).matches() || TOC_PAGE_ENTRY.matcher(line).matches()
+                        || TOC_PREFIX_LEADER_ENTRY.matcher(line).matches()) formattedEntries++;
                 if (TOC_NUMBERED_ENTRY.matcher(line).matches()) numberedEntries++;
                 if (formattedEntries >= 2 || numberedEntries >= 3) return true;
             }
@@ -293,7 +472,8 @@ final class AiReviewGroundingPolicy {
         boolean reliable = toc < 0;
         if (toc >= 0) {
             for (int i = toc + 1; i < lines.size(); i++) {
-                if (TOC_LEADER.matcher(lines.get(i)).matches()) tocEnd = i;
+                if (TOC_LEADER.matcher(lines.get(i)).matches()
+                        || TOC_PREFIX_LEADER_ENTRY.matcher(lines.get(i)).matches()) tocEnd = i;
                 // A plain non-TOC paragraph following the entry list starts the actual body.
                 if (tocEnd > toc && i > tocEnd && !lines.get(i).isBlank()
                         && lines.get(i).length() > 90) break;
@@ -305,10 +485,13 @@ final class AiReviewGroundingPolicy {
             for (int entry = toc + 1; entry < lines.size(); entry++) {
                 String first = lines.get(entry);
                 if (first.isBlank()) continue;
-                if (first.length() > 100 || first.split("\\s+").length > 10) break;
                 // A TOC may include dotted page leaders or plain headings. Strip only
                 // the dotted page reference when identifying the repeated body anchor.
-                String tocHeading = first.replaceFirst("\\s*[.·…]{3,}\\s*\\d+\\s*$", "").trim();
+                Matcher prefixedLeader = TOC_PREFIX_LEADER_ENTRY.matcher(first);
+                String tocHeading = prefixedLeader.matches()
+                    ? prefixedLeader.group(1) + " " + prefixedLeader.group(2)
+                    : first.replaceFirst("\\s*[.·…]{3,}\\s*\\d+\\s*$", "").trim();
+                if (tocHeading.length() > 100 || tocHeading.split("\\s+").length > 10) continue;
                 String anchor = canonical(tocHeading);
                 if (anchor.isBlank() || !headingMatches(tocHeading, anchor)) continue;
                 for (int body = entry + 1; body < lines.size(); body++) {
@@ -326,6 +509,368 @@ final class AiReviewGroundingPolicy {
         return new Layout(lines, toc, tocEnd, reliable);
     }
 
+    private static boolean illustrativeTemplateHeading(String title) {
+        return title.matches("(?i)(?:transaction|module|project|system|feature|function) name");
+    }
+
+    private static String explicitPlaceholderEvidence(Layout document, String section) {
+        int heading = bodyHeadingIndex(document, section, false);
+        if (heading < 0) return null;
+        String inline = inlineBodyText(document.lines().get(heading), canonical(section));
+        if (inline != null && EXPLICIT_PLACEHOLDER.matcher(inline).find()) return inline;
+        for (int i = heading + 1; i < document.lines().size(); i++) {
+            if (!document.inBody(i)) continue;
+            String line = document.lines().get(i);
+            if (line.isBlank()) continue;
+            if (isBodyBoundaryAfter(document.lines().get(heading), line)) break;
+            if (EXPLICIT_PLACEHOLDER.matcher(line).find()) return line;
+        }
+        return null;
+    }
+
+    private static int bodyHeadingIndex(Layout region, String section, boolean allowTopicMatch) {
+        String expected = canonical(section);
+        for (int i = 0; i < region.lines().size(); i++) {
+            if (!region.inBody(i)) continue;
+            String line = region.lines().get(i);
+            if (line.isBlank() || TOC_LEADER.matcher(line).matches()) continue;
+            if (headingMatches(line, expected)) return i;
+            if (!allowTopicMatch || !looksLikeBodyHeading(line)) continue;
+            String candidate = headingTitleCanonical(line);
+            if (topicEquivalent(expected, candidate)) return i;
+        }
+        return -1;
+    }
+
+    private static boolean looksLikeBodyHeading(String line) {
+        if (TEMPLATE_BODY_NUMBERED_HEADING.matcher(line).matches()) return true;
+        String normalized = normalize(line);
+        return normalized.matches("(?:constraints?|limitations?|assumptions?|dependencies|requirements?)");
+    }
+
+    private static boolean isBodyBoundaryAfter(String currentHeading, String candidate) {
+        if (normalize(candidate).matches("module \\d+(?: .*)?")) return true;
+        Matcher next = TEMPLATE_BODY_NUMBERED_HEADING.matcher(candidate);
+        if (!next.matches()) return false;
+        String nextTitle = next.group(2).trim();
+        if (nextTitle.endsWith(".") || nextTitle.endsWith(";") || nextTitle.split("\\s+").length > 10) return false;
+        Matcher current = TEMPLATE_BODY_NUMBERED_HEADING.matcher(currentHeading);
+        if (!current.matches()) return true;
+        int currentRoot = leadingNumber(current.group(1));
+        int nextRoot = leadingNumber(next.group(1));
+        return currentRoot < 0 || nextRoot < 0 || nextRoot >= currentRoot;
+    }
+
+    private static int leadingNumber(String value) {
+        try { return Integer.parseInt(value.split("\\.")[0]); }
+        catch (Exception ignored) { return -1; }
+    }
+
+    private static String headingTitleCanonical(String line) {
+        String content = line.trim().replaceFirst("^[•*#-]+\\s*", "");
+        Matcher numbered = NUMBERED_HEADING.matcher(content);
+        if (numbered.matches()) content = numbered.group(1).trim();
+        int colon = content.indexOf(':');
+        if (colon >= 0 && colon < 110) content = content.substring(0, colon).trim();
+        return canonical(content);
+    }
+
+    private static boolean topicEquivalent(String expected, String candidate) {
+        return candidate.length() >= 5 && (candidate.equals(expected)
+            || expected.endsWith(" " + candidate) || candidate.endsWith(" " + expected));
+    }
+
+    private static String inlineBodyText(String line, String expected) {
+        String content = line.trim().replaceFirst("^[•*#-]+\\s*", "");
+        Matcher numbered = NUMBERED_HEADING.matcher(content);
+        if (numbered.matches()) content = numbered.group(1).trim();
+        int colon = content.indexOf(':');
+        if (colon < 0 || colon >= 110) return null;
+        String heading = canonical(content.substring(0, colon));
+        if (!topicEquivalent(expected, heading)) return null;
+        String body = content.substring(colon + 1).trim();
+        return body.isBlank() ? null : body;
+    }
+
+    private record TransactionRange(int start, int end) { }
+
+    private static void addTransactionArtifactWarnings(Layout template, Layout document,
+            List<AiReviewProvider.Finding> accepted, List<AiReviewProvider.Finding> warnings) {
+        var templateRanges = moduleTransactionRanges(template);
+        var documentRanges = moduleTransactionRanges(document);
+        if (templateRanges.isEmpty() || documentRanges.isEmpty()) return;
+        for (String artifact : List.of("use case description", "use case diagram", "activity diagram", "wireframe")) {
+            if (warnings.size() >= MAX_TEMPLATE_ALERTS) return;
+            String requirement = artifactLineInRange(template, templateRanges.get(0), artifact);
+            if (requirement == null || OPTIONAL_SECTION.matcher(requirement).find()) continue;
+
+            boolean repeatedTemplatePattern = templateRanges.size() >= 2
+                && templateRanges.stream().allMatch(range -> {
+                    String line = artifactLineInRange(template, range, artifact);
+                    return line != null && !OPTIONAL_SECTION.matcher(line).find();
+                });
+
+            for (int index = 0; index < documentRanges.size(); index++) {
+                if (index > 0 && !repeatedTemplatePattern) break;
+                if (warnings.size() >= MAX_TEMPLATE_ALERTS) return;
+                TransactionRange documentRange = documentRanges.get(index);
+                if (artifactHasSubstantiveContentInRange(document, documentRange, artifact)) continue;
+
+                String label = switch (artifact) {
+                    case "use case description" -> "Use Case Description";
+                    case "use case diagram" -> "Use Case Diagram";
+                    case "activity diagram" -> "Activity Diagram";
+                    case "wireframe" -> "Wireframe";
+                    default -> artifact;
+                };
+                String transaction = transactionHeading(document, documentRange);
+                if (acceptedFindingCoversTransactionArtifact(accepted, artifact, transaction, index)) continue;
+                String location = index == 0
+                    ? "the first transaction under Module 1"
+                    : "transaction '" + transaction + "'";
+                String submittedLabel = artifactLineInRange(document, documentRange, artifact);
+                String observation = submittedLabel == null
+                    ? "No matching artifact label was detected within submitted " + location + "."
+                    : "The matching label is present within submitted " + location
+                        + ", but no substantive artifact content follows it.";
+                String mappedRequirement = index == 0 ? requirement
+                    : repeatedTransactionArtifactEvidence(template, templateRanges, artifact);
+                warnings.add(new AiReviewProvider.Finding(
+                    "Mapped-template transaction artifact '" + label
+                        + "' has no substantive content in " + location + "; "
+                        + "confirm applicability and inspect the original PDF before requesting a change.",
+                    AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
+                    "Mapped official-template transaction structure: " + mappedRequirement + ". " + observation,
+                    mappedRequirement));
+            }
+        }
+    }
+
+    private static boolean acceptedFindingCoversTransactionArtifact(
+            List<AiReviewProvider.Finding> accepted, String artifact, String transaction, int index) {
+        String normalizedTransaction = normalize(transaction);
+        return accepted.stream().anyMatch(finding -> {
+            String issue = normalize(finding.issue());
+            if (!issue.contains(artifact)) return false;
+            if (index == 0) return true;
+            String context = issue + " " + normalize(finding.evidence());
+            return !normalizedTransaction.isBlank() && context.contains(normalizedTransaction);
+        });
+    }
+
+    private static String transactionHeading(Layout region, TransactionRange range) {
+        if (range.start() >= 0 && range.start() < region.lines().size()) {
+            String line = region.lines().get(range.start()).trim();
+            if (!line.isBlank()) return line;
+        }
+        return "unidentified transaction";
+    }
+
+    private static String repeatedTransactionArtifactEvidence(Layout template,
+            List<TransactionRange> ranges, String artifact) {
+        if (ranges.size() < 2) return artifactLineInRange(template, ranges.get(0), artifact);
+        int start = ranges.get(0).start();
+        int secondArtifact = artifactIndexInRange(template, ranges.get(1), artifact);
+        int end = secondArtifact >= 0
+            ? secondArtifact + 1
+            : Math.min(template.lines().size(), ranges.get(1).end());
+        var evidence = new StringBuilder();
+        for (int i = start; i < end; i++) {
+            if (!template.inBody(i)) continue;
+            String line = template.lines().get(i);
+            if (line.isBlank()) continue;
+            if (evidence.length() > 0) evidence.append('\n');
+            evidence.append(line);
+            if (evidence.length() > 1800) break;
+        }
+        String value = evidence.toString();
+        return value.isBlank() ? artifactLineInRange(template, ranges.get(0), artifact) : value;
+    }
+
+    static List<AiReviewProvider.Finding> unlistedReferencesRequiredByTemplate(
+            String documentText, String templateText) {
+        if (documentText == null || documentText.isBlank()
+                || templateText == null || templateText.isBlank()) return List.of();
+        String requirement = templateReferenceListRequirement(templateText);
+        if (requirement.isBlank()) return List.of();
+
+        Layout document = layout(documentText, false);
+        if (!document.reliableBody()) return List.of();
+        int referencesHeading = bodyHeadingIndex(document, "References", true);
+        if (referencesHeading < 0) return List.of();
+        int referencesEnd = document.lines().size();
+        for (int i = referencesHeading + 1; i < document.lines().size(); i++) {
+            if (!document.inBody(i)) continue;
+            String line = document.lines().get(i);
+            if (line.isBlank()) continue;
+            if (isBodyBoundaryAfter(document.lines().get(referencesHeading), line)) {
+                referencesEnd = i;
+                break;
+            }
+        }
+        String referencesText = normalize(String.join(" ",
+            document.lines().subList(referencesHeading, referencesEnd)));
+
+        var findings = new ArrayList<AiReviewProvider.Finding>();
+        var seen = new HashSet<String>();
+        for (int i = 0; i < document.lines().size(); i++) {
+            if (!document.inBody(i) || i >= referencesHeading && i < referencesEnd) continue;
+            var evidence = new StringBuilder();
+            for (int j = i; j < Math.min(document.lines().size(), i + 3); j++) {
+                if (!document.inBody(j) || j >= referencesHeading && j < referencesEnd) break;
+                String candidateLine = document.lines().get(j);
+                if (candidateLine.isBlank()) continue;
+                if (evidence.length() > 0) evidence.append('\n');
+                evidence.append(candidateLine);
+            }
+            if (evidence.isEmpty()) continue;
+            Matcher citation = EXTERNAL_DOCUMENT_CITATION.matcher(
+                evidence.toString().replace('\n', ' '));
+            while (citation.find()) {
+                String title = citation.group(1).trim();
+                Matcher identifierMatcher = DOCUMENT_IDENTIFIER.matcher(citation.group(2));
+                if (!identifierMatcher.find()) continue;
+                String identifier = identifierMatcher.group();
+                String key = normalize(title) + "|" + normalize(identifier);
+                if (!seen.add(key)) continue;
+                if (referencesText.contains(normalize(title))
+                        || referencesText.contains(normalize(identifier))) continue;
+                findings.add(new AiReviewProvider.Finding(
+                    "The submitted PDF cites external document '" + title + "' (" + identifier
+                        + ") outside the References section, but that concrete reference was not detected in References.",
+                    AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
+                    evidence.toString(),
+                    requirement));
+                if (findings.size() == 3) return List.copyOf(findings);
+            }
+        }
+        return List.copyOf(findings);
+    }
+
+    private static String templateReferenceListRequirement(String templateText) {
+        var lines = Objects.requireNonNullElse(templateText, "").lines().map(String::trim).toList();
+        for (int i = 0; i < lines.size(); i++) {
+            if (!normalize(lines.get(i)).contains("complete list")) continue;
+            var passage = new StringBuilder();
+            for (int width = 0; width < 3 && i + width < lines.size(); width++) {
+                String line = lines.get(i + width);
+                if (line.isBlank()) continue;
+                if (passage.length() > 0) passage.append('\n');
+                passage.append(line);
+                String normalized = normalize(passage.toString());
+                if (normalized.contains("complete list")
+                        && normalized.contains("documents referenced")
+                        && normalized.contains("srs")) return passage.toString();
+            }
+        }
+        return "";
+    }
+
+    private static String artifactLineInRange(Layout region, TransactionRange range, String expected) {
+        int index = artifactIndexInRange(region, range, expected);
+        return index < 0 ? null : region.lines().get(index);
+    }
+
+    private static int artifactIndexInRange(Layout region, TransactionRange range, String expected) {
+        String normalizedExpected = normalize(expected);
+        for (int i = range.start(); i < range.end(); i++) {
+            if (!region.inBody(i)) continue;
+            String line = region.lines().get(i);
+            String normalized = normalize(line);
+            if (normalized.equals(normalizedExpected)) return i;
+            if (artifactInlineContent(line, expected) != null) return i;
+            if (line.length() <= 100 && line.split("\\s+").length <= 12
+                    && normalized.contains(normalizedExpected)
+                    && !ABSENCE.matcher(line).find()) return i;
+        }
+        return -1;
+    }
+
+    private static boolean artifactHasSubstantiveContentInRange(Layout region, TransactionRange range,
+            String expected) {
+        String normalizedExpected = normalize(expected);
+        for (int i = range.start(); i < range.end(); i++) {
+            if (!region.inBody(i)) continue;
+            String line = region.lines().get(i);
+            String normalized = normalize(line);
+            if (normalized.equals(normalizedExpected)) return artifactLabelHasFollowingContent(region, i);
+            String inline = artifactInlineContent(line, expected);
+            if (inline != null) {
+                return !inline.isBlank() && !EXPLICIT_PLACEHOLDER.matcher(inline).find();
+            }
+            if (line.length() <= 100 && line.split("\\s+").length <= 12
+                    && normalized.contains(normalizedExpected)
+                    && !ABSENCE.matcher(line).find()
+                    && !normalized.matches("(?s).*\\b(?:placeholder|todo|tbd)\\b.*")) return true;
+        }
+        return false;
+    }
+
+    private static String artifactInlineContent(String line, String expected) {
+        String content = Objects.requireNonNullElse(line, "").trim().replaceFirst("^[•*#]+\\s*", "");
+        Matcher match = Pattern.compile("(?i)^" + Pattern.quote(expected)
+            + "(?::\\s*|\\s+[-–—]\\s+)(.*)$").matcher(content);
+        return match.matches() ? match.group(1).trim() : null;
+    }
+
+    private static boolean inventedTableOfContentsEntry(AiReviewProvider.Finding finding, String documentText) {
+        Matcher claimed = CLAIMED_TOC_SECTION.matcher(
+            Objects.requireNonNullElse(finding.issue(), "") + " "
+                + Objects.requireNonNullElse(finding.evidence(), ""));
+        if (!claimed.find()) return false;
+        Layout region = layout(documentText, false);
+        if (!region.reliableBody() || region.toc() < 0 || region.tocEnd() <= region.toc()) return false;
+        do {
+            String section = claimed.group(1);
+            Pattern entry = Pattern.compile("^\\s*" + Pattern.quote(section)
+                + "(?:[.)])?(?:\\s|$|[.·…])");
+            for (int i = region.toc() + 1; i <= region.tocEnd() && i < region.lines().size(); i++) {
+                if (entry.matcher(region.lines().get(i)).find()) return false;
+            }
+        } while (claimed.find());
+        return true;
+    }
+
+    private static List<TransactionRange> moduleTransactionRanges(Layout region) {
+        var ranges = new ArrayList<TransactionRange>();
+        int moduleNumber = -1;
+        int start = -1;
+        for (int i = 0; i < region.lines().size(); i++) {
+            if (!region.inBody(i)) continue;
+            String line = region.lines().get(i);
+            Matcher module = MODULE_HEADING.matcher(line);
+            if (module.matches()) {
+                if (start >= 0) ranges.add(new TransactionRange(start, i));
+                moduleNumber = Integer.parseInt(module.group(1));
+                start = -1;
+                continue;
+            }
+            Matcher heading = TEMPLATE_BODY_NUMBERED_HEADING.matcher(line);
+            if (!heading.matches() || moduleNumber < 0) continue;
+            int root = leadingNumber(heading.group(1));
+            if (root != moduleNumber) {
+                if (start >= 0) ranges.add(new TransactionRange(start, i));
+                start = -1;
+                moduleNumber = -1;
+                continue;
+            }
+            if (heading.group(1).matches("\\d+\\.\\d+")) {
+                if (start >= 0) ranges.add(new TransactionRange(start, i));
+                start = i;
+            }
+        }
+        if (start >= 0) ranges.add(new TransactionRange(start, region.lines().size()));
+        return List.copyOf(ranges);
+    }
+
+    private static boolean allModuleTransactionsContain(Layout document, String... artifacts) {
+        var ranges = moduleTransactionRanges(document);
+        if (ranges.isEmpty()) return false;
+        return ranges.stream().allMatch(range ->
+            java.util.Arrays.stream(artifacts)
+                .allMatch(artifact -> artifactHasSubstantiveContentInRange(document, range, artifact)));
+    }
+
     private static boolean convincingBodyAnchor(List<String> lines, int toc, int candidate) {
         // A duplicate entry *inside the TOC* is not evidence that the body began. A repeated
         // heading must either have following substantive prose or a preceding PDF page header.
@@ -338,8 +883,10 @@ final class AiReviewGroundingPolicy {
             if (text.length() >= 25 && text.split("\\s+").length >= 5) return true;
             break;
         }
-        for (int before = Math.max(toc + 1, candidate - 4); before < candidate; before++) {
-            if (normalize(lines.get(before)).matches("document version(?: \\d+)+")) return true;
+        for (int before = Math.max(toc + 1, candidate - 8); before < candidate; before++) {
+            String context = normalize(lines.get(before));
+            if (context.matches("document version(?: \\d+)+")
+                    || context.matches("page \\d+ of \\d+")) return true;
         }
         return false;
     }
@@ -359,29 +906,56 @@ final class AiReviewGroundingPolicy {
 
     private static boolean contradictedRequiredHeadingFinding(AiReviewProvider.Finding finding, String documentText) {
         String issue = finding.issue();
-        if (CONTENT_ABSENCE.matcher(issue).find()
-                || !(HEADING_ABSENCE.matcher(issue).find() || NAMED_HEADING_ABSENCE.matcher(issue).find()))
-            return false;
+        boolean contentAbsence = CONTENT_ABSENCE.matcher(issue).find();
+        if (contentAbsence && !GENERIC_CONTENT_ABSENCE.matcher(issue).matches()) return false;
+        if (!contentAbsence
+                && !(HEADING_ABSENCE.matcher(issue).find() || NAMED_HEADING_ABSENCE.matcher(issue).find())) return false;
         if (normalize(issue).contains("table of contents")
                 && normalize(finding.requirement()).contains("table of contents")
                 && containsBodyHeading(documentText, "Table of Contents")) return true;
         Matcher quoted = QUOTED_HEADING.matcher(issue);
         while (quoted.find()) {
-            if (containsBodyHeading(documentText, quoted.group(1))) return true;
+            if (contentAbsence) {
+                if (finding.source() != AiReviewProvider.FindingSource.DOCUMENT
+                        && containsBodySectionContent(documentText, quoted.group(1))) return true;
+            } else if (containsBodyHeading(documentText, quoted.group(1))) return true;
         }
         // Section references are often unquoted in the generated finding. Prefer a numbered
         // heading explicitly named in the supplied authority and mentioned by the finding.
         if (finding.source() == AiReviewProvider.FindingSource.DOCUMENT) return false;
         Matcher required = TEMPLATE_BODY_NUMBERED_HEADING.matcher(finding.requirement().trim());
         if (required.matches() && normalize(issue).contains(normalize(required.group(2)))) {
-            return containsBodyHeading(documentText, required.group(2));
+            return contentAbsence
+                ? containsBodySectionContent(documentText, required.group(2))
+                : containsBodyHeading(documentText, required.group(2));
         }
         for (String line : finding.requirement().lines().toList()) {
             Matcher numbered = TEMPLATE_BODY_NUMBERED_HEADING.matcher(line.trim());
             if (numbered.matches() && normalize(issue).contains(normalize(numbered.group(2)))
-                    && containsBodyHeading(documentText, numbered.group(2))) return true;
+                    && (contentAbsence
+                        ? containsBodySectionContent(documentText, numbered.group(2))
+                        : containsBodyHeading(documentText, numbered.group(2)))) return true;
         }
         return false;
+    }
+
+    private static boolean contradictedTocListingClaim(AiReviewProvider.Finding finding, String documentText) {
+        if (finding.source() != AiReviewProvider.FindingSource.DOCUMENT) return false;
+        Matcher claim = TOC_LISTING_CLAIM.matcher(finding.issue());
+        if (!claim.find()) return false;
+        String sectionNumber = claim.group(1);
+        Layout document = layout(documentText, false);
+        if (document.toc() < 0) return true;
+        int end = Math.min(document.lines().size() - 1, document.tocEnd());
+        for (int i = document.toc() + 1; i <= end; i++) {
+            String line = document.lines().get(i).trim();
+            Matcher numbered = TEMPLATE_BODY_NUMBERED_HEADING.matcher(line);
+            if (numbered.matches() && numbered.group(1).equals(sectionNumber)) return false;
+            Matcher prefixedLeader = TOC_PREFIX_LEADER_ENTRY.matcher(line);
+            if (prefixedLeader.matches()
+                    && prefixedLeader.group(1).replaceFirst("[.)]$", "").equals(sectionNumber)) return false;
+        }
+        return true;
     }
 
     private static boolean unsupportedBulletFormattingClaim(AiReviewProvider.Finding finding) {
@@ -398,9 +972,274 @@ final class AiReviewGroundingPolicy {
             || !FORMAT_REQUIREMENT.matcher(finding.requirement()).find();
     }
 
+    private static boolean unsupportedArtifactRenderingClaim(AiReviewProvider.Finding finding,
+            String documentText) {
+        if (finding.source() == AiReviewProvider.FindingSource.DOCUMENT) return false;
+        String statement = normalize(finding.issue() + " " + finding.evidence());
+        if (!statement.matches("(?s).*(?:text based|textual|ascii|plain text).*"
+                + "(?:diagram|wireframe).*")
+                && !statement.matches("(?s).*(?:diagram|wireframe).*"
+                    + "(?:text based|textual|ascii|plain text).*")) return false;
+        String authority = normalize(finding.requirement());
+        if (authority.matches("(?s).*(?:graphical|visual representation|image|drawn|rendered|"
+                + "non text|must be visual|must be graphical).*")) return false;
+
+        Layout document = layout(documentText, false);
+        if (!document.reliableBody()) return false;
+        return allModuleTransactionsContain(document,
+            "use case diagram", "activity diagram", "wireframe");
+    }
+
+    private static boolean unsupportedUnspecifiedCompletenessClaim(AiReviewProvider.Finding finding) {
+        if (finding.source() == AiReviewProvider.FindingSource.DOCUMENT) return false;
+        String issue = normalize(finding.issue());
+        if (issue.matches("(?s).*\\b(?:missing|undefined|not defined|omitted|absent|not specified|"
+                + "not stated|does not state|does not specify)\\b.*")) return false;
+        // Broad completeness allegations are not actionable unless the finding names the
+        // concrete omitted item. "All terms" and "a complete list" alone do not identify one.
+        return issue.matches("(?s).*definitions.*(?:all terms|all acronyms|all abbreviations).*" )
+            || issue.matches("(?s).*references.*(?:complete list|all referenced documents).*" )
+            || issue.matches("(?s).*(?:incomplete|not fully complete|does not fully cover|fails to fully cover|"
+                + "not comprehensive|insufficiently complete).*");
+    }
+
+    static boolean unsupportedTemplateSampleIdentityClaim(String statement, String requirement,
+            String documentText, String templateText) {
+        if (!sampleNameConfusion(statement + " " + Objects.requireNonNullElse(requirement, ""),
+                documentText, templateText)) return false;
+        String authority = normalize(requirement);
+        // A template example name is illustrative unless the quoted authority itself explicitly
+        // imposes an identity/name obligation. Deliverable Instructions are handled separately.
+        return !authority.matches("(?s).*(?:must|shall|required|mandatory).{0,80}"
+            + "(?:name|named|title|project|system).*" )
+            && !authority.matches("(?s).*(?:name|named|title|project|system).{0,80}"
+                + "(?:must|shall|required|mandatory).*");
+    }
+
+    static List<AiReviewProvider.Finding> internalNumericContradictions(String documentText) {
+        if (documentText == null || documentText.isBlank()) return List.of();
+        record Cap(int value, String subject, String sentence) { }
+        var caps = new ArrayList<Cap>();
+        for (String raw : documentText.split("(?<=[.!?])\\s+|\\R+")) {
+            String sentence = raw.trim();
+            if (sentence.isBlank()) continue;
+            Matcher matcher = NUMERIC_CAP.matcher(sentence);
+            while (matcher.find()) {
+                String subject = normalizeCapSubject(matcher.group(2));
+                if (subject.length() >= 8 && subject.split(" ").length >= 2)
+                    caps.add(new Cap(Integer.parseInt(matcher.group(1)), subject, sentence));
+            }
+        }
+        var findings = new ArrayList<AiReviewProvider.Finding>();
+        var seen = new HashSet<String>();
+        for (int i = 0; i < caps.size(); i++) {
+            for (int j = i + 1; j < caps.size(); j++) {
+                Cap left = caps.get(i), right = caps.get(j);
+                if (left.value() == right.value() || !sameCapSubject(left.subject(), right.subject())) continue;
+                String key = left.subject() + ":" + Math.min(left.value(), right.value()) + ":"
+                    + Math.max(left.value(), right.value());
+                if (!seen.add(key)) continue;
+                findings.add(new AiReviewProvider.Finding(
+                    "The submitted PDF states conflicting maximum limits for " + left.subject()
+                        + ": " + left.value() + " and " + right.value() + ".",
+                    AiReviewProvider.FindingSource.DOCUMENT,
+                    left.sentence() + " " + right.sentence(), ""));
+                if (findings.size() == 3) return List.copyOf(findings);
+            }
+        }
+        return List.copyOf(findings);
+    }
+
+    static List<AiReviewProvider.Finding> undefinedAcronymsRequiredByTemplate(
+            String documentText, String templateText) {
+        if (documentText == null || documentText.isBlank()
+                || templateText == null || templateText.isBlank()) return List.of();
+
+        String requirement = Objects.requireNonNullElse(templateText, "").lines()
+            .map(String::trim)
+            .filter(line -> {
+                String normalized = normalize(line);
+                return normalized.contains("definitions")
+                    && normalized.contains("acronyms")
+                    && normalized.contains("abbreviations")
+                    && normalized.matches("(?s).*(?:required|needed).*interpret.*");
+            })
+            .findFirst().orElse("");
+        if (requirement.isBlank()) return List.of();
+
+        Layout document = layout(documentText, false);
+        if (!document.reliableBody()) return List.of();
+        int definitionsHeading = bodyHeadingIndex(document,
+            "Definitions, Acronyms and Abbreviations", true);
+        if (definitionsHeading < 0) return List.of();
+
+        var definitions = new StringBuilder(document.lines().get(definitionsHeading));
+        int definitionsEnd = document.lines().size();
+        for (int i = definitionsHeading + 1; i < document.lines().size(); i++) {
+            if (!document.inBody(i)) continue;
+            String line = document.lines().get(i);
+            if (line.isBlank()) continue;
+            if (isBodyBoundaryAfter(document.lines().get(definitionsHeading), line)) {
+                definitionsEnd = i;
+                break;
+            }
+            definitions.append(' ').append(line);
+        }
+        String definitionsText = definitions.toString();
+
+        int referencesHeading = bodyHeadingIndex(document, "References", true);
+        int referencesEnd = referencesHeading < 0 ? -1 : document.lines().size();
+        if (referencesHeading >= 0) {
+            for (int i = referencesHeading + 1; i < document.lines().size(); i++) {
+                if (!document.inBody(i)) continue;
+                String line = document.lines().get(i);
+                if (line.isBlank()) continue;
+                if (isBodyBoundaryAfter(document.lines().get(referencesHeading), line)) {
+                    referencesEnd = i;
+                    break;
+                }
+            }
+        }
+
+        var evidenceByAcronym = new java.util.LinkedHashMap<String, String>();
+        for (int i = 0; i < document.lines().size(); i++) {
+            if (!document.inBody(i) || i >= definitionsHeading && i < definitionsEnd) continue;
+            // Bibliographic titles, report identifiers, publishers and source locators are citation
+            // metadata, not terminology required to interpret the SRS. If the same acronym is used
+            // substantively elsewhere in the document it will still be discovered at that use site.
+            if (referencesHeading >= 0 && i >= referencesHeading && i < referencesEnd) continue;
+            String line = document.lines().get(i);
+            // All-caps headings are labels/titles, not acronym use in prose.
+            if (!line.matches("(?s).*[a-z].*")) continue;
+            int labelColon = line.indexOf(':');
+            Matcher matcher = UPPERCASE_ACRONYM.matcher(line);
+            while (matcher.find()) {
+                String acronym = matcher.group();
+                if (DOCUMENT_TYPE_ACRONYMS.contains(acronym) || COMMON_TECH_ACRONYMS.contains(acronym)) continue;
+                if (labelColon >= 0 && matcher.end() <= labelColon
+                        && line.substring(0, labelColon).matches("[A-Z0-9 _/-]+")) continue;
+                // Tokens embedded in identifiers such as LFT-0001 are trace IDs,
+                // not terminology that belongs in the definitions section.
+                int start = matcher.start(), end = matcher.end();
+                if (start > 0 && line.charAt(start - 1) == '-'
+                        || end < line.length() && line.charAt(end) == '-') continue;
+                evidenceByAcronym.putIfAbsent(acronym, line.trim());
+            }
+        }
+
+        var findings = new ArrayList<AiReviewProvider.Finding>();
+        for (var entry : evidenceByAcronym.entrySet()) {
+            String acronym = entry.getKey();
+            if (acronymDefined(acronym, definitionsText, documentText)) continue;
+            findings.add(new AiReviewProvider.Finding(
+                "The acronym " + acronym
+                    + " is used in the submitted PDF but is not defined in section 1.3 Definitions, Acronyms and Abbreviations.",
+                AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
+                entry.getValue(), requirement));
+            if (findings.size() == 5) break;
+        }
+        return List.copyOf(findings);
+    }
+
+    private static boolean acronymDefined(String acronym, String definitionsText, String documentText) {
+        String token = Pattern.quote(acronym);
+        if (Pattern.compile("(?i)\\b" + token
+                + "\\b\\s*(?:means|stands\\s+for|is\\s+defined\\s+as|[:=â€“—-])")
+                .matcher(definitionsText).find()) return true;
+        // Also accept a conventional expansion such as "Recovery Point Objective (RPO)"
+        // anywhere in the submitted document.
+        return Pattern.compile("(?i)\\b[A-Za-z][A-Za-z -]{4,100}\\(\\s*" + token + "\\s*\\)")
+            .matcher(documentText).find();
+    }
+
+    private static String normalizeCapSubject(String value) {
+        String subject = normalize(value).replaceFirst(
+            "\\b(?:before|after|when|while|unless|until|if|because|whereas|however|but)\\b.*$", "").trim();
+        return subject.replaceFirst("^(?:active|concurrent|simultaneous)\\s+", "active ");
+    }
+
+    private static boolean sameCapSubject(String left, String right) {
+        return left.equals(right) || left.length() >= 12 && right.length() >= 12
+            && (left.startsWith(right + " ") || right.startsWith(left + " "));
+    }
+
+    private static boolean contradictedDocumentContentReplacement(AiReviewProvider.Finding finding,
+            String documentText) {
+        String issue = normalize(finding.issue());
+        if (!issue.contains("instead of") || !issue.contains("functional") || !issue.contains("non functional"))
+            return false;
+        return containsBodySectionContent(documentText, "Functional requirements")
+            && containsBodySectionContent(documentText, "Non-functional requirements");
+    }
+
+    private static boolean unsupportedDocumentSectionPlacementClaim(String issue) {
+        String text = normalize(issue);
+        return text.matches("(?s).*\\b(?:incorrectly|improperly|wrongly)\\s+(?:placed|located|classified|categorized)\\b.*")
+            || text.matches("(?s).*\\bcontradict(?:s|ed|ing|ion)?\\b.{0,120}\\b(?:document )?(?:organization|structure)\\b.*")
+            || text.matches("(?s).*\\b(?:belongs?|should|must)\\s+(?:only\\s+)?(?:be\\s+)?(?:in|under)\\s+(?:section|subsection|chapter)\\b.*");
+    }
+
+    private static boolean unsupportedDocumentStyleCriticism(String issue) {
+        String text = normalize(issue);
+        if (!text.matches("(?s).*\\b(?:repetitive|redundant|nearly identical|excessive)\\b.*")) return false;
+        // Repetition can be objectively observed, but document evidence alone cannot
+        // turn it into a compliance defect. Keep independently checkable contradictions
+        // or identifier conflicts; discard style/quality judgments unless an authority
+        // source explicitly requires uniqueness or non-repetition.
+        if (text.matches("(?s).*\\b(?:conflict|conflicting|contradict|contradictory|"
+                + "inconsistent|different values?|duplicate identifiers?)\\b.*")) return false;
+        return true;
+    }
+
+    private static boolean unsupportedEmbeddedReviewerInstruction(String issue) {
+        String text = normalize(issue);
+        return text.matches("(?s).*\\b(?:reviewer|review)\\b.*"
+            + "\\b(?:ignore|override|authority hierarchy|require)\\b.*"
+            + "\\b(?:template|authority|instruction|section)\\b.*");
+    }
+
+    private static boolean unsupportedDocumentAuthorityClaim(String issue) {
+        String text = normalize(issue);
+        if (!text.matches("(?s).*\\b(?:template|deliverable instruction|official requirement)\\b.*")) return false;
+        return text.matches("(?s).*\\b(?:required|requires|required by|specified by|"
+            + "noncompliant|non compliant|fails to|violates?)\\b.*");
+    }
+
+    private static boolean contradictedBlanketArtifactAbsence(AiReviewProvider.Finding finding, String documentText) {
+        String issue = normalize(finding.issue());
+        if (!issue.contains("functional requirements") || !issue.contains("use case diagram")
+                || !issue.contains("activity diagram") || !issue.contains("wireframe")
+                || !(issue.contains("lacks") || issue.contains("missing")
+                    || issue.contains("fails to follow") && issue.contains("structure"))) return false;
+        Layout document = layout(documentText, false);
+        if (!document.reliableBody()) return false;
+        return allModuleTransactionsContain(document,
+            "use case description", "use case diagram", "activity diagram", "wireframe");
+    }
+
+    private static boolean artifactLabelHasFollowingContent(Layout document, int labelIndex) {
+        for (int i = labelIndex + 1; i < document.lines().size(); i++) {
+            if (!document.inBody(i)) continue;
+            String raw = document.lines().get(i).trim();
+            if (raw.isBlank()) continue;
+            String line = normalize(raw);
+            if (line.equals("use case description") || line.equals("use case diagram")
+                    || line.equals("activity diagram") || line.equals("wireframe")
+                    || MODULE_ONE_HEADING.matcher(raw).matches()
+                    || TEMPLATE_BODY_NUMBERED_HEADING.matcher(raw).matches()
+                    || looksLikeBodyHeading(raw)) return false;
+            if (EXPLICIT_PLACEHOLDER.matcher(raw).find()
+                    || line.matches("(?s).*\\b(?:placeholder|todo|tbd)\\b.*")) return false;
+            return raw.length() >= 10 && raw.split("\\s+").length >= 2;
+        }
+        return false;
+    }
+
     private static boolean unsupportedNamedSectionClaim(String issue, String requirement,
             AiReviewProvider.FindingSource source) {
         if (!ABSENCE.matcher(issue).find() || !normalize(issue).contains("section")) return false;
+        if (source == AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE
+                && !officialTemplateStructuralRequirement(requirement)) return true;
         Matcher quoted = QUOTED_HEADING.matcher(issue);
         while (quoted.find()) {
             String section = quoted.group(1);
@@ -409,16 +1248,37 @@ final class AiReviewGroundingPolicy {
         return false;
     }
 
+    private static boolean officialTemplateStructuralRequirement(String requirement) {
+        String normalized = normalize(requirement);
+        if (normalized.matches("(?s).*(?:must|shall|required|mandatory).*")) return true;
+        for (String raw : Objects.requireNonNullElse(requirement, "").lines().toList()) {
+            if (TEMPLATE_BODY_NUMBERED_HEADING.matcher(raw.trim()).matches()) return true;
+        }
+        return false;
+    }
+
     private static boolean wrongDeliverableFromSyntheticLabel(String issue, String title, String documentText) {
-        if (!WRONG_DELIVERABLE.matcher(issue).find()) return false;
-        if (!normalize(issue).contains("synthetic") && !normalize(issue).contains("benchmark")
-                && !normalize(issue).contains("sample")) return false;
+        String text = normalize(issue);
+        if (!text.contains("synthetic") && !text.contains("benchmark") && !text.contains("sample")) return false;
+        boolean mismatchClaim = WRONG_DELIVERABLE.matcher(issue).find()
+            || text.matches("(?s).*(?:does not represent|mismatch(?:es|ed)?|different project|"
+                + "rather than (?:a )?student authored deliverable|"
+                + "not a student(?: authored)? (?:submission|document|project(?: submission)?|srs|"
+                + "software requirements specification|software test document|software design document|"
+                + "requirements specification)).*");
+        if (!mismatchClaim) return false;
         String doc = normalize(documentText);
         String expected = normalize(title).replaceFirst(" (?:std|srs|sdd|spmp)$", "");
         if (expected.isBlank()) return false;
         // Explicitly labelling a correct-type PDF as synthetic is not evidence it is the wrong
         // artifact. Do NOT suppress genuine body mismatches such as an STD full of marketing text.
         boolean matchingType = doc.contains(expected)
+            || expected.contains("software requirements specification")
+                && (doc.contains("software requirements specification") || doc.matches("(?s).*\\bsrs\\b.*"))
+            || expected.contains("software test document")
+                && (doc.contains("software test document") || doc.matches("(?s).*\\bstd\\b.*"))
+            || expected.contains("software design document")
+                && (doc.contains("software design document") || doc.matches("(?s).*\\bsdd\\b.*"))
             || expected.equals("srs") && doc.contains("software requirements specification")
             || expected.equals("std") && doc.contains("software test document")
             || expected.equals("sdd") && doc.contains("software design document");
@@ -426,10 +1286,11 @@ final class AiReviewGroundingPolicy {
             "(?s).*(?:marketing campaign|rather than (?:a |an )?(?:srs|std|sdd)|not (?:an? )?(?:srs|std|sdd)).*");
     }
 
-    private static boolean sampleNameConfusion(String issue, String documentText, String templateText) {
+    static boolean sampleNameConfusion(String issue, String documentText, String templateText) {
         String text = normalize(issue);
-        if (!text.matches("(?s).*(?:name|identity|named|project title).*")
-                || !text.matches("(?s).*(?:template|sample|example|must match|should match|should be named).*"))
+        if (!text.matches("(?s).*(?:name|identity|named|project(?: title)?|system).*")
+                || !text.matches("(?s).*(?:template|sample|example|must match|should match|should be named|"
+                    + "does not match|mismatch|instead of|different project|requested).*") )
             return false;
         if (templateText == null || templateText.isBlank()) return false;
         // A name shown only in the official template cannot determine the identity of a

@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -24,7 +25,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     private static final Logger LOG = LoggerFactory.getLogger(GeminiAiReviewProvider.class);
     // This is an output ceiling, not a target. Long PDFs can need room for several
     // evidence passages and exact authority quotes in the structured JSON response.
-    private static final int MAX_OUTPUT_TOKENS = 8192;
+    private static final int DEFAULT_MAX_OUTPUT_TOKENS = 8192;
     // The response schema permits 8 findings (3 x 2,000 chars each), 8 missing
     // sections (500 + 2,000 chars each), plus 6,000 summary, 3,000 action, and
     // 5 verified checks (200 + 1,000 + 2,000 chars each): at most 93,000 raw
@@ -63,11 +64,21 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         incomplete prose is not an absent heading. A request for particular content is not an instruction to add
         a separately named required section; do not invent headings such as "Supporting Evidence" from a requirement
         merely to supply evidence. An official-template example project name does not define the student's identity.
+        Before claiming that a present section is incomplete, name at least one concrete missing item in the finding
+        and quote the supplied authority that requires it. Do not use vague exhaustive claims such as "all terms are
+        undefined" or "the reference list is incomplete" when no concrete missing item is identified.
+        Inspect the full PDF for internal contradictions, especially conflicting numeric limits, states, dates,
+        identifiers, or mutually incompatible requirements. For a contradiction finding, quote both conflicting
+        PDF passages in evidence and use DOCUMENT as the source. Do not infer a contradiction from outside knowledge.
         Do not mark bullets or lists incorrect because they are not paragraphs. An exact supplied authoritative
         passage must explicitly require prose or prohibit bullet formatting before making that claim; a template's
         sample bullet points demonstrate that bullets may be valid for that section.
         An explicit synthetic/sample label alone does not mean the document is the wrong deliverable: distinguish
         actual document type and body relevance from whether the synthetic fixture demonstrates real-world testing.
+        Do not use a synthetic/benchmark/student-authorship label by itself as a finding or verified check. On long
+        PDFs, scan beyond the cover and Table of Contents before deciding a body section is absent. If no actionable
+        concern remains, return 2-5 independent grounded checks from different body passages when they truly exist;
+        do not repeat one excerpt or invent checks merely to satisfy a quota.
         Do not call every section blank or every passage irrelevant if meaningful project-specific content exists.
         If a requirement is conditional (for example, document incidents when actual outcomes differ), first
         establish that its condition is met before alleging noncompliance. Do not prescribe an extra obligation
@@ -83,20 +94,42 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     private final RestClient http;
     private final ObjectMapper json;
     private final long intervalMillis;
+    private final String thinkingLevel;
+    private final int maxOutputTokens;
     private long nextRequestAt;
     private long quotaBlockedUntil;
 
     GeminiAiReviewProvider(String key, RestClient http, ObjectMapper json, int minimumIntervalSeconds) {
+        this(key, http, json, minimumIntervalSeconds, "MINIMAL", DEFAULT_MAX_OUTPUT_TOKENS);
+    }
+
+    GeminiAiReviewProvider(String key, RestClient http, ObjectMapper json, int minimumIntervalSeconds,
+            String thinkingLevel) {
+        this(key, http, json, minimumIntervalSeconds, thinkingLevel, DEFAULT_MAX_OUTPUT_TOKENS);
+    }
+
+    GeminiAiReviewProvider(String key, RestClient http, ObjectMapper json, int minimumIntervalSeconds,
+            String thinkingLevel, int maxOutputTokens) {
         this.key = Objects.requireNonNullElse(key, "").trim();
         this.http = http;
         this.json = json;
         this.intervalMillis = Math.max(0, Math.min(60, minimumIntervalSeconds)) * 1000L;
+        String normalizedThinkingLevel = Objects.requireNonNullElse(thinkingLevel, "").trim().toUpperCase(Locale.ROOT);
+        this.thinkingLevel = switch (normalizedThinkingLevel) {
+            case "MINIMAL", "LOW", "MEDIUM", "HIGH" -> normalizedThinkingLevel;
+            default -> throw new IllegalArgumentException("Unsupported Gemini thinking level");
+        };
+        if (maxOutputTokens < 1 || maxOutputTokens > 65_536) {
+            throw new IllegalArgumentException("Unsupported Gemini max output token limit");
+        }
+        this.maxOutputTokens = maxOutputTokens;
     }
 
     @Override public boolean isConfigured() { return !key.isBlank(); }
 
     @Override public String cacheVersion() {
-        return MODEL + ":rest-pdf-v5:temperature-0.2:thinking-minimal:output-" + MAX_OUTPUT_TOKENS
+        return MODEL + ":rest-pdf-v5:temperature-0.2:thinking-" + thinkingLevel.toLowerCase(Locale.ROOT)
+            + ":output-" + maxOutputTokens
             + ":" + AiReviewService.sha256(GUIDANCE.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
@@ -136,7 +169,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 "contents", List.of(Map.of("role", "user", "parts", List.of(
                     Map.of("text", "Review the attached PDF using this requirements data:\n" + json.writeValueAsString(requirements)), document))),
                 "generationConfig", Map.of("temperature", 0.2, "candidateCount", 1,
-                    "maxOutputTokens", MAX_OUTPUT_TOKENS, "thinkingConfig", Map.of("thinkingLevel", "MINIMAL"),
+                    "maxOutputTokens", maxOutputTokens, "thinkingConfig", Map.of("thinkingLevel", thinkingLevel),
                     "responseMimeType", "application/json", "responseJsonSchema", schema()));
             // Send the PDF once; do not also send extractedText (which duplicates its contents).
             stage = "generation";
@@ -333,7 +366,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         if (input.templateText().isBlank()) {
             limitations.add("No official template was supplied, so compliance with a specific template structure was not assessed.");
         }
-        if (input.instructions().isBlank()) {
+        if (input.instructions().isBlank() && input.templateText().isBlank()) {
             limitations.add("No deliverable Instructions were supplied, so requirement compliance is limited to the requested deliverable identity and document evidence.");
         }
         return List.copyOf(limitations);

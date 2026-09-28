@@ -60,6 +60,8 @@ class GeminiAiReviewProviderTest {
             .andExpect(content().string(org.hamcrest.Matchers.containsString("hasOfficialTemplate")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("hasDeliverableInstructions")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("sample project names")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("internal contradictions")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("concrete missing item")))
             .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("DO NOT SEND THIS DUPLICATE TEXT"))))
             .andRespond(withSuccess(validResponse(), MediaType.APPLICATION_JSON));
         var result = provider.review(input());
@@ -69,6 +71,19 @@ class GeminiAiReviewProviderTest {
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
         assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v5", "thinking-minimal", "output-8192");
+        server.verify();
+    }
+
+    @Test void allowsDevelopmentHarnessToRaiseOutputLimitWithoutChangingProductionDefault() throws Exception {
+        var highProvider = new GeminiAiReviewProvider("test-key", client, json, 0, "HIGH", 16_384);
+        server.expect(requestTo(GENERATE)).andExpect(method(HttpMethod.POST))
+            .andExpect(jsonPath("$.generationConfig.thinkingConfig.thinkingLevel").value("HIGH"))
+            .andExpect(jsonPath("$.generationConfig.maxOutputTokens").value(16_384))
+            .andRespond(withSuccess(validResponse(), MediaType.APPLICATION_JSON));
+
+        highProvider.review(input());
+
+        assertThat(highProvider.cacheVersion()).contains("thinking-high", "output-16384");
         server.verify();
     }
 
