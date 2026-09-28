@@ -1,5 +1,5 @@
 import { Button, Group, Modal, Paper, Stack, Text, Title } from '@mantine/core';
-import { ArrowSquareOut, NotePencil } from '@phosphor-icons/react';
+import { ArrowSquareOut, ChatCenteredText, FileMagnifyingGlass, NotePencil } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { formatDate, formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 import { DocumentCheckDialog } from '../review/DocumentCheckDialog.jsx';
@@ -93,6 +93,7 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                       {!hasMultipleArtifacts && row.documentCheck ? (
                         <Button
                           variant="default"
+                          leftSection={<FileMagnifyingGlass size={17} aria-hidden="true" />}
                           onClick={() => setActiveCheck({
                             response: row.response,
                             documentCheck: row.documentCheck,
@@ -114,7 +115,12 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                         })}>File history</Button>
                       ) : null}
                       {row.feedback ? (
-                        <Button variant="outline" color="wildtrackMaroon" onClick={() => setActiveFeedback(row)}>
+                        <Button
+                          variant="outline"
+                          color="wildtrackMaroon"
+                          leftSection={<ChatCenteredText size={17} aria-hidden="true" />}
+                          onClick={() => setActiveFeedback(row)}
+                        >
                           Read feedback
                         </Button>
                       ) : null}
@@ -252,6 +258,7 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                         variant="subtle"
                         size="compact-sm"
                         color="wildtrackMaroon"
+                        leftSection={<FileMagnifyingGlass size={15} aria-hidden="true" />}
                         onClick={() => {
                           setActiveCheck({
                             response: activeArtifacts.response,
