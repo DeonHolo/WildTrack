@@ -93,7 +93,7 @@ candidates.sort(Comparator.comparing(item -> normalizeStudentNumber(item.respons
             records,
             List.of(
                 "Current field definitions are not versioned; required-field assessment uses the active definitions at audit time.",
-                "Account and identity metadata are not versioned; exact pre-save input, readback, consent and PDF MIME/content are not inferred."
+                "Account and identity metadata are not versioned; edited responses retain only the persisted FormResponse identity columns, so historical roster changes and exact pre-save metadata are not inferred."
             )
         );
     }
@@ -121,10 +121,10 @@ Instant originalSavedAt = currentIsOriginal || revisionOne != null ? response.ge
             ? unver("No persisted original revision 1 is available.") : pass("Persisted original revision 1 is available.");
         List<String> missing = new ArrayList<>();
 for (DeliverableField field : requiredFields) {
-if (!hasUsableValue(field, originalValues.get(field.getFieldKey()))) missing.add(field.getFieldKey());
+if (!hasUsableValue(field, storedValue(response, field, originalValues))) missing.add(field.getFieldKey());
         }
         if (artifactField == null) missing.add("<configured-pdf-or-link-field>");
-        else if (!hasUsableValue(artifactField, originalValues.get(artifactField.getFieldKey()))) missing.add(artifactField.getFieldKey());
+        else if (!hasUsableValue(artifactField, storedValue(response, artifactField, originalValues))) missing.add(artifactField.getFieldKey());
         List<String> checkedFields = new ArrayList<>(requiredFields.stream().map(DeliverableField::getFieldKey).toList());
         if (artifactField != null && !checkedFields.contains(artifactField.getFieldKey())) checkedFields.add(artifactField.getFieldKey());
         ValidationStudyService.AuditCheck storedValues = originalRevision == null
@@ -182,6 +182,15 @@ return new Candidate(response, response.getSubmittedAt(), record);
             if ((key.equals(expectedKey) || key.endsWith(expectedKey)) && !same(stringValue(entry.getValue()), expectedValue)) return true;
         }
         return false;
+    }
+
+    private static Object storedValue(FormResponse response, DeliverableField field, Map<String, Object> originalValues) {
+        return switch (field.getFieldType()) {
+            case ACADEMIC_STUDENT_NUMBER -> response.getStudentNumber();
+            case ACADEMIC_STUDENT_NAME -> response.getStudentName();
+            case ACADEMIC_TEAM_CODE -> response.getTeamCode();
+            default -> originalValues.get(field.getFieldKey());
+        };
     }
 
     private ValidationStudyService.AuditCheck accountBinding(FormResponse response, UUID workspaceId, StudentRecord roster) {

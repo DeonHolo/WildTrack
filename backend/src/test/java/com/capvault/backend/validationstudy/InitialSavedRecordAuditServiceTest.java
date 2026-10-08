@@ -215,6 +215,42 @@ class InitialSavedRecordAuditServiceTest {
     }
 
     @Test
+    void academicIdentityFieldsUsePersistedResponseColumns() {
+        DeliverableField studentNumber = new DeliverableField("student-number", deliverableId, "studentNumber", "Student number",
+            DeliverableFieldType.ACADEMIC_STUDENT_NUMBER, true, 0, DocumentCheckPolicy.OFF, false, true);
+        DeliverableField studentName = new DeliverableField("student-name", deliverableId, "studentName", "Student name",
+            DeliverableFieldType.ACADEMIC_STUDENT_NAME, true, 1, DocumentCheckPolicy.OFF, false, true);
+        DeliverableField teamCode = new DeliverableField("team-code", deliverableId, "teamCode", "Team code",
+            DeliverableFieldType.ACADEMIC_TEAM_CODE, true, 2, DocumentCheckPolicy.OFF, false, true);
+        Instant saved = Instant.parse("2098-01-01T01:00:00Z");
+        FormResponse response = response("26-014", "Student Fourteen", "T1", "subject-14", saved, saved, 1L,
+            Map.of("documentPdf", "https://drive.google.com/file/d/14"));
+        StudentRecord roster = roster(response.getStudentRecordId(), "26-014", "Student Fourteen", "T1");
+        when(students.findById(response.getStudentRecordId())).thenReturn(java.util.Optional.of(roster));
+
+        ValidationStudyService.InitialSavedRecord row = run(List.of(response), List.of(studentNumber, studentName, teamCode, pdf)).records().get(0);
+
+        assertThat(row.storedValues().status()).isEqualTo("PASS");
+        assertThat(row.missingRequiredFieldKeys()).isEmpty();
+    }
+
+    @Test
+    void blankPersistedAcademicIdentityColumnStillFailsStoredValues() {
+        DeliverableField studentNumber = new DeliverableField("student-number", deliverableId, "studentNumber", "Student number",
+            DeliverableFieldType.ACADEMIC_STUDENT_NUMBER, true, 0, DocumentCheckPolicy.OFF, false, true);
+        Instant saved = Instant.parse("2098-01-01T01:00:00Z");
+        FormResponse response = response("", "Student Fifteen", "T1", "subject-15", saved, saved, 1L,
+            Map.of("documentPdf", "https://drive.google.com/file/d/15"));
+        StudentRecord roster = roster(response.getStudentRecordId(), "", "Student Fifteen", "T1");
+        when(students.findById(response.getStudentRecordId())).thenReturn(java.util.Optional.of(roster));
+
+        ValidationStudyService.InitialSavedRecord row = run(List.of(response), List.of(studentNumber, pdf)).records().get(0);
+
+        assertThat(row.storedValues().status()).isEqualTo("FAIL");
+        assertThat(row.missingRequiredFieldKeys()).contains("studentNumber");
+    }
+
+    @Test
     void blankOrdinaryRequiredTextAndJsonNullAreNotSuccessfulValues() {
         DeliverableField required = new DeliverableField("notes", deliverableId, "notes", "Notes",
             DeliverableFieldType.SHORT_TEXT, true, 0, DocumentCheckPolicy.OFF, false, true);
