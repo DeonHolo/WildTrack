@@ -126,11 +126,11 @@ function initialRecordRow(audit, record, counts, denominator) {
     record.originalRevision,
     record.originalSavedAt,
     record.originalArtifactValue,
-    valueOf(record.originalVersion),
+    record.originalRevision,
     record.originalArtifactValue,
-    valueOf(record.storedValues?.studentNumber ?? record.storedValues?.student?.studentNumber),
-    valueOf(record.storedValues?.studentName ?? record.storedValues?.student?.studentName),
-    valueOf(record.storedValues?.teamCode ?? record.storedValues?.student?.teamCode),
+    record.studentNumber,
+    record.studentName,
+    record.teamCode,
     record.rosterStudentNumber,
     record.rosterStudentName,
     record.rosterTeamCode,
@@ -147,7 +147,6 @@ function initialRecordRow(audit, record, counts, denominator) {
     check('accountBinding').status,
     check('accountBinding').reason,
     Array.isArray(record.requiredFieldsChecked) ? record.requiredFieldsChecked.join('; ') : '',
-    '',
     Array.isArray(record.missingRequiredFieldKeys) ? record.missingRequiredFieldKeys.join('; ') : '',
     record.overallStatus,
     audit.limitations?.length ? `${INITIAL_LIMITS} ${audit.limitations.join(' ')}` : INITIAL_LIMITS
@@ -159,12 +158,6 @@ function statusValue(value) {
   if (value === true) return { status: 'PASS', reason: '' };
   if (value === false) return { status: 'FAIL', reason: '' };
   return { status: 'UNVERIFIED', reason: '' };
-}
-
-function valueOf(value) {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'object') return '';
-  return value;
 }
 
 function safeFilePart(value) {
