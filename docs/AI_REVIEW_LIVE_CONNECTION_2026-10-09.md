@@ -26,4 +26,6 @@ Reproduction command from `backend`: `rtk proxy mvn -q "-Dtest=GeminiAiReviewPro
 
 Private screenshot proof is stored outside Git under the original checkout's `.scratch/AIReview_Live_Saved_20261009.jpg`; it is not a public study artifact or part of the PR. The screenshot verifies the new saved-report date/outcome, not its accuracy.
 
-Exact next unfinished step: push the focused branch and create a PR to main for the owner to merge. Then record the PR/check results. The new diagnostic fix is not deployed. Do not initiate further provider requests. SRS review remains the next academic deliverable action.
+PR: [#90 — Fix misleading Gemini connection errors and add safe diagnostics](https://github.com/DeonHolo/WildTrack/pull/90). The focused implementation commit is `230b027acc97e2de2119530e398ad51b900104d0`; only the provider, its tests and this checkpoint are included. Check current hosted check results on the PR rather than interpreting the local regression gate as deployment evidence.
+
+Exact next unfinished step: the owner reviews and merges PR #90 after its checks pass. The new diagnostic fix is not deployed to production. Do not initiate further provider requests. If the interruption repeats after deployment, use the new stage/elapsed/code/type diagnostics to identify the actual failure before changing transport settings. SRS review remains the next academic deliverable action.
