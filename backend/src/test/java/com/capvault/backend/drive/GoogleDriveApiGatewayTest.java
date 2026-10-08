@@ -1,11 +1,16 @@
 package com.capvault.backend.drive;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -69,6 +74,59 @@ class GoogleDriveApiGatewayTest {
         assertThat(metadata.lastModifyingUserDisplayName()).isNull();
         assertThat(metadata.createdTime()).isNull();
         assertThat(metadata.driveOwner()).isNull();
+        server.verify();
+    }
+
+    @Test
+    void classifiesDriveFailuresUsingStatusAndWhitelistedReasons() {
+        assertFailureKind(403, "{\"error\":{\"errors\":[{\"reason\":\"insufficientFilePermissions\"}]}}",
+            GoogleDriveUnavailableException.Kind.FILE_ACCESS);
+        assertFailureKind(403, "{\"error\":{\"errors\":[{\"reason\":\"backendError\"}]}}",
+            GoogleDriveUnavailableException.Kind.UNKNOWN);
+        assertFailureKind(403, "{\"error\":{\"errors\":[{\"reason\":\"forbidden\"}]}}",
+            GoogleDriveUnavailableException.Kind.UNKNOWN);
+        assertFailureKind(403, "{\"error\":{\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"API_KEY_SERVICE_BLOCKED\"}]}}",
+            GoogleDriveUnavailableException.Kind.CONFIGURATION);
+        assertFailureKind(403, "{\"error\":{\"errors\":[{\"reason\":\"accessNotConfigured\"}]}}",
+            GoogleDriveUnavailableException.Kind.CONFIGURATION);
+        assertFailureKind(403, "{\"error\":{\"errors\":[{\"reason\":\"rateLimitExceeded\"}]}}",
+            GoogleDriveUnavailableException.Kind.RATE_LIMIT);
+        assertFailureKind(404, "{}", GoogleDriveUnavailableException.Kind.FILE_ACCESS);
+        assertFailureKind(401, "{}", GoogleDriveUnavailableException.Kind.CONFIGURATION);
+        assertFailureKind(429, "{}", GoogleDriveUnavailableException.Kind.RATE_LIMIT);
+        assertFailureKind(503, "{}", GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE);
+    }
+
+    @Test
+    void sendsResourceKeyHeaderForMetadataAndDownload() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://www.googleapis.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(containsString("/drive/v3/files/file-key")))
+            .andExpect(header("X-Goog-Drive-Resource-Keys", equalTo("file-key/resource-key")))
+            .andRespond(withSuccess("{\"id\":\"file-key\",\"name\":\"f.pdf\",\"mimeType\":\"application/pdf\",\"capabilities\":{\"canDownload\":true}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(containsString("/drive/v3/files/file-key")))
+            .andExpect(header("X-Goog-Drive-Resource-Keys", equalTo("file-key/resource-key")))
+            .andRespond(withSuccess(new byte[] {1}, MediaType.APPLICATION_PDF));
+
+        GoogleDriveApiGateway gateway = new GoogleDriveApiGateway(
+            new GoogleDriveProperties(true, "test-key", 25_000_000), builder.build());
+        DriveFileReference reference = new DriveFileReference("file-key", "resource-key");
+        gateway.getMetadata(reference);
+        assertThat(gateway.download(reference)).containsExactly((byte) 1);
+        server.verify();
+    }
+
+    private static void assertFailureKind(int status, String body, GoogleDriveUnavailableException.Kind expected) {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://www.googleapis.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(containsString("/drive/v3/files/file-failure")))
+            .andRespond(withStatus(HttpStatus.valueOf(status)).contentType(MediaType.APPLICATION_JSON).body(body));
+        GoogleDriveApiGateway gateway = new GoogleDriveApiGateway(
+            new GoogleDriveProperties(true, "test-key", 25_000_000), builder.build());
+
+        assertThatThrownBy(() -> gateway.getMetadata(new DriveFileReference("file-failure", null)))
+            .isInstanceOfSatisfying(GoogleDriveUnavailableException.class,
+                exception -> assertThat(exception.kind()).isEqualTo(expected));
         server.verify();
     }
 }

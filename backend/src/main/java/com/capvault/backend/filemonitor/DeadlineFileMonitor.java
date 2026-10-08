@@ -10,6 +10,7 @@ import com.capvault.backend.drive.DriveFileMetadata;
 import com.capvault.backend.drive.DriveFileReference;
 import com.capvault.backend.drive.DriveLinkParser;
 import com.capvault.backend.drive.GoogleDriveGateway;
+import com.capvault.backend.drive.GoogleDriveUnavailableException;
 import com.capvault.backend.filecheck.FileCheckReportRepository;
 import com.capvault.backend.filecheck.FileCheckRequest;
 import com.capvault.backend.filecheck.FileCheckResponse;
@@ -252,8 +253,12 @@ public class DeadlineFileMonitor {
                     if (!Boolean.FALSE.equals(lastAccess)) {
                         for (Target target : file.targets()) {
                             try {
-                                checks.recordBatchProviderFailure(workspaceId, request(target), true,
-                                    "The Drive file is inaccessible. Verify the sharing permissions.");
+                                if (failure instanceof GoogleDriveUnavailableException unavailable) {
+                                    checks.recordBatchProviderFailureTyped(workspaceId, request(target), true, unavailable);
+                                } else {
+                                    checks.recordBatchProviderFailure(workspaceId, request(target), true,
+                                        "The Drive file is inaccessible. Verify the sharing permissions.");
+                                }
                                 reports++;
                             } catch (IllegalArgumentException staleSubmission) { }
                         }
@@ -432,9 +437,7 @@ public class DeadlineFileMonitor {
     }
 
     private static boolean isAccessDenied(RuntimeException exception) {
-        // GoogleDriveUnavailableException currently distinguishes 403/404 only by message.
-        // Other provider failures are not evidence of an access restriction.
-        return exception.getMessage() != null
-            && exception.getMessage().contains("Drive file is inaccessible");
+        return exception instanceof GoogleDriveUnavailableException unavailable
+            && unavailable.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS;
     }
 }

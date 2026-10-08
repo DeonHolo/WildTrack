@@ -1,9 +1,15 @@
 package com.capvault.backend.drive;
 
 import java.time.OffsetDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpHeaders;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriUtils;
@@ -15,6 +21,7 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
 
     private final GoogleDriveProperties properties;
     private final RestClient restClient;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     GoogleDriveApiGateway(GoogleDriveProperties properties, RestClient restClient) {
         this.properties = properties;
@@ -49,6 +56,8 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
             );
         } catch (RestClientResponseException exception) {
             throw translate(exception);
+        } catch (RestClientException exception) {
+            throw unavailable(GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE);
         }
     }
 
@@ -69,6 +78,8 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
             return bytes;
         } catch (RestClientResponseException exception) {
             throw translate(exception);
+        } catch (RestClientException exception) {
+            throw unavailable(GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE);
         }
     }
 
@@ -134,24 +145,95 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
 
     private static GoogleDriveUnavailableException translate(RestClientResponseException exception) {
         int status = exception.getStatusCode().value();
-        if (status == 403 || status == 404) {
-            return new GoogleDriveUnavailableException(
-                "WildTrack's backend Google Drive API could not access this submitted file. "
-                    + "A browser link may still work; check the saved link and the backend's Drive API access.",
-                exception
-            );
-        }
-        if (status == 400) {
-            return new GoogleDriveUnavailableException(
-                "Google Drive rejected this file link or resource key.",
-                exception
-            );
-        }
-        return new GoogleDriveUnavailableException(
-            "Google Drive could not be reached for Document Check.",
-            exception
-        );
+        Set<String> reasons = upstreamReasons(exception.getResponseBodyAsString());
+        GoogleDriveUnavailableException.Kind kind = classify(status, reasons);
+        return unavailable(kind);
     }
+
+    private static GoogleDriveUnavailableException.Kind classify(int status, Set<String> reasons) {
+        if (status == 404) return GoogleDriveUnavailableException.Kind.FILE_ACCESS;
+        if (status == 401 || containsAny(reasons, CONFIGURATION_REASONS)) {
+            return GoogleDriveUnavailableException.Kind.CONFIGURATION;
+        }
+        if (status == 429 || containsAny(reasons, RATE_LIMIT_REASONS)) {
+            return GoogleDriveUnavailableException.Kind.RATE_LIMIT;
+        }
+        if (status == 403 && containsAny(reasons, FILE_ACCESS_REASONS)) {
+            return GoogleDriveUnavailableException.Kind.FILE_ACCESS;
+        }
+        if (status >= 500 && status <= 599) {
+            return GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE;
+        }
+        return GoogleDriveUnavailableException.Kind.UNKNOWN;
+    }
+
+    private static GoogleDriveUnavailableException unavailable(GoogleDriveUnavailableException.Kind kind) {
+        String message = switch (kind) {
+            case FILE_ACCESS -> "The submitted Drive file is inaccessible to the Document Check service.";
+            case CONFIGURATION -> "Google Drive API configuration is invalid or unavailable for Document Check.";
+            case RATE_LIMIT -> "Google Drive is temporarily rate limited. Try Document Check again later.";
+            case PROVIDER_UNAVAILABLE -> "Google Drive could not be reached for Document Check.";
+            case UNKNOWN -> "Google Drive returned an unrecognized error for Document Check.";
+        };
+        return new GoogleDriveUnavailableException(message, kind);
+    }
+
+    private static Set<String> upstreamReasons(String body) {
+        Set<String> reasons = new HashSet<>();
+        if (body == null || body.isBlank()) return reasons;
+        try {
+            collectReasons(OBJECT_MAPPER.readTree(body), reasons);
+        } catch (Exception ignored) {
+            // Upstream bodies are untrusted and are never returned or logged.
+        }
+        return reasons;
+    }
+
+    private static void collectReasons(JsonNode node, Set<String> reasons) {
+        if (node == null) return;
+        if (node.isObject()) {
+            node.fields().forEachRemaining(entry -> {
+                String field = normalize(entry.getKey());
+                JsonNode value = entry.getValue();
+                if (("reason".equals(field) || "status".equals(field)) && value.isTextual()) {
+                    reasons.add(normalize(value.asText()));
+                }
+                if ("message".equals(field) && value.isTextual()) {
+                    String message = normalize(value.asText());
+                    if (message.contains("apikeynotvalid")) reasons.add("apikeynotvalid");
+                    if (message.contains("apiisnotenabled") || message.contains("apihasnotbeenused")) {
+                        reasons.add("apinotactivated");
+                    }
+                }
+                collectReasons(value, reasons);
+            });
+        } else if (node.isArray()) {
+            node.forEach(child -> collectReasons(child, reasons));
+        }
+    }
+
+    private static boolean containsAny(Set<String> actual, Set<String> expected) {
+        return actual.stream().anyMatch(expected::contains);
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+
+    private static final Set<String> FILE_ACCESS_REASONS = Set.of(
+        "insufficientfilepermissions", "cannotdownloadfile", "filenotdownloadable", "appnotauthorizedtofile",
+        "downloadrestricted", "resourcekeyinvalid", "resourcekeyrequired", "invalidresourcekey",
+        "fileaccessdenied"
+    );
+    private static final Set<String> CONFIGURATION_REASONS = Set.of(
+        "keyinvalid", "apikeyinvalid", "apikeynotvalid", "keyexpired", "accessnotconfigured",
+        "apinotactivated", "iprefererblocked", "keyrestriction", "servicedisabled",
+        "apikeyserviceblocked", "apikeyhttprefererblocked", "apikeyipaddressblocked", "apikeyexpired"
+    );
+    private static final Set<String> RATE_LIMIT_REASONS = Set.of(
+        "ratelimitexceeded", "userratelimitexceeded", "dailylimitexceeded", "quotaexceeded",
+        "quotaexceededperuser", "quotablocked", "downloadquotaexceeded", "resourceexhausted"
+    );
 
     private record DriveApiFile(
         String id,

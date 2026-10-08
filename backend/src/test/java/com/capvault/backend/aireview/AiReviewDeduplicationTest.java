@@ -121,7 +121,7 @@ class AiReviewDeduplicationTest {
 
     @Test void missingSubmittedDriveFileFailsBeforeClaimWithActionable422() {
         doThrow(new GoogleDriveUnavailableException("Private Drive 404 text should not leak",
-            new HttpClientErrorException(HttpStatus.NOT_FOUND)))
+            new HttpClientErrorException(HttpStatus.NOT_FOUND), GoogleDriveUnavailableException.Kind.FILE_ACCESS))
             .when(drive).getMetadata(any());
         assertPreclaimDriveFailure(HttpStatus.UNPROCESSABLE_ENTITY,
             "The submitted Drive PDF could not be opened.");
@@ -130,7 +130,7 @@ class AiReviewDeduplicationTest {
 
     @Test void inaccessibleDriveDownloadFailsBeforeClaimWithActionable422() {
         doThrow(new GoogleDriveUnavailableException("Private Drive 403 text should not leak",
-            new HttpClientErrorException(HttpStatus.FORBIDDEN)))
+            new HttpClientErrorException(HttpStatus.FORBIDDEN), GoogleDriveUnavailableException.Kind.FILE_ACCESS))
             .when(drive).download(any());
         assertPreclaimDriveFailure(HttpStatus.UNPROCESSABLE_ENTITY,
             "The submitted Drive PDF could not be opened.");
@@ -141,7 +141,7 @@ class AiReviewDeduplicationTest {
         var firstMetadata = new DriveFileMetadata("file-first", "document.pdf", "application/pdf", 100L,
             "same-checksum", OffsetDateTime.parse("2026-09-09T00:00:00Z"), true, "");
         doReturn(firstMetadata).doThrow(new GoogleDriveUnavailableException("Private Drive 404 detail",
-            new HttpClientErrorException(HttpStatus.NOT_FOUND)))
+            new HttpClientErrorException(HttpStatus.NOT_FOUND), GoogleDriveUnavailableException.Kind.FILE_ACCESS))
             .when(drive).getMetadata(any());
         assertPreclaimDriveFailure(HttpStatus.UNPROCESSABLE_ENTITY,
             "The submitted Drive PDF could not be opened.");
@@ -156,6 +156,24 @@ class AiReviewDeduplicationTest {
         assertPreclaimDriveFailure(HttpStatus.SERVICE_UNAVAILABLE,
             "WildTrack could not retrieve the submitted PDF from Google Drive.");
     }
+
+    @Test void driveConfigurationAndQuotaFailuresNeverBecomeInaccessiblePdfClaims() {
+        for (var kind : List.of(GoogleDriveUnavailableException.Kind.CONFIGURATION,
+                GoogleDriveUnavailableException.Kind.RATE_LIMIT, GoogleDriveUnavailableException.Kind.UNKNOWN)) {
+            reset(drive);
+            setup();
+            doThrow(new GoogleDriveUnavailableException("Private Drive 403 body should not leak",
+                new HttpClientErrorException(HttpStatus.FORBIDDEN), kind)).when(drive).getMetadata(any());
+            String message = switch (kind) {
+                case CONFIGURATION -> "WildTrack's Drive API configuration was rejected.";
+                case RATE_LIMIT -> "Google Drive is rate-limited.";
+                default -> "WildTrack could not retrieve the submitted PDF from Google Drive.";
+            };
+            assertPreclaimDriveFailure(HttpStatus.SERVICE_UNAVAILABLE, message);
+            verify(drive, never()).download(any());
+        }
+    }
+
 
     private void assertPreclaimDriveFailure(HttpStatus expectedStatus, String expectedMessage) {
         var tasks = new java.util.ArrayList<Runnable>();

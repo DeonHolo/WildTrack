@@ -34,7 +34,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.client.RestClientResponseException;
 
 @Service
 public class AiReviewService {
@@ -225,18 +224,19 @@ public class AiReviewService {
         try {
             return operation.get();
         } catch (GoogleDriveUnavailableException unavailable) {
-            // Drive's HTTP 403/404 means this submitted link is currently not
-            // accessible to WildTrack. Never leak provider error bodies, file
-            // identifiers, account information or external request URLs.
-            if (unavailable.getCause() instanceof RestClientResponseException rejected
-                    && (rejected.getStatusCode().value() == 403 || rejected.getStatusCode().value() == 404)) {
+            // Only an explicit file-access classification should send staff to
+            // student sharing settings; Drive 403 also covers key/quota failures.
+            if (unavailable.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS) {
                 throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "The submitted Drive PDF could not be opened. The backend Drive API could not access this file, "
-                    + "even though its browser link may work. Check the submission link and backend Drive access "
-                    + "before retrying. No AI review was started.");
+                    "The submitted Drive PDF could not be opened. Google Drive reported a file-access or download restriction. "
+                    + "Check sharing settings and the complete submission link. No AI review was started.");
             }
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                "WildTrack could not retrieve the submitted PDF from Google Drive. No AI review was started. Try again later.");
+            String message = switch (unavailable.kind()) {
+                case CONFIGURATION -> "WildTrack's Drive API configuration was rejected. Check the backend API key/project settings.";
+                case RATE_LIMIT -> "Google Drive is rate-limited. Wait before trying again.";
+                default -> "WildTrack could not retrieve the submitted PDF from Google Drive. The backend access failure could not be confirmed as a sharing problem.";
+            };
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, message + " No AI review was started.");
         }
     }
 
@@ -470,7 +470,8 @@ public class AiReviewService {
             case "NOT_CONFIGURED" -> "The Gemini API key is not configured.";
             case "QUEUE_FULL" -> "The AI review queue is full. No Gemini request was sent for this attempt. Try again after current reviews finish.";
             case "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE" -> "The document or review requirements exceed the supported size. Nothing was silently truncated.";
-            case "REQUEST_REJECTED" -> "Gemini rejected the document review request. Check the document and API project configuration.";
+            case "REQUEST_REJECTED" -> "Gemini rejected WildTrack's AI request (HTTP 400). No review was generated.";
+            case "REQUEST_SCHEMA_REJECTED" -> "Gemini rejected WildTrack's response schema. The AI request configuration needs correction.";
             case "CONTENT_BLOCKED" -> "Gemini could not return a review under its content policies. Instructor review is needed.";
             case "OUTPUT_TRUNCATED" -> "Gemini's review exceeded the output limit. The incomplete review was not saved as a result.";
             case "FILE_PROCESSING_FAILED" -> "Gemini could not finish processing the PDF. No review was generated.";

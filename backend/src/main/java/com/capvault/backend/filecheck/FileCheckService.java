@@ -126,20 +126,33 @@ public class FileCheckService {
     @Transactional
     public FileCheckResponse recordBatchProviderFailure(UUID workspaceId, FileCheckRequest request,
             boolean metadataFailure, String message) {
+        return recordBatchProviderFailure(workspaceId, request, metadataFailure, GoogleDriveUnavailableException.Kind.UNKNOWN);
+    }
+
+    @Transactional
+    public FileCheckResponse recordBatchProviderFailureTyped(UUID workspaceId, FileCheckRequest request,
+            boolean metadataFailure, GoogleDriveUnavailableException failure) {
+        return recordBatchProviderFailure(workspaceId, request, metadataFailure,
+            failure == null ? GoogleDriveUnavailableException.Kind.UNKNOWN : failure.kind());
+    }
+
+    private FileCheckResponse recordBatchProviderFailure(UUID workspaceId, FileCheckRequest request,
+            boolean metadataFailure, GoogleDriveUnavailableException.Kind kind) {
         requireCurrentSubmissionRevision(validateFieldAssociation(workspaceId, request), request);
+        boolean fileAccess = kind == GoogleDriveUnavailableException.Kind.FILE_ACCESS;
         String flag = metadataFailure
-            ? (message != null && message.contains("Drive file is inaccessible")
-                ? "Inaccessible" : "Provider Unavailable")
-            : "Download Failed";
-        // Upstream failures may include request URLs, tokens or raw provider JSON.
-        // Keep only explicitly recognized safe descriptions in persisted reports.
-        String summary = "Inaccessible".equals(flag)
+            ? (fileAccess ? "Inaccessible" : "Provider Unavailable")
+            : (fileAccess ? "Inaccessible" : "Download Failed");
+        String summary = fileAccess
             ? "The submitted Drive file is inaccessible. Confirm its sharing permissions and retry."
             : metadataFailure ? "Google Drive could not verify the submitted file metadata. Try again."
                 : "Google Drive could not safely download and verify the submitted PDF. Try again.";
+        String action = fileAccess
+            ? "Check the submitted file's access, then try Document Check again."
+            : "Try Document Check again later.";
         return persist(workspaceId, request, blocked(request, LocalDateTime.now(),
             summary,
-            flag, "Check the submitted file's access, then try Document Check again.", null));
+            flag, action, null));
     }
 
     private static void requireMatchingMetadata(DriveFileReference reference, DriveFileMetadata metadata) {
@@ -187,12 +200,15 @@ public class FileCheckService {
         try {
             metadata = captured == null ? driveGateway.getMetadata(reference) : captured.metadata();
         } catch (GoogleDriveUnavailableException exception) {
+            boolean fileAccess = exception.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS;
             return persist(workspaceId, request, blocked(
                 request,
                 checkedAt,
-                exception.getMessage(),
-                "Inaccessible",
-                "Set the file to Anyone with the link - Viewer, allow downloads, then run the check again.",
+                fileAccess ? "Google Drive reported a file-access or download restriction."
+                    : "WildTrack could not verify the file through the Drive API.",
+                fileAccess ? "Inaccessible" : "Provider Unavailable",
+                fileAccess ? "Set the file to Anyone with the link - Viewer, allow downloads, then run the check again."
+                    : "Google Drive could not verify the file right now. Try Document Check again later.",
                 null
             ));
         }
@@ -233,14 +249,22 @@ public class FileCheckService {
         try {
             bytes = captured == null ? driveGateway.download(reference) : captured.bytes();
             if (bytes == null) throw new GoogleDriveUnavailableException("The captured Drive file could not be downloaded.");
-        } catch (GoogleDriveUnavailableException | IllegalArgumentException exception) {
+        } catch (GoogleDriveUnavailableException exception) {
+            boolean fileAccess = exception.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS;
             return persist(workspaceId, request, blocked(
                 request,
                 checkedAt,
-                exception.getMessage(),
-                "Download Failed",
-                "Confirm the sharing and download permissions, then run the check again.",
+                fileAccess ? "The submitted Drive file is inaccessible. Confirm its sharing permissions and retry."
+                    : "Google Drive could not safely download and verify the submitted PDF. Try again.",
+                fileAccess ? "Inaccessible" : "Download Failed",
+                fileAccess ? "Check the submitted file's access, then try Document Check again."
+                    : "Try Document Check again later.",
                 responseMetadata
+            ), metadata);
+        } catch (IllegalArgumentException exception) {
+            return persist(workspaceId, request, blocked(
+                request, checkedAt, exception.getMessage(), "Download Failed",
+                "Confirm the sharing and download permissions, then run the check again.", responseMetadata
             ), metadata);
         }
 

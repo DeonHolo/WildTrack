@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import com.capvault.backend.drive.GoogleDriveGateway;
+import com.capvault.backend.drive.GoogleDriveUnavailableException;
 import com.capvault.backend.drive.DriveLinkParser;
 import com.capvault.backend.drive.DriveFileReference;
 import com.capvault.backend.response.FormResponseRepository;
@@ -119,8 +120,10 @@ public class FileCheckController {
                 try {
                     FileCheckResponse report = providerFailure == null
                         ? service.checkCaptured(workspaceId, item, captured)
-                        : service.recordBatchProviderFailure(workspaceId, item, metadataFailure,
-                            providerFailure.getMessage());
+                        : providerFailure instanceof GoogleDriveUnavailableException unavailable
+                            ? service.recordBatchProviderFailureTyped(workspaceId, item, metadataFailure, unavailable)
+                            : service.recordBatchProviderFailure(workspaceId, item, metadataFailure,
+                                providerFailure.getMessage());
                     results.add(new BatchItem(item.responseId(), item.fieldId(), report, null));
                 } catch (RuntimeException problem) {
                     results.add(new BatchItem(item.responseId(), item.fieldId(), null,
