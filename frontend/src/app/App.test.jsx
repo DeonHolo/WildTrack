@@ -68,7 +68,6 @@ vi.mock('../pages/ReviewPage.jsx', () => ({ ReviewPage: () => <h1>Review page</h
 vi.mock('../pages/StudentStatusPage.jsx', () => ({ StudentStatusPage: () => <h1>Student dashboard page</h1> }));
 vi.mock('../pages/TrackerPage.jsx', () => ({ TrackerPage: () => <h1>Tracker page</h1> }));
 vi.mock('../pages/WorkspacePage.jsx', () => ({ WorkspacePage: () => <h1>Workspace page</h1> }));
-vi.mock('../pages/ValidationStudyPage.jsx', () => ({ ValidationStudyPage: () => <h1>Validation Study page</h1> }));
 
 function setRole(role) {
   localStorage.setItem('wildtrack.v2.preview-role', role);
@@ -125,7 +124,7 @@ describe('role-specific application shells', () => {
     expect(within(navigation).getByRole('link', { name: 'Academic data' })).toBeInTheDocument();
     expect(within(navigation).getByRole('link', { name: 'Archive' })).toBeInTheDocument();
     expect(within(navigation).getByRole('link', { name: 'Workspace' })).toBeInTheDocument();
-    expect(within(navigation).getByRole('link', { name: 'Validation Study' })).toBeInTheDocument();
+    expect(within(navigation).queryByRole('link', { name: 'Validation Study' })).not.toBeInTheDocument();
   });
 
   it('limits adviser navigation and redirects an adviser away from admin-only routes', async () => {
@@ -146,14 +145,18 @@ describe('role-specific application shells', () => {
     expect(within(navigation).queryByRole('link', { name: 'Validation Study' })).not.toBeInTheDocument();
   });
 
-  it('keeps the Validation Study route Admin-only', async () => {
+  it('redirects retired study bookmarks to the Admin home', async () => {
     setRole('admin');
     renderApp('/validation-study');
-    expect(screen.getByRole('heading', { name: 'Validation Study page' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: "Today's work page" })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Validation Study' })).not.toBeInTheDocument();
+  });
 
+  it('redirects retired study bookmarks to the Adviser home', async () => {
     setRole('adviser');
     renderApp('/validation-study');
     expect(await screen.findByRole('heading', { name: 'Team review page' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Validation Study' })).not.toBeInTheDocument();
   });
 
   it('keeps Academic data on its own Admin-only page', async () => {
