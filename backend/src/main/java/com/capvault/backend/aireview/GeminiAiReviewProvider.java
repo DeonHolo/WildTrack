@@ -15,9 +15,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.UnknownContentTypeException;
 
 /** One generation attempt, no SDK retries, credentials/Google error bodies never returned to users. */
 final class GeminiAiReviewProvider implements AiReviewProvider {
@@ -145,6 +147,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         if (System.currentTimeMillis() < quotaBlockedUntil) throw new Failure("RATE_LIMITED");
         String uploadedName = null;
         String stage = "prepare";
+        long startedAt = System.nanoTime();
         try {
             pause(Math.max(0, nextRequestAt - System.currentTimeMillis()));
             nextRequestAt = System.currentTimeMillis() + intervalMillis;
@@ -199,14 +202,12 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             LOG.warn("Gemini AI review failure: stage={} code={} detail={}", stage, failure.code, failure.detail);
             throw failure;
         } catch (RestClientException failure) {
-            LOG.warn("Gemini AI review connection failure: stage={}", stage);
-            Throwable cause = failure;
-            while (cause != null) {
-                if (cause instanceof java.net.http.HttpTimeoutException || cause instanceof java.net.SocketTimeoutException)
-                    throw new Failure("PROVIDER_TIMEOUT");
-                cause = cause.getCause();
-            }
-            throw new Failure("PROVIDER_CONNECTION_FAILED");
+            Failure classified = classifyClientFailure(failure);
+            // Types and fixed codes only: exception messages may contain URLs, keys or response content.
+            LOG.warn("Gemini AI review client failure: stage={} elapsedMs={} code={} exception={} cause={}",
+                stage, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt),
+                classified.code, failure.getClass().getSimpleName(), failure.getMostSpecificCause().getClass().getSimpleName());
+            throw classified;
         } catch (Exception failure) {
             LOG.warn("Gemini AI review unexpected failure: stage={} exception={}", stage,
                 failure.getClass().getSimpleName());
@@ -221,6 +222,18 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 }
             }
         }
+    }
+
+    private static Failure classifyClientFailure(RestClientException failure) {
+        boolean decoding = failure instanceof UnknownContentTypeException;
+        // RestClient wraps response conversion errors as well as transport failures.
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.net.http.HttpTimeoutException || cause instanceof java.net.SocketTimeoutException)
+                return new Failure("PROVIDER_TIMEOUT", "transport_timeout");
+            decoding |= cause instanceof HttpMessageNotReadableException || cause instanceof JsonProcessingException;
+        }
+        return decoding ? invalid("provider_response_decode_failed")
+            : new Failure("PROVIDER_CONNECTION_FAILED", "transport_failed");
     }
 
     private JsonNode upload(byte[] bytes) {
