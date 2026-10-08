@@ -32,7 +32,21 @@ public class AiReviewStore {
     }
 
     public record Job(String key, String contextHash, String state, UUID token, Instant startedAt,
-                      Instant completedAt, String reportJson, String failureCode) { }
+                      Instant completedAt, String reportJson, String failureCode,
+                      String latestAttemptReportJson, Instant latestAttemptCompletedAt,
+                      UUID workspaceId, UUID deliverableId, String teamCode) {
+        public Job(String key, String contextHash, String state, UUID token, Instant startedAt,
+                Instant completedAt, String reportJson, String failureCode) {
+            this(key, contextHash, state, token, startedAt, completedAt, reportJson, failureCode,
+                null, null, null, null, null);
+        }
+        public Job(String key, String contextHash, String state, UUID token, Instant startedAt,
+                Instant completedAt, String reportJson, String failureCode,
+                String latestAttemptReportJson, Instant latestAttemptCompletedAt) {
+            this(key, contextHash, state, token, startedAt, completedAt, reportJson, failureCode,
+                latestAttemptReportJson, latestAttemptCompletedAt, null, null, null);
+        }
+    }
     public record Claim(Job job, boolean acquired) { }
 
     public Optional<Job> find(String key) {
@@ -40,7 +54,9 @@ public class AiReviewStore {
             rs.getString("cache_key"), rs.getString("context_sha256"), rs.getString("state"),
             rs.getObject("claim_token", UUID.class), rs.getTimestamp("started_at").toInstant(),
             rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant(),
-            rs.getString("report_json"), rs.getString("failure_code")), key).stream().findFirst();
+            rs.getString("report_json"), rs.getString("failure_code"),
+            rs.getString("latest_attempt_report_json"), rs.getTimestamp("latest_attempt_completed_at") == null ? null : rs.getTimestamp("latest_attempt_completed_at").toInstant(),
+            rs.getObject("workspace_id", UUID.class), rs.getObject("deliverable_id", UUID.class), rs.getString("team_code")), key).stream().findFirst();
     }
 
     public Claim claim(String key, UUID workspaceId, UUID deliverableId, String team, String pdfHash,
@@ -91,11 +107,40 @@ public class AiReviewStore {
         return new Claim(find(key).orElseThrow(), false);
     }
 
-    public void complete(Job job, String report) {
+    public void preservePreviousResults(Job claimed, Job previous) {
+        String latest = previous.latestAttemptReportJson() != null
+            ? previous.latestAttemptReportJson() : previous.reportJson();
+        Instant latestAt = previous.latestAttemptCompletedAt() != null
+            ? previous.latestAttemptCompletedAt() : previous.completedAt();
+        if (latest == null) return;
+        // A changed prompt/config gets its own job, while identical bytes retain dated
+        // history. Different documents/scopes and late workers cannot seed this job.
         tx.executeWithoutResult(status -> jdbc.update("""
-            UPDATE ai_review_jobs SET state = 'COMPLETED', report_json = ?, completed_at = ?, failure_code = NULL
+            UPDATE ai_review_jobs SET report_json = ?, completed_at = ?,
+                latest_attempt_report_json = ?, latest_attempt_completed_at = ?
             WHERE cache_key = ? AND claim_token = ? AND state = 'RUNNING'
-            """, report, Timestamp.from(clock.instant()), job.key(), job.token()));
+              AND report_json IS NULL AND latest_attempt_report_json IS NULL
+              AND workspace_id = ? AND deliverable_id = ? AND team_code = ?
+              AND document_sha256 = (SELECT document_sha256 FROM ai_review_jobs WHERE cache_key = ?)
+            """, previous.reportJson(), previous.completedAt() == null ? null : Timestamp.from(previous.completedAt()),
+            latest, latestAt == null ? null : Timestamp.from(latestAt), claimed.key(), claimed.token(),
+            previous.workspaceId(), previous.deliverableId(), previous.teamCode(), previous.key()));
+    }
+
+    public void complete(Job job, String report) {
+        complete(job, report, true);
+    }
+
+    public void complete(Job job, String report, boolean substantive) {
+        Instant completed = clock.instant();
+        String substantiveSql = substantive ? ", report_json = ?, completed_at = ?" : "";
+        Object[] args = substantive
+            ? new Object[] {report, Timestamp.from(completed), report, Timestamp.from(completed), job.key(), job.token()}
+            : new Object[] {report, Timestamp.from(completed), job.key(), job.token()};
+        tx.executeWithoutResult(status -> jdbc.update("""
+            UPDATE ai_review_jobs SET state = 'COMPLETED', latest_attempt_report_json = ?, latest_attempt_completed_at = ?, failure_code = NULL
+            WHERE cache_key = ? AND claim_token = ? AND state = 'RUNNING'
+            """.replace("WHERE", substantiveSql + " WHERE"), args));
     }
 
     public void uncertain(Job job) {
@@ -142,7 +187,9 @@ public class AiReviewStore {
                 Job job = new Job(rs.getString("cache_key"), rs.getString("context_sha256"), rs.getString("state"),
                     rs.getObject("claim_token", UUID.class), rs.getTimestamp("started_at").toInstant(),
                     rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant(),
-                    rs.getString("report_json"), rs.getString("failure_code"));
+                    rs.getString("report_json"), rs.getString("failure_code"),
+                    rs.getString("latest_attempt_report_json"), rs.getTimestamp("latest_attempt_completed_at") == null ? null : rs.getTimestamp("latest_attempt_completed_at").toInstant(),
+                    rs.getObject("workspace_id", UUID.class), rs.getObject("deliverable_id", UUID.class), rs.getString("team_code"));
                 result.put(rs.getObject("response_id", UUID.class), new Link(rs.getLong("source_revision"), job));
             }, batch.toArray());
         }
@@ -193,7 +240,9 @@ public class AiReviewStore {
                 Job job = new Job(rs.getString("cache_key"), rs.getString("context_sha256"), rs.getString("state"),
                     rs.getObject("claim_token", UUID.class), rs.getTimestamp("started_at").toInstant(),
                     rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant(),
-                    rs.getString("report_json"), rs.getString("failure_code"));
+                    rs.getString("report_json"), rs.getString("failure_code"),
+                    rs.getString("latest_attempt_report_json"), rs.getTimestamp("latest_attempt_completed_at") == null ? null : rs.getTimestamp("latest_attempt_completed_at").toInstant(),
+                    rs.getObject("workspace_id", UUID.class), rs.getObject("deliverable_id", UUID.class), rs.getString("team_code"));
                 result.computeIfAbsent(rs.getObject("response_id", UUID.class), ignored -> new HashMap<>())
                     .put(rs.getString("field_id"), new FieldLink(rs.getString("source_value_sha256"), job));
             }, batch.toArray());

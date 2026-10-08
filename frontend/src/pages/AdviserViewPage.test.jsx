@@ -294,11 +294,18 @@ describe('adviser My advised teams review', () => {
     // Structured, source-labeled findings replace the overlapping top-level
     // narrative when both are available; the underlying saved report remains intact.
     expect(screen.queryByText('Requirements are present, but traceability needs staff review.')).not.toBeInTheDocument();
-    expect(screen.getByText(/Document evidence:/)).toBeInTheDocument();
-    expect(screen.getByText(/Missing required sections:/)).toBeInTheDocument();
-    expect(screen.getByText(/Acceptance criteria/)).toBeInTheDocument();
-    expect(screen.getByText(/No official template was supplied/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View AI Review' })).toBeInTheDocument();
+    expect(screen.queryByText(/Document evidence:/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Run AI Review|Rerun AI Review/i })).not.toBeInTheDocument();
+  });
+
+  it('opens a legacy current aiReport from View AI Review without running a provider', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View AI Review' }));
+    const dialog = await screen.findByRole('dialog', { name: /AI Review: PDF/i });
+    expect(dialog).toHaveTextContent('The submitted PDF does not clearly connect requirements to acceptance evidence.');
+    expect(workflow.runDocumentCheck).not.toHaveBeenCalled();
   });
 
   it('shows staff-only modifier metadata and WildTrack history inside Document Check', async () => {
@@ -362,7 +369,7 @@ describe('adviser My advised teams review', () => {
     expect(within(formArtifact).getByText('Google Form')).toBeInTheDocument();
     expect(within(formArtifact).queryByRole('button', { name: /Document Check/i })).not.toBeInTheDocument();
     expect(within(frameworkArtifact).getByRole('button', { name: 'View Document Check' })).toBeInTheDocument();
-    expect(within(frameworkArtifact).getByText('Framework review belongs only to the framework PDF.')).toBeInTheDocument();
+    expect(within(frameworkArtifact).getByRole('button', { name: 'View AI Review' })).toBeInTheDocument();
 
     fireEvent.click(within(highlightsArtifact).getByRole('button', { name: 'Check document' }));
     await waitFor(() => expect(workflow.runDocumentCheck).toHaveBeenCalledWith(

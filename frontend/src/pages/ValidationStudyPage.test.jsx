@@ -9,7 +9,7 @@ const workflow = vi.hoisted(() => ({ activeWorkspaceId: 'workspace-1' }));
 const study = vi.hoisted(() => ({
   loadDeliverables: vi.fn(),
   loadEvidence: vi.fn(),
-  downloadCsv: vi.fn()
+  downloadInitialCsv: vi.fn()
 }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
@@ -25,7 +25,7 @@ vi.mock('../lib/ValidationStudyClient.js', () => ({
 }));
 
 vi.mock('../lib/ValidationStudyCsv.js', () => ({
-  downloadValidationStudyCsv: (...args) => study.downloadCsv(...args)
+  downloadInitialSavedRecordCsv: (...args) => study.downloadInitialCsv(...args)
 }));
 
 const evidenceByDeliverable = {
@@ -40,6 +40,46 @@ const evidenceByDeliverable = {
     counts: { uniqueCurrentResponses: 3, uniqueCurrentStudents: 3, t1Observed: 3, t2Complete: 2, passingBoth: 1 },
     warnings: [],
     limitations: ['Rejected blank-link attempts require task-log corroboration.'],
+    initialSavedRecords: {
+      scope: 'INITIAL_SAVED_RECORD_SYSTEM_AUDIT_V1',
+      evaluatedAt: '2026-09-20T01:00:00Z',
+      workspaceId: 'workspace-1',
+      deliverableId: 'srs-runtime-id',
+      candidates: 2,
+      selectedRecords: 1,
+      passedRecords: 0,
+      failedRecords: 0,
+      unverifiedRecords: 1,
+      agreement: null,
+      outcome: 'INCONCLUSIVE',
+      selectionRule: 'Current workspace records with saved initial response',
+      limitations: ['System audit only.'],
+      records: [{
+        responseId: 'response-1',
+        studentNumber: '26-0001',
+        studentName: 'Passing Student',
+        teamCode: 'TEAM-01',
+        studentRecordId: 'student-1',
+        workspaceId: 'workspace-1',
+        deliverableId: 'srs-runtime-id',
+        originalSource: 'CURRENT_REVISION_1',
+        originalRevision: 1,
+        originalSavedAt: '2026-09-19T01:00:00Z',
+        originalArtifactValue: 'https://drive.google.com/file/d/stable/view',
+        rosterStudentNumber: '26-0001',
+        rosterStudentName: 'Passing Student',
+        rosterTeamCode: 'TEAM-01',
+        studentDetails: { status: 'PASS', reason: '' },
+        workspace: { status: 'PASS', reason: '' },
+        deliverable: { status: 'PASS', reason: '' },
+        originalVersion: { status: 'UNVERIFIED', reason: 'No prior revision evidence' },
+        storedValues: { status: 'PASS', reason: '' },
+        accountBinding: { status: 'UNVERIFIED', reason: 'No consent binding in audit' },
+        requiredFieldsChecked: ['studentNumber', 'studentName', 'teamCode'],
+        missingRequiredFieldKeys: [],
+        overallStatus: 'UNVERIFIED'
+      }]
+    },
     responses: [{
       responseId: 'response-1',
       studentNumber: '26-0001',
@@ -97,7 +137,7 @@ describe('Validation Study page', () => {
   beforeEach(() => {
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
     workflow.activeWorkspaceId = 'workspace-1';
-    study.downloadCsv.mockReset();
+    study.downloadInitialCsv.mockReset();
     study.loadDeliverables.mockReset().mockResolvedValue([
       { id: 'mvp-runtime-id', trackerColumnKey: 'MVP Validation', title: 'MVP Validation' },
       { id: 'srs-runtime-id', trackerColumnKey: 'Refactored SRS', title: 'Refactored SRS' }
@@ -105,30 +145,22 @@ describe('Validation Study page', () => {
     study.loadEvidence.mockReset().mockImplementation(async (_workspaceId, deliverableId) => evidenceByDeliverable[deliverableId]);
   });
 
-  it('preselects Refactored SRS and shows counts, checks, and revision evidence', async () => {
+  it('renders the scoped audit, explicit unverified checks, and no legacy T1/T2 result', async () => {
     renderPage();
 
     await waitFor(() => expect(study.loadEvidence).toHaveBeenCalledWith('workspace-1', 'srs-runtime-id'));
     await waitFor(() => expect(screen.getByRole('textbox', { name: 'Study deliverable' })).toHaveValue('Refactored SRS'));
-    expect(screen.getByText('Current saved responses (unscored)').parentElement).toHaveTextContent('3');
-    expect(screen.getByText('Students with current response (not verified participants)').parentElement).toHaveTextContent('3');
-    expect(screen.getByText('Old T1 observed').parentElement).toHaveTextContent('3');
-    expect(screen.getByText('Old T2 complete').parentElement).toHaveTextContent('2');
-    expect(screen.getByText('Old T1+T2 passed').parentElement).toHaveTextContent('1');
-
-    const table = screen.getByRole('table', { name: 'Validation Study evidence table' });
+    expect(screen.getByText('System audit outcome: INCONCLUSIVE')).toBeInTheDocument();
+    expect(screen.getByText(/INITIAL_SAVED_RECORD_SYSTEM_AUDIT_V1/)).toBeInTheDocument();
+    const table = screen.getByRole('table', { name: 'Initial saved record audit table' });
     expect(within(table).getByText('Passing Student')).toBeInTheDocument();
-    expect(within(table).getByText('Revised submission')).toBeInTheDocument();
-    expect(within(table).getByText('Old T1+T2 pass (not current Goal 3)')).toBeInTheDocument();
-    expect(screen.getByText(/No student is required to revise solely/)).toBeInTheDocument();
-    expect(within(table).getAllByText('Pass').length).toBeGreaterThan(0);
-    fireEvent.click(within(table).getByText('1 historical revision'));
-    expect(within(table).getByText('Initial submission')).toBeInTheDocument();
+    expect(within(table).getAllByText('UNVERIFIED').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Old T1|Historical T1|Revised submission/)).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('@example.test');
     expect(document.body).not.toHaveTextContent('googleSubject');
   });
 
-  it('supports another deliverable selection and exports the currently loaded evidence', async () => {
+  it('supports another deliverable selection and exports only when the current audit exists', async () => {
     renderPage();
     await screen.findByText('Passing Student');
 
@@ -136,9 +168,28 @@ describe('Validation Study page', () => {
     fireEvent.click(selector);
     fireEvent.click(await screen.findByRole('option', { name: 'MVP Validation', hidden: true }));
     await waitFor(() => expect(study.loadEvidence).toHaveBeenCalledWith('workspace-1', 'mvp-runtime-id'));
-    expect(await screen.findByText(/No Validation Step field was detected/)).toBeInTheDocument();
+    const exportButton = screen.getByRole('button', { name: 'Export initial-record CSV (Excel)' });
+    expect(exportButton).toBeDisabled();
+    expect(screen.getByText(/initial-record audit unavailable/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export historical CSV' }));
-    expect(study.downloadCsv).toHaveBeenCalledWith(evidenceByDeliverable['mvp-runtime-id']);
+    fireEvent.click(screen.getByRole('textbox', { name: 'Study deliverable' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Refactored SRS', hidden: true }));
+    await screen.findByText('System audit outcome: INCONCLUSIVE');
+    fireEvent.click(screen.getByRole('button', { name: 'Export initial-record CSV (Excel)' }));
+    expect(study.downloadInitialCsv).toHaveBeenCalledWith(evidenceByDeliverable['srs-runtime-id']);
+  });
+
+  it('clears the previous audit and disables export while a new workspace-scoped evidence request is loading', async () => {
+    study.loadEvidence.mockImplementation(async (_workspaceId, deliverableId) => {
+      if (deliverableId === 'mvp-runtime-id') return new Promise(() => {});
+      return evidenceByDeliverable[deliverableId];
+    });
+    renderPage();
+    await screen.findByText('Passing Student');
+    const selector = screen.getByRole('textbox', { name: 'Study deliverable' });
+    fireEvent.click(selector);
+    fireEvent.click(await screen.findByRole('option', { name: 'MVP Validation', hidden: true }));
+    expect(screen.getByRole('button', { name: 'Export initial-record CSV (Excel)' })).toBeDisabled();
+    expect(screen.queryByRole('table', { name: 'Initial saved record audit table' })).not.toBeInTheDocument();
   });
 });

@@ -26,6 +26,7 @@ it('labels a preserved previous report historical after an inconclusive rerun, n
   expect(dialog).toHaveTextContent('The report below is from an earlier saved run');
   expect(dialog).toHaveTextContent('Previously saved AI Review');
   expect(dialog).toHaveTextContent('Sep 21, 2026');
+  fireEvent.click(within(dialog).getAllByText('View evidence')[0]);
   expect(dialog).toHaveTextContent('Title page names Software Project Management Plan');
   expect(dialog).not.toHaveTextContent('Reviewed Sep 22');
 });
@@ -37,6 +38,7 @@ it('shows a previous substantive report when the latest provider request failed'
   expect(dialog).toHaveTextContent('Latest AI Review did not finish');
   expect(dialog).toHaveTextContent('quota or rate limit');
   expect(dialog).toHaveTextContent('Previously saved AI Review');
+  fireEvent.click(within(dialog).getAllByText('View evidence')[0]);
   expect(dialog).toHaveTextContent('Title page names Software Project Management Plan');
 });
 
@@ -86,10 +88,12 @@ it('shows a saved zero-issue report with two verified SRS checks and a clear app
   expect(dialog).toHaveTextContent('No actionable issues identified in the checked areas');
   expect(dialog).toHaveTextContent('2 distinct observations supported by submitted PDF evidence');
   expect(dialog).not.toHaveTextContent('Section 1.3: The system is for students and advisers.');
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Show supporting evidence (2)' }));
+  fireEvent.click(within(dialog).getByText('Observed checks (2)'));
+  fireEvent.click(within(dialog).getAllByText('View evidence')[0]);
   expect(dialog).toHaveTextContent('Section 1.3: The system is for students and advisers.');
-  expect(dialog).toHaveTextContent('Authority: Identify intended users of the system.');
+  expect(dialog).toHaveTextContent('Requirement');
+  fireEvent.click(within(dialog).getAllByText('View evidence')[1]);
   expect(dialog).toHaveTextContent('FR-01: A student submits the PDF link for review.');
-  expect(dialog).toHaveTextContent('not a guarantee of full compliance or approval');
+  expect(dialog).toHaveTextContent('This is advisory feedback');
   expect(dialog).not.toHaveTextContent('General overview from provider.');
 });

@@ -1,224 +1,55 @@
 import { MantineProvider } from '@mantine/core';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { AiReviewReport } from './AiReviewReport.jsx';
 
-function show(report) {
-  render(<MantineProvider><AiReviewReport report={report} /></MantineProvider>);
-}
-
-it('shows structured evidence instead of a second narrative rephrasing of the same issue', () => {
-  show({
-    summary: 'Document evidence: The submitted document identifies itself as an SPMP. A separate reviewer observation.',
-    findings: [{
-      source: 'DOCUMENT',
-      issue: 'The submitted document identifies itself as an SPMP.',
-      evidence: 'Page 1 heading: Software Project Management Plan',
-      requirement: ''
-    }],
-    missingRequiredSections: [],
-    limitations: ['No official template was supplied, so compliance was not assessed.']
-  });
-
-  expect(screen.getAllByText(/The submitted document identifies itself as an SPMP/)).toHaveLength(1);
-  expect(screen.queryByText(/A separate reviewer observation/)).not.toBeInTheDocument();
-  expect(screen.getByText(/Page 1 heading: Software Project Management Plan/)).toBeInTheDocument();
-  expect(screen.getByText(/No official template was supplied/)).toBeInTheDocument();
-});
-
-it('suppresses the exact repeated evidence line but preserves a different source passage', () => {
-  show({
-    summary: 'There is a problem in section 2.4.',
-    findings: [{
-      source: 'OFFICIAL_TEMPLATE',
-      issue: 'Section 2.4 has an incomplete description.',
-      evidence: 'Section 2.4 has an incomplete description.',
-      requirement: '2.4 Constraints'
-    }],
-    missingRequiredSections: []
-  });
-
-  expect(screen.queryByText('There is a problem in section 2.4.')).not.toBeInTheDocument();
-  expect(screen.getByText(/Section 2.4 has an incomplete description/)).toBeInTheDocument();
-  expect(screen.queryByText(/Evidence: Section 2.4 has an incomplete description/)).not.toBeInTheDocument();
-  expect(screen.getByText(/Authority: 2.4 Constraints/)).toBeInTheDocument();
-});
-
-it('does not repeat a combined two-finding overview above its distinct source-backed findings', () => {
-  const issueA = 'Section 3.3 Communications Interfaces is in a different hierarchy.';
-  const issueB = 'Section 4 Functional Requirements differs from the template hierarchy.';
-  show({
-    summary: `Grounded requirement finding: ${issueA} Grounded requirement finding: ${issueB}`,
-    findings: [
-      { source: 'OFFICIAL_TEMPLATE', issue: issueA, evidence: 'Page 3, Table of Contents', requirement: '3.1 External interface requirements' },
-      { source: 'OFFICIAL_TEMPLATE', issue: issueB, evidence: 'Page 3, Table of Contents', requirement: '3.2 Functional requirements' }
-    ]
-  });
-  expect(screen.getAllByText(/Section 3\.3 Communications Interfaces/)).toHaveLength(1);
-  expect(screen.getAllByText(/Section 4 Functional Requirements/)).toHaveLength(1);
-  expect(screen.queryByText(/Grounded requirement finding/)).not.toBeInTheDocument();
-});
-
-it('labels a zero-grounding result inconclusive rather than treating it as a clean or verified PDF', () => {
-  show({ summary: 'No source-grounded findings could be established.', findings: [], missingRequiredSections: [] });
-  expect(screen.getByText('No source-grounded findings could be established.')).toBeInTheDocument();
-  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
-  expect(screen.getByRole('status')).toHaveTextContent('does not mean the PDF was verified or has no issues');
-});
-
-it('labels the actual postprocessor fallback as inconclusive even when it includes review limitations', () => {
-  show({
-    summary: 'The AI review returned no grounded findings from the submitted PDF or supplied requirement sources. No official template was supplied.',
-    findings: [], missingRequiredSections: [],
-    limitations: ['The official template could not be used in this review.']
-  });
-  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
-  expect(screen.getByText(/The official template could not be used/)).toBeInTheDocument();
-});
-
-it('does not label a substantive, evidence-backed report inconclusive even if its overview mentions no grounded findings', () => {
-  show({
-    summary: 'No grounded findings about formatting. The PDF explicitly identifies itself as an SPMP.',
-    findings: [{ source: 'DOCUMENT', issue: 'The document identifies itself as an SPMP.',
-      evidence: 'Title page: Software Project Management Plan', requirement: '' }],
-    missingRequiredSections: []
-  });
-  expect(screen.queryByRole('status')).not.toBeInTheDocument();
-  expect(screen.getByText(/Title page: Software Project Management Plan/)).toBeInTheDocument();
-});
-
-it('renders repeated identical findings once while keeping distinct evidence for the same issue', () => {
-  const repeated = {
-    source: 'DOCUMENT',
-    issue: 'The submitted PDF identifies itself as an SPMP.',
-    evidence: 'Title page: Software Project Management Plan',
-    requirement: ''
-  };
-  show({
-    summary: 'Document evidence: The submitted PDF identifies itself as an SPMP.',
-    findings: [repeated, { ...repeated }, {
-      ...repeated, evidence: 'Page 2: Project milestones and schedule'
-    }],
-    missingRequiredSections: []
-  });
-
-  expect(screen.getAllByText(/The submitted PDF identifies itself as an SPMP/)).toHaveLength(2);
-  expect(screen.getByText(/Title page: Software Project Management Plan/)).toBeInTheDocument();
-  expect(screen.getByText(/Page 2: Project milestones and schedule/)).toBeInTheDocument();
-});
-
-const groundedChecks = [
-  { aspect: 'The system scope identifies the intended users', source: 'DELIVERABLE_REQUIREMENTS',
-    documentEvidence: 'Section 1.3: The system serves capstone students and advisers.',
-    requirement: 'Describe the scope and intended users of the proposed system.' },
-  { aspect: 'Functional requirements describe submission behavior', source: 'OFFICIAL_TEMPLATE',
-    documentEvidence: 'Section 3.2: The student submits a PDF link for adviser review.',
-    requirement: '3.2 Functional requirements' }
+function show(report) { render(<MantineProvider><AiReviewReport report={report} /></MantineProvider>); }
+const checks = [
+  { aspect: 'Scope identifies users', source: 'DELIVERABLE_REQUIREMENTS', documentEvidence: 'Scope: students and advisers.', requirement: 'Identify intended users.' },
+  { aspect: 'Submission workflow exists', source: 'OFFICIAL_TEMPLATE', documentEvidence: 'FR-01: submit PDF.', requirement: '3.2 Functional requirements' }
 ];
 
-it('shows a compact positive result only for at least two distinct grounded observations, with passages on demand', () => {
-  show({ summary: 'The whole PDF is compliant.', findings: [], missingRequiredSections: [],
-    verifiedChecks: groundedChecks });
-
-  const status = screen.getByRole('status');
-  expect(status).toHaveTextContent('No actionable issues identified in the checked areas');
-  expect(status).toHaveTextContent('2 distinct observations supported by submitted PDF evidence');
-  expect(status).toHaveTextContent('1 mapped to the official template');
-  expect(status).toHaveTextContent('1 mapped to deliverable instructions');
-  expect(status).toHaveTextContent('not a guarantee of full compliance or approval');
-  const details = screen.getByRole('button', { name: 'Show supporting evidence (2)' });
-  expect(details).toHaveAttribute('aria-expanded', 'false');
-  expect(screen.queryByText(/Section 1\.3: The system serves capstone students and advisers/)).not.toBeInTheDocument();
-  fireEvent.click(details);
-  expect(screen.getByRole('button', { name: 'Hide supporting evidence' })).toHaveAttribute('aria-expanded', 'true');
-  expect(screen.getByText(/Section 1\.3: The system serves capstone students and advisers/)).toBeInTheDocument();
-  expect(screen.getByText(/Describe the scope and intended users/)).toBeInTheDocument();
-  expect(screen.getByText(/Section 3\.2: The student submits a PDF link/)).toBeInTheDocument();
-  expect(screen.getByText(/Authority: 3\.2 Functional requirements/)).toBeInTheDocument();
-  expect(screen.queryByText('The whole PDF is compliant.')).not.toBeInTheDocument();
-  expect(screen.queryByText('Inconclusive AI Review')).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Hide supporting evidence' }));
-  expect(screen.queryByText(/Section 1\.3: The system serves capstone students and advisers/)).not.toBeInTheDocument();
-});
-
-it('shows grounded positive checks separately from actionable findings without duplicate observations', () => {
-  const duplicate = { ...groundedChecks[0], aspect: ` ${groundedChecks[0].aspect.toUpperCase()} ` };
-  show({ summary: 'The document meets all requirements.', findings: [{
-    source: 'OFFICIAL_TEMPLATE', issue: 'The constraints section does not explain the offline requirement.',
-    evidence: 'Section 2.4: The app requires network access.', requirement: '2.4 Constraints'
-  }], missingRequiredSections: [], verifiedChecks: [...groundedChecks, duplicate] });
-
+it('renders issues first with title, next action, and collapsed evidence', () => {
+  show({ outcome: 'ISSUES_IDENTIFIED', findings: [{ title: 'Missing constraints detail', issue: 'The constraints section is incomplete.', nextAction: 'Add the offline requirement.', evidence: 'Section 2.4 passage', requirement: '2.4 Constraints', location: { page: 4, section: 'Constraints' } }] });
   expect(screen.getByText('Issues to review')).toBeInTheDocument();
-  expect(screen.getByText(/constraints section does not explain/)).toBeInTheDocument();
-  expect(screen.getByText(/2 distinct observations supported by submitted PDF evidence/)).toBeInTheDocument();
-  expect(screen.queryByText(/Section 1\.3: The system serves capstone students and advisers/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Show supporting evidence (2)' }));
-  expect(screen.getAllByText(/Section 1\.3: The system serves capstone students and advisers/)).toHaveLength(1);
-  expect(screen.getByText(/Section 3\.2: The student submits a PDF link/)).toBeInTheDocument();
-  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
-  expect(screen.queryByText('The document meets all requirements.')).not.toBeInTheDocument();
-  expect(screen.getByText(/not a guarantee of full compliance or approval/)).toBeInTheDocument();
+  expect(screen.getByText('Missing constraints detail')).toBeInTheDocument();
+  expect(screen.getByText('Add the offline requirement.')).toBeInTheDocument();
+  expect(screen.queryByText('Section 2.4 passage')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText('View evidence'));
+  expect(screen.getByText('Submitted document')).toBeInTheDocument();
+  expect(screen.getByText('Requirement')).toBeInTheDocument();
+  expect(screen.getByText(/page 4/)).toBeInTheDocument();
 });
 
-it('shows one verified check as observed evidence while marking a zero-issue result inconclusive', () => {
-  show({ summary: 'All criteria passed.', findings: [], missingRequiredSections: [],
-    verifiedChecks: [groundedChecks[0]] });
-
+it('keeps verification notes separate and prevents a green result with two checks', () => {
+  show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks, verificationNotes: [{ title: 'Diagram semantics require checking', issue: 'Image-only diagram cannot be verified.', evidence: 'Page 8 image', requirement: 'Diagram requirement' }] });
+  expect(screen.getByText(/Verify in PDF/)).toBeInTheDocument();
   expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
-  expect(screen.getByRole('status')).toHaveTextContent('not establish enough distinct verified checks');
-  expect(screen.getByText(/1 distinct observation supported by submitted PDF evidence/)).toBeInTheDocument();
-  expect(screen.queryByText(/Section 1\.3: The system serves capstone students and advisers/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Show supporting evidence (1)' }));
-  expect(screen.getByText(/Section 1\.3: The system serves capstone students and advisers/)).toBeInTheDocument();
-  expect(screen.queryByText('All criteria passed.')).not.toBeInTheDocument();
-  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+  expect(screen.getByRole('status')).not.toHaveTextContent('No actionable issues');
 });
 
-it('does not count duplicated or unsupported observations toward a positive result', () => {
-  show({ summary: 'All checks passed.', findings: [], missingRequiredSections: [],
-    verifiedChecks: [groundedChecks[0], { ...groundedChecks[0] }, {
-      ...groundedChecks[0], aspect: 'Students appear as the intended users', source: 'OFFICIAL_TEMPLATE',
-      requirement: '3.2 Functional requirements' },
-      { aspect: 'The system has a constraints section', source: 'OFFICIAL_TEMPLATE',
-        documentEvidence: '', requirement: '2.4 Constraints' }] });
-
-  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
-  expect(screen.getByText(/1 distinct observation supported by submitted PDF evidence/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Show supporting evidence (1)' }));
-  expect(screen.getAllByText(/Section 1\.3: The system serves capstone students and advisers/)).toHaveLength(1);
-  expect(screen.queryByText('The system has a constraints section')).not.toBeInTheDocument();
-  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+it('shows positive outcome only for two distinct grounded checks and keeps observations collapsed', () => {
+  show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks });
+  expect(screen.getByRole('status')).toHaveTextContent('No actionable issues identified in the checked areas');
+  expect(screen.getByText('Observed checks (2)')).toBeInTheDocument();
+  expect(screen.queryByText('Scope: students and advisers.')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText('Observed checks (2)'));
+  fireEvent.click(screen.getAllByText('View evidence')[0]);
+  expect(screen.getByText('Scope: students and advisers.')).toBeInTheDocument();
 });
 
-it('does not promote a generic fallback or an empty prose claim into a clean result', () => {
-  show({ summary: 'The PDF satisfies the SRS requirements.', findings: [], missingRequiredSections: [],
-    verifiedChecks: [] });
+it('deduplicates repeated findings and preserves full evidence text once', () => {
+  show({ findings: [
+    { issue: 'Wrong section', source: 'DOCUMENT', evidence: 'A full submitted passage with exact wording.', requirement: '' },
+    { issue: 'Wrong section', source: 'DOCUMENT', evidence: 'A full submitted passage with exact wording.', requirement: '' }
+  ] });
+  expect(screen.getAllByText('Wrong section')).toHaveLength(1);
+  fireEvent.click(screen.getByText('View evidence'));
+  expect(screen.getAllByText('A full submitted passage with exact wording.')).toHaveLength(1);
+});
+
+it('treats an empty legacy generic report as inconclusive', () => {
+  show({ summary: 'The PDF satisfies all requirements.', findings: [], missingRequiredSections: [] });
   expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
   expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
-});
-
-it('summarizes five distinct verified observations by actual source counts without claiming section or instruction coverage', () => {
-  show({ summary: 'All template sections are present and all instructions were followed.',
-    findings: [], missingRequiredSections: [],
-    suggestedAction: 'Confirm all the observed passages and independently assess remaining requirements.',
-    verifiedChecks: [
-      ...groundedChecks,
-      { aspect: 'SRS includes interface context', source: 'OFFICIAL_TEMPLATE',
-        documentEvidence: 'Section 3.1: The app uses the university API.', requirement: '3.1 External interfaces' },
-      { aspect: 'SRS includes acceptance flow', source: 'DELIVERABLE_REQUIREMENTS',
-        documentEvidence: 'Section 3.4: Adviser acceptance locks a revision.', requirement: 'Explain the acceptance flow.' },
-      { aspect: 'SRS identifies its submitted version', source: 'DOCUMENT',
-        documentEvidence: 'Title: Refactored Software Requirements Specification.', requirement: '' }
-    ] });
-  const status = screen.getByRole('status');
-  expect(status).toHaveTextContent('5 distinct observations supported by submitted PDF evidence');
-  expect(status).toHaveTextContent('2 mapped to the official template');
-  expect(status).toHaveTextContent('2 mapped to deliverable instructions');
-  expect(status).toHaveTextContent('1 based on the PDF alone');
-  expect(status).toHaveTextContent('not a guarantee of full compliance or approval');
-  expect(screen.getByRole('button', { name: 'Show supporting evidence (5)' })).toHaveAttribute('aria-expanded', 'false');
-  expect(screen.queryByText(/Section 3\.4: Adviser acceptance locks a revision/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/All template sections are present|all instructions were followed/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/Suggested action/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/5 of \d+ sections|5 requirements|sections verified|instructions fulfilled/i)).not.toBeInTheDocument();
 });

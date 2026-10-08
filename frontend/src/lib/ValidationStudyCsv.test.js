@@ -1,53 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { buildValidationStudyCsv } from './ValidationStudyCsv.js';
+import { buildInitialSavedRecordCsv } from './ValidationStudyCsv.js';
 
-describe('Validation Study CSV export', () => {
-  it('exports current and historical evidence without Google subject or email fields', () => {
-    const csv = buildValidationStudyCsv({
-      trackerColumnKey: 'Refactored SRS',
-      responses: [{
-        responseId: 'response-1',
-        studentNumber: '26-0001',
-        studentName: 'Student, One',
-        teamCode: 'TEAM-01',
-        currentRevision: 2,
-        submittedAt: '2026-09-19T01:00:00Z',
-        updatedAt: '2026-09-19T01:05:00Z',
-        validationStepValue: 'Revised submission',
-        artifactValue: 'https://drive.google.com/file/d/stable/view',
-        googleSubject: 'must-not-export',
-        googleEmail: 'secret@example.test',
-        checks: {
-          initialSubmissionSeen: true,
-          initialArtifactPresent: true,
-          revisedSubmissionCurrent: true,
-          currentArtifactPresent: true,
-          sameResponse: true,
-          revisionIncreased: true,
-          materialEditHistoryPresent: true,
-          pdfUnchanged: true,
-          nonDesignatedValuesPreserved: true,
-          overallPass: true
-        },
-        history: [{
-          revision: 1,
-          createdAt: '2026-09-19T01:02:00Z',
-          validationStepValue: 'Initial submission',
-          artifactValue: 'https://drive.google.com/file/d/stable/view'
+describe('Initial saved record CSV export', () => {
+  it('exports scoped records with status reasons and spreadsheet-safe untrusted labels', () => {
+    const csv = buildInitialSavedRecordCsv({
+      initialSavedRecords: {
+        scope: 'INITIAL_SAVED_RECORD_SYSTEM_AUDIT_V1', workspaceId: 'workspace-1', deliverableId: 'deliverable-1',
+        evaluatedAt: '2026-09-20T01:00:00Z', selectionRule: 'selected', candidates: 0, selectedRecords: 0,
+        passedRecords: 0, failedRecords: 0, unverifiedRecords: 0, outcome: 'INCONCLUSIVE', agreement: null,
+        limitations: ['No consent proof'], records: [{
+          responseId: 'r1', studentNumber: '=1+1', studentName: ' +Danger', teamCode: '@team',
+          originalSource: 'UNVERIFIED', originalArtifactValue: '-link', rosterStudentName: 'Roster',
+          studentDetails: { status: 'FAIL', reason: 'missing details' }, workspace: { status: 'UNVERIFIED', reason: 'unknown' },
+          deliverable: { status: 'PASS', reason: '' }, originalVersion: { status: 'UNVERIFIED', reason: 'no history' },
+          storedValues: { status: 'PASS', reason: '' }, accountBinding: { status: 'UNVERIFIED', reason: 'not captured' },
+          requiredFieldsChecked: ['studentNumber'], missingRequiredFieldKeys: ['name'], overallStatus: 'UNVERIFIED'
         }]
-      }]
+      }
     });
-
-    expect(csv).toContain('recordType,responseId,studentNumber');
-    expect(csv).toContain('CURRENT,response-1,26-0001,"Student, One"');
-    expect(csv).toContain('HISTORY,response-1,26-0001,"Student, One"');
-    expect(csv).toContain('Initial submission');
-    expect(csv).toContain('Revised submission');
-    expect(csv).toContain('PASS');
-    expect(csv).toContain('HISTORICAL_T1_T2_ONLY_NOT_CURRENT_GOAL_3');
-    expect(csv).not.toContain('must-not-export');
-    expect(csv).not.toContain('secret@example.test');
+    expect(csv).toContain('scope,workspaceId,deliverableId');
+    expect(csv).toContain('INITIAL_SAVED_RECORD_SYSTEM_AUDIT_V1');
+    expect(csv).toContain("'=1+1");
+    expect(csv).toContain("' +Danger");
+    expect(csv).toContain("'@team");
+    expect(csv).toContain("'-link");
+    expect(csv).toContain('missing details');
+    expect(csv).toContain('UNVERIFIED');
     expect(csv).not.toContain('googleSubject');
-    expect(csv).not.toContain('googleEmail');
+    expect(csv).not.toContain('email');
   });
 });

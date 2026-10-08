@@ -1,50 +1,88 @@
-const COLUMNS = [
-  'recordType',
+const INITIAL_COLUMNS = [
+  'scope',
+  'workspaceId',
+  'deliverableId',
+  'evaluatedAt',
+  'selectionRule',
+  'denominator',
+  'aggregateStatus',
+  'candidateCount',
+  'selectedCount',
+  'passedCount',
+  'failedCount',
+  'unverifiedCount',
+  'agreement',
   'responseId',
   'studentNumber',
   'studentName',
   'teamCode',
-  'currentRevision',
-  'submittedAt',
-  'updatedAt',
-  'currentValidationStep',
-  'currentPdfLink',
-  'historyRevision',
-  'historyCreatedAt',
-  'historyValidationStep',
-  'historyPdfLink',
-  'initialSubmissionSeen',
-  'initialArtifactPresent',
-  'revisedSubmissionCurrent',
-  'currentArtifactPresent',
-  'sameResponse',
-  'revisionIncreased',
-  'materialEditHistoryPresent',
-  'pdfUnchanged',
-  'nonDesignatedValuesPreserved',
-  'overallPass',
-  'scoreScope'
+  'studentRecordId',
+  'recordWorkspaceId',
+  'recordDeliverableId',
+  'originalSource',
+  'originalRevision',
+  'originalSavedAt',
+  'originalArtifactValue',
+  'originalVersion',
+  'originalLink',
+  'storedStudentNumber',
+  'storedStudentName',
+  'storedTeamCode',
+  'rosterStudentNumber',
+  'rosterStudentName',
+  'rosterTeamCode',
+  'studentDetailsStatus',
+  'studentDetailsReason',
+  'workspaceStatus',
+  'workspaceReason',
+  'deliverableStatus',
+  'deliverableReason',
+  'originalVersionStatus',
+  'originalVersionReason',
+  'storedValuesStatus',
+  'storedValuesReason',
+  'accountBindingStatus',
+  'accountBindingReason',
+  'requiredFieldsChecked',
+  'missingRequiredFieldKeys',
+  'overallStatus',
+  'LIMITS_PROOF_SCOPE'
 ];
 
-export function buildValidationStudyCsv(evidence) {
-  const rows = [COLUMNS];
-  for (const response of evidence?.responses || []) {
-    rows.push(csvRow(response, 'CURRENT', null));
-    for (const revision of response.history || []) {
-      rows.push(csvRow(response, 'HISTORY', revision));
-    }
+const INITIAL_SCOPE = 'INITIAL_SAVED_RECORD_SYSTEM_AUDIT_V1';
+const INITIAL_LIMITS = 'System audit of saved records only; does not prove consent, pre-save failures, student-visible readback, or end-to-end study completion.';
+
+export function buildInitialSavedRecordCsv(evidence) {
+  const audit = evidence?.initialSavedRecords;
+  if (!audit || typeof audit !== 'object') return '';
+  const records = Array.isArray(audit.records) ? audit.records : [];
+  const counts = {
+    candidateCount: audit.candidates,
+    selectedCount: audit.selectedRecords,
+    passedCount: audit.passedRecords,
+    failedCount: audit.failedRecords,
+    unverifiedCount: audit.unverifiedRecords
+  };
+  const denominator = audit.selectedRecords ?? audit.candidates;
+  const rows = [INITIAL_COLUMNS];
+  for (const record of records) {
+    rows.push(initialRecordRow(audit, record, counts, denominator));
+  }
+  if (!records.length) {
+    rows.push(initialRecordRow(audit, {}, counts, denominator));
   }
   return rows.map(row => row.map(escapeCsv).join(',')).join('\r\n') + '\r\n';
 }
 
-export function downloadValidationStudyCsv(evidence) {
-  const csv = buildValidationStudyCsv(evidence);
+export function downloadInitialSavedRecordCsv(evidence) {
+  const csv = buildInitialSavedRecordCsv(evidence);
+  if (!csv) return;
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const key = safeFilePart(evidence?.trackerColumnKey || evidence?.deliverableTitle || 'deliverable');
+  const key = safeFilePart(evidence?.trackerColumnKey || evidence?.deliverableTitle || evidence?.initialSavedRecords?.deliverableId || 'deliverable');
   link.href = url;
-  link.download = `validation-study-OLD-T1-T2-NOT-GOAL3-${key}.csv`;
+  link.download = `validation-study-initial-saved-record-audit-${key}.csv`;
   link.style.display = 'none';
   document.body.appendChild(link);
   link.click();
@@ -52,46 +90,81 @@ export function downloadValidationStudyCsv(evidence) {
   URL.revokeObjectURL(url);
 }
 
-function csvRow(response, recordType, revision) {
-  const checks = response.checks || {};
+function escapeCsv(value) {
+  let text = String(value ?? '');
+  // Excel treats these as formulas, including when whitespace/control characters precede them.
+  if (/^[\s\u0000-\u001f]*[=+\-@]/.test(text)) text = `'${text}`;
+  if (!/[",\r\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function initialRecordRow(audit, record, counts, denominator) {
+  const check = key => statusValue(record[key] ?? record.checks?.[key]);
+  const agreement = audit.agreement === null || audit.agreement === undefined ? '' : audit.agreement;
   return [
-    recordType,
-    response.responseId,
-    response.studentNumber,
-    response.studentName,
-    response.teamCode,
-    response.currentRevision,
-    response.submittedAt,
-    response.updatedAt,
-    response.validationStepValue,
-    response.artifactValue,
-    revision?.revision ?? '',
-    revision?.createdAt ?? '',
-    revision?.validationStepValue ?? '',
-    revision?.artifactValue ?? '',
-    boolLabel(checks.initialSubmissionSeen),
-    boolLabel(checks.initialArtifactPresent),
-    boolLabel(checks.revisedSubmissionCurrent),
-    boolLabel(checks.currentArtifactPresent),
-    boolLabel(checks.sameResponse),
-    boolLabel(checks.revisionIncreased),
-    boolLabel(checks.materialEditHistoryPresent),
-    boolLabel(checks.pdfUnchanged),
-    boolLabel(checks.nonDesignatedValuesPreserved),
-    boolLabel(checks.overallPass),
-    'HISTORICAL_T1_T2_ONLY_NOT_CURRENT_GOAL_3'
+    audit.scope || INITIAL_SCOPE,
+    audit.workspaceId,
+    audit.deliverableId,
+    audit.evaluatedAt,
+    audit.selectionRule,
+    denominator,
+    audit.outcome,
+    counts.candidateCount,
+    counts.selectedCount,
+    counts.passedCount,
+    counts.failedCount,
+    counts.unverifiedCount,
+    agreement,
+    record.responseId,
+    record.studentNumber,
+    record.studentName,
+    record.teamCode,
+    record.studentRecordId,
+    record.workspaceId,
+    record.deliverableId,
+    record.originalSource,
+    record.originalRevision,
+    record.originalSavedAt,
+    record.originalArtifactValue,
+    valueOf(record.originalVersion),
+    record.originalArtifactValue,
+    valueOf(record.storedValues?.studentNumber ?? record.storedValues?.student?.studentNumber),
+    valueOf(record.storedValues?.studentName ?? record.storedValues?.student?.studentName),
+    valueOf(record.storedValues?.teamCode ?? record.storedValues?.student?.teamCode),
+    record.rosterStudentNumber,
+    record.rosterStudentName,
+    record.rosterTeamCode,
+    check('studentDetails').status,
+    check('studentDetails').reason,
+    check('workspace').status,
+    check('workspace').reason,
+    check('deliverable').status,
+    check('deliverable').reason,
+    check('originalVersion').status,
+    check('originalVersion').reason,
+    check('storedValues').status,
+    check('storedValues').reason,
+    check('accountBinding').status,
+    check('accountBinding').reason,
+    Array.isArray(record.requiredFieldsChecked) ? record.requiredFieldsChecked.join('; ') : '',
+    '',
+    Array.isArray(record.missingRequiredFieldKeys) ? record.missingRequiredFieldKeys.join('; ') : '',
+    record.overallStatus,
+    audit.limitations?.length ? `${INITIAL_LIMITS} ${audit.limitations.join(' ')}` : INITIAL_LIMITS
   ];
 }
 
-function boolLabel(value) {
-  if (value === null || value === undefined) return 'N/A';
-  return value ? 'PASS' : 'FAIL';
+function statusValue(value) {
+  if (value && typeof value === 'object') return { status: value.status ?? 'UNVERIFIED', reason: value.reason ?? '' };
+  if (value === true) return { status: 'PASS', reason: '' };
+  if (value === false) return { status: 'FAIL', reason: '' };
+  return { status: 'UNVERIFIED', reason: '' };
 }
 
-function escapeCsv(value) {
-  const text = String(value ?? '');
-  if (!/[",\r\n]/.test(text)) return text;
-  return `"${text.replace(/"/g, '""')}"`;
+function valueOf(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return '';
+  return value;
 }
 
 function safeFilePart(value) {

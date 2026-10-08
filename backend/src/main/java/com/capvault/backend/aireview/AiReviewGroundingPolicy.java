@@ -105,6 +105,14 @@ final class AiReviewGroundingPolicy {
 
     private AiReviewGroundingPolicy() { }
 
+    static boolean uncertainExtractionObservation(AiReviewProvider.Finding finding, String documentText) {
+        return unsupportedArtifactRenderingClaim(finding, documentText)
+            || !hasReliableBodyBoundary(documentText) && (HEADING_ABSENCE.matcher(finding.issue()).find()
+                || NAMED_HEADING_ABSENCE.matcher(finding.issue()).find()
+                || GENERIC_CONTENT_ABSENCE.matcher(finding.issue()).matches());
+    }
+
+
     static List<AiReviewProvider.Finding> findings(List<AiReviewProvider.Finding> input, String title,
             String documentText, String templateText) {
         var accepted = new ArrayList<AiReviewProvider.Finding>();
@@ -313,13 +321,14 @@ final class AiReviewGroundingPolicy {
                     && normalize(finding.issue()).contains(head.title()))) continue;
             String quoted = head.quote();
             warnings.add(new AiReviewProvider.Finding(
-                "Mapped-template body heading '" + quoted + "' was not detected in the submitted PDF body; "
-                    + "confirm applicability and equivalent headings before requesting a change.",
+                "Mapped-template body heading '" + quoted + "' could not be located in extracted body text; "
+                    + "confirm equivalent headings and the original PDF layout.",
                 AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
-                "Mapped official-template body heading: " + quoted
-                    + ". No matching body heading detected in submitted PDF text; a Table of Contents entry alone is insufficient.",
-                quoted));
-            if (warnings.size() == MAX_TEMPLATE_ALERTS) break;
+                "",
+                quoted,
+                "Verify " + quoted,
+                "Open the original PDF and confirm this section before requesting a revision.",
+                null));
         }
         if (warnings.size() < MAX_TEMPLATE_ALERTS)
             addTransactionArtifactWarnings(template, document, accepted, warnings);
@@ -411,13 +420,18 @@ final class AiReviewGroundingPolicy {
     }
 
     static boolean bodySectionContainsEvidence(String pdfText, String sectionOrTopic, String evidence) {
+        return containsBodySectionContent(pdfText, sectionOrTopic)
+            && bodySectionContainsSourceSpan(pdfText, sectionOrTopic, evidence);
+    }
+
+    static boolean bodySectionContainsSourceSpan(String pdfText, String sectionOrTopic, String evidence) {
         String expected = canonical(sectionOrTopic);
         String normalizedEvidence = normalize(evidence);
         if (expected.isBlank() || normalizedEvidence.isBlank()) return false;
         var region = layout(pdfText, false);
         if (!region.reliableBody()) return false;
         int heading = bodyHeadingIndex(region, expected, true);
-        if (heading < 0 || !containsBodySectionContent(pdfText, sectionOrTopic)) return false;
+        if (heading < 0) return false;
         var body = new StringBuilder(region.lines().get(heading));
         for (int i = heading + 1; i < region.lines().size(); i++) {
             if (!region.inBody(i)) continue;
@@ -462,52 +476,60 @@ final class AiReviewGroundingPolicy {
         boolean inBody(int index) { return toc < 0 || index < toc || index > tocEnd; }
     }
 
+    static boolean hasReliableBodyBoundary(String pdfText) {
+        return pdfText != null && !pdfText.isBlank() && layout(pdfText, true).reliableBody();
+    }
+
     private static Layout layout(String pdfText, boolean requireProvenBodyBoundary) {
         var lines = Objects.requireNonNullElse(pdfText, "").lines().map(String::trim).toList();
         int toc = -1;
         for (int i = 0; i < lines.size(); i++) {
             if (normalize(lines.get(i)).equals("table of contents")) { toc = i; break; }
         }
-        int tocEnd = toc;
-        boolean reliable = toc < 0;
-        if (toc >= 0) {
-            for (int i = toc + 1; i < lines.size(); i++) {
-                if (TOC_LEADER.matcher(lines.get(i)).matches()
-                        || TOC_PREFIX_LEADER_ENTRY.matcher(lines.get(i)).matches()) tocEnd = i;
-                // A plain non-TOC paragraph following the entry list starts the actual body.
-                if (tocEnd > toc && i > tocEnd && !lines.get(i).isBlank()
-                        && lines.get(i).length() > 90) break;
-            }
-            // PDFBox often extracts a TOC without dotted leaders or page numbers. A chapter
-            // heading listed in that TOC is then repeated when the actual body begins.
-            // Find that repeated heading as an independent body anchor rather than treating
-            // every leaderless TOC line as a real body section.
-            for (int entry = toc + 1; entry < lines.size(); entry++) {
-                String first = lines.get(entry);
-                if (first.isBlank()) continue;
-                // A TOC may include dotted page leaders or plain headings. Strip only
-                // the dotted page reference when identifying the repeated body anchor.
-                Matcher prefixedLeader = TOC_PREFIX_LEADER_ENTRY.matcher(first);
-                String tocHeading = prefixedLeader.matches()
-                    ? prefixedLeader.group(1) + " " + prefixedLeader.group(2)
-                    : first.replaceFirst("\\s*[.·…]{3,}\\s*\\d+\\s*$", "").trim();
-                if (tocHeading.length() > 100 || tocHeading.split("\\s+").length > 10) continue;
-                String anchor = canonical(tocHeading);
-                if (anchor.isBlank() || !headingMatches(tocHeading, anchor)) continue;
-                for (int body = entry + 1; body < lines.size(); body++) {
-                    if (headingMatches(lines.get(body), anchor)
-                            && !lines.get(body).equalsIgnoreCase("table of contents")
-                            && (!requireProvenBodyBoundary || convincingBodyAnchor(lines, toc, body))) {
-                        tocEnd = body - 1;
-                        reliable = true;
+        if (toc < 0) return new Layout(lines, -1, -1, true);
+
+        int earliestBody = lines.size();
+        // TOC entries need not be in body order. The first entry may repeat much
+        // later than Purpose/Scope, so inspect every candidate before selecting
+        // the earliest independently supported body anchor.
+        for (int entry = toc + 1; entry < earliestBody; entry++) {
+            String first = lines.get(entry);
+            if (first.isBlank()) continue;
+            Matcher prefixedLeader = TOC_PREFIX_LEADER_ENTRY.matcher(first);
+            String tocHeading = prefixedLeader.matches()
+                ? prefixedLeader.group(1) + " " + prefixedLeader.group(2)
+                : first.replaceFirst("\\s*[.·…]{3,}\\s*\\d+\\s*$", "").trim();
+            if (TOC_PAGE_ENTRY.matcher(tocHeading).matches())
+                tocHeading = tocHeading.replaceFirst("\\s+\\d{1,4}\\s*$", "").trim();
+            if (tocHeading.length() > 100 || tocHeading.split("\\s+").length > 10) continue;
+            String anchor = canonical(tocHeading);
+            if (anchor.isBlank() || !headingMatches(tocHeading, anchor)) continue;
+            for (int body = entry + 1; body < earliestBody; body++) {
+                String line = lines.get(body);
+                if (TOC_LEADER.matcher(line).matches() || TOC_PREFIX_LEADER_ENTRY.matcher(line).matches()) continue;
+                int titleIndex = body;
+                boolean matches = headingMatches(line, anchor);
+                if (!matches && line.matches("^(?:\\d+(?:\\.\\d+)*|[A-Z](?:\\.\\d+)*)[.)]?$")) {
+                    for (int next = body + 1; next < Math.min(body + 3, lines.size()); next++) {
+                        if (lines.get(next).isBlank()) continue;
+                        matches = headingMatches(line + " " + lines.get(next), anchor);
+                        titleIndex = next;
                         break;
                     }
                 }
-                if (reliable) break;
+                // A repeated TOC item alone is never proof that the body began.
+                if (matches && convincingBodyAnchor(lines, toc, titleIndex, requireProvenBodyBoundary)) {
+                    earliestBody = body;
+                    break;
+                }
             }
         }
-        return new Layout(lines, toc, tocEnd, reliable);
+        if (earliestBody == lines.size()) {
+            return new Layout(lines, toc, lines.size() - 1, false);
+        }
+        return new Layout(lines, toc, earliestBody - 1, true);
     }
+
 
     private static boolean illustrativeTemplateHeading(String title) {
         return title.matches("(?i)(?:transaction|module|project|system|feature|function) name");
@@ -629,19 +651,18 @@ final class AiReviewGroundingPolicy {
                     ? "the first transaction under Module 1"
                     : "transaction '" + transaction + "'";
                 String submittedLabel = artifactLineInRange(document, documentRange, artifact);
-                String observation = submittedLabel == null
-                    ? "No matching artifact label was detected within submitted " + location + "."
-                    : "The matching label is present within submitted " + location
-                        + ", but no substantive artifact content follows it.";
                 String mappedRequirement = index == 0 ? requirement
                     : repeatedTransactionArtifactEvidence(template, templateRanges, artifact);
                 warnings.add(new AiReviewProvider.Finding(
-                    "Mapped-template transaction artifact '" + label
-                        + "' has no substantive content in " + location + "; "
-                        + "confirm applicability and inspect the original PDF before requesting a change.",
+                    "Text extraction could not verify '" + label + "' in " + location + ". "
+                        + (submittedLabel == null ? "Its label was not located in the extracted transaction."
+                            : "Its label is present, but graphical content cannot be assessed from text alone."),
                     AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
-                    "Mapped official-template transaction structure: " + mappedRequirement + ". " + observation,
-                    mappedRequirement));
+                    Objects.requireNonNullElse(submittedLabel, ""),
+                    mappedRequirement,
+                    "Verify " + label,
+                    "Open the original PDF and inspect this transaction before requesting a revision.",
+                    null));
             }
         }
     }
@@ -668,23 +689,9 @@ final class AiReviewGroundingPolicy {
 
     private static String repeatedTransactionArtifactEvidence(Layout template,
             List<TransactionRange> ranges, String artifact) {
-        if (ranges.size() < 2) return artifactLineInRange(template, ranges.get(0), artifact);
-        int start = ranges.get(0).start();
-        int secondArtifact = artifactIndexInRange(template, ranges.get(1), artifact);
-        int end = secondArtifact >= 0
-            ? secondArtifact + 1
-            : Math.min(template.lines().size(), ranges.get(1).end());
-        var evidence = new StringBuilder();
-        for (int i = start; i < end; i++) {
-            if (!template.inBody(i)) continue;
-            String line = template.lines().get(i);
-            if (line.isBlank()) continue;
-            if (evidence.length() > 0) evidence.append('\n');
-            evidence.append(line);
-            if (evidence.length() > 1800) break;
-        }
-        String value = evidence.toString();
-        return value.isBlank() ? artifactLineInRange(template, ranges.get(0), artifact) : value;
+        // Cite the artifact itself once. Repeated template examples establish
+        // context; concatenating whole transactions obscures the requirement.
+        return artifactLineInRange(template, ranges.get(0), artifact);
     }
 
     static List<AiReviewProvider.Finding> unlistedReferencesRequiredByTemplate(
@@ -872,21 +879,26 @@ final class AiReviewGroundingPolicy {
     }
 
     private static boolean convincingBodyAnchor(List<String> lines, int toc, int candidate) {
-        // A duplicate entry *inside the TOC* is not evidence that the body began. A repeated
-        // heading must either have following substantive prose or a preceding PDF page header.
-        // Empty headings with neither signal remain ambiguous and cannot authorize auto-add.
-        for (int next = candidate + 1; next < Math.min(lines.size(), candidate + 4); next++) {
-            String text = lines.get(next);
-            if (text.isBlank()) continue;
-            if (TOC_LEADER.matcher(text).matches() || TEMPLATE_BODY_NUMBERED_HEADING.matcher(text).matches())
-                return false;
-            if (text.length() >= 25 && text.split("\\s+").length >= 5) return true;
-            break;
-        }
+        return convincingBodyAnchor(lines, toc, candidate, true);
+    }
+
+    private static boolean convincingBodyAnchor(List<String> lines, int toc, int candidate, boolean strict) {
+        // A repeated index entry alone is insufficient. Page furniture or authored prose
+        // must distinguish the body. Suppressing an absence claim accepts short prose;
+        // adding structural observations requires stronger evidence.
         for (int before = Math.max(toc + 1, candidate - 8); before < candidate; before++) {
             String context = normalize(lines.get(before));
             if (context.matches("document version(?: \\d+)+")
                     || context.matches("page \\d+ of \\d+")) return true;
+        }
+        for (int next = candidate + 1; next < Math.min(lines.size(), candidate + 4); next++) {
+            String text = lines.get(next);
+            if (text.isBlank()) continue;
+            if (TOC_LEADER.matcher(text).matches() || TOC_PAGE_ENTRY.matcher(text).matches()
+                    || TOC_PREFIX_LEADER_ENTRY.matcher(text).matches()
+                    || TEMPLATE_BODY_NUMBERED_HEADING.matcher(text).matches()) return false;
+            return strict ? text.length() >= 25 && text.split("\\s+").length >= 5
+                : text.split("\\s+").length >= 2;
         }
         return false;
     }

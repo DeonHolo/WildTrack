@@ -70,6 +70,7 @@ class AiReviewDeduplicationTest {
         jdbc.execute("CREATE TABLE academic_deliverables(id UUID PRIMARY KEY)");
         jdbc.execute("CREATE TABLE form_responses(id UUID PRIMARY KEY)");
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__deduplicated_ai_reviews.sql")).execute(datasource);
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V33__ai_review_attempt_history.sql")).execute(datasource);
         jdbc.execute("""
             CREATE TABLE ai_review_field_links(
                 response_id UUID NOT NULL REFERENCES form_responses(id),
@@ -235,17 +236,15 @@ class AiReviewDeduplicationTest {
             List.of(), List.of(), "No changes needed"));
 
         var inconclusive = run(first);
-        assertThat(inconclusive.status()).isEqualTo("UNCERTAIN");
-        assertThat(inconclusive.failureCode()).isEqualTo("NO_GROUNDED_FINDINGS");
-        assertThat(inconclusive.report()).isNull();
-        assertThat(inconclusive.retryToken()).isNotNull();
-        assertThat(inconclusive.message()).contains("inconclusive", "not a clean pass");
+        assertThat(inconclusive.status()).isEqualTo("COMPLETED");
+        assertThat(inconclusive.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        assertThat(inconclusive.report().verificationNotes()).isNotNull();
         assertThat(service.saved(workspace, second.getId(), "admin").status()).isEqualTo("NOT_REVIEWED");
-        assertThat(run(first).status()).isEqualTo("UNCERTAIN");
+        assertThat(run(first).status()).isEqualTo("COMPLETED");
         verify(provider, times(1)).review(any());
 
         when(provider.review(any())).thenReturn(result);
-        var repaired = service.review(workspace, first.getId(), "admin", true, inconclusive.retryToken());
+        var repaired = service.review(workspace, first.getId(), null, "admin", false, null, true);
         assertThat(repaired.status()).isEqualTo("COMPLETED");
         assertThat(repaired.report().findings()).hasSize(1);
         verify(provider, times(2)).review(any());
@@ -292,10 +291,8 @@ class AiReviewDeduplicationTest {
             List.of(), List.of(), "Approve it", List.of(actual, unverified)));
 
         var uncertain = run(first);
-        assertThat(uncertain.status()).isEqualTo("UNCERTAIN");
-        assertThat(uncertain.failureCode()).isEqualTo("INSUFFICIENT_REVIEW_EVIDENCE");
-        assertThat(uncertain.report()).isNull();
-        assertThat(uncertain.message()).contains("inconclusive");
+        assertThat(uncertain.status()).isEqualTo("COMPLETED");
+        assertThat(uncertain.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
     }
 
     @Test void onePdfExcerptCannotBeCountedTwiceToManufactureACompletePositiveReview() {
@@ -311,9 +308,8 @@ class AiReviewDeduplicationTest {
             List.of(), List.of(), "Approve", List.of(firstCheck, secondCheck)));
 
         var uncertain = run(first);
-        assertThat(uncertain.status()).isEqualTo("UNCERTAIN");
-        assertThat(uncertain.failureCode()).isEqualTo("INSUFFICIENT_REVIEW_EVIDENCE");
-        assertThat(uncertain.report()).isNull();
+        assertThat(uncertain.status()).isEqualTo("COMPLETED");
+        assertThat(uncertain.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
     }
 
     @Test void aGroundingFilterThatRemovesAllProposedFindingsReportsInconclusiveRatherThanSuccess() {
@@ -324,9 +320,8 @@ class AiReviewDeduplicationTest {
             List.of(), "Add Project Scope"));
 
         var inconclusive = run(first);
-        assertThat(inconclusive.status()).isEqualTo("UNCERTAIN");
-        assertThat(inconclusive.failureCode()).isEqualTo("FINDINGS_FILTERED");
-        assertThat(inconclusive.report()).isNull();
+        assertThat(inconclusive.status()).isEqualTo("COMPLETED");
+        assertThat(inconclusive.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
         assertThat(jdbc.queryForObject("SELECT report_json FROM ai_review_jobs", String.class)).isNull();
     }
 
@@ -347,18 +342,18 @@ class AiReviewDeduplicationTest {
         tasks.get(0).run();
 
         var failed = service.saved(workspace, first.getId(), "admin");
-        assertThat(failed.status()).isEqualTo("UNCERTAIN");
-        assertThat(failed.failureCode()).isEqualTo("NO_GROUNDED_FINDINGS");
-        assertThat(failed.report()).isNull();
-        assertThat(failed.previousReport()).isEqualTo(original.report());
-        assertThat(failed.previousGeneratedAt()).isEqualTo(original.generatedAt());
+        assertThat(failed.status()).isEqualTo("COMPLETED");
+        assertThat(failed.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        assertThat(failed.previousReport()).isNull();
+        assertThat(failed.lastSubstantiveReport()).isEqualTo(original.report());
         assertThat(jdbc.queryForObject("SELECT report_json FROM ai_review_jobs", String.class))
             .contains("document-level issue");
 
         when(provider.review(any())).thenReturn(result);
-        var recovered = service.review(workspace, first.getId(), "admin", true, failed.retryToken());
+        var recovered = service.review(workspace, first.getId(), null, "admin", false, null, true);
         assertThat(recovered.status()).isEqualTo("RUNNING");
-        assertThat(recovered.previousReport()).isEqualTo(original.report());
+        assertThat(recovered.previousReport().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        assertThat(recovered.lastSubstantiveReport()).isEqualTo(original.report());
         tasks.get(1).run();
         var saved = service.saved(workspace, first.getId(), "admin");
         assertThat(saved.status()).isEqualTo("COMPLETED");
@@ -381,6 +376,7 @@ class AiReviewDeduplicationTest {
 
         new ResourceDatabasePopulator(new ClassPathResource(
             "db/migration/V31__mark_empty_ai_reviews_inconclusive.sql")).execute(datasource);
+        jdbc.update("UPDATE ai_review_jobs SET latest_attempt_report_json = NULL, latest_attempt_completed_at = NULL WHERE report_json IS NULL AND failure_code = 'NO_GROUNDED_FINDINGS'");
         var migrated = service.saved(workspace, anotherTeam.getId(), "admin");
         assertThat(migrated.status()).isEqualTo("UNCERTAIN");
         assertThat(migrated.failureCode()).isEqualTo("NO_GROUNDED_FINDINGS");
@@ -447,7 +443,7 @@ class AiReviewDeduplicationTest {
         files.put("file-first", "%PDF-new-document-bytes".getBytes(StandardCharsets.UTF_8));
         assertThat(run(first).reused()).isFalse();
         deliverable.setInstructions("Updated requirements");
-        assertThat(service.saved(workspace, first.getId(), "admin").status()).isEqualTo("NOT_REVIEWED");
+        assertThat(service.saved(workspace, first.getId(), "admin").status()).isEqualTo("OUTDATED");
         assertThat(run(first).reused()).isFalse();
         var template = mock(com.capvault.backend.template.DocumentTemplate.class);
         when(template.getSha256()).thenReturn("updated-template"); when(template.getExtractedText()).thenReturn("New template requirements");
@@ -495,9 +491,8 @@ class AiReviewDeduplicationTest {
 
         var guarded = run(first);
 
-        assertThat(guarded.status()).isEqualTo("UNCERTAIN");
-        assertThat(guarded.failureCode()).isEqualTo("FINDINGS_FILTERED");
-        assertThat(guarded.report()).isNull();
+        assertThat(guarded.status()).isEqualTo("COMPLETED");
+        assertThat(guarded.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
     }
 
     @Test void explicitlyNamedInstructionCanAuthorizeAMissingRequiredSection() {
@@ -533,9 +528,8 @@ class AiReviewDeduplicationTest {
 
         var completed = run(first);
 
-        assertThat(completed.status()).isEqualTo("UNCERTAIN");
-        assertThat(completed.failureCode()).isEqualTo("FINDINGS_FILTERED");
-        assertThat(completed.report()).isNull();
+        assertThat(completed.status()).isEqualTo("COMPLETED");
+        assertThat(completed.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
     }
 
     @Test void twoPdfArtifactsInOneResponseKeepIndependentSavedLinksAndReviews() {
@@ -677,4 +671,144 @@ class AiReviewDeduplicationTest {
         assertThat(run(response("other-team-file", "team-two")).reused()).isFalse();
         verify(provider, times(2)).review(any());
     }
+
+    @Test void fourAttemptLifecycleRetainsDatesNotesAndHistoryWithoutStaleWorkerWrites() {
+        var now = new java.util.concurrent.atomic.AtomicReference<>(Instant.parse("2026-10-07T10:00:00Z"));
+        Clock clock = new Clock() {
+            public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+            public Clock withZone(java.time.ZoneId zone) { return this; }
+            public Instant instant() { return now.get(); }
+        };
+        store = new AiReviewStore(jdbc, new DataSourceTransactionManager(datasource), clock);
+        service = newService(store);
+        var a = run(first);
+        assertThat(run(second).reused()).isTrue();
+        String key = jdbc.queryForObject("SELECT cache_key FROM ai_review_jobs", String.class);
+        var staleA = store.find(key).orElseThrow();
+        assertThat(a.generatedAt()).isEqualTo(now.get().toString());
+
+        var tasks = new java.util.ArrayList<Runnable>();
+        service = newService(store, tasks::add);
+        now.set(now.get().plusSeconds(60));
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result("Uncertain observation",
+            List.of(), List.of(), List.of(), "Verify", List.of(),
+            List.of(new AiReviewProvider.Finding("The extracted document requires visual verification.",
+                AiReviewProvider.FindingSource.DOCUMENT, "Document text", "")),
+            AiReviewProvider.ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS));
+        var bRunning = service.review(workspace, first.getId(), null, "admin", false, null, true);
+        assertThat(bRunning.report()).isNull();
+        assertThat(bRunning.previousReport()).isEqualTo(a.report());
+        assertThat(bRunning.lastSubstantiveReport()).isNull();
+        tasks.remove(0).run();
+        service = newService(new AiReviewStore(jdbc, new DataSourceTransactionManager(datasource), clock), tasks::add);
+        var b = service.saved(workspace, first.getId(), "admin");
+        assertThat(b.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        assertThat(b.report().verificationNotes()).hasSize(1);
+        assertThat(b.generatedAt()).isEqualTo(now.get().toString());
+        assertThat(b.lastSubstantiveReport()).isEqualTo(a.report());
+        assertThat(b.lastSubstantiveGeneratedAt()).isEqualTo(a.generatedAt());
+        assertThat(service.saved(workspace, second.getId(), "admin").report()).isEqualTo(b.report());
+
+        now.set(now.get().plusSeconds(60));
+        when(provider.review(any())).thenThrow(new GeminiAiReviewProvider.Failure("PROVIDER_OUTCOME_UNKNOWN", "socket timeout"));
+        var cRunning = service.review(workspace, first.getId(), null, "admin", false, null, true);
+        assertThat(cRunning.previousReport()).isEqualTo(b.report());
+        assertThat(cRunning.lastSubstantiveReport()).isEqualTo(a.report());
+        tasks.remove(0).run();
+        var c = service.saved(workspace, first.getId(), "admin");
+        assertThat(c.status()).isEqualTo("UNCERTAIN");
+        assertThat(c.report()).isNull();
+        assertThat(c.generatedAt()).isNull();
+        assertThat(c.previousReport()).isEqualTo(b.report());
+        assertThat(c.previousGeneratedAt()).isEqualTo(b.generatedAt());
+        assertThat(c.lastSubstantiveReport()).isEqualTo(a.report());
+        assertThat(service.savedFor(List.of(first)).get(first.getId()).previousReport()).isEqualTo(b.report());
+        assertThat(service.savedByFieldFor(List.of(first)).get(first.getId()).values().iterator().next().previousReport())
+            .isEqualTo(b.report());
+        verify(provider, times(3)).review(any());
+
+        now.set(now.get().plusSeconds(60));
+        doReturn(new AiReviewProvider.Result("Updated review",
+            List.of(new AiReviewProvider.Finding("A corrected review identifies an updated document-level issue.",
+                AiReviewProvider.FindingSource.DOCUMENT, "Page 2", "")),
+            List.of(), List.of(), "Inspect")).when(provider).review(any());
+        var dRunning = service.review(workspace, first.getId(), "admin", true, c.retryToken());
+        assertThat(dRunning.status()).isEqualTo("RUNNING");
+        String beforeStale = jdbc.queryForObject("SELECT latest_attempt_report_json FROM ai_review_jobs", String.class);
+        store.complete(staleA, "{\"summary\":\"stale worker\"}", true);
+        store.uncertain(staleA, "STALE_WORKER");
+        assertThat(store.find(key).orElseThrow().state()).isEqualTo("RUNNING");
+        assertThat(jdbc.queryForObject("SELECT latest_attempt_report_json FROM ai_review_jobs", String.class)).isEqualTo(beforeStale);
+        tasks.remove(0).run();
+        var d = service.saved(workspace, second.getId(), "admin");
+        assertThat(d.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.ISSUES_IDENTIFIED);
+        assertThat(d.generatedAt()).isEqualTo(now.get().toString());
+        assertThat(d.report().summary()).contains("updated document-level issue");
+        assertThat(d.previousReport()).isNull();
+        assertThat(d.lastSubstantiveReport()).isNull();
+        assertThat(service.review(workspace, second.getId(), "admin", false).reused()).isTrue();
+        verify(provider, times(4)).review(any());
+    }
+
+    @Test void savedReportsNeverCrossReassignedTeamOrMismatchedStoredScope() {
+        var field = new DeliverableField("pdf-field", deliverableId, "documentPdf", "Submitted PDF",
+            DeliverableFieldType.DRIVE_PDF, true, 0, DocumentCheckPolicy.AUTO, true, true);
+        when(fields.findAllByDeliverableIdAndActiveTrueOrderByDisplayOrderAscLabelAsc(deliverableId))
+            .thenReturn(List.of(field));
+        var original = service.review(workspace, first.getId(), "pdf-field", "admin", false, null);
+        String key = jdbc.queryForObject("SELECT cache_key FROM ai_review_jobs", String.class);
+        // Also exercise legacy bulk links, which must enforce the same scope as field links.
+        store.link(first.getId(), first.getRevision(), key);
+        when(provider.cacheVersion()).thenReturn("new-provider-settings");
+        assertThat(service.saved(workspace, first.getId(), "pdf-field", "admin").status()).isEqualTo("OUTDATED");
+        assertThat(original.report()).isNotNull();
+        ReflectionTestUtils.setField(first, "teamCode", "team-two");
+        assertThat(service.saved(workspace, first.getId(), "pdf-field", "admin").status()).isEqualTo("NOT_REVIEWED");
+        assertThat(service.savedFor(List.of(first))).doesNotContainKey(first.getId());
+        assertThat(service.savedByFieldFor(List.of(first))).doesNotContainKey(first.getId());
+        ReflectionTestUtils.setField(first, "teamCode", "team-one");
+        var otherDeliverable = UUID.randomUUID();
+        jdbc.update("INSERT INTO academic_deliverables VALUES (?)", otherDeliverable);
+        jdbc.update("UPDATE ai_review_jobs SET deliverable_id = ? WHERE cache_key = ?", otherDeliverable, key);
+        assertThat(service.saved(workspace, first.getId(), "pdf-field", "admin").report()).isNull();
+        assertThat(service.savedFor(List.of(first))).doesNotContainKey(first.getId());
+        assertThat(service.savedByFieldFor(List.of(first))).doesNotContainKey(first.getId());
+        jdbc.update("UPDATE ai_review_jobs SET deliverable_id = ? WHERE cache_key = ?", deliverableId, key);
+        var otherWorkspace = UUID.randomUUID();
+        jdbc.update("INSERT INTO academic_workspaces VALUES (?)", otherWorkspace);
+        jdbc.update("UPDATE ai_review_jobs SET workspace_id = ? WHERE cache_key = ?", otherWorkspace, key);
+        assertThat(service.saved(workspace, first.getId(), "pdf-field", "admin").report()).isNull();
+        assertThat(service.savedFor(List.of(first))).doesNotContainKey(first.getId());
+        assertThat(service.savedByFieldFor(List.of(first))).doesNotContainKey(first.getId());
+        verify(provider, times(1)).review(any());
+    }
+
+    @Test void settingsChangeKeepsLegacyFieldFallbackHistoricalWithoutProviderRequest() {
+        run(first);
+        when(provider.cacheVersion()).thenReturn("new-provider-settings");
+        var historical = service.savedByFieldFor(List.of(first)).get(first.getId()).values().iterator().next();
+        assertThat(historical.status()).isEqualTo("OUTDATED");
+        assertThat(historical.report()).isNull();
+        assertThat(historical.previousReport()).isNotNull();
+        verify(provider, times(1)).review(any());
+    }
+
+
+    @Test void newReviewSettingsPreserveIdenticalDocumentHistoryButChangedBytesDoNot() {
+        var a = run(first);
+        when(provider.cacheVersion()).thenReturn("new-settings");
+        assertThat(service.saved(workspace, first.getId(), "admin").status()).isEqualTo("OUTDATED");
+        verify(provider, times(1)).review(any());
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result("Uncertain", List.of(), List.of(), List.of(), "Verify"));
+        var b = run(first);
+        assertThat(b.status()).isEqualTo("COMPLETED");
+        assertThat(b.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        assertThat(b.lastSubstantiveReport()).isEqualTo(a.report());
+        assertThat(b.lastSubstantiveGeneratedAt()).isEqualTo(a.generatedAt());
+        files.put("file-first", "%PDF-different-document-bytes".getBytes(StandardCharsets.UTF_8));
+        var different = run(first);
+        assertThat(different.lastSubstantiveReport()).isNull();
+        verify(provider, times(3)).review(any());
+    }
+
 }

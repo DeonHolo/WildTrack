@@ -39,6 +39,7 @@ public class ValidationStudyService {
     private final FormResponseRepository responseRepository;
     private final FormResponseVersionRepository versionRepository;
     private final ObjectMapper objectMapper;
+    private final InitialSavedRecordAuditService initialSavedRecordAudit;
 
     public ValidationStudyService(
         DeliverableRepository deliverableRepository,
@@ -46,7 +47,8 @@ public class ValidationStudyService {
         DeliverableFieldOptionRepository optionRepository,
         FormResponseRepository responseRepository,
         FormResponseVersionRepository versionRepository,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        InitialSavedRecordAuditService initialSavedRecordAudit
     ) {
         this.deliverableRepository = deliverableRepository;
         this.fieldRepository = fieldRepository;
@@ -54,6 +56,7 @@ public class ValidationStudyService {
         this.responseRepository = responseRepository;
         this.versionRepository = versionRepository;
         this.objectMapper = objectMapper;
+        this.initialSavedRecordAudit = initialSavedRecordAudit;
     }
 
     public record Counts(
@@ -102,6 +105,51 @@ public class ValidationStudyService {
     ) {
     }
 
+    public record AuditCheck(String status, String reason) { }
+
+    public record InitialSavedRecord(
+        UUID responseId,
+        String studentNumber,
+        String studentName,
+        String teamCode,
+        UUID studentRecordId,
+        UUID workspaceId,
+        UUID deliverableId,
+        String originalSource,
+        Long originalRevision,
+        Instant originalSavedAt,
+        String originalArtifactValue,
+        String rosterStudentNumber,
+        String rosterStudentName,
+        String rosterTeamCode,
+        AuditCheck studentDetails,
+        AuditCheck workspace,
+        AuditCheck deliverable,
+        AuditCheck originalVersion,
+        AuditCheck storedValues,
+        AuditCheck accountBinding,
+        List<String> requiredFieldsChecked,
+        List<String> missingRequiredFieldKeys,
+        String overallStatus
+    ) { }
+
+    public record InitialSavedRecords(
+        String scope,
+        Instant evaluatedAt,
+        UUID workspaceId,
+        UUID deliverableId,
+        int candidates,
+        int selectedRecords,
+        int passedRecords,
+        int failedRecords,
+        int unverifiedRecords,
+        Double agreement,
+        String outcome,
+        String selectionRule,
+        List<InitialSavedRecord> records,
+        List<String> limitations
+    ) { }
+
     public record Evidence(
         UUID deliverableId,
         String deliverableTitle,
@@ -113,7 +161,8 @@ public class ValidationStudyService {
         Counts counts,
         List<ResponseEvidence> responses,
         List<String> warnings,
-        List<String> limitations
+        List<String> limitations,
+        InitialSavedRecords initialSavedRecords
     ) {
     }
 
@@ -179,7 +228,8 @@ public class ValidationStudyService {
             List.of(
                 "This evidence view can confirm persisted response/version invariants only. The prescribed rejected blank-link attempt is not persisted in FormResponse history and must be corroborated from the controlled task log.",
                 "Student-visible readback correctness is not inferred from these server records and must be corroborated from the controlled observation evidence."
-            )
+            ),
+            initialSavedRecordAudit.audit(workspaceId, deliverableId, deliverable, fields, currentResponses)
         );
     }
 

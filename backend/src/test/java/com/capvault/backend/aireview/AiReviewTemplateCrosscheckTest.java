@@ -43,20 +43,22 @@ class AiReviewTemplateCrosscheckTest {
         var original = raw("SRS-04");
         assertThat(original.missingRequiredSections()).isEmpty();
         var corrected = replay("SRS-04", "toc-only-heading");
-        assertThat(corrected.findings()).anySatisfy(f -> {
+        assertThat(corrected.verificationNotes()).anySatisfy(f -> {
             assertThat(f.source()).isEqualTo(AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE);
-            assertThat(f.issue()).contains("Constraints", "not detected", "confirm applicability");
+            assertThat(f.issue()).contains("Constraints", "could not be located", "confirm equivalent");
             assertThat(f.requirement()).contains("Constraints");
         });
         assertThat(corrected.missingRequiredSections()).isEmpty();
         assertThat(corrected.limitations()).anyMatch(s -> s.contains("advisory"));
+        assertThat(corrected.findings()).noneMatch(f -> f.issue().startsWith("Mapped-template"));
     }
+
 
     @Test void whollyOmittedSubheadingCanBeFoundWithoutAnyProviderFinding() throws Exception {
         assertThat(raw("SRS-05").findings()).isEmpty();
         var corrected = replay("SRS-05", "section-missing");
-        assertThat(corrected.findings()).anySatisfy(f -> {
-            assertThat(f.issue()).contains("Communications interfaces", "confirm applicability");
+        assertThat(corrected.verificationNotes()).anySatisfy(f -> {
+            assertThat(f.issue()).contains("Communications interfaces", "confirm equivalent");
             assertThat(f.requirement()).contains("Communications interfaces");
         });
         assertThat(corrected.missingRequiredSections()).isEmpty();
@@ -168,6 +170,134 @@ class AiReviewTemplateCrosscheckTest {
             "Include a Software Architecture section.", List.of(), List.of())).isEmpty();
     }
 
+    @Test void optionalTemplateScopeDoesNotCreateATransactionArtifactWarning() {
+        String template = """
+            1. Functional Requirements
+            Example transaction structure follows.
+            2. Quality Requirements
+            Example quality criteria follow.
+            Module 1
+            1.1 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Activity Diagram
+            """;
+        String document = """
+            1. Functional Requirements
+            Project-specific transaction structure follows.
+            2. Quality Requirements
+            Project-specific quality criteria follow.
+            Module 1: Account Access
+            1.1 Create Account
+            Use Case Description
+            The user creates an account.
+            Activity Diagram
+            """;
+        assertThat(AiReviewGroundingPolicy.templateBodyCrosscheck(template, document,
+            "All template sections are optional.", List.of(), List.of()))
+            .noneMatch(finding -> finding.issue().contains("Use Case Diagram"));
+    }
+
+    @Test void qualifiedUseCaseDiagramCaptionCountsInsideTheFirstTransaction() {
+        String template = """
+            1. Functional Requirements
+            Example transaction structure follows.
+            2. Quality Requirements
+            Example quality criteria follow.
+            Module 1
+            1.1 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Activity Diagram
+            """;
+        String document = """
+            1. Functional Requirements
+            Project-specific transaction structure follows.
+            2. Quality Requirements
+            Project-specific quality criteria follow.
+            Module 1: Account Access
+            1.1 Create Account
+            Use Case Description
+            The user creates an account.
+            Figure 1: Use Case Diagram
+            Activity Diagram
+            """;
+        assertThat(AiReviewGroundingPolicy.templateBodyCrosscheck(template, document,
+            "", List.of(), List.of()))
+            .noneMatch(finding -> finding.issue().contains("Use Case Diagram"));
+    }
+
+    @Test void emptyUseCaseDiagramLabelDoesNotCountAsArtifactContent() {
+        String template = """
+            1. Functional Requirements
+            Example transaction structure follows.
+            2. Quality Requirements
+            Example quality criteria follow.
+            Module 1
+            1.1 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Activity Diagram
+            """;
+        String document = """
+            1. Functional Requirements
+            Project-specific transaction structure follows.
+            2. Quality Requirements
+            Project-specific quality criteria follow.
+            Module 1: Account Access
+            1.1 Create Account
+            Use Case Description
+            The user creates an account.
+            Use Case Diagram
+            Activity Diagram
+            Start -> validate -> authorize -> persist
+            Wireframe
+            Account form with submit and status controls.
+            """;
+        assertThat(AiReviewGroundingPolicy.templateBodyCrosscheck(template, document,
+            "", List.of(), List.of()))
+            .anyMatch(finding -> finding.issue().contains("Use Case Diagram"));
+    }
+
+    @Test void missingActivityDiagramInFirstTransactionIsDetected() {
+        String template = """
+            1. Functional Requirements
+            Example transaction structure follows.
+            2. Quality Requirements
+            Example quality criteria follow.
+            Module 1
+            1.1 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Example diagram.
+            Activity Diagram
+            Example activity.
+            Wireframe
+            Example wireframe.
+            """;
+        String document = """
+            1. Functional Requirements
+            Project-specific transaction structure follows.
+            2. Quality Requirements
+            Project-specific quality criteria follow.
+            Module 1: Account Access
+            1.1 Create Account
+            Use Case Description
+            The user creates an account.
+            Use Case Diagram
+            Actor -> validate -> authorize -> persist
+            Wireframe
+            Account form with submit and status controls.
+            """;
+        assertThat(AiReviewGroundingPolicy.templateBodyCrosscheck(template, document,
+            "", List.of(), List.of()))
+            .anyMatch(finding -> finding.issue().contains("Activity Diagram"));
+    }
+
     @Test void providerCannotPromoteAnExplicitlyOptionalTemplateHeadingToRequired() {
         String template = """
             1. Project Overview
@@ -222,4 +352,333 @@ class AiReviewTemplateCrosscheckTest {
             "", template, pdf);
         assertThat(processed.findings()).hasSize(50).containsExactlyElementsOf(observations);
     }
+
+    @Test void repeatedTemplateShapeDetectsMissingArtifactInLaterTransaction() {
+        String template = """
+            1. Functional Requirements
+            Example transactions follow.
+            2. Quality Requirements
+            Quality requirements follow.
+            Module 1
+            1.1 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Actor -> action -> result
+            Activity Diagram
+            Start -> action -> End
+            Wireframe
+            Example controls.
+            1.2 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Actor -> action -> result
+            Activity Diagram
+            Start -> action -> End
+            Wireframe
+            Example controls.
+            """;
+        String pdf = """
+            1. Functional Requirements
+            Project transactions follow.
+            2. Quality Requirements
+            Project quality requirements follow.
+            Module 1: Dispatch
+            1.1 Request Dispatch
+            Use Case Description
+            Request details are recorded.
+            Use Case Diagram
+            Requester -> submit -> service
+            Activity Diagram
+            Start -> validate -> save -> End
+            Wireframe
+            Asset | action | status
+            1.2 Finalize Transfer
+            Use Case Description
+            Approval details are recorded.
+            Use Case Diagram
+            Custodian -> approve -> service
+            Activity Diagram
+            Start -> authorize -> save -> End
+            """;
+        var raw = new AiReviewProvider.Result("Model review", List.of(), List.of(), List.of(), "Model action");
+        var processed = AiReviewService.postprocessForBenchmark(raw,
+            "Software Requirements Specification", "", template, pdf);
+        assertThat(processed.verificationNotes()).anyMatch(finding ->
+            finding.issue().contains("Wireframe") && finding.issue().contains("1.2 Finalize Transfer"));
+    }
+
+    @Test void repeatedTemplateShapeDetectsPlaceholderOnlyArtifactInLaterTransaction() {
+        String template = """
+            1. Functional Requirements
+            Example transactions follow.
+            2. Quality Requirements
+            Quality requirements follow.
+            Module 1
+            1.1 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Actor -> action -> result
+            Activity Diagram
+            Start -> action -> End
+            Wireframe
+            Example controls.
+            1.2 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Actor -> action -> result
+            Activity Diagram
+            Start -> action -> End
+            Wireframe
+            Example controls.
+            """;
+        String pdf = """
+            1. Functional Requirements
+            Project transactions follow.
+            2. Quality Requirements
+            Project quality requirements follow.
+            Module 1: Dispatch
+            1.1 Request Dispatch
+            Use Case Description
+            Request details are recorded.
+            Use Case Diagram
+            Requester -> submit -> service
+            Activity Diagram
+            Start -> validate -> save -> End
+            Wireframe
+            Asset | action | status
+            1.2 Finalize Transfer
+            Use Case Description
+            Approval details are recorded.
+            Use Case Diagram
+            Custodian -> approve -> service
+            Activity Diagram
+            Start -> authorize -> save -> End
+            Wireframe
+            TODO: replace this placeholder with the completed transaction wireframe
+            """;
+        var raw = new AiReviewProvider.Result("Model review", List.of(), List.of(), List.of(), "Model action");
+        var processed = AiReviewService.postprocessForBenchmark(raw,
+            "Software Requirements Specification", "", template, pdf);
+        assertThat(processed.verificationNotes()).anyMatch(finding ->
+            finding.issue().contains("Wireframe")
+                && finding.issue().contains("1.2 Finalize Transfer")
+                && finding.requirement().contains("Wireframe")
+                && finding.evidence().equals("Wireframe"));
+    }
+
+    @Test void singleIllustrativeTemplateTransactionDoesNotImposeArtifactOnLaterTransactions() {
+        String template = """
+            1. Functional Requirements
+            One illustrative transaction follows.
+            2. Quality Requirements
+            Quality requirements follow.
+            Module 1
+            1.1 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Actor -> action -> result
+            Activity Diagram
+            Start -> action -> End
+            Wireframe
+            Example controls.
+            """;
+        String pdf = """
+            1. Functional Requirements
+            Project transactions follow.
+            2. Quality Requirements
+            Project quality requirements follow.
+            Module 1: Dispatch
+            1.1 Request Dispatch
+            Use Case Description
+            Request details are recorded.
+            Use Case Diagram
+            Requester -> submit -> service
+            Activity Diagram
+            Start -> validate -> save -> End
+            Wireframe
+            Asset | action | status
+            1.2 Finalize Transfer
+            Use Case Description
+            Approval details are recorded.
+            Use Case Diagram
+            Custodian -> approve -> service
+            Activity Diagram
+            Start -> authorize -> save -> End
+            """;
+        assertThat(AiReviewGroundingPolicy.templateBodyCrosscheck(template, pdf, "", List.of(), List.of()))
+            .noneMatch(finding -> finding.issue().contains("Wireframe")
+                && finding.issue().contains("1.2 Finalize Transfer"));
+    }
+
+    @Test void providerFindingForFirstTransactionDoesNotHideLaterArtifactOmission() {
+        String template = """
+            1. Functional Requirements
+            Example transactions follow.
+            2. Quality Requirements
+            Quality requirements follow.
+            Module 1
+            1.1 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Actor -> action -> result
+            Activity Diagram
+            Start -> action -> End
+            Wireframe
+            Example controls.
+            1.2 Transaction Name
+            Use Case Description
+            Example description.
+            Use Case Diagram
+            Actor -> action -> result
+            Activity Diagram
+            Start -> action -> End
+            Wireframe
+            Example controls.
+            """;
+        String pdf = """
+            1. Functional Requirements
+            Project transactions follow.
+            2. Quality Requirements
+            Project quality requirements follow.
+            Module 1: Dispatch
+            1.1 Request Dispatch
+            Use Case Description
+            Request details are recorded.
+            Use Case Diagram
+            Requester -> submit -> service
+            Activity Diagram
+            Start -> validate -> save -> End
+            1.2 Finalize Transfer
+            Use Case Description
+            Approval details are recorded.
+            Use Case Diagram
+            Custodian -> approve -> service
+            Activity Diagram
+            Start -> authorize -> save -> End
+            """;
+        var firstOnly = new AiReviewProvider.Finding(
+            "Transaction 1.1 Request Dispatch is missing its Wireframe.",
+            AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
+            "1.1 Request Dispatch has no Wireframe content.",
+            "Wireframe");
+        assertThat(AiReviewGroundingPolicy.templateBodyCrosscheck(
+            template, pdf, "", List.of(firstOnly), List.of()))
+            .anyMatch(finding -> finding.issue().contains("Wireframe")
+                && finding.issue().contains("1.2 Finalize Transfer"));
+    }
+
+    @Test void explicitUnlistedExternalReferenceIsDetectedWithoutProviderFinding() {
+        String template = """
+            1.4 References
+            Provide a complete list of all documents referenced elsewhere in the SRS;
+            Identify each document by title, report number (if applicable), date, and publishing organization;
+            Specify the sources from which the references can be obtained.
+            """;
+        String pdf = """
+            1. Introduction
+            This specification describes a fictional dispatch service.
+            1.4 References
+            No external documents are referenced by this SRS.
+            2. Overall Description
+            The platform coordinates fictional dispatch activity.
+            3.1.2 Software interfaces
+            Export behavior follows the Northwind Interchange Specification (NW-IS-204, 14 May 2026, HarborRelay Synthetic
+            Lab Systems Office).
+            """;
+        var raw = new AiReviewProvider.Result("Model review", List.of(), List.of(), List.of(), "Model action");
+        var processed = AiReviewService.postprocessForBenchmark(raw,
+            "Software Requirements Specification", "", template, pdf);
+        assertThat(processed.findings()).anyMatch(finding ->
+            finding.source() == AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE
+                && finding.issue().contains("Northwind Interchange Specification")
+                && finding.issue().contains("NW-IS-204")
+                && finding.requirement().contains("complete list of all documents referenced elsewhere"));
+    }
+
+    @Test void listedExternalReferenceAndGenericSpecificationPhraseRemainClean() {
+        String template = """
+            1.4 References
+            Provide a complete list of all documents referenced elsewhere in the SRS;
+            Identify each document by title, report number (if applicable), date, and publishing organization;
+            """;
+        String pdf = """
+            1. Introduction
+            This specification describes a fictional dispatch service.
+            1.4 References
+            Northwind Interchange Specification; report NW-IS-204; 14 May 2026; Northwind Lab.
+            2. Overall Description
+            A generic gateway specification is discussed as an internal design concept.
+            3.1.2 Software interfaces
+            Export behavior follows the Northwind Interchange Specification (NW-IS-204, 14 May 2026, Northwind Lab).
+            """;
+        assertThat(AiReviewGroundingPolicy.unlistedReferencesRequiredByTemplate(pdf, template)).isEmpty();
+    }
+
+    @Test void externalCitationWithoutMappedCompleteListRequirementDoesNotCreateFinding() {
+        String template = """
+            1.4 References
+            Example references may be listed here.
+            """;
+        String pdf = """
+            1. Introduction
+            This specification describes a fictional dispatch service.
+            1.4 References
+            No external documents are listed.
+            2. Overall Description
+            Export behavior follows the Northwind Interchange Specification
+            (NW-IS-204, 14 May 2026, Northwind Lab).
+            """;
+        assertThat(AiReviewGroundingPolicy.unlistedReferencesRequiredByTemplate(pdf, template)).isEmpty();
+    }
+
+    @Test void frozenV6QualifiedInlineArtifactLabelsRemainSubstantiveAfterPdfExtraction() throws Exception {
+        Path repo = root();
+        org.junit.jupiter.api.Assumptions.assumeTrue(Files.isRegularFile(repo.resolve(
+            "docs/capstone-2-build/WildTrack_SRS_Benchmark/reference/Official_SRS_TEMPLATE.pdf"))
+            && Files.isRegularFile(repo.resolve("docs/capstone-2-build/benchmarks/srs-goal2-heldout-v6/fixtures/"
+                + "G2V6-10_qualified_artifact_labels_clean.pdf")), "Optional frozen local benchmark is not present.");
+
+        var inspector = new PdfInspector();
+        String template = inspector.inspect(Files.readAllBytes(repo.resolve(
+            "docs/capstone-2-build/WildTrack_SRS_Benchmark/reference/Official_SRS_TEMPLATE.pdf"))).extractedText();
+        String submitted = inspector.inspect(Files.readAllBytes(repo.resolve(
+            "docs/capstone-2-build/benchmarks/srs-goal2-heldout-v6/fixtures/"
+                + "G2V6-10_qualified_artifact_labels_clean.pdf"))).extractedText();
+
+        var findings = AiReviewGroundingPolicy.templateBodyCrosscheck(
+            template, submitted, "", List.of(), List.of());
+
+        assertThat(findings).noneMatch(finding -> finding.issue().contains("Wireframe"));
+    }
+
+    @Test void frozenV7DashQualifiedArtifactLabelsRemainSubstantiveAfterPdfExtraction() throws Exception {
+        Path repo = root();
+        org.junit.jupiter.api.Assumptions.assumeTrue(Files.isRegularFile(repo.resolve(
+            "docs/capstone-2-build/WildTrack_SRS_Benchmark/reference/Official_SRS_TEMPLATE.pdf"))
+            && Files.isRegularFile(repo.resolve("docs/capstone-2-build/benchmarks/srs-goal2-heldout-v7/fixtures/"
+                + "G2V7-01_qualified_dash_artifacts_clean.pdf")), "Optional frozen local benchmark is not present.");
+
+        var inspector = new PdfInspector();
+        String template = inspector.inspect(Files.readAllBytes(repo.resolve(
+            "docs/capstone-2-build/WildTrack_SRS_Benchmark/reference/Official_SRS_TEMPLATE.pdf"))).extractedText();
+        String submitted = inspector.inspect(Files.readAllBytes(repo.resolve(
+            "docs/capstone-2-build/benchmarks/srs-goal2-heldout-v7/fixtures/"
+                + "G2V7-01_qualified_dash_artifacts_clean.pdf"))).extractedText();
+
+        var findings = AiReviewGroundingPolicy.templateBodyCrosscheck(
+            template, submitted, "", List.of(), List.of());
+
+        assertThat(findings).noneMatch(finding ->
+            finding.issue().contains("Use Case Description")
+                || finding.issue().contains("Use Case Diagram")
+                || finding.issue().contains("Activity Diagram")
+                || finding.issue().contains("Wireframe"));
+    }
+
 }
