@@ -10,6 +10,7 @@ import com.capvault.backend.auth.StoredWildTrackSession;
 import com.capvault.backend.drive.DriveFileMetadata;
 import com.capvault.backend.drive.DriveFileReference;
 import com.capvault.backend.drive.GoogleDriveGateway;
+import com.capvault.backend.drive.GoogleDriveUnavailableException;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseRepository;
 import com.capvault.backend.staff.StaffManagementService;
@@ -200,6 +201,46 @@ class FileCheckBatchDedupTest {
         verify(service, never()).capture(any(), any());
         verify(service, never()).checkCaptured(any(), any(), any());
         verify(service).recordBatchProviderFailure(eq(workspaceId), any(), eq(true), any());
+    }
+
+    @Test
+    void forwardsTypedDriveFailuresToBatchPersistenceWithoutInferringAccess() {
+        retainValidatedRequests();
+        admin();
+        UUID accessId = UUID.randomUUID();
+        UUID configId = UUID.randomUUID();
+        when(responses.findById(accessId)).thenReturn(Optional.of(response(accessId, workspaceId, "team-one")));
+        when(responses.findById(configId)).thenReturn(Optional.of(response(configId, workspaceId, "team-one")));
+        when(drive.getMetadata(new DriveFileReference("access-file", null))).thenThrow(
+            new GoogleDriveUnavailableException("safe access failure", GoogleDriveUnavailableException.Kind.FILE_ACCESS));
+        when(drive.getMetadata(new DriveFileReference("config-file", null))).thenThrow(
+            new GoogleDriveUnavailableException("safe configuration failure", GoogleDriveUnavailableException.Kind.CONFIGURATION));
+
+        controller.checkBatch(workspaceId, new FileCheckController.BatchRequest(List.of(
+            check(accessId, "access-file"), check(configId, "config-file"))), request);
+
+        verify(service).recordBatchProviderFailureTyped(eq(workspaceId), any(), eq(true), argThat(failure ->
+            failure.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS));
+        verify(service).recordBatchProviderFailureTyped(eq(workspaceId), any(), eq(true), argThat(failure ->
+            failure.kind() == GoogleDriveUnavailableException.Kind.CONFIGURATION));
+    }
+
+    @Test
+    void forwardsDownloadAccessFailureAsTypedAccessEvenAfterMetadataSucceeds() {
+        retainValidatedRequests();
+        admin();
+        UUID id = UUID.randomUUID();
+        when(responses.findById(id)).thenReturn(Optional.of(response(id, workspaceId, "team-one")));
+        var metadata = metadata("download-access-file");
+        when(drive.getMetadata(new DriveFileReference("download-access-file", null))).thenReturn(metadata);
+        when(service.capture(any(), eq(metadata))).thenThrow(new GoogleDriveUnavailableException(
+            "safe download access failure", GoogleDriveUnavailableException.Kind.FILE_ACCESS));
+
+        controller.checkBatch(workspaceId, new FileCheckController.BatchRequest(
+            List.of(check(id, "download-access-file"))), request);
+
+        verify(service).recordBatchProviderFailureTyped(eq(workspaceId), any(), eq(false), argThat(failure ->
+            failure.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS));
     }
 
     @Test

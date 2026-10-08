@@ -422,7 +422,8 @@ class StdBenchmarkObservationExportTest {
         long simulatedSize = "STD-17-oversized".equals(id) ? FILE_LIMIT + 1 : localBytes.length;
         if ("STD-16".equals(id)) {
             when(gateway.getMetadata(reference)).thenThrow(
-                new GoogleDriveUnavailableException("SIMULATED gateway rejection (no live Drive 403 evidence)"));
+                new GoogleDriveUnavailableException("SIMULATED gateway rejection (no live Drive 403 evidence)",
+                    GoogleDriveUnavailableException.Kind.FILE_ACCESS));
         } else {
             when(gateway.getMetadata(reference)).thenReturn(new DriveFileMetadata(
                 simulatedFileId, plannedFilename,

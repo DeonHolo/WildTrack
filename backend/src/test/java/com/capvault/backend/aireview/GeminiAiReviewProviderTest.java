@@ -44,7 +44,7 @@ class GeminiAiReviewProviderTest {
         return response("{\"summary\":\"Requirements need clearer acceptance criteria.\",\"findings\":[{\"issue\":\"Requirement R1 has no measurable threshold.\",\"source\":\"DELIVERABLE_REQUIREMENTS\",\"evidence\":\"Section 3, requirement R1\",\"requirement\":\"Include functional requirements\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Ask the team to clarify R1.\"}", "STOP");
     }
 
-    @Test void parsesVerificationNotesUpToTheAdvertisedSchemaLimit() throws Exception {
+    @Test void parsesExtendedRecordedNotesWithTheCompactWireSchema() throws Exception {
         for (int count : new int[]{9, 50}) {
             setup();
             var note = Map.of("issue", "Verify the graphical artifact in the PDF.",
@@ -53,14 +53,14 @@ class GeminiAiReviewProviderTest {
                 "findings", List.of(), "missingRequiredSections", List.of(), "suggestedAction", "",
                 "verificationNotes", java.util.Collections.nCopies(count, note)));
             server.expect(requestTo(GENERATE))
-                .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verificationNotes.maxItems").value(50))
+                .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verificationNotes").doesNotExist())
                 .andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
             assertThat(provider.review(input()).verificationNotes()).hasSize(count);
             server.verify();
         }
     }
 
-    @Test void rejectsVerificationNotesBeyondTheSchemaLimit() throws Exception {
+    @Test void rejectsVerificationNotesBeyondTheLegacyParserLimit() throws Exception {
         var note = Map.of("issue", "Verify the artifact.", "source", "DOCUMENT",
             "evidence", "Artifact label", "requirement", "");
         String report = json.writeValueAsString(Map.of("summary", "Manual verification is needed.",
@@ -71,6 +71,35 @@ class GeminiAiReviewProviderTest {
         server.verify();
     }
 
+
+    @Test void schemaRejectionHasFixedDiagnosticsAndDoesNotRetry() throws Exception {
+        String privateText = "private-test-key and submitted-file-name";
+        server.expect(requestTo(GENERATE)).andRespond(withStatus(HttpStatus.BAD_REQUEST)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(json.writeValueAsString(Map.of("error", Map.of("message",
+                "responseJsonSchema has too many states: " + privateText)))));
+        assertThatThrownBy(() -> provider.review(input()))
+            .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                assertThat(failure.code).isEqualTo("REQUEST_SCHEMA_REJECTED");
+                assertThat(failure.detail).isEqualTo("response_schema");
+                assertThat(failure).hasNoCause();
+                assertThat(failure.toString()).doesNotContain(privateText);
+            });
+        server.verify();
+    }
+
+    @Test void unspecifiedBadRequestRemainsGenericAndDoesNotLeakTheBody() {
+        server.expect(requestTo(GENERATE)).andRespond(withStatus(HttpStatus.BAD_REQUEST)
+            .body("private invalid request"));
+        assertThatThrownBy(() -> provider.review(input()))
+            .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                assertThat(failure.code).isEqualTo("REQUEST_REJECTED");
+                assertThat(failure.detail).isEqualTo("http_400");
+                assertThat(failure).hasNoCause();
+                assertThat(failure.toString()).doesNotContain("private");
+            });
+        server.verify();
+    }
 
     @Test void sendsOnePdfWithBoundedStructuredOutputAndNoDuplicatedText() throws Exception {
         server.expect(requestTo(GENERATE)).andExpect(method(HttpMethod.POST))
@@ -84,6 +113,11 @@ class GeminiAiReviewProviderTest {
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.missingRequiredSections.items.properties.source.enum.length()").value(2))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(5))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.required.length()").value(4))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.length()").value(5))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.length()").value(4))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.location").doesNotExist())
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.title").doesNotExist())
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.nextAction").doesNotExist())
             .andExpect(jsonPath("$.contents[0].parts[1].inlineData.mimeType").value("application/pdf"))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("hasOfficialTemplate")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("hasDeliverableInstructions")))

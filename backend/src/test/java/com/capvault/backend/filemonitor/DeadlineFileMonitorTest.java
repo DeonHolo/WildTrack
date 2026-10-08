@@ -254,7 +254,8 @@ class DeadlineFileMonitorTest {
         when(drive.isConfigured()).thenReturn(true);
         when(drive.getMetadata(any(DriveFileReference.class)))
             .thenThrow(new GoogleDriveUnavailableException(
-                "The Drive file is inaccessible. Check sharing permissions."));
+                "The Drive file is inaccessible. Check sharing permissions.",
+                GoogleDriveUnavailableException.Kind.FILE_ACCESS));
         db.update("UPDATE monitored_drive_files SET next_check_at=? WHERE workspace_id=?",
             java.sql.Timestamp.from(Instant.now().minusSeconds(1)), workspace.getId());
         var denied = monitor.scanOnce(workspace.getId());
