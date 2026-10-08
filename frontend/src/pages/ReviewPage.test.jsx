@@ -327,7 +327,7 @@ describe('deliverable-first submission review', () => {
     const original = ron.aiReviewState.report.summary;
     const fresh = { status: 'COMPLETED', sourceUrl: ron.values.documentPdf,
       sourceResponseUpdatedAt: ron.updatedAt, generatedAt: '2026-09-22T09:00:00Z',
-      report: { summary: 'Fresh rerun feedback after Gemini completed.', findings: [],
+      report: { summary: 'Fresh rerun feedback after Gemini completed.', outcome: 'ISSUES_IDENTIFIED', findings: [{ source: 'DOCUMENT', issue: 'Fresh rerun feedback after Gemini completed.', evidence: 'Updated PDF passage', requirement: '' }],
         missingRequiredSections: [], limitations: [], suggestedAction: 'Verify the updated observations.' } };
     let complete;
     workflow.runAiReviews.mockImplementationOnce(async (_workspace, targets, { onResult }) => {
@@ -402,6 +402,7 @@ describe('deliverable-first submission review', () => {
     const saved = await screen.findByRole('dialog', { name: 'AI Review: PDF Drive Link' });
     expect(saved).toHaveTextContent('Latest AI Review inconclusive');
     expect(saved).toHaveTextContent('Previously saved AI Review');
+    fireEvent.click(within(saved).getByText('View evidence'));
     expect(saved).toHaveTextContent('Title page: Software Project Management Plan');
     expect(saved).not.toHaveTextContent('AI review completed.');
   });

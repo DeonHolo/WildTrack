@@ -20,6 +20,7 @@ import com.capvault.backend.drive.DriveLinkParser;
 import com.capvault.backend.drive.GoogleDriveGateway;
 import com.capvault.backend.drive.GoogleDriveProperties;
 import com.capvault.backend.drive.GoogleDriveUnavailableException;
+import com.capvault.backend.filecheck.PdfInspection;
 import com.capvault.backend.filecheck.PdfInspector;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseRepository;
@@ -39,7 +40,7 @@ import org.springframework.web.client.RestClientResponseException;
 public class AiReviewService {
     // Post-validation behavior is part of the persisted review cache fingerprint.
     // Do not reuse pre-TOC-fix reports whose false missing-index claim survived grounding.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v16";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v17";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -110,7 +111,15 @@ public class AiReviewService {
     public record View(String status, boolean reused, String message, AiReviewProvider.Result report,
                        String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode,
                        String fieldId, String sourceUrl, AiReviewProvider.Result previousReport,
-                       String previousGeneratedAt) { }
+                       String previousGeneratedAt, AiReviewProvider.Result lastSubstantiveReport,
+                       String lastSubstantiveGeneratedAt) {
+        public View(String status, boolean reused, String message, AiReviewProvider.Result report,
+                String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode,
+                String fieldId, String sourceUrl, AiReviewProvider.Result previousReport, String previousGeneratedAt) {
+            this(status, reused, message, report, generatedAt, sourceResponseUpdatedAt, sourceVerified, retryToken,
+                failureCode, fieldId, sourceUrl, previousReport, previousGeneratedAt, null, null);
+        }
+    }
     private record Context(String hash, String title, String instructions, String template) { }
     private record ReviewTarget(String fieldId, String fieldKey, String label, String sourceUrl, boolean legacyStore) { }
 
@@ -170,8 +179,14 @@ public class AiReviewService {
         String key = digest(List.of(workspaceId.toString(), response.getDeliverableId().toString(), target.fieldId(), team, documentHash, context.hash()));
         String sourceValueHash = sha256(source.getBytes(StandardCharsets.UTF_8));
         assertCurrent(response, target, context, subject);
+        var prior = target.legacyStore() ? store.linked(response.getId(), response.getRevision())
+            : store.linkedField(response.getId(), target.fieldId(), sourceValueHash);
+        if (prior.isEmpty() && target.fieldId().endsWith(":legacy"))
+            prior = store.linked(response.getId(), response.getRevision());
         var claim = store.claim(key, workspaceId, response.getDeliverableId(), team, documentHash,
             context.hash(), retryAcknowledged ? expectedRetryToken : null, rerunRequested);
+        if (claim.acquired() && prior.isPresent() && sameScope(prior.get(), response)
+                && !prior.get().key().equals(key)) store.preservePreviousResults(claim.job(), prior.get());
         link(target, response, sourceValueHash, key);
         if (claim.acquired()) {
             try {
@@ -181,19 +196,10 @@ public class AiReviewService {
                         if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Administrator access changed.");
                         var raw = provider.review(new AiReviewProvider.Input(key + ":" + claim.job().token(), bytes, inspection.extractedText(),
                             SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template()));
-                        var result = groundAndValidate(raw, context, inspection.extractedText());
-                        // A syntactically valid provider response is not necessarily a usable review.
-                        // The postprocessor deliberately discards unsupported findings and rewrites
-                        // the provider's narrative. Do not persist its empty fallback as success.
-                        if (result.findings().isEmpty() && result.missingRequiredSections().isEmpty()
-                                && result.verifiedChecks().size() < 2) {
-                            boolean providerHadFindings = raw != null && (!raw.findings().isEmpty()
-                                || !raw.missingRequiredSections().isEmpty());
-                            throw new InconclusiveReviewResult(providerHadFindings
-                                ? "FINDINGS_FILTERED" : raw != null && !raw.verifiedChecks().isEmpty()
-                                    ? "INSUFFICIENT_REVIEW_EVIDENCE" : "NO_GROUNDED_FINDINGS");
-                        }
-                        store.complete(claim.job(), json.writeValueAsString(result));
+                        var result = groundAndValidate(raw, context, inspection.extractedText(), inspection.pages());
+                        // Every valid result is saved; only a substantive result replaces report history.
+                        store.complete(claim.job(), json.writeValueAsString(result),
+                            result.outcome() != AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
                         assertCurrent(response, target, context, subject);
                     } catch (Exception failure) {
                         if (failure instanceof ResponseStatusException || failure instanceof AccessDeniedException)
@@ -250,9 +256,11 @@ public class AiReviewService {
         if (linked.isEmpty() && !target.legacyStore() && target.fieldId().endsWith(":legacy")) {
             linked = store.linked(responseId, response.getRevision());
         }
-        return linked.filter(job -> job.contextHash().equals(context.hash()))
-            .map(job -> view(job, response, target, true, false))
-            .orElseGet(() -> emptyFor(target, "NOT_REVIEWED", "No saved review matches this artifact and current review settings."));
+        if (linked.isEmpty() || !sameScope(linked.get(), response))
+            return emptyFor(target, "NOT_REVIEWED", "No saved review matches this artifact and current team scope.");
+        return linked.get().contextHash().equals(context.hash())
+            ? view(linked.get(), response, target, true, false)
+            : outdated(linked.get(), response, target);
     }
 
     /** Only pass responses already scoped by the monitoring controller's staff authorization. No provider calls. */
@@ -261,11 +269,12 @@ public class AiReviewService {
         Map<UUID, View> result = new java.util.HashMap<>();
         for (var response : authorizedResponses) {
             var link = links.get(response.getId());
-            if (link == null || link.revision() != response.getRevision()) continue;
+            if (link == null || link.revision() != response.getRevision() || !sameScope(link.job(), response)) continue;
             try {
                 var target = target(response, null);
                 var current = context(response, target);
-                if (current.hash().equals(link.job().contextHash())) result.put(response.getId(), view(link.job(), response, target, true, false));
+                result.put(response.getId(), current.hash().equals(link.job().contextHash())
+                    ? view(link.job(), response, target, true, false) : outdated(link.job(), response, target));
             } catch (IllegalArgumentException changedDeliverable) { /* A removed/non-PDF deliverable has no current AI report. */ }
         }
         return result;
@@ -282,24 +291,26 @@ public class AiReviewService {
                 try {
                     ReviewTarget target = target(response, entry.getKey());
                     String currentSourceHash = sha256(target.sourceUrl().getBytes(StandardCharsets.UTF_8));
-                    if (!currentSourceHash.equals(entry.getValue().sourceValueHash())) continue;
+                    if (!currentSourceHash.equals(entry.getValue().sourceValueHash())
+                            || !sameScope(entry.getValue().job(), response)) continue;
                     Context context = context(response, target);
-                    if (!context.hash().equals(entry.getValue().job().contextHash())) continue;
+                    boolean currentContext = context.hash().equals(entry.getValue().job().contextHash());
                     result.computeIfAbsent(response.getId(), ignored -> new java.util.LinkedHashMap<>())
-                        .put(target.fieldId(), view(entry.getValue().job(), response, target, true, false));
+                        .put(target.fieldId(), currentContext
+                            ? view(entry.getValue().job(), response, target, true, false)
+                            : outdated(entry.getValue().job(), response, target));
                 } catch (IllegalArgumentException changedField) { /* Retired/non-reviewable fields have no current result. */ }
             }
             if (result.containsKey(response.getId())) continue;
             var old = legacyLinks.get(response.getId());
-            if (old == null || old.revision() != response.getRevision()) continue;
+            if (old == null || old.revision() != response.getRevision() || !sameScope(old.job(), response)) continue;
             try {
                 ReviewTarget target = target(response, null);
                 if (!target.fieldId().endsWith(":legacy")) continue;
                 Context context = context(response, target);
-                if (context.hash().equals(old.job().contextHash())) {
-                    result.computeIfAbsent(response.getId(), ignored -> new java.util.LinkedHashMap<>())
-                        .put(target.fieldId(), view(old.job(), response, target, true, false));
-                }
+                result.computeIfAbsent(response.getId(), ignored -> new java.util.LinkedHashMap<>())
+                    .put(target.fieldId(), context.hash().equals(old.job().contextHash())
+                        ? view(old.job(), response, target, true, false) : outdated(old.job(), response, target));
             } catch (IllegalArgumentException ignored) { }
         }
         return result;
@@ -401,29 +412,55 @@ public class AiReviewService {
         else store.unlinkField(response.getId(), target.fieldId(), sourceValueHash, key);
     }
 
+    private static boolean sameScope(AiReviewStore.Job job, FormResponse response) {
+        return response.getWorkspaceId().equals(job.workspaceId())
+            && response.getDeliverableId().equals(job.deliverableId())
+            && Objects.requireNonNullElse(response.getTeamCode(), "").trim().toLowerCase(Locale.ROOT)
+                .equals(job.teamCode());
+    }
+
     private View view(AiReviewStore.Job job, FormResponse response, ReviewTarget target, boolean reused, boolean verified) {
         String state = store.displayState(job);
-        AiReviewProvider.Result report = null;
-        AiReviewProvider.Result previousReport = null;
-        if (job.reportJson() != null) {
-            try {
-                var persisted = json.readValue(job.reportJson(), AiReviewProvider.Result.class);
-                if (state.equals("COMPLETED")) report = persisted;
-                else previousReport = persisted;
+        AiReviewProvider.Result report = null, previousReport = null, lastSubstantive = null;
+        String reportDate = instantText(job.latestAttemptCompletedAt() != null ? job.latestAttemptCompletedAt() : job.completedAt());
+        String substantiveDate = instantText(job.completedAt());
+        try {
+            String latestJson = job.latestAttemptReportJson() != null ? job.latestAttemptReportJson() : job.reportJson();
+            if (latestJson != null) {
+                var latest = json.readValue(latestJson, AiReviewProvider.Result.class);
+                if (state.equals("COMPLETED")) report = latest;
+                else previousReport = latest;
             }
-            catch (Exception corrupt) { throw new IllegalStateException("Saved AI review could not be read."); }
-        }
+            if (job.reportJson() != null) {
+                lastSubstantive = json.readValue(job.reportJson(), AiReviewProvider.Result.class);
+                var visible = report != null ? report : previousReport;
+                if (visible != null && json.writeValueAsString(visible).equals(json.writeValueAsString(lastSubstantive))) {
+                    lastSubstantive = null;
+                    substantiveDate = null;
+                }
+            }
+        } catch (Exception corrupt) { throw new IllegalStateException("Saved AI review could not be read."); }
         String message = switch (state) {
             case "COMPLETED" -> reused ? "Reused the saved review for this identical team document." : "AI review completed. Instructor review is still required.";
             case "RUNNING" -> "This document is already being reviewed. No additional AI request was sent.";
             default -> failureMessage(job.failureCode());
         };
-        String priorDate = job.completedAt() == null ? null : job.completedAt().toString();
-        return new View(state, reused, message, report, state.equals("COMPLETED") ? priorDate : null,
+        return new View(state, reused, message, report, state.equals("COMPLETED") ? reportDate : null,
             response.getUpdatedAt().toString(), verified, state.equals("UNCERTAIN") ? job.token() : null,
             state.equals("UNCERTAIN") ? job.failureCode() : null, target.fieldId(), target.sourceUrl(),
-            previousReport, previousReport == null ? null : priorDate);
+            previousReport, previousReport == null ? null : reportDate, lastSubstantive, substantiveDate);
     }
+
+    private View outdated(AiReviewStore.Job job, FormResponse response, ReviewTarget target) {
+        View prior = view(job, response, target, true, false);
+        AiReviewProvider.Result historical = prior.report() != null ? prior.report() : prior.previousReport();
+        String date = prior.generatedAt() != null ? prior.generatedAt() : prior.previousGeneratedAt();
+        return new View("OUTDATED", true, "The saved review was generated under different review settings and is historical context only.",
+            null, null, prior.sourceResponseUpdatedAt(), prior.sourceVerified(), null, null,
+            prior.fieldId(), prior.sourceUrl(), historical, date, prior.lastSubstantiveReport(), prior.lastSubstantiveGeneratedAt());
+    }
+
+    private static String instantText(java.time.Instant value) { return value == null ? null : value.toString(); }
 
     private static String failureMessage(String code) {
         String reason = switch (Objects.requireNonNullElse(code, "")) {
@@ -454,12 +491,26 @@ public class AiReviewService {
             Objects.requireNonNullElse(instructions, ""), Objects.requireNonNullElse(officialTemplateText, "")), pdfText);
     }
 
+    static AiReviewProvider.Result postprocessForBenchmark(AiReviewProvider.Result raw, String deliverableTitle,
+            String instructions, String officialTemplateText, PdfInspection inspection) {
+        return groundAndValidate(raw, new Context("", Objects.requireNonNullElse(deliverableTitle, ""),
+            Objects.requireNonNullElse(instructions, ""), Objects.requireNonNullElse(officialTemplateText, "")),
+            inspection.extractedText(), inspection.pages());
+    }
+
+
     private static AiReviewProvider.Result groundAndValidate(AiReviewProvider.Result result, Context context, String documentText) {
+        return groundAndValidate(result, context, documentText, List.of());
+    }
+
+    private static AiReviewProvider.Result groundAndValidate(AiReviewProvider.Result result, Context context,
+            String documentText, List<PdfInspection.PageText> pages) {
         if (result == null || result.summary() == null || result.summary().isBlank() || result.summary().length() > 20000
                 || result.suggestedAction() == null || result.suggestedAction().length() > 10000
                 || result.findings() == null || result.findings().size() > 50
                 || result.missingRequiredSections() == null || result.missingRequiredSections().size() > 50
-                || result.verifiedChecks() == null || result.verifiedChecks().size() > 50)
+                || result.verifiedChecks() == null || result.verifiedChecks().size() > 50
+                || result.verificationNotes().size() > 50)
             throw invalidReview();
 
         // Reject malformed records, but discard individual claims with invented or
@@ -468,11 +519,18 @@ public class AiReviewService {
         // The excluded claim must never appear in the rebuilt summary or actions.
         var authorityCheckedFindings = result.findings().stream()
             .filter(finding -> validateFinding(finding, context)).toList();
+        var authorityCheckedNotes = result.verificationNotes().stream()
+            .filter(note -> validateFinding(note, context))
+            .filter(note -> containsNormalized(documentText, note.evidence()))
+            .filter(note -> !AiReviewGroundingPolicy.findings(List.of(note), context.title(), documentText, context.template()).isEmpty())
+            .map(note -> sanitizeFinding(note, documentText, pages, true)).toList();
         var authorityCheckedMissing = result.missingRequiredSections().stream()
             .filter(missing -> validateMissingSection(missing, context)).toList();
 
         var validatedFindings = new java.util.ArrayList<>(AiReviewGroundingPolicy.findings(
-            authorityCheckedFindings, context.title(), documentText, context.template()));
+            authorityCheckedFindings.stream().filter(finding ->
+                !AiReviewGroundingPolicy.uncertainExtractionObservation(finding, documentText)).toList(),
+            context.title(), documentText, context.template()));
         for (var contradiction : AiReviewGroundingPolicy.internalNumericContradictions(documentText)) {
             if (validatedFindings.stream().noneMatch(existing ->
                     normalizeAuthorityText(existing.evidence()).equals(normalizeAuthorityText(contradiction.evidence())))) {
@@ -518,8 +576,48 @@ public class AiReviewService {
         var crosscheck = AiReviewGroundingPolicy.templateBodyCrosscheck(context.template(), documentText,
             context.instructions(), validatedFindings, groundedMissing).stream()
             .limit(Math.max(0, 50 - validatedFindings.size())).toList();
-        var groundedFindings = new java.util.ArrayList<>(validatedFindings);
-        groundedFindings.addAll(crosscheck);
+        var groundedFindings = new java.util.ArrayList<AiReviewProvider.Finding>();
+        var verificationNotes = new java.util.ArrayList<>(authorityCheckedNotes);
+        if (authorityCheckedNotes.size() < result.verificationNotes().size()) {
+            verificationNotes.add(new AiReviewProvider.Finding(
+                "Some provider observations could not be linked to submitted-document evidence.",
+                AiReviewProvider.FindingSource.DOCUMENT, "", "",
+                "Verify the submitted PDF", "Review the original PDF before relying on this result.", null));
+        }
+        for (var observation : authorityCheckedFindings) {
+            if (!AiReviewGroundingPolicy.uncertainExtractionObservation(observation, documentText)) continue;
+            verificationNotes.add(new AiReviewProvider.Finding(
+                "Text extraction cannot establish the proposed section or graphical omission.",
+                observation.source(), containsNormalized(documentText, observation.evidence()) ? observation.evidence() : "",
+                observation.requirement(), "Verify the proposed omission",
+                "Inspect the original PDF and section applicability before requesting a revision.", null));
+        }
+        for (var finding : validatedFindings) {
+            if (AiReviewGroundingPolicy.uncertainExtractionObservation(finding, documentText)) {
+                verificationNotes.add(new AiReviewProvider.Finding(
+                    "Text extraction cannot establish the proposed section or graphical omission.",
+                    finding.source(), containsNormalized(documentText, finding.evidence()) ? finding.evidence() : "",
+                    finding.requirement(), "Verify the proposed omission",
+                    "Inspect the original PDF and section applicability before requesting a revision.", null));
+            } else groundedFindings.add(sanitizeFinding(finding, documentText, pages, false));
+        }
+        if (!AiReviewGroundingPolicy.hasReliableBodyBoundary(documentText) && !groundedMissing.isEmpty()) {
+            for (var missing : groundedMissing) verificationNotes.add(new AiReviewProvider.Finding(
+                "The extracted text cannot establish whether this required section is present.",
+                missing.source(), "", missing.requirement(), "Verify " + missing.section(),
+                "Open the original PDF and confirm this section before requesting a revision.", null));
+            groundedMissing.clear();
+        }
+        for (var observation : crosscheck) {
+            if (observation.issue().startsWith("Mapped-template section")
+                    && AiReviewGroundingPolicy.containsExplicitPlaceholder(observation.evidence())) {
+                groundedFindings.add(new AiReviewProvider.Finding(
+                    "Section '" + observation.requirement() + "' contains explicit placeholder text.",
+                    AiReviewProvider.FindingSource.DOCUMENT, observation.evidence(), "",
+                    "Review unresolved placeholder", "Confirm whether this placeholder should be completed or removed.", null));
+            } else verificationNotes.add(observation);
+        }
+        verificationNotes = new java.util.ArrayList<>(verificationNotes.stream().distinct().limit(50).toList());
         // Positive checks require a concrete excerpt in the submitted PDF and,
         // for requirement-based checks, an exact passage in the supplied authority.
         // Keep only one observation per independent document excerpt: five
@@ -528,16 +626,27 @@ public class AiReviewService {
         var verifiedChecks = result.verifiedChecks().stream()
             .filter(check -> validateVerifiedCheck(check, context, documentText))
             .filter(check -> seenEvidence.add(normalizeAuthorityText(check.documentEvidence())))
+            .map(check -> new AiReviewProvider.VerifiedCheck(check.aspect(), check.source(),
+                check.documentEvidence(), check.requirement(),
+                validatedLocation(check.location(), check.documentEvidence(), documentText, pages)))
             .limit(5).toList();
         var groundedLimitations = new java.util.ArrayList<>(limitations(context));
         if (!crosscheck.isEmpty()) groundedLimitations.add(
             "Mapped-template body-heading comparison is advisory: confirm section applicability, equivalent names, "
                 + "and the PDF's original formatting before treating an undetected heading as a required omission.");
-        return new AiReviewProvider.Result(groundedSummary(groundedFindings, groundedMissing, groundedLimitations,
-                verifiedChecks),
-            groundedFindings, groundedMissing, groundedLimitations,
-            groundedSuggestedAction(groundedFindings, groundedMissing, groundedLimitations, verifiedChecks),
-            verifiedChecks);
+        AiReviewProvider.ReviewOutcome outcome = groundedFindings.size() > 0 || !groundedMissing.isEmpty()
+            ? AiReviewProvider.ReviewOutcome.ISSUES_IDENTIFIED
+            : !verificationNotes.isEmpty() || verifiedChecks.size() < 2
+                ? AiReviewProvider.ReviewOutcome.INCONCLUSIVE
+                : AiReviewProvider.ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS;
+        String summary = outcome == AiReviewProvider.ReviewOutcome.INCONCLUSIVE
+            ? "AI Review is inconclusive. Unresolved verification or limited grounded evidence requires review of the original PDF."
+            : groundedSummary(groundedFindings, groundedMissing, groundedLimitations, verifiedChecks);
+        String action = outcome == AiReviewProvider.ReviewOutcome.INCONCLUSIVE
+            ? "Verify the cited areas in the original PDF before deciding whether a revision is needed."
+            : groundedSuggestedAction(groundedFindings, groundedMissing, groundedLimitations, verifiedChecks);
+        return new AiReviewProvider.Result(summary, groundedFindings, groundedMissing, groundedLimitations,
+            action, verifiedChecks, verificationNotes, outcome);
     }
 
     private static boolean validateVerifiedCheck(AiReviewProvider.VerifiedCheck check,
@@ -588,6 +697,38 @@ public class AiReviewService {
         }
         String authority = authorityText(finding.source(), context);
         return !finding.requirement().isBlank() && containsNormalized(authority, finding.requirement());
+    }
+
+    private static AiReviewProvider.Finding sanitizeFinding(AiReviewProvider.Finding finding,
+            String documentText, List<PdfInspection.PageText> pages, boolean verification) {
+        String title = finding.title();
+        if (title != null && (title.length() > 120
+                || !containsNormalized(finding.issue(), title))) title = null;
+        // Actions are rebuilt from the accepted claim category. Free-form provider actions
+        // can invent requirements even when the cited finding itself is grounded.
+        String action = finding.nextAction() == null || finding.nextAction().isBlank() ? null : verification
+            ? "Open the original PDF and confirm this observation before requesting a revision."
+            : finding.source() == AiReviewProvider.FindingSource.DOCUMENT
+                ? "Review the cited passage and decide whether a revision is needed."
+                : "Compare the cited document evidence with the requirement before requesting a revision.";
+        return new AiReviewProvider.Finding(finding.issue(), finding.source(), finding.evidence(),
+            finding.requirement(), title, action,
+            validatedLocation(finding.location(), finding.evidence(), documentText, pages));
+    }
+
+    private static AiReviewProvider.EvidenceLocation validatedLocation(AiReviewProvider.EvidenceLocation location,
+            String evidence, String documentText, List<PdfInspection.PageText> pages) {
+        if (location == null) return null;
+        Integer requestedPage = location.page();
+        Integer page = requestedPage != null && requestedPage >= 1
+            && pages.stream().anyMatch(source -> source.pageNumber() == requestedPage
+                && containsNormalized(source.text(), evidence)) ? requestedPage : null;
+        String section = location.section();
+        String sourceText = page == null ? documentText : pages.stream()
+            .filter(source -> source.pageNumber() == page).findFirst().orElseThrow().text();
+        if (section != null && (section.isBlank() || section.length() > 200
+                || !AiReviewGroundingPolicy.bodySectionContainsSourceSpan(sourceText, section, evidence))) section = null;
+        return page == null && section == null ? null : new AiReviewProvider.EvidenceLocation(page, section);
     }
 
     private static boolean validateMissingSection(AiReviewProvider.MissingRequiredSection missing, Context context) {
@@ -769,9 +910,9 @@ public class AiReviewService {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
         catch (Exception exception) { throw new IllegalStateException(exception); }
     }
-    private static View empty(String status, String message) { return new View(status, false, message, null, null, null, false, null, null, null, null, null, null); }
+    private static View empty(String status, String message) { return new View(status, false, message, null, null, null, false, null, null, null, null, null, null, null, null); }
     private static View emptyFor(ReviewTarget target, String status, String message) {
-        return new View(status, false, message, null, null, null, false, null, null, target.fieldId(), target.sourceUrl(), null, null);
+        return new View(status, false, message, null, null, null, false, null, null, target.fieldId(), target.sourceUrl(), null, null, null, null);
     }
     private static ResponseStatusException stale(String message) { return new ResponseStatusException(HttpStatus.CONFLICT, message); }
 }

@@ -16,14 +16,34 @@ public interface AiReviewProvider {
     record Input(String idempotencyKey, byte[] pdf, String extractedText, String systemInstruction,
                  String deliverableTitle, String instructions, String templateText) { }
     enum FindingSource { DOCUMENT, DELIVERABLE_REQUIREMENTS, OFFICIAL_TEMPLATE }
-    record Finding(String issue, FindingSource source, String evidence, String requirement) { }
+    enum ReviewOutcome { ISSUES_IDENTIFIED, NO_ISSUES_IN_CHECKED_AREAS, INCONCLUSIVE }
+    record EvidenceLocation(Integer page, String section) { }
+    record Finding(String issue, FindingSource source, String evidence, String requirement,
+                   String title, String nextAction, EvidenceLocation location) {
+        public Finding(String issue, FindingSource source, String evidence, String requirement) {
+            this(issue, source, evidence, requirement, null, null, null);
+        }
+    }
     record MissingRequiredSection(String section, FindingSource source, String requirement) { }
-    record VerifiedCheck(String aspect, FindingSource source, String documentEvidence, String requirement) { }
+    record VerifiedCheck(String aspect, FindingSource source, String documentEvidence, String requirement,
+                         EvidenceLocation location) {
+        public VerifiedCheck(String aspect, FindingSource source, String documentEvidence, String requirement) {
+            this(aspect, source, documentEvidence, requirement, null);
+        }
+    }
     record Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
-                  List<String> limitations, String suggestedAction, List<VerifiedCheck> verifiedChecks) {
+                  List<String> limitations, String suggestedAction, List<VerifiedCheck> verifiedChecks,
+                  List<Finding> verificationNotes, ReviewOutcome outcome) {
         public Result {
-            // Previously saved five-field reports deserialize without verifiedChecks.
+            // Saved reports and provider doubles from earlier versions omit these fields.
             verifiedChecks = verifiedChecks == null ? List.of() : List.copyOf(verifiedChecks);
+            verificationNotes = verificationNotes == null ? List.of() : List.copyOf(verificationNotes);
+        }
+
+        public Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
+                      List<String> limitations, String suggestedAction, List<VerifiedCheck> verifiedChecks) {
+            this(summary, findings, missingRequiredSections, limitations, suggestedAction,
+                verifiedChecks, List.of(), null);
         }
 
         public Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,

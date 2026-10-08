@@ -3186,14 +3186,34 @@ textarea:not(.mantine-Input-input):focus {
 
 .wt-ai-review-dialog {
   max-height: 90vh;
+  overflow-y: auto;
 }
-
-.wt-ai-review-dialog-body {
-  padding: 24px 28px 28px;
+.wt-ai-review-dialog .mantine-Modal-header {
+  position: sticky;
+  top: 0;
+  border-bottom: 1px solid var(--border);
 }
-
-.wt-ai-review-report {
-  max-width: 92ch;
+.wt-ai-review-dialog .mantine-Modal-title { font-weight: 700; }
+.wt-ai-review-dialog-body { padding: 24px 28px 28px; }
+.wt-ai-review-report { line-height: 1.65; overflow-wrap: anywhere; }
+.wt-ai-review-outcome { padding-bottom: 4px; }
+.wt-ai-review-row { border-top: 1px solid var(--border); padding-top: 16px; }
+.wt-ai-review-evidence { margin-top: 10px; }
+.wt-ai-review-secondary,
+.wt-ai-review-earlier { border-top: 1px solid var(--border); padding-top: 16px; }
+.wt-ai-review-report summary,
+.wt-ai-review-earlier > summary {
+  cursor: pointer;
+  color: var(--maroon, #65152e);
+  font-size: 0.875rem;
+  font-weight: 700;
+  padding-block: 4px;
+}
+.wt-ai-review-report summary:focus-visible,
+.wt-ai-review-earlier > summary:focus-visible { outline: 2px solid var(--maroon, #65152e); outline-offset: 4px; }
+.wt-ai-review-passage { white-space: pre-wrap; }
+@media (max-width: 640px) {
+  .wt-ai-review-dialog-body { padding: 18px; }
 }
 
 .document-check-header {

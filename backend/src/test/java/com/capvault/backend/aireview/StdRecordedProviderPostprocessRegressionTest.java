@@ -52,6 +52,13 @@ class StdRecordedProviderPostprocessRegressionTest {
             .noneMatch(finding -> finding.issue().contains("not a functional Software Test Document"));
     }
     @Test void realMissingBodySectionIsStillReported() throws Exception {
+        Path base = repo().resolve(DIRECTORY);
+        String pdf = Files.readString(base.resolve("results/goal2-20260921/source-text/STD-12.txt"));
+        String template = Files.readString(base.resolve("results/goal2-20260921/source-text/STD-01.txt"));
+        assertThat(AiReviewGroundingPolicy.templateHasNumberedBodyHeading(template, "1.2. Test Approach")).isTrue();
+        assertThat(AiReviewGroundingPolicy.optionalTemplateSection("1.2. Test Approach", template,
+            Files.readString(base.resolve("STD_AI_INSTRUCTIONS.txt")))).isFalse();
+        assertThat(AiReviewGroundingPolicy.containsBodyHeading(pdf, "1.2. Test Approach")).isFalse();
         assertThat(apply("STD-12").missingRequiredSections())
             .extracting(AiReviewProvider.MissingRequiredSection::section)
             .contains("1.2. Test Approach");

@@ -64,7 +64,7 @@ class SrsV4RecordedPostprocessOfflineReplayRegressionTest {
     }
 
     private static List<AiReviewProvider.Finding> templateAdvisories(AiReviewProvider.Result result) {
-        return result.findings().stream().filter(finding ->
+        return result.verificationNotes().stream().filter(finding ->
             finding.issue().startsWith("Mapped-template body heading")).toList();
     }
 

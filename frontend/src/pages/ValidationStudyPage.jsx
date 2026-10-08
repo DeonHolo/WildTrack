@@ -7,7 +7,7 @@ import {
   loadValidationStudyDeliverables,
   loadValidationStudyEvidence
 } from '../lib/ValidationStudyClient.js';
-import { downloadValidationStudyCsv } from '../lib/ValidationStudyCsv.js';
+import { downloadInitialSavedRecordCsv } from '../lib/ValidationStudyCsv.js';
 
 export function ValidationStudyPage() {
   const { activeWorkspaceId } = useWorkspaceSession();
@@ -44,6 +44,7 @@ export function ValidationStudyPage() {
   useEffect(() => {
     let active = true;
     if (!activeWorkspaceId || !selectedDeliverableId) return () => { active = false; };
+    setEvidence(null);
     setStatus('loading');
     setError('');
     loadValidationStudyEvidence(activeWorkspaceId, selectedDeliverableId)
@@ -65,32 +66,28 @@ export function ValidationStudyPage() {
     value: deliverable.id,
     label: deliverableLabel(deliverable)
   })), [deliverables]);
-
-  const counts = evidence?.counts || {
-    uniqueCurrentResponses: 0,
-    uniqueCurrentStudents: 0,
-    t1Observed: 0,
-    t2Complete: 0,
-    passingBoth: 0
-  };
+  const audit = evidence?.initialSavedRecords;
+  const canExport = status === 'ready'
+    && Boolean(audit)
+    && audit.workspaceId === activeWorkspaceId
+    && audit.deliverableId === selectedDeliverableId;
 
   return (
     <Stack gap="lg">
       <Group justify="space-between" align="flex-end" wrap="wrap">
         <div>
-          <Text size="xs" fw={800} tt="uppercase" c="wildtrackMaroon.7">Research evidence (historical diagnostic)</Text>
-          <Title order={1}>Validation Study · original T1/T2</Title>
+          <Text size="xs" fw={800} tt="uppercase" c="wildtrackMaroon.7">Research evidence · system audit</Text>
+          <Title order={1}>Validation Study · initial saved records</Title>
           <Text c="dimmed" maw={760}>
-            Admin-only read-only evidence for the ORIGINAL controlled Initial submission → Revised submission protocol. The current Goal 3 instead measures eligible, consenting students' original SAVED response records; this screen has not scored that revised objective.
+            Admin-only read-only evidence for the current initial-saved-record system audit. This audit does not automatically establish consent or an end-to-end study result.
           </Text>
         </div>
         <Button
-          variant="default"
           leftSection={<DownloadSimple size={18} aria-hidden="true" />}
-          disabled={!evidence}
-          onClick={() => evidence && downloadValidationStudyCsv(evidence)}
+          disabled={!canExport}
+          onClick={() => canExport && downloadInitialSavedRecordCsv(evidence)}
         >
-          Export historical CSV
+          Export initial-record CSV (Excel)
         </Button>
       </Group>
 
@@ -112,114 +109,64 @@ export function ValidationStudyPage() {
       {status === 'loading' ? <Text c="dimmed">Loading Validation Study evidence…</Text> : null}
 
       {evidence ? <>
-        <Alert color="yellow" title="Do not use the red revision badges as the current Goal 3 score">
-          This page retains the old T1/T2 diagnostic so earlier evidence is not lost. An initial-only student can have a valid saved response and still show “Old T1/T2 pass: Fail” simply because no revision was attempted. No student is required to revise solely for the revised research protocol. Use the separately reviewed, consent-scoped Objective 3 initial-saved-record log for the new result; neither this page nor its CSV verifies consent, pre-save failures, or student-visible readback.
-        </Alert>
-        <SimpleGrid cols={{ base: 2, sm: 5 }}>
-          <CountCard label="Current saved responses (unscored)" value={counts.uniqueCurrentResponses} />
-          <CountCard label="Students with current response (not verified participants)" value={counts.uniqueCurrentStudents} />
-          <CountCard label="Old T1 observed" value={counts.t1Observed} />
-          <CountCard label="Old T2 complete" value={counts.t2Complete} />
-          <CountCard label="Old T1+T2 passed" value={counts.passingBoth} />
-        </SimpleGrid>
+        {evidence.initialSavedRecords ? <InitialSavedRecordAudit evidence={evidence} /> : (
+          <Alert color="yellow" title="Initial-record audit unavailable">
+            This server returned legacy Validation Study evidence without the {INITIAL_SCOPE} audit. The new initial-record export is unavailable; no result is derived from the historical checks.
+          </Alert>
+        )}
 
-        <Paper withBorder p="md">
-          <Stack gap="xs">
-            <Text fw={750}>Detected study fields</Text>
-            <Text size="sm">Validation Step: <strong>{evidence.validationStepFieldLabel || 'Not detected'}</strong></Text>
-            <Text size="sm">PDF/link field: <strong>{evidence.artifactFieldLabel || 'Not detected'}</strong></Text>
-            {(evidence.warnings || []).map(message => <Alert key={message} color="yellow">{message}</Alert>)}
-            {(evidence.limitations || []).map(message => <Alert key={message} color="blue">{message}</Alert>)}
-          </Stack>
-        </Paper>
-
-        <Paper withBorder>
-          <Table.ScrollContainer minWidth={1500}>
-            <Table striped highlightOnHover verticalSpacing="sm" aria-label="Validation Study evidence table">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Student</Table.Th>
-                  <Table.Th>Response</Table.Th>
-                  <Table.Th>Revision</Table.Th>
-                  <Table.Th>Submitted / updated</Table.Th>
-                  <Table.Th>Current Validation Step</Table.Th>
-                  <Table.Th>Current PDF/link</Table.Th>
-                  <Table.Th>Historical T1/T2 checks (NOT revised Goal 3 score)</Table.Th>
-                  <Table.Th>History</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {(evidence.responses || []).map(row => <EvidenceRow key={row.responseId} row={row} />)}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-          {!evidence.responses?.length ? <Text p="md" c="dimmed">No current responses exist for this deliverable.</Text> : null}
-        </Paper>
       </> : null}
     </Stack>
   );
 }
 
+const INITIAL_SCOPE = 'INITIAL_SAVED_RECORD_SYSTEM_AUDIT_V1';
+
+function InitialSavedRecordAudit({ evidence }) {
+  const audit = evidence.initialSavedRecords;
+  const records = Array.isArray(audit.records) ? audit.records : [];
+  const count = value => value === null || value === undefined ? 'Unknown' : value;
+  const hasPositiveDenominator = Number.isFinite(audit.selectedRecords) && audit.selectedRecords > 0;
+  const status = audit.outcome === 'PASS' && !hasPositiveDenominator ? 'INCONCLUSIVE' : (audit.outcome || 'INCONCLUSIVE');
+  return <Stack gap="md">
+    <Alert color={status === 'PASS' ? 'green' : 'yellow'} title={`System audit outcome: ${status}`}>
+      Scope: <strong>{audit.scope || INITIAL_SCOPE}</strong>. This is a saved-record system audit; it does not automatically establish consent, pre-save failure capture, student-visible readback, or end-to-end study completion.
+    </Alert>
+    <SimpleGrid cols={{ base: 2, sm: 5 }}>
+      <CountCard label="Candidates" value={count(audit.candidates)} />
+      <CountCard label="Selected records" value={count(audit.selectedRecords)} />
+      <CountCard label="Passed checks" value={count(audit.passedRecords)} />
+      <CountCard label="Failed checks" value={count(audit.failedRecords)} />
+      <CountCard label="Unverified checks" value={count(audit.unverifiedRecords)} />
+    </SimpleGrid>
+    <Paper withBorder p="md"><Stack gap="xs"><Text size="sm">Evaluated: <strong>{formatDateTime(audit.evaluatedAt)}</strong></Text><Text size="sm">Workspace: <strong>{audit.workspaceId || 'Unknown'}</strong></Text><Text size="sm">Deliverable: <strong>{audit.deliverableId || evidence.deliverableId || 'Unknown'}</strong></Text><Text size="sm">Selection rule: <strong>{audit.selectionRule || 'Unknown'}</strong></Text>{(audit.limitations || []).map(item => <Text size="sm" c="dimmed" key={item}>Limit: {item}</Text>)}</Stack></Paper>
+    <Paper withBorder><Table.ScrollContainer minWidth={1700}><Table striped highlightOnHover verticalSpacing="sm" aria-label="Initial saved record audit table"><Table.Thead><Table.Tr><Table.Th>Student / roster</Table.Th><Table.Th>Original record</Table.Th><Table.Th>Five audit checks</Table.Th><Table.Th>Binding / required fields</Table.Th><Table.Th>Overall</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{records.map((record, index) => <InitialRecordRow key={record.responseId || record.studentRecordId || index} record={record} />)}</Table.Tbody></Table></Table.ScrollContainer>{!records.length ? <Text p="md" c="dimmed">No selected records were returned for this audit.</Text> : null}</Paper>
+  </Stack>;
+}
+
+function InitialRecordRow({ record }) {
+  return <Table.Tr><Table.Td><Text fw={700}>{record.studentName || 'Unnamed student'}</Text><Text size="xs">{record.studentNumber || '—'} · {record.teamCode || 'No team'}</Text><Text size="xs" c="dimmed">Roster: {record.rosterStudentName || '—'} · {record.rosterStudentNumber || '—'} · {record.rosterTeamCode || '—'}</Text></Table.Td><Table.Td><Text size="xs">Source: {record.originalSource || 'UNVERIFIED'}</Text><Text size="xs">Revision: {record.originalRevision ?? '—'} · Saved: {formatDateTime(record.originalSavedAt)}</Text><ArtifactValue value={record.originalArtifactValue} /></Table.Td><Table.Td><Stack gap={4}>{['studentDetails', 'workspace', 'deliverable', 'originalVersion', 'storedValues'].map(key => <AuditCheck key={key} label={labelize(key)} value={recordCheck(record, key)} />)}</Stack></Table.Td><Table.Td><AuditCheck label="Account binding" value={recordCheck(record, 'accountBinding')} /><Text size="xs">Required fields checked: {record.requiredFieldsChecked?.length ? record.requiredFieldsChecked.join(', ') : 'None reported'}</Text><Text size="xs">Missing: {record.missingRequiredFieldKeys?.length ? record.missingRequiredFieldKeys.join(', ') : 'None reported'}</Text></Table.Td><Table.Td><AuditCheck label="Overall status" value={record.overallStatus} strong /></Table.Td></Table.Tr>;
+}
+
+function recordCheck(record, key) { return record[key] ?? record.checks?.[key]; }
+
+function AuditCheck({ label, value, strong = false }) {
+  const check = value && typeof value === 'object' ? value : { status: typeof value === 'boolean' ? (value ? 'PASS' : 'FAIL') : value };
+  const state = ['PASS', 'FAIL', 'UNVERIFIED'].includes(check.status) ? check.status : 'UNVERIFIED';
+  const color = state === 'PASS' ? 'green' : state === 'FAIL' ? 'red' : 'gray';
+  return <Group gap={6} wrap="nowrap" align="flex-start"><Badge color={color} variant={strong ? 'filled' : 'light'}>{state}</Badge><Text size="xs" fw={strong ? 800 : 500}>{label}{check.reason ? `: ${check.reason}` : ''}</Text></Group>;
+}
+
+function labelize(value) { return value.replace(/([A-Z])/g, ' $1').replace(/^./, character => character.toUpperCase()); }
+
 function CountCard({ label, value }) {
   return <Paper withBorder p="md"><Text size="xs" c="dimmed" fw={700}>{label}</Text><Text size="xl" fw={850}>{value}</Text></Paper>;
 }
 
-function EvidenceRow({ row }) {
-  const checks = row.checks || {};
-  return (
-    <Table.Tr>
-      <Table.Td>
-        <Text fw={700}>{row.studentName || 'Unnamed student'}</Text>
-        <Text size="xs" c="dimmed">{row.studentNumber} · {row.teamCode || 'No team'}</Text>
-      </Table.Td>
-      <Table.Td><Text size="xs" ff="monospace">{row.responseId}</Text></Table.Td>
-      <Table.Td>{row.currentRevision}</Table.Td>
-      <Table.Td>
-        <Text size="xs">{formatDateTime(row.submittedAt)}</Text>
-        <Text size="xs" c="dimmed">Updated {formatDateTime(row.updatedAt)}</Text>
-      </Table.Td>
-      <Table.Td>{row.validationStepValue || '—'}</Table.Td>
-      <Table.Td><ArtifactValue value={row.artifactValue} /></Table.Td>
-      <Table.Td>
-        <Stack gap={4}>
-          <Check label="Initial seen" value={checks.initialSubmissionSeen} />
-          <Check label="Revised current" value={checks.revisedSubmissionCurrent} />
-          <Check label="Same response" value={checks.sameResponse} />
-          <Check label="Revision increased" value={checks.revisionIncreased} />
-          <Check label="Material history" value={checks.materialEditHistoryPresent} />
-          <Check label="PDF unchanged" value={checks.pdfUnchanged} />
-          <Check label="Other values preserved" value={checks.nonDesignatedValuesPreserved} />
-          <Check label="Old T1+T2 pass (not current Goal 3)" value={checks.overallPass} strong />
-        </Stack>
-      </Table.Td>
-      <Table.Td>
-        <details>
-          <summary>{row.history?.length || 0} historical revision{row.history?.length === 1 ? '' : 's'}</summary>
-          <Stack gap="xs" mt="xs" miw={280}>
-            {(row.history || []).map(item => (
-              <Paper key={`${row.responseId}-${item.revision}`} withBorder p="xs">
-                <Text size="xs" fw={700}>Revision {item.revision} · {formatDateTime(item.createdAt)}</Text>
-                <Text size="xs">{item.validationStepValue || 'No Validation Step value'}</Text>
-                <ArtifactValue value={item.artifactValue} compact />
-              </Paper>
-            ))}
-          </Stack>
-        </details>
-      </Table.Td>
-    </Table.Tr>
-  );
-}
-
-function Check({ label, value, strong = false }) {
-  const tone = value === null || value === undefined ? 'gray' : value ? 'green' : 'red';
-  const text = value === null || value === undefined ? 'N/A' : value ? 'Pass' : 'Fail';
-  return <Group gap={6} wrap="nowrap"><Badge color={tone} variant={strong ? 'filled' : 'light'}>{text}</Badge><Text size="xs" fw={strong ? 800 : 500}>{label}</Text></Group>;
-}
-
-function ArtifactValue({ value, compact = false }) {
+function ArtifactValue({ value }) {
   if (!value) return <Text size="xs" c="dimmed">—</Text>;
-  if (/^https?:\/\//i.test(value)) return <Text component="a" href={value} target="_blank" rel="noreferrer" size="xs" lineClamp={compact ? 1 : 2}>{value}</Text>;
-  return <Text size="xs" lineClamp={compact ? 1 : 2}>{value}</Text>;
+  if (/^https?:\/\//i.test(value)) return <Text component="a" href={value} target="_blank" rel="noreferrer" size="xs" lineClamp={2}>{value}</Text>;
+  return <Text size="xs" lineClamp={2}>{value}</Text>;
 }
 
 function deliverableLabel(deliverable) {

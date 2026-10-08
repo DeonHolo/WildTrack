@@ -689,7 +689,7 @@ describe("today's work queues", () => {
     expect(within(drawer).getByRole('button', { name: 'AI Review running' })).toBeDisabled();
     expect(within(drawer).getByText('Previously saved AI findings.')).toBeInTheDocument();
     const fresh = { status: 'COMPLETED', fieldId: 'documentPdf', sourceUrl: old.sourceUrl,
-      generatedAt: '2026-09-22T09:00:00Z', report: { summary: 'Fresh rerun findings from Gemini.' } };
+      generatedAt: '2026-09-22T09:00:00Z', report: { summary: 'Fresh rerun findings from Gemini.', outcome: 'ISSUES_IDENTIFIED', findings: [{ source: 'DOCUMENT', issue: 'Fresh rerun findings from Gemini.', evidence: 'Updated PDF passage', requirement: '' }] } };
     await act(async () => { finish({ ok: true, review: fresh }); });
     expect(within(drawer).queryByText('Previously saved AI findings.')).not.toBeInTheDocument();
     expect(within(drawer).getByText('Fresh rerun findings from Gemini.')).toBeInTheDocument();
@@ -749,6 +749,7 @@ describe("today's work queues", () => {
     fireEvent.click(within(drawer).getByRole('button', { name: 'View previous AI Review' }));
     const saved = await screen.findByRole('dialog', { name: 'AI Review: PDF Drive link' });
     expect(saved).toHaveTextContent('Previously saved AI Review');
+    fireEvent.click(within(saved).getByText('View evidence'));
     expect(saved).toHaveTextContent('Title page: Software Project Management Plan');
     expect(saved).not.toHaveTextContent('AI review completed.');
   });

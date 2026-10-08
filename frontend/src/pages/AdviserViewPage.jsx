@@ -39,6 +39,7 @@ import {
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { AiReviewReport } from '../components/review/AiReviewReport.jsx';
+import { AiReviewReportDialog } from '../components/review/AiReviewReportDialog.jsx';
 import { StatusIndicator } from '../components/ui.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../hooks/useApplicationRole.js';
 import { getStoredPreviewAdviser, setStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
@@ -97,6 +98,7 @@ export function AdviserViewPage() {
   const [feedback, setFeedback] = useState('');
   const [feedbackError, setFeedbackError] = useState(null);
   const [checkDialogTarget, setCheckDialogTarget] = useState(null);
+  const [aiReviewDialogTarget, setAiReviewDialogTarget] = useState(null);
   const [batchProgress, setBatchProgress] = useState(null);
   const [checkingIds, setCheckingIds] = useState(new Set());
 
@@ -139,6 +141,20 @@ export function AdviserViewPage() {
       || checkDialogResponse?.observedFileHistory
       || null)
     : null;
+  const aiReviewDialogResponse = state.attempts.find((response) => response.id === aiReviewDialogTarget?.responseId) || null;
+  const aiReviewDialogDeliverable = aiReviewDialogResponse
+    ? state.deliverables.find((deliverable) => deliverable.id === aiReviewDialogResponse.deliverableId) || null : null;
+  const aiReviewDialogField = aiReviewDialogDeliverable?.fields?.find((field) => artifactTargetKey(aiReviewDialogResponse?.id, field) === aiReviewDialogTarget?.targetKey) || null;
+  const aiReviewDialogReview = aiReviewDialogField ? artifactAiReview(aiReviewDialogResponse, aiReviewDialogField) : null;
+  const aiReviewDialogLegacyCurrent = Boolean(
+    aiReviewDialogResponse
+      && aiReviewDialogField
+      && !aiReviewDialogField.definitionId
+      && aiReviewDialogField.id === 'documentPdf'
+      && isAiReportCurrent(aiReviewDialogResponse)
+  );
+  const aiReviewDialogReport = aiReviewDialogReview?.report
+    || (aiReviewDialogLegacyCurrent ? aiReviewDialogResponse.aiReport : null);
 
   useEffect(() => {
     setBatchProgress(null);
@@ -146,6 +162,7 @@ export function AdviserViewPage() {
     setFeedbackError(null);
     setFeedback('');
     setCheckDialogTarget(null);
+    setAiReviewDialogTarget(null);
     setSelectedOutputIds({});
     setViewOtherAdviser(false);
   }, [isCurrentScope]);
@@ -160,7 +177,12 @@ export function AdviserViewPage() {
   useEffect(() => {
     setSelectedOutputIds({});
     setBatchProgress(null);
+    setAiReviewDialogTarget(null);
   }, [selectedTeamCode]);
+
+  useEffect(() => {
+    setAiReviewDialogTarget(null);
+  }, [selectedRow?.deliverable.id, selectedOutput?.id]);
 
   useEffect(() => {
     if (reviewStatus !== 'ready' || identityStatus !== 'ready') return;
@@ -537,7 +559,8 @@ export function AdviserViewPage() {
                   onFeedbackChange={setFeedback}
                   onSubmitFeedback={submitFeedback}
                   onOpenDocumentCheck={openDocumentCheck}
-                  onOpenFileHistory={openFileHistory}
+                   onOpenFileHistory={openFileHistory}
+                   onOpenAiReview={(field) => setAiReviewDialogTarget({ responseId: selectedResponse?.id, targetKey: artifactTargetKey(selectedResponse?.id, field) })}
                   onCheckPending={checkPendingResponses}
                   onAccept={confirmAccept}
                   onRevoke={confirmRevoke}
@@ -575,6 +598,13 @@ export function AdviserViewPage() {
         onClose={() => setCheckDialogTarget(null)}
         onRecheck={() => runDocumentCheck(checkDialogResponse.id, checkDialogField)}
       />
+      <AiReviewReportDialog
+        opened={Boolean(aiReviewDialogResponse && aiReviewDialogField && (aiReviewDialogReport || aiReviewDialogReview?.previousReport || aiReviewDialogReview?.lastSubstantiveReport))}
+        onClose={() => setAiReviewDialogTarget(null)}
+        report={aiReviewDialogReport}
+        review={aiReviewDialogReview}
+        fieldLabel={aiReviewDialogField?.label || 'PDF'}
+      />
       </ResourceBoundary>
     </Stack>
   );
@@ -593,6 +623,7 @@ function SelectedGroupOutput({
   onSubmitFeedback,
   onOpenDocumentCheck,
   onOpenFileHistory,
+  onOpenAiReview,
   onCheckPending,
   onAccept,
   onRevoke
@@ -661,6 +692,7 @@ function SelectedGroupOutput({
                   checking={checkingFields.has(artifactTargetKey(response.id, field))}
                   onOpenDocumentCheck={() => onOpenDocumentCheck(field)}
                   onOpenFileHistory={() => onOpenFileHistory(field)}
+                  onOpenAiReview={() => onOpenAiReview(field)}
                 />
               ))}
             </Stack>
@@ -718,7 +750,7 @@ function SelectedGroupOutput({
   );
 }
 
-function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpenFileHistory }) {
+function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpenFileHistory, onOpenAiReview }) {
   const value = String(response.values?.[field.id] || '').trim();
   const isLink = /^https?:\/\//i.test(value);
   const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
@@ -729,6 +761,7 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpe
   const artifactReviewCurrent = aiEnabled && isArtifactAiReviewCurrent(response, field);
   const legacyReviewCurrent = aiEnabled && !field.definitionId && !artifactReview && isAiReportCurrent(response);
   const aiReport = artifactReviewCurrent ? artifactReview?.report : legacyReviewCurrent ? response.aiReport : null;
+  const aiReportForDisplay = aiReport || artifactReview?.previousReport || artifactReview?.lastSubstantiveReport || null;
   const aiStatus = legacyReviewCurrent
     ? aiReviewStatus(response)
     : aiEnabled
@@ -777,9 +810,10 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpe
             </Group>
             <Text size="sm" c="dimmed">{check?.summary || 'No current Document Check is available for this PDF.'}</Text>
             {aiEnabled ? (
-              aiReport ? (
-                <AiReviewReport report={aiReport} />
-              ) : <Text size="xs" c="dimmed">No current AI Review is available. AI Review is initiated by Sir/Admin.</Text>
+              <Group gap="xs" wrap="wrap">
+                {aiReportForDisplay ? <Button variant="subtle" size="xs" color="wildtrackMaroon" onClick={onOpenAiReview}>View AI Review</Button> : null}
+                {!aiReportForDisplay ? <Text size="xs" c="dimmed">No current AI Review is available. AI Review is initiated by Sir/Admin.</Text> : null}
+              </Group>
             ) : null}
           </Stack>
         ) : (

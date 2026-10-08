@@ -44,6 +44,34 @@ class GeminiAiReviewProviderTest {
         return response("{\"summary\":\"Requirements need clearer acceptance criteria.\",\"findings\":[{\"issue\":\"Requirement R1 has no measurable threshold.\",\"source\":\"DELIVERABLE_REQUIREMENTS\",\"evidence\":\"Section 3, requirement R1\",\"requirement\":\"Include functional requirements\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Ask the team to clarify R1.\"}", "STOP");
     }
 
+    @Test void parsesVerificationNotesUpToTheAdvertisedSchemaLimit() throws Exception {
+        for (int count : new int[]{9, 50}) {
+            setup();
+            var note = Map.of("issue", "Verify the graphical artifact in the PDF.",
+                "source", "DOCUMENT", "evidence", "Artifact label", "requirement", "");
+            String report = json.writeValueAsString(Map.of("summary", "Manual verification is needed.",
+                "findings", List.of(), "missingRequiredSections", List.of(), "suggestedAction", "",
+                "verificationNotes", java.util.Collections.nCopies(count, note)));
+            server.expect(requestTo(GENERATE))
+                .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verificationNotes.maxItems").value(50))
+                .andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+            assertThat(provider.review(input()).verificationNotes()).hasSize(count);
+            server.verify();
+        }
+    }
+
+    @Test void rejectsVerificationNotesBeyondTheSchemaLimit() throws Exception {
+        var note = Map.of("issue", "Verify the artifact.", "source", "DOCUMENT",
+            "evidence", "Artifact label", "requirement", "");
+        String report = json.writeValueAsString(Map.of("summary", "Manual verification is needed.",
+            "findings", List.of(), "missingRequiredSections", List.of(), "suggestedAction", "",
+            "verificationNotes", java.util.Collections.nCopies(51, note)));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> provider.review(input())).isInstanceOf(GeminiAiReviewProvider.Failure.class);
+        server.verify();
+    }
+
+
     @Test void sendsOnePdfWithBoundedStructuredOutputAndNoDuplicatedText() throws Exception {
         server.expect(requestTo(GENERATE)).andExpect(method(HttpMethod.POST))
             .andExpect(header("x-goog-api-key", "test-key"))
@@ -72,6 +100,17 @@ class GeminiAiReviewProviderTest {
         assertThat(result.limitations()).isEmpty();
         assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v5", "thinking-minimal", "output-8192");
         server.verify();
+    }
+
+    @Test void parsesOptionalFindingGuidanceLocationsAndVerificationNotes() throws Exception {
+        String report = "{\"summary\":\"A grounded issue was found.\",\"findings\":[{\"issue\":\"R1 is unclear.\",\"source\":\"DELIVERABLE_REQUIREMENTS\",\"evidence\":\"Page 4: R1 text\",\"requirement\":\"Include functional requirements\",\"title\":\"Clarify R1\",\"nextAction\":\"Add a measurable threshold.\",\"location\":{\"page\":4,\"section\":\"Functional requirements\"}}],\"missingRequiredSections\":[],\"suggestedAction\":\"Review R1.\",\"verificationNotes\":[{\"issue\":\"The heading location needs confirmation.\",\"source\":\"DOCUMENT\",\"evidence\":\"Page 4: R1 text\",\"requirement\":\"\",\"title\":\"Verify in PDF\",\"nextAction\":\"Open the original PDF.\",\"location\":{\"page\":4}}]}";
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+        var result = provider.review(input());
+        assertThat(result.findings().get(0).title()).isEqualTo("Clarify R1");
+        assertThat(result.findings().get(0).nextAction()).contains("measurable");
+        assertThat(result.findings().get(0).location()).isEqualTo(new AiReviewProvider.EvidenceLocation(4, "Functional requirements"));
+        assertThat(result.verificationNotes()).hasSize(1);
+        assertThat(result.verificationNotes().get(0).location().page()).isEqualTo(4);
     }
 
     @Test void allowsDevelopmentHarnessToRaiseOutputLimitWithoutChangingProductionDefault() throws Exception {

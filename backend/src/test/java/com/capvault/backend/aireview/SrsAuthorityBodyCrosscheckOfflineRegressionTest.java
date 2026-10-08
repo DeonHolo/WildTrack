@@ -91,7 +91,7 @@ class SrsAuthorityBodyCrosscheckOfflineRegressionTest {
         assertThat(result.missingRequiredSections())
             .as("a mapped template is not by itself an unconditional mandate for every section")
             .isEmpty();
-        assertThat(result.findings().stream().filter(f ->
+        assertThat(result.verificationNotes().stream().filter(f ->
             f.issue().startsWith("Mapped-template body heading")).toList())
             .as("conservative mapped-template/body crosscheck must emit only unobserved, applicable headings")
             .extracting(AiReviewProvider.Finding::requirement)
@@ -112,10 +112,10 @@ class SrsAuthorityBodyCrosscheckOfflineRegressionTest {
         var processed = AiReviewService.postprocessForBenchmark(
             EMPTY_PROVIDER_RESULT, TITLE, "", template, document);
         expectOnly(processed, "Validation Rules");
-        assertThat(processed.findings()).allSatisfy(finding -> {
+        assertThat(processed.verificationNotes()).allSatisfy(finding -> {
             assertThat(finding.source()).isEqualTo(AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE);
             assertThat(template).contains(finding.requirement());
-            assertThat(finding.issue()).contains("confirm applicability");
+            assertThat(finding.nextAction()).contains("original PDF");
         });
     }
 

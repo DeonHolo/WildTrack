@@ -521,9 +521,16 @@ export function verifiedAiChecks(report) {
 // prose. Two distinct grounded observations are required before the UI may
 // report no actionable issues in the checked areas.
 export function isInconclusiveAiReviewReport(report) {
-  return !report || (!((report.findings || report.flags || []).length
+  if (!report) return true;
+  if (Array.isArray(report.verificationNotes) && report.verificationNotes.length
+      && !(report.outcome === 'ISSUES_IDENTIFIED' || (report.findings || report.flags || []).length
+        || (report.missingRequiredSections || report.missingSections || []).length)) return true;
+  if (report.outcome === 'INCONCLUSIVE') return true;
+  if (report.outcome === 'ISSUES_IDENTIFIED') return false;
+  if (report.outcome === 'NO_ISSUES_IN_CHECKED_AREAS') return verifiedAiChecks(report).length < 2;
+  return !((report.findings || report.flags || []).length
     || (report.missingRequiredSections || report.missingSections || []).length)
-    && verifiedAiChecks(report).length < 2);
+    && verifiedAiChecks(report).length < 2;
 }
 
 export function artifactAiReview(response, field) {
