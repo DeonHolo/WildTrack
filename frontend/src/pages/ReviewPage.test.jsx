@@ -402,7 +402,6 @@ describe('deliverable-first submission review', () => {
     const saved = await screen.findByRole('dialog', { name: 'AI Review: PDF Drive Link' });
     expect(saved).toHaveTextContent('Latest AI Review inconclusive');
     expect(saved).toHaveTextContent('Previously saved AI Review');
-    fireEvent.click(within(saved).getByText('View evidence'));
     expect(saved).toHaveTextContent('Title page: Software Project Management Plan');
     expect(saved).not.toHaveTextContent('AI review completed.');
   });

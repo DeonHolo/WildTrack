@@ -35,9 +35,9 @@ export function AiReviewReportDialog({ opened, onClose, report, review, fieldLab
           <Text size="sm" fw={700}>Previously saved AI Review{(review?.previousGeneratedAt || review?.lastSubstantiveGeneratedAt)
             ? ` · ${formatDateTime(review.previousGeneratedAt || review.lastSubstantiveGeneratedAt)}` : ' · date unavailable'}</Text>
         ) : review?.generatedAt ? (
-          <Text size="sm" c="dimmed">Reviewed {formatDateTime(review.generatedAt)}</Text>
+          <Text size="sm" className="wt-ai-review-reference">Reviewed {formatDateTime(review.generatedAt)}</Text>
         ) : review?.lastSubstantiveGeneratedAt ? (
-          <Text size="sm" c="dimmed">Last substantive review · {formatDateTime(review.lastSubstantiveGeneratedAt)}</Text>
+          <Text size="sm" className="wt-ai-review-reference">Last substantive review · {formatDateTime(review.lastSubstantiveGeneratedAt)}</Text>
         ) : null}
         <AiReviewReport report={displayReport} />
         {review?.lastSubstantiveReport && !sameReport(review.lastSubstantiveReport, displayReport) ? (
@@ -46,7 +46,7 @@ export function AiReviewReportDialog({ opened, onClose, report, review, fieldLab
             <AiReviewReport report={review.lastSubstantiveReport} />
           </details>
         ) : null}
-        <Text size="sm" c="dimmed">
+        <Text size="sm" className="wt-ai-review-reference">
           AI Review is advisory first-pass feedback. Staff should verify the cited document evidence and requirement sources before making an academic decision.
         </Text>
       </Stack>

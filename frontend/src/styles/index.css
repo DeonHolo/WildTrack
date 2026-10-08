@@ -3195,7 +3195,17 @@ textarea:not(.mantine-Input-input):focus {
 }
 .wt-ai-review-dialog .mantine-Modal-title { font-weight: 700; }
 .wt-ai-review-dialog-body { padding: 24px 28px 28px; }
+.wt-ai-review-report, .wt-ai-review-dialog { --wt-ai-review-metadata: #59636d; }
 .wt-ai-review-report { line-height: 1.65; overflow-wrap: anywhere; }
+.wt-ai-review-report .mantine-Text-root { font-size: 1rem; line-height: 1.6; }
+.wt-ai-review-report h3 { font-family: inherit; font-size: 1.125rem; line-height: 1.4; font-weight: 700; margin: 0 0 8px; }
+.wt-ai-review-report .wt-ai-review-reference,
+.wt-ai-review-outcome .mantine-Text-root:last-child,
+.wt-ai-review-dialog .wt-ai-review-reference { font-size: 0.875rem; color: var(--wt-ai-review-metadata); }
+.wt-ai-review-report ul { margin: 12px 0; padding-left: 24px; }
+.wt-ai-review-report li { padding: 3px 0; }
+.wt-ai-review-originals { margin-top: 12px; }
+.wt-ai-review-originals > summary { min-height: 44px; padding: 10px 0; }
 .wt-ai-review-outcome { padding-bottom: 4px; }
 .wt-ai-review-row { border-top: 1px solid var(--border); padding-top: 16px; }
 .wt-ai-review-evidence { margin-top: 10px; }

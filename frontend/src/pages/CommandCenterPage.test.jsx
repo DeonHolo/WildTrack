@@ -749,7 +749,6 @@ describe("today's work queues", () => {
     fireEvent.click(within(drawer).getByRole('button', { name: 'View previous AI Review' }));
     const saved = await screen.findByRole('dialog', { name: 'AI Review: PDF Drive link' });
     expect(saved).toHaveTextContent('Previously saved AI Review');
-    fireEvent.click(within(saved).getByText('View evidence'));
     expect(saved).toHaveTextContent('Title page: Software Project Management Plan');
     expect(saved).not.toHaveTextContent('AI review completed.');
   });
