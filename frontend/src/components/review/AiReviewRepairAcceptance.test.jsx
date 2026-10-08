@@ -132,7 +132,7 @@ describe('AI Review repair acceptance behavior', () => {
   it('keeps explicit issues as ISSUES_IDENTIFIED while also exposing verification notes', () => {
     renderReport({ outcome: 'ISSUES_IDENTIFIED', findings: [{ issue: 'Missing acceptance criteria.', source: 'DOCUMENT', evidence: 'Section 4' }], verificationNotes: [{ issue: 'Confirm the template heading in the PDF.', source: 'OFFICIAL_TEMPLATE', evidence: 'Page 2' }], missingRequiredSections: [] });
     expect(screen.getByText('Issues identified')).toBeInTheDocument();
-    expect(screen.getByText('Issues to review')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Issues to review' })).toBeInTheDocument();
     expect(screen.getByText('Verify in PDF (1)')).toBeInTheDocument();
   });
 
@@ -159,7 +159,6 @@ describe('AI Review repair acceptance behavior', () => {
   it('reveals a long evidence passage exactly once after requesting the full passage', () => {
     const passage = `A long exact source passage ${'with preserved wording '.repeat(30)}`.trim();
     renderReport({ findings: [{ issue: 'Review this source passage.', evidence: passage }], missingRequiredSections: [] });
-    fireEvent.click(screen.getByText('View evidence'));
     expect(screen.getByText(`${passage.slice(0, 420).replace(/\s+\S*$/, '')}…`)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'View full passage' }));
     expect(screen.getAllByText(passage)).toHaveLength(1);

@@ -1,5 +1,5 @@
-import { useId, useState } from 'react';
-import { Alert, Badge, Button, Group, Stack, Text } from '@mantine/core';
+import { useState } from 'react';
+import { Alert, Button, Stack, Text } from '@mantine/core';
 import { isInconclusiveAiReviewReport, verifiedAiChecks } from '../../lib/workflow.js';
 
 const CHECK_SOURCE_LABELS = {
@@ -10,15 +10,19 @@ const CHECK_SOURCE_LABELS = {
 const LEGACY_VERIFICATION = /^Mapped-template (?:body heading|transaction artifact)/i;
 
 export function AiReviewReport({ report }) {
-  const reportId = useId();
   if (!report) return null;
   const originalFindings = report.findings || legacyFindings(report.flags);
   const legacyNotes = originalFindings.filter(isLegacyVerification).map(legacyVerification);
   const findings = uniqueByClaim(originalFindings.filter(finding => !isLegacyVerification(finding)));
   const missing = report.missingRequiredSections || legacyMissingSections(report.missingSections);
+  const sharedSectionSource = missing[0]?.source && missing.every(item => item.source === missing[0].source)
+    ? missing[0].source : null;
   const verificationNotes = uniqueByClaim([...(report.verificationNotes || []), ...legacyNotes]);
+  const sectionNotes = verificationNotes.filter(note => sectionVerification(note));
   const checks = verifiedAiChecks(report).filter(check => !findings.some(finding => sameCheck(finding, check)));
   const issueCount = findings.length + missing.length;
+  const glossary = groupGlossary(findings);
+  const reviewAreaCount = glossary.length + (missing.length ? 1 : 0);
   const inconclusive = issueCount === 0 && (
     verificationNotes.length > 0 || report.outcome === 'INCONCLUSIVE' || isInconclusiveAiReviewReport({
       ...report, findings, verificationNotes
@@ -30,10 +34,9 @@ export function AiReviewReport({ report }) {
   return (
     <Stack gap="lg" className="wt-ai-review-report">
       <div className="wt-ai-review-outcome">
-        <Badge color={inconclusive ? 'orange' : noIssues ? 'green' : 'red'} variant="light">{outcome}</Badge>
-        <Text mt="xs" size="sm">{outcomeLabel({ inconclusive, noIssues, issueCount })}</Text>
-        <Text mt={4} size="sm" c="dimmed">
-          {issueCount} supported issue{issueCount === 1 ? '' : 's'} · {verificationNotes.length} to verify
+        <Text fw={700}>{outcome}</Text>
+        <Text mt={4} size="sm">
+          {issueCount} recorded issue{issueCount === 1 ? '' : 's'} in {reviewAreaCount} review area{reviewAreaCount === 1 ? '' : 's'} · {verificationNotes.length} to verify
         </Text>
       </div>
       {inconclusive ? (
@@ -46,26 +49,30 @@ export function AiReviewReport({ report }) {
         </Alert>
       ) : null}
       {issueCount ? (
-        <section aria-labelledby={`${reportId}-issues`}>
-          <Text id={`${reportId}-issues`} fw={700}>Issues to review</Text>
-          <Stack gap="md" mt="sm">
-            {findings.map((finding, index) => <FindingRow key={`finding-${index}`} finding={finding} />)}
-            {missing.map((item, index) => (
-              <FindingRow key={`missing-${index}`} finding={{
-                title: item.section || 'Required section is missing',
-                issue: item.section ? `The required section “${item.section}” could not be located.` : 'A required section could not be located.',
-                requirement: item.requirement, source: item.source
-              }} />
-            ))}
+        <section aria-label="Issues to review">
+          <Stack gap="md">
+            {glossary.filter(group => !group.terms).map((group, index) => <FindingRow key={`finding-${index}`} finding={group.finding} />)}
+            {missing.length ? <article className="wt-ai-review-row">
+              <h3>Check section coverage</h3>
+              <Text>The saved report could not locate these required sections. Confirm their presence or equivalent headings in the PDF before requesting changes.</Text>
+              <ul>{missing.map((item, index) => <li key={index}>{item.section || 'Unnamed required section'}
+                {item.requirement && referenceKey(item.requirement) !== referenceKey(item.section)
+                  ? <Text className="wt-ai-review-reference" size="sm">Reference: {item.requirement}</Text> : null}
+                {item.source && !sharedSectionSource ? <Text component="span" className="wt-ai-review-reference" size="sm"> — {CHECK_SOURCE_LABELS[item.source] || item.source}</Text> : null}
+              </li>)}</ul>
+              {sharedSectionSource ? <Text className="wt-ai-review-reference" size="sm">Reference: {CHECK_SOURCE_LABELS[sharedSectionSource] || sharedSectionSource}</Text> : null}
+            </article> : null}
+            {glossary.filter(group => group.terms).map((group, index) => <GlossaryRow key={`glossary-${index}`} group={group} />)}
           </Stack>
         </section>
       ) : null}
       {verificationNotes.length ? (
         <details className="wt-ai-review-secondary">
           <summary>Verify in PDF ({verificationNotes.length})</summary>
-          <Text size="sm" c="dimmed" mt="sm">These observations require confirmation before requesting a revision.</Text>
+          <Text size="sm" mt="sm">These observations require confirmation before requesting a revision.</Text>
           <Stack gap="md" mt="sm">
-            {verificationNotes.map((note, index) => <FindingRow key={`note-${index}`} finding={note} verification />)}
+            {sectionNotes.length ? <SectionVerificationRow notes={sectionNotes} /> : null}
+            {verificationNotes.filter(note => !sectionVerification(note)).map((note, index) => <FindingRow key={`note-${index}`} finding={note} />)}
           </Stack>
         </details>
       ) : null}
@@ -86,41 +93,105 @@ export function AiReviewReport({ report }) {
   );
 }
 
-function FindingRow({ finding, verification = false }) {
+function FindingRow({ finding }) {
   const explanation = finding.explanation || finding.issue || '';
-  const title = finding.title || conciseTitle(explanation);
-  const nextAction = finding.nextAction || (verification
-    ? 'Open the submitted PDF and confirm this area before requesting a revision.'
-    : 'Review the cited evidence and decide whether a revision is needed.');
+  const title = finding.title;
+  const nextAction = specificAction(finding);
   return (
     <article className="wt-ai-review-row">
-      <Text fw={700}>{title}</Text>
+      {title ? <h3>{title}</h3> : null}
       {explanation && normalized(explanation) !== normalized(title) ? <Text size="sm" mt={6}>{explanation}</Text> : null}
-      <Text size="sm" mt="sm"><strong>Next step:</strong> {nextAction}</Text>
+      {nextAction ? <Text size="sm" mt="sm">{nextAction}</Text> : null}
       <Evidence finding={finding} />
     </article>
   );
 }
 
 function Evidence({ finding }) {
-  const [open, setOpen] = useState(false);
+  const sourceLabel = CHECK_SOURCE_LABELS[finding.source];
   if (!finding.evidence && !finding.requirement && !finding.location) return null;
   return (
-    <details className="wt-ai-review-evidence" open={open}>
-      <summary onClick={event => { event.preventDefault(); setOpen(value => !value); }}>View evidence</summary>
-      {open ? (
+    <div className="wt-ai-review-evidence">
         <Stack gap="md" mt="sm">
           {finding.evidence ? <Passage label="Submitted document" text={finding.evidence} /> : null}
-          {finding.requirement ? <Passage label="Requirement" text={finding.requirement} /> : null}
+          {finding.requirement ? finding.requirement.length > 160
+            ? <Passage label={sourceLabel ? `Reference: ${sourceLabel}` : 'Reference'} text={finding.requirement} />
+            : <Text className="wt-ai-review-reference" size="sm">Reference: {sourceLabel ? `${sourceLabel} · ` : ''}{finding.requirement}</Text> : null}
           {finding.location?.page || finding.location?.section ? (
-            <Text size="sm" c="dimmed">
+            <Text size="sm" className="wt-ai-review-reference">
               Location: {[finding.location.page && `page ${finding.location.page}`, finding.location.section].filter(Boolean).join(' · ')}
             </Text>
           ) : null}
         </Stack>
-      ) : null}
-    </details>
+    </div>
   );
+}
+
+function glossaryTerm(finding) {
+  const issue = finding.explanation || finding.issue || '';
+  const term = issue.match(/\b(?:acronym|abbreviation)\s+["'“]?([a-z0-9-]+)["'”]?\s+/i)?.[1];
+  const section = issue.match(/\bsection\s+(\d+(?:\.\d+)+)\b/i)?.[1];
+  if (!term || !/^[A-Z][A-Z0-9-]{1,14}$/.test(term) || !section || !/not\s+defined|undefined/i.test(issue)) return null;
+  return { term, section };
+}
+
+function specificAction(finding) {
+  const action = finding.nextAction || '';
+  return [
+    'Review the cited evidence and decide whether a revision is needed.',
+    'Open the submitted PDF and confirm this area before requesting a revision.',
+    'Open the original PDF and confirm this observation before requesting a revision.',
+    'Review the cited passage and decide whether a revision is needed.',
+    'Compare the cited document evidence with the requirement before requesting a revision.'
+  ].some(generic => normalized(action) === normalized(generic)) ? '' : action;
+}
+
+function groupGlossary(findings) {
+  const groups = [];
+  for (const finding of findings) {
+    const parsed = glossaryTerm(finding);
+    if (!parsed || !finding.requirement) { groups.push({ finding }); continue; }
+    const key = [finding.source || '', referenceKey(finding.requirement), parsed.section].join('|');
+    let group = groups.find(item => item.key === key);
+    if (!group) { group = { key, section: parsed.section, terms: [], findings: [] }; groups.push(group); }
+    if (!group.terms.includes(parsed.term)) group.terms.push(parsed.term);
+    group.findings.push(finding);
+  }
+  return groups;
+}
+
+function GlossaryRow({ group }) {
+  return <article className="wt-ai-review-row">
+    <h3>Small correction: review glossary definitions</h3>
+    <Text>The report flags {group.terms.join(', ')} as undefined in section {group.section}. Check these terms together, including whether each is actually an acronym or abbreviation.</Text>
+    <Evidence finding={{ requirement: group.findings[0].requirement, source: group.findings[0].source }} />
+    <details className="wt-ai-review-originals">
+      <summary>Original glossary observations ({group.findings.length})</summary>
+      <Stack gap="md" mt="sm">{group.findings.map((finding, index) => <FindingRow key={index} finding={finding} />)}</Stack>
+    </details>
+  </article>;
+}
+
+function sectionVerification(note) {
+  return (note.explanation || note.issue || '').match(/^The required section ["'“]([^"'”]+)["'”] could not be located\.?$/i)?.[1]
+    || note.sectionCheck || null;
+}
+
+function SectionVerificationRow({ notes }) {
+  const sharedSource = notes[0].source && notes.every(note => note.source === notes[0].source) ? notes[0].source : null;
+  return <article className="wt-ai-review-row">
+    <h3>Verify section coverage in the PDF</h3>
+    <Text>The saved report could not locate these headings. Check the original PDF, including equivalent headings, before requesting changes.</Text>
+    <ul>{notes.map((note, index) => <li key={index}>
+      {sectionVerification(note)}
+      {note.source && !sharedSource ? <span className="wt-ai-review-reference"> — {CHECK_SOURCE_LABELS[note.source] || note.source}</span> : null}
+    </li>)}</ul>
+    {sharedSource ? <Text className="wt-ai-review-reference" size="sm">Reference: {CHECK_SOURCE_LABELS[sharedSource] || sharedSource}</Text> : null}
+    <details className="wt-ai-review-originals">
+      <summary>Original section observations ({notes.length})</summary>
+      <Stack gap="md" mt="sm">{notes.map((note, index) => <FindingRow key={index} finding={note} />)}</Stack>
+    </details>
+  </article>;
 }
 
 function Passage({ label, text }) {
@@ -142,27 +213,19 @@ function CheckRow({ check }) {
   return (
     <article className="wt-ai-review-row">
       <Text fw={700} size="sm">{check.aspect}</Text>
-      <Text size="sm" c="dimmed">{CHECK_SOURCE_LABELS[check.source] || 'Submitted document'}</Text>
+      <Text size="sm" className="wt-ai-review-reference">{CHECK_SOURCE_LABELS[check.source] || 'Submitted document'}</Text>
       <Evidence finding={{ evidence: check.documentEvidence, requirement: check.requirement, location: check.location }} />
     </article>
   );
 }
 
-function outcomeLabel({ inconclusive, noIssues, issueCount }) {
-  if (inconclusive) return 'Some checked areas still require manual verification.';
-  if (noIssues) return 'The checked areas did not produce supported issues.';
-  return `${issueCount} supported issue${issueCount === 1 ? '' : 's'} ${issueCount === 1 ? 'requires' : 'require'} review.`;
-}
-function conciseTitle(issue) {
-  const first = String(issue || 'Review observation').split(/(?<=[.!?])\s/)[0];
-  return first.length > 96 ? `${first.slice(0, 93).replace(/\s+\S*$/, '')}…` : first;
-}
 function isLegacyVerification(finding) { return LEGACY_VERIFICATION.test(finding.issue || ''); }
 function legacyVerification(finding) {
   const quoted = (finding.issue || '').match(/'([^']+)'/);
   const templateEvidence = /^(?:Mapped official-template|Mapped-template)/i.test(finding.evidence || '');
   return {
     ...finding, title: quoted ? `Verify ${quoted[1]}` : 'Verify template comparison',
+    sectionCheck: /^Mapped-template body heading/i.test(finding.issue || '') ? quoted?.[1] : null,
     issue: 'This older text-based comparison requires confirmation in the original PDF.',
     nextAction: 'Confirm section applicability, equivalent headings, and graphical content before requesting a revision.',
     evidence: templateEvidence ? '' : finding.evidence,
@@ -180,5 +243,6 @@ function sameCheck(finding, check) {
     && normalized(finding.evidence) === normalized(check.documentEvidence) && normalized(finding.requirement) === normalized(check.requirement);
 }
 function normalized(text) { return String(text || '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); }
+function referenceKey(text) { return String(text || '').toLocaleLowerCase().replace(/\s+/g, ' ').trim(); }
 function legacyFindings(flags) { return (flags || []).map(issue => ({ issue: String(issue), source: '', evidence: '' })); }
 function legacyMissingSections(sections) { return (sections || []).map(section => ({ section: String(section), source: '', requirement: '' })); }
