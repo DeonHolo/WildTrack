@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static com.capvault.backend.support.AuthenticatedRequest.adviserSession;
+import static com.capvault.backend.support.AuthenticatedRequest.adminSession;
 import static com.capvault.backend.support.AuthenticatedRequest.session;
 
 import com.capvault.backend.auth.GoogleIdentity;
@@ -135,6 +136,15 @@ class ProductionSecurityBoundaryTest {
     @Test
     void h2ConsoleIsNotReachableThroughTheApiBoundary() throws Exception {
         mockMvc.perform(get("/h2-console")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void completedValidationStudyEvidenceEndpointIsRetired() throws Exception {
+        mockMvc.perform(get("/api/validation-study/evidence")
+                .param("workspaceId", "11111111-1111-1111-1111-111111111111")
+                .param("deliverableId", "22222222-2222-2222-2222-222222222222")
+                .with(adminSession()))
+            .andExpect(status().isNotFound());
     }
 
     @Test
