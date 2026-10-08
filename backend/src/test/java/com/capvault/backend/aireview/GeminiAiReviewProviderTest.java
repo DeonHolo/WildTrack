@@ -207,6 +207,63 @@ class GeminiAiReviewProviderTest {
         server.verify();
     }
 
+    @Test void malformedProviderEnvelopeIsNotReportedAsLostConnection() {
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(
+            "{\"candidates\":[private-provider-content", MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> provider.review(input()))
+            .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                assertThat(failure.code).isEqualTo("INVALID_RESPONSE");
+                assertThat(failure).hasNoCause();
+                assertThat(failure.toString()).doesNotContain("private-provider-content");
+            });
+        server.verify();
+    }
+
+    @Test void unexpectedProviderContentTypeIsNotReportedAsLostConnection() {
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(
+            "<html>private-provider-content</html>", MediaType.TEXT_HTML));
+        assertThatThrownBy(() -> provider.review(input()))
+            .hasMessage("INVALID_RESPONSE").hasNoCause();
+        server.verify();
+    }
+
+    @Test void nestedJdkTimeoutDoesNotRetryOrLeakTheCause() {
+        server.expect(requestTo(GENERATE)).andRespond(withException(new java.io.IOException(
+            "private-provider-content", new java.net.http.HttpTimeoutException("private-provider-content"))));
+        assertThatThrownBy(() -> provider.review(input())).hasMessage("PROVIDER_TIMEOUT").hasNoCause();
+        server.verify();
+    }
+
+    @Test void connectionLostWhileReadingJsonRemainsAConnectionFailure() {
+        server.expect(requestTo(GENERATE)).andRespond(request -> {
+            var reply = new org.springframework.mock.http.client.MockClientHttpResponse(new java.io.InputStream() {
+                private final byte[] prefix = "{\"candidates\":[{\"content\":{".getBytes(StandardCharsets.UTF_8);
+                private int position;
+                @Override public int read() throws java.io.IOException {
+                    if (position < prefix.length) return prefix[position++] & 0xff;
+                    throw new java.net.SocketException("private-provider-content");
+                }
+            }, HttpStatus.OK);
+            reply.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            return reply;
+        });
+        assertThatThrownBy(() -> provider.review(input()))
+            .hasMessage("PROVIDER_CONNECTION_FAILED").hasNoCause();
+        server.verify();
+    }
+
+    @Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void resetConnectionDoesNotRetryOrLeakTheCause(org.springframework.boot.test.system.CapturedOutput output) {
+        server.expect(requestTo(GENERATE)).andRespond(withException(
+            new java.net.SocketException("private-provider-content")));
+        assertThatThrownBy(() -> provider.review(input()))
+            .hasMessage("PROVIDER_CONNECTION_FAILED").hasNoCause();
+        assertThat(output.toString()).contains("stage=generation", "elapsedMs=", "code=PROVIDER_CONNECTION_FAILED",
+            "SocketException").doesNotContain("private-provider-content");
+        server.verify();
+    }
+
     @Test void timeoutDoesNotRetryAnUncertainGeneration() {
         server.expect(requestTo(GENERATE)).andRespond(withException(new java.net.SocketTimeoutException("timeout")));
         assertThatThrownBy(() -> provider.review(input())).hasMessage("PROVIDER_TIMEOUT");
