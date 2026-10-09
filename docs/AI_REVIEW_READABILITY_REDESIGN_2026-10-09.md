@@ -1,4 +1,4 @@
-# AI Review readability redesign — proposed direction
+# AI Review readability redesign
 
 ## User request and current evidence
 
@@ -45,4 +45,16 @@ The actual React/Mantine component was inspected at `http://127.0.0.1:8766/.scra
 
 Final local gate passed: all 123 relevant tests across the six suites have passed, including the retried complete ReviewPage suite; final report regressions passed 11/11 after the last grouping change, and final production build and staged diff check passed. Existing bundle-size and React Router future warnings remain. No live-provider accuracy or production deployment claim follows from these checks.
 
-The owner subsequently requested consolidation onto `wildtrack-dev`, removal of the Codex branches created during this work, and use of `wildtrack-dev` going forward. Exact next unfinished step: commit this focused UI change, inspect local/remote branch and worktree state, preserve unmerged work and unrelated dirty files, consolidate latest code onto `wildtrack-dev`, publish a reviewable PR, then perform the authorized branch cleanup. Keep the actual-component preview open for owner review. Backend factual-grounding work and the SDD deliverable remain separate unfinished work.
+## Published and verified on the live site
+
+The owner merged [PR #91](https://github.com/DeonHolo/WildTrack/pull/91), sourced from `wildtrack-dev`, at `2026-10-08T20:43:10Z`. Frontend checks and Vercel preview succeeded. A fresh signed-in Admin tab on `https://www.wildtrack.dev/review` displayed the new layout for an existing saved report: four glossary observations (MVP, OCR, MAY, VIN) became one review area with the shared template reference inline and original observations available. Screenshot: `.scratch/ai-review-readability/live-grouped-review.png`. Only saved-report controls were opened; no Gemini request or academic record change was made. Shared Adviser behavior is covered by the component/route acceptance tests, not a fresh live Adviser session.
+
+Branch consolidation is complete: all seven local and six remote Codex branches created during this work were removed after preservation/merge checks. Work now continues on `wildtrack-dev` in the original D: checkout. See `BRANCH_CONSOLIDATION_2026-10-09.md` for recovery details. Backend factual grounding and the SDD deliverable remain separate work; SRS owner review still gates SDD.
+
+## Follow-up: repeated artifact verification
+
+Live inspection also exposed eight separate Use Case Description verification notes across transactions. They shared the same artifact and template requirement, repeating the same advice/reference. The follow-up groups this explicitly recognized extraction-warning wording by artifact, source and exact normalized requirement, lists its transaction locations once, and retains every original note/evidence in one disclosure. Different authorities remain separate; unrecognized wording remains unchanged. Raw verification counts and inconclusive outcomes are retained.
+
+Local verification on `wildtrack-dev`: report (13), dialog (6) and repair acceptance (10) all passed, 29/29; production build and scoped diff check passed. These two new regressions cover artifact grouping/evidence retention/inconclusive behavior and authority separation. Prior route suites passed for PR #91; this narrow follow-up has not yet been verified on the live deployment.
+
+Exact next unfinished step: publish the focused follow-up PR from `wildtrack-dev`, check its hosted validation, leave it for owner merge, then verify its grouped transaction list on the live site using the saved report only. Do not create another Codex branch or initiate an AI rerun.

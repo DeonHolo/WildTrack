@@ -37,6 +37,7 @@ import { submissionArtifactFields } from '../../lib/submissionArtifacts.js';
 
 export function ReviewResponseDrawer({
   opened,
+  detailDialogOpened = false,
   response,
   student,
   state,
@@ -65,6 +66,8 @@ export function ReviewResponseDrawer({
     <Drawer
       opened={opened}
       onClose={onClose}
+      closeOnEscape={!detailDialogOpened}
+      trapFocus={!detailDialogOpened}
       position="right"
       size="min(680px, 96vw)"
       title={`Review ${student.name}`}

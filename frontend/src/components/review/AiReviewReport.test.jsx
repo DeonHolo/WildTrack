@@ -107,6 +107,28 @@ it('does not manufacture duplicated titles or generic next-step copy for legacy 
   expect(screen.queryByText(/Review the cited evidence/)).not.toBeInTheDocument();
 });
 
+it('groups repeated artifact verification locations while preserving original evidence and an inconclusive outcome', () => {
+  show({ verifiedChecks: checks, verificationNotes: ['1.2 Upload receipt', '2.1 Review draft'].map(context => ({
+    issue: `Text extraction could not verify 'Use Case Description' in transaction '${context}'. Its label was not located in the extracted transaction.`,
+    source: 'OFFICIAL_TEMPLATE', requirement: 'Use Case Description', evidence: `${context} original observation`
+  })) });
+  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.getAllByRole('heading', { name: 'Verify Use Case Description in the PDF', hidden: true })).toHaveLength(1);
+  expect(screen.getByText("transaction '1.2 Upload receipt'")).toBeInTheDocument();
+  expect(screen.getByText("transaction '2.1 Review draft'")).toBeInTheDocument();
+  expect(screen.getByText('Original artifact observations (2)')).toBeInTheDocument();
+  expect(screen.getByText('1.2 Upload receipt original observation')).toBeInTheDocument();
+  expect(screen.getByText('2.1 Review draft original observation')).toBeInTheDocument();
+});
+
+it('keeps artifact verification groups separate across requirement sources', () => {
+  show({ verificationNotes: ['OFFICIAL_TEMPLATE', 'DELIVERABLE_REQUIREMENTS'].map(source => ({
+    issue: "Text extraction could not verify 'Use Case Description' in transaction '1.2'. Its label was not located in the extracted transaction.",
+    source, requirement: 'Use Case Description'
+  })) });
+  expect(screen.getAllByRole('heading', { name: 'Verify Use Case Description in the PDF', hidden: true })).toHaveLength(2);
+});
+
 it('treats an empty legacy generic report as inconclusive', () => {
   show({ summary: 'The PDF satisfies all requirements.', findings: [], missingRequiredSections: [] });
   expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');

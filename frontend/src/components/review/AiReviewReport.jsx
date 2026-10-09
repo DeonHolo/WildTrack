@@ -19,6 +19,7 @@ export function AiReviewReport({ report }) {
     ? missing[0].source : null;
   const verificationNotes = uniqueByClaim([...(report.verificationNotes || []), ...legacyNotes]);
   const sectionNotes = verificationNotes.filter(note => sectionVerification(note));
+  const artifactNotes = groupArtifactNotes(verificationNotes.filter(note => !sectionVerification(note)));
   const checks = verifiedAiChecks(report).filter(check => !findings.some(finding => sameCheck(finding, check)));
   const issueCount = findings.length + missing.length;
   const glossary = groupGlossary(findings);
@@ -72,7 +73,9 @@ export function AiReviewReport({ report }) {
           <Text size="sm" mt="sm">These observations require confirmation before requesting a revision.</Text>
           <Stack gap="md" mt="sm">
             {sectionNotes.length ? <SectionVerificationRow notes={sectionNotes} /> : null}
-            {verificationNotes.filter(note => !sectionVerification(note)).map((note, index) => <FindingRow key={`note-${index}`} finding={note} />)}
+            {artifactNotes.map((group, index) => group.artifact
+              ? <ArtifactVerificationRow key={`artifact-${index}`} group={group} />
+              : <FindingRow key={`note-${index}`} finding={group.note} />)}
           </Stack>
         </details>
       ) : null}
@@ -190,6 +193,34 @@ function SectionVerificationRow({ notes }) {
     <details className="wt-ai-review-originals">
       <summary>Original section observations ({notes.length})</summary>
       <Stack gap="md" mt="sm">{notes.map((note, index) => <FindingRow key={index} finding={note} />)}</Stack>
+    </details>
+  </article>;
+}
+
+function groupArtifactNotes(notes) {
+  const groups = [];
+  for (const note of notes) {
+    const match = (note.explanation || note.issue || '').match(/^Text extraction could not verify ["'“]([^"'”]+)["'”] in (.+?)\. (?=Its label|No substantive|The matching label)/i);
+    if (!match || !note.requirement) { groups.push({ note }); continue; }
+    const [, artifact, context] = match;
+    const key = [note.source || '', referenceKey(note.requirement), artifact.toLocaleLowerCase()].join('|');
+    let group = groups.find(item => item.key === key);
+    if (!group) { group = { key, artifact, notes: [], contexts: [] }; groups.push(group); }
+    group.notes.push(note);
+    if (!group.contexts.includes(context)) group.contexts.push(context);
+  }
+  return groups;
+}
+
+function ArtifactVerificationRow({ group }) {
+  return <article className="wt-ai-review-row">
+    <h3>Verify {group.artifact} in the PDF</h3>
+    <Text>The saved report could not confirm this artifact in the following locations. Check them in the original PDF before requesting changes.</Text>
+    <ul>{group.contexts.map(context => <li key={context}>{context}</li>)}</ul>
+    <Evidence finding={{ requirement: group.notes[0].requirement, source: group.notes[0].source }} />
+    <details className="wt-ai-review-originals">
+      <summary>Original artifact observations ({group.notes.length})</summary>
+      <Stack gap="md" mt="sm">{group.notes.map((note, index) => <FindingRow key={index} finding={note} />)}</Stack>
     </details>
   </article>;
 }
