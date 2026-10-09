@@ -298,6 +298,48 @@ describe('deliverable-first submission review', () => {
     }));
   });
 
+  it('reuses a completed Document Check across ordinary page opens and requests one check after the artifact changes', async () => {
+    const responseId = 'response-ron-srs';
+    const entry = `/review?response=${responseId}`;
+    const saved = workflow.state.attempts.find(item => item.id === responseId);
+    saved.documentCheck.sourceUrl = saved.values.documentPdf;
+
+    // Independent page instances exercise ordinary opens, rather than the explicit recheck action.
+    for (let open = 0; open < 2; open += 1) {
+      const view = renderPage(entry);
+      fireEvent.click(await screen.findByRole('button', { name: 'View Document Check', exact: true }));
+      expect(await screen.findByRole('button', { name: 'Close Document Check details' })).toBeVisible();
+      expect(workflow.runDocumentCheck).not.toHaveBeenCalled();
+      expect(workflow.runDocumentChecks).not.toHaveBeenCalled();
+      expect(workflow.runAiReviews).not.toHaveBeenCalled();
+      view.unmount();
+    }
+
+    const changedUrl = 'https://drive.google.com/file/d/ron-revised-srs/view';
+    const changedAt = '2026-04-21T11:04:00+08:00';
+    workflow.state = { ...workflow.state, attempts: workflow.state.attempts.map(item => item.id === responseId
+      ? { ...item, updatedAt: changedAt, values: { ...item.values, documentPdf: changedUrl } }
+      : item) };
+    workflow.runDocumentCheck.mockResolvedValueOnce({ ok: true, report: currentDocumentCheck(changedAt, {
+      sourceUrl: changedUrl, summary: 'The revised PDF was checked.'
+    }) });
+
+    const changedView = renderPage(entry);
+    fireEvent.click(await screen.findByRole('button', { name: 'Check again', exact: true }));
+    expect(await screen.findByRole('button', { name: 'Close Document Check details' })).toBeVisible();
+    expect(workflow.runDocumentCheck).toHaveBeenCalledTimes(1);
+    expect(workflow.runDocumentCheck).toHaveBeenCalledWith(responseId, expect.objectContaining({ id: 'documentPdf' }));
+    expect(workflow.state.attempts.find(item => item.id === responseId).documentCheck.sourceUrl).toBe(changedUrl);
+    changedView.unmount();
+
+    renderPage(entry);
+    fireEvent.click(await screen.findByRole('button', { name: 'View Document Check', exact: true }));
+    expect(await screen.findByRole('button', { name: 'Close Document Check details' })).toBeVisible();
+    expect(workflow.runDocumentCheck).toHaveBeenCalledTimes(1);
+    expect(workflow.runDocumentChecks).not.toHaveBeenCalled();
+    expect(workflow.runAiReviews).not.toHaveBeenCalled();
+  });
+
   it('shows pending and failed single document checks without opening a success report', async () => {
     let finish;
     workflow.runDocumentCheck.mockImplementation(() => new Promise(resolve => { finish = resolve; }));

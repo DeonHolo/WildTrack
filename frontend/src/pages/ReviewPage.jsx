@@ -1021,6 +1021,7 @@ export function ReviewPage() {
 
       <ReviewResponseDrawer
         opened={Boolean(selectedResponse && selectedStudent)}
+        detailDialogOpened={Boolean(checkDialogResponse || aiReportDialogReport || aiReportDialogReview?.previousReport)}
         response={selectedResponse}
         student={selectedStudent}
         state={state}
