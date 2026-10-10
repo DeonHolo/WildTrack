@@ -66,4 +66,17 @@ describe('form editor suggestions and identity', () => {
     expect(reviewed.find((field) => field.id === 'team')).toMatchObject({ definitionId: 'def-team', active: false });
     expect(reviewed[reviewed.length - 1]).toMatchObject({ id: 'old', active: false });
   });
+
+  it('preserves the persisted field order when the editor reloads a reordered form', () => {
+    const fields = [
+      { id: 'note', definitionId: 'def-note', type: 'paragraph', active: true },
+      { id: 'number', definitionId: 'def-number', type: 'academicStudentNumber', active: true },
+      { id: 'section', definitionId: 'def-section', type: 'academicSection', active: true },
+      { id: 'name', definitionId: 'def-name', type: 'academicStudentName', active: true },
+      { id: 'team', definitionId: 'def-team', type: 'academicTeamCode', active: true },
+      { id: 'link', definitionId: 'def-link', type: 'url', active: true },
+      { id: 'old', definitionId: 'def-old', type: 'shortText', active: false }
+    ];
+    expect(mergeAcademicSuggestions(fields)).toEqual(fields);
+  });
 });
