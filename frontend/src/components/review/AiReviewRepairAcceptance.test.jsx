@@ -1,6 +1,6 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
@@ -60,7 +60,7 @@ function renderReport(reportValue) {
 
 function renderDialog(review, reportValue = null) {
   return render(<MantineProvider theme={wildTrackTheme} forceColorScheme="light">
-    <AiReviewReportDialog opened onClose={vi.fn()} report={reportValue} review={review} fieldLabel="SRS PDF" />
+    <AiReviewReportDialog opened onClose={vi.fn()} report={reportValue} review={review} deliverableTitle="Software Requirements Specification" fieldLabel="SRS PDF" />
   </MantineProvider>);
 }
 
@@ -109,6 +109,8 @@ function renderPage(role = 'adviser') {
 }
 
 describe('AI Review repair acceptance behavior', () => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+
   beforeEach(() => {
     localStorage.clear();
     pageMocks.workspaceId = 'workspace-it';
@@ -139,7 +141,7 @@ describe('AI Review repair acceptance behavior', () => {
   it('does not render an identical last substantive report twice', () => {
     const saved = report('Only saved finding');
     renderDialog({ status: 'UNCERTAIN', failureCode: 'FINDINGS_FILTERED', previousReport: saved, lastSubstantiveReport: { ...saved }, previousGeneratedAt: '2026-09-21T08:00:00Z', lastSubstantiveGeneratedAt: '2026-09-21T08:00:00Z' });
-    const dialog = screen.getByRole('dialog', { name: 'AI Review: SRS PDF' });
+    const dialog = screen.getByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
     expect(within(dialog).getAllByText('Only saved finding')).toHaveLength(1);
     expect(within(dialog).queryByText(/Earlier substantive review/)).not.toBeInTheDocument();
   });
@@ -148,7 +150,7 @@ describe('AI Review repair acceptance behavior', () => {
     const earlier = report('Earlier substantive finding');
     const latest = { summary: 'No grounded findings', findings: [], missingRequiredSections: [], outcome: 'INCONCLUSIVE' };
     renderDialog({ status: 'UNCERTAIN', failureCode: 'NO_GROUNDED_FINDINGS', previousReport: earlier, lastSubstantiveReport: earlier, previousGeneratedAt: '2026-09-21T08:00:00Z', lastSubstantiveGeneratedAt: '2026-09-20T08:00:00Z', generatedAt: '2026-09-22T08:00:00Z' }, latest);
-    const dialog = screen.getByRole('dialog', { name: 'AI Review: SRS PDF' });
+    const dialog = screen.getByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
     expect(dialog).toHaveTextContent('Inconclusive AI Review');
     expect(dialog).toHaveTextContent('Reviewed Sep 22, 2026');
     expect(dialog).toHaveTextContent('Earlier substantive review · Sep 20, 2026');
@@ -168,7 +170,7 @@ describe('AI Review repair acceptance behavior', () => {
     renderPage(role);
     const highlights = screen.getByRole('group', { name: 'MVP Validation Highlights artifact' });
     fireEvent.click(within(highlights).getByRole('button', { name: 'View AI Review' }));
-    const dialog = screen.getByRole('dialog', { name: 'AI Review: MVP Validation Highlights' });
+    const dialog = screen.getByRole('dialog', { name: 'AI Review: MVP Validation' });
     expect(dialog).toHaveTextContent('Highlights finding');
     expect(pageMocks.runDocumentCheck).not.toHaveBeenCalled();
     expect(pageMocks.runDocumentChecks).not.toHaveBeenCalled();
@@ -177,32 +179,34 @@ describe('AI Review repair acceptance behavior', () => {
   it('clears an open review when workspace scope changes', () => {
     const view = renderPage('adviser');
     fireEvent.click(within(screen.getByRole('group', { name: 'MVP Validation Highlights artifact' })).getByRole('button', { name: 'View AI Review' }));
-    expect(screen.getByRole('dialog', { name: 'AI Review: MVP Validation Highlights' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'AI Review: MVP Validation' })).toBeInTheDocument();
     pageMocks.workspaceId = 'workspace-cs';
     view.rerender(<MantineProvider theme={wildTrackTheme} forceColorScheme="light"><ModalsProvider><MemoryRouter initialEntries={['/adviser']}><AdviserViewPage /></MemoryRouter></ModalsProvider></MantineProvider>);
-    expect(screen.queryByRole('dialog', { name: 'AI Review: MVP Validation Highlights' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'AI Review: MVP Validation' })).not.toBeInTheDocument();
   });
 
   it('clears an open review when the adviser changes team', () => {
     renderPage('adviser');
     fireEvent.click(within(screen.getByRole('group', { name: 'MVP Validation Highlights artifact' })).getByRole('button', { name: 'View AI Review' }));
-    expect(screen.getByRole('dialog', { name: 'AI Review: MVP Validation Highlights' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'AI Review: MVP Validation' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: new RegExp(TEAM_B) }));
-    expect(screen.queryByRole('dialog', { name: 'AI Review: MVP Validation Highlights' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'AI Review: MVP Validation' })).not.toBeInTheDocument();
   });
 
-  it('clears an open review when the adviser changes the selected group output', () => {
+  it('clears an open review when the adviser changes the selected group output', async () => {
     pageMocks.state = createPageState();
     const alternate = { ...pageMocks.state.attempts[0], id: 'response-a2', studentNumber: '22-1001-002', studentName: 'BETA, BEN', values: { ...pageMocks.state.attempts[0].values, frameworkModel: 'https://drive.google.com/file/d/alternate-framework/view' } };
     pageMocks.state.students.push({ studentNumber: '22-1001-002', name: 'BETA, BEN', teamCode: TEAM_A, memberNumber: 2, adviser: 'Dr. Elena Mercado' });
     pageMocks.state.attempts.push(alternate);
     renderPage('adviser');
-    fireEvent.click(within(screen.getByRole('group', { name: 'MVP Validation Highlights artifact' })).getByRole('button', { name: 'View AI Review' }));
-    expect(screen.getByRole('dialog', { name: 'AI Review: MVP Validation Highlights' })).toBeInTheDocument();
-    const outputSelect = screen.getByRole('combobox', { name: 'Current group output' });
-    const alternateOption = within(outputSelect).getAllByRole('option').find((option) => option.value !== outputSelect.value);
-    expect(alternateOption).toBeDefined();
-    fireEvent.change(outputSelect, { target: { value: alternateOption.value } });
-    expect(screen.queryByRole('dialog', { name: 'AI Review: MVP Validation Highlights' })).not.toBeInTheDocument();
+    const outputSelect = screen.getByRole('textbox', { name: 'Current group output' });
+    fireEvent.click(outputSelect);
+    fireEvent.click(await screen.findByRole('option', { name: /ALPHA, ANA/ }));
+
+    fireEvent.click(within(await screen.findByRole('group', { name: 'MVP Validation Highlights artifact' })).getByRole('button', { name: 'View AI Review' }));
+    expect(screen.getByRole('dialog', { name: 'AI Review: MVP Validation' })).toBeInTheDocument();
+    fireEvent.click(outputSelect);
+    fireEvent.click(await screen.findByRole('option', { name: /BETA, BEN/, hidden: true }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'AI Review: MVP Validation' })).not.toBeInTheDocument());
   });
 });

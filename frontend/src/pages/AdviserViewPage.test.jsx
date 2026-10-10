@@ -1,10 +1,11 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
+import { useReducer } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
-import { AdviserViewPage } from './AdviserViewPage.jsx';
+import { AdviserViewPage, buildTeamDeliverableRows } from './AdviserViewPage.jsx';
 
 const workflow = vi.hoisted(() => ({
   state: null,
@@ -33,14 +34,18 @@ vi.mock('../app/StaffIdentity.jsx', () => ({
 }));
 
 vi.mock('../hooks/useWorkspaceResource.js', () => ({
-  useWorkspaceResource: () => ({
-    data: workflow.state,
-    setData: (next) => {
-      workflow.state = typeof next === 'function' ? next(workflow.state) : next;
-    },
-    status: 'ready',
-    error: ''
-  })
+  useWorkspaceResource: () => {
+    const [, refresh] = useReducer((value) => value + 1, 0);
+    return {
+      data: workflow.state,
+      setData: (next) => {
+        workflow.state = typeof next === 'function' ? next(workflow.state) : next;
+        refresh();
+      },
+      status: 'ready',
+      error: ''
+    };
+  }
 }));
 
 vi.mock('../lib/reviewDeskClient.js', () => ({
@@ -108,7 +113,7 @@ function createState({ conflicting = false, accepted = false } = {}) {
         values: { documentPdf: conflicting ? 'https://drive.google.com/file/d/different-team-file/view' : 'https://drive.google.com/file/d/shared-team-file/view' },
         reviewStatus: accepted ? 'Accepted' : 'Received',
         primaryStatus: accepted ? 'Accepted' : 'Received',
-        acceptance: accepted ? { acceptedBy: 'Dr. Elena Mercado', acceptedByRole: 'Adviser', acceptedAt: '2026-04-17T11:00:00+08:00' } : null,
+        acceptance: accepted ? { acceptedBy: 'Dr. Elena Mercado', acceptedByRole: 'Adviser', acceptedAt: '2026-04-17T11:00:00+08:00', sourceResponseUpdatedAt: '2026-04-17T10:00:00+08:00' } : null,
         fileCheckStatus: 'COMPLETED',
         documentCheck: { status: 'Current', sourceResponseUpdatedAt: '2026-04-17T10:00:00+08:00', summary: 'Readable PDF.' },
         aiReport: {
@@ -234,6 +239,15 @@ function LocationProbe() {
   </>;
 }
 
+function groupOutputDetails(title = 'SRS') {
+  return screen.getByRole('region', { name: `${title} group output details` });
+}
+
+async function chooseGroupOutput(owner) {
+  fireEvent.click(screen.getByRole('textbox', { name: 'Current group output' }));
+  fireEvent.click(await screen.findByRole('option', { name: new RegExp(owner) }));
+}
+
 describe('adviser My advised teams review', () => {
   beforeEach(() => {
     workflow.workspaceId = 'workspace-it';
@@ -279,13 +293,180 @@ describe('adviser My advised teams review', () => {
     });
   });
 
-  it('shows conflicting member files and lets the adviser choose the current group output', () => {
+  it('shows conflicting member files and lets the adviser choose the current group output', async () => {
     workflow.state = createState({ conflicting: true });
     renderPage();
 
     expect(screen.getByRole('alert')).toHaveTextContent('2 different files were submitted');
-    const outputSelect = screen.getByRole('combobox', { name: 'Current group output' });
-    expect(within(outputSelect).getAllByRole('option')).toHaveLength(2);
+    const outputSelect = screen.getByRole('textbox', { name: 'Current group output' });
+    expect(outputSelect).toHaveValue('');
+    expect(screen.getByText('Selection required')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept group output' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Feedback for student' })).toBeDisabled();
+    fireEvent.click(outputSelect);
+    const olderOption = await screen.findByRole('option', { name: /ALPHA, ANA/ });
+    expect(olderOption.closest('[role="listbox"]').querySelectorAll('[role="option"]')).toHaveLength(2);
+    expect(olderOption).toHaveTextContent('saved');
+  });
+
+  it('uses an explicit older file consistently for the chooser, table, feedback, and acceptance', async () => {
+    workflow.state = createState({ conflicting: true });
+    renderPage();
+
+    await chooseGroupOutput('ALPHA, ANA');
+    expect(screen.getByRole('textbox', { name: 'Current group output' })).toHaveValue('File 2 | ALPHA, ANA');
+    expect(screen.queryByText('Selection required')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(within(groupOutputDetails()).getByRole('status')).toHaveTextContent('Current group output selected');
+    expect(screen.getByText('SRS').closest('tr')).toHaveTextContent('Selected: File 2');
+    expect(screen.getByRole('link', { name: 'Open PDF' })).toHaveAttribute('href', 'https://drive.google.com/file/d/shared-team-file/view');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Feedback for student' }), { target: { value: 'Review the selected older output.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save feedback' }));
+    expect(workflow.saveFeedback).toHaveBeenCalledWith('response-a1', { note: 'Review the selected older output.', visibility: 'Student' });
+    fireEvent.click(screen.getByRole('button', { name: 'Accept group output' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm acceptance' }));
+    expect(workflow.markAccepted).toHaveBeenCalledWith('response-a1');
+  });
+
+  it.each(['adviser', 'admin'])('restores the sole accepted older output without an unresolved warning for %s', (role) => {
+    workflow.state = createState({ conflicting: true });
+    const accepted = workflow.state.attempts[0];
+    accepted.reviewStatus = 'Accepted';
+    accepted.acceptance = { acceptedAt: '2026-04-17T11:00:00+08:00', sourceResponseUpdatedAt: accepted.updatedAt };
+    workflow.state.attempts[1].feedback = [{ note: 'Feedback on the other file.', visibility: 'Student' }];
+    const first = renderPage(role);
+
+    expect(screen.getByRole('textbox', { name: 'Current group output' })).toHaveValue('File 2 | ALPHA, ANA');
+    expect(screen.getByText('SRS').closest('tr')).toHaveTextContent('Accepted');
+    expect(screen.getByText('SRS').closest('tr')).toHaveTextContent('Accepted: File 2');
+    expect(screen.queryByText('Selection required')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(within(groupOutputDetails()).getByRole('status')).toHaveTextContent('Accepted group output');
+    expect(screen.getByRole('button', { name: 'Revoke acceptance' })).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: 'Feedback for student' })).toHaveValue('');
+    first.unmount();
+    renderPage(role);
+    expect(screen.getByRole('textbox', { name: 'Current group output' })).toHaveValue('File 2 | ALPHA, ANA');
+    expect(screen.getByRole('button', { name: 'Revoke acceptance' })).toBeEnabled();
+  });
+
+  it('keeps distinct accepted files ambiguous until staff explicitly choose one', async () => {
+    workflow.state = createState({ conflicting: true, accepted: true });
+    workflow.state.attempts[0].reviewStatus = 'Accepted';
+    workflow.state.attempts[0].acceptance = { acceptedAt: '2026-04-17T11:15:00+08:00', sourceResponseUpdatedAt: workflow.state.attempts[0].updatedAt };
+    renderPage();
+
+    expect(screen.getByRole('textbox', { name: 'Current group output' })).toHaveValue('');
+    expect(screen.getByRole('alert')).toHaveTextContent('More than one file has current acceptance');
+    expect(screen.getByRole('button', { name: 'Accept group output' })).toBeDisabled();
+    await chooseGroupOutput('ALPHA, ANA');
+    expect(screen.getByRole('button', { name: 'Revoke acceptance' })).toBeEnabled();
+    expect(screen.queryByText('Selection required')).not.toBeInTheDocument();
+  });
+
+  it('updates accepted selection and decision immediately, then revokes only that response', async () => {
+    workflow.state = createState({ conflicting: true });
+    const chosen = workflow.state.attempts[0];
+    workflow.markAccepted.mockResolvedValue({ reviewStatus: 'Accepted', acceptance: { acceptedAt: '2026-04-17T11:00:00+08:00', sourceResponseUpdatedAt: chosen.updatedAt } });
+    workflow.revokeAcceptance.mockResolvedValue({ reviewStatus: 'Received', acceptance: null });
+    renderPage();
+    await chooseGroupOutput('ALPHA, ANA');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Accept group output' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm acceptance' }));
+    expect(await screen.findByRole('button', { name: 'Revoke acceptance' })).toBeEnabled();
+    expect(screen.getByText('SRS').closest('tr')).toHaveTextContent('Accepted');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke acceptance' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm revoke' }));
+    await waitFor(() => expect(workflow.state.attempts[0].acceptance).toBeNull());
+    expect(workflow.revokeAcceptance).toHaveBeenCalledWith('response-a1');
+    expect(screen.getByText('SRS').closest('tr')).toHaveTextContent('Needs Review');
+    expect(screen.getByText('SRS').closest('tr')).toHaveTextContent('Selected: File 2');
+    expect(workflow.state.attempts[1].reviewStatus).toBe('Received');
+  });
+
+  it('invalidates the explicit choice when the selected saved response materially changes', async () => {
+    workflow.state = createState({ conflicting: true });
+    const view = renderPage();
+    await chooseGroupOutput('ALPHA, ANA');
+    workflow.state = {
+      ...workflow.state,
+      attempts: workflow.state.attempts.map((response) => response.id === 'response-a1'
+        ? { ...response, updatedAt: '2026-04-17T13:00:00+08:00', values: { documentPdf: 'https://drive.google.com/file/d/revised-file/view' }, reviewStatus: 'Received', acceptance: null }
+        : response)
+    };
+    view.rerender(adviserTree());
+    expect(screen.getByRole('textbox', { name: 'Current group output' })).toHaveValue('');
+    expect(screen.getByText('Selection required')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept group output' })).toBeDisabled();
+  });
+
+  it('keeps an accepted member response as the target when a newer member submits the same output', async () => {
+    workflow.state = createState();
+    workflow.state.attempts[0].reviewStatus = 'Accepted';
+    workflow.state.attempts[0].acceptance = { acceptedAt: '2026-04-17T11:00:00+08:00', sourceResponseUpdatedAt: workflow.state.attempts[0].updatedAt };
+    workflow.state.attempts[0].feedback = [{ note: 'Feedback belongs to the accepted response.', visibility: 'Student' }];
+    renderPage();
+    expect(screen.getByRole('textbox', { name: 'Feedback for student' })).toHaveValue('Feedback belongs to the accepted response.');
+    expect(screen.getByRole('button', { name: 'Revoke acceptance' })).toBeEnabled();
+    expect(screen.getByText('SRS').closest('tr')).toHaveTextContent('Accepted');
+  });
+
+  it('keeps choices scoped to team, deliverable, and workspace', async () => {
+    workflow.state = createState({ conflicting: true });
+    const original = workflow.state;
+    original.students.push({ studentNumber: '22-2002-002', name: 'DELTA, DAN', teamCode: TEAM_B, adviser: 'Prof. Adrian Flores' });
+    original.attempts = original.attempts.filter((response) => response.teamCode !== TEAM_B).concat(original.attempts.filter((response) => response.teamCode === TEAM_A).map((response, index) => ({ ...response, id: `response-b${index + 1}`, teamCode: TEAM_B, studentNumber: `22-200${index + 1}-00${index + 1}`, studentName: index ? 'DELTA, DAN' : 'GAMMA, GIO' })));
+    workflow.staffIdentity.assignments.push({ workspaceId: 'workspace-it', teamCode: TEAM_B });
+    const view = renderPage();
+    await chooseGroupOutput('ALPHA, ANA');
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(TEAM_B) }));
+    expect(screen.getByRole('textbox', { name: 'Current group output' })).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Accept group output' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(TEAM_A) }));
+    expect(screen.getByRole('textbox', { name: 'Current group output' })).toHaveValue('File 2 | ALPHA, ANA');
+    fireEvent.click(screen.getByText('SDD').closest('tr'));
+    expect(screen.getByRole('textbox', { name: 'Feedback for student' })).toBeDisabled();
+    fireEvent.click(screen.getByText('SRS').closest('tr'));
+    workflow.workspaceId = 'workspace-cs';
+    workflow.staffIdentity = { ...workflow.staffIdentity, assignments: [{ workspaceId: 'workspace-cs', teamCode: TEAM_A }] };
+    view.rerender(adviserTree());
+    expect(screen.getByRole('textbox', { name: 'Current group output' })).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Accept group output' })).toBeDisabled();
+  });
+
+  it('groups identical configured artifacts despite different student identity and ancillary answers', () => {
+    const state = createMultiArtifactState();
+    state.attempts[0].values.validationStep = 'Second submission';
+    state.attempts[0].values.unconfiguredLink = 'https://drive.google.com/file/d/ancillary-file/view';
+    const team = { teamCode: TEAM_A, members: state.students.filter((student) => student.teamCode === TEAM_A) };
+    const row = buildTeamDeliverableRows(state, team).find((item) => item.deliverable.id === 'deliv-mvp-validation');
+    expect(row.outputs).toHaveLength(1);
+    expect(row.hasConflict).toBe(false);
+    expect(row.outputs[0].responses).toHaveLength(2);
+  });
+
+  it('keeps swapped configured PDF fields and case-sensitive Drive file IDs distinct', () => {
+    const state = createMultiArtifactState();
+    const first = state.attempts[0];
+    const second = state.attempts[1];
+    first.values = { ...second.values };
+    [first.values.frameworkModel, first.values.validationHighlights] = [first.values.validationHighlights, first.values.frameworkModel];
+    const team = { teamCode: TEAM_A, members: state.students.filter((student) => student.teamCode === TEAM_A) };
+    expect(buildTeamDeliverableRows(state, team)[0].outputs).toHaveLength(2);
+    first.values = { ...second.values, frameworkModel: 'https://drive.google.com/file/d/Framework-pdf/view' };
+    expect(buildTeamDeliverableRows(state, team)[0].outputs).toHaveLength(2);
+  });
+
+  it('does not pull another saved team output into the team through a matching roster number', () => {
+    const state = createState();
+    state.attempts.push({ ...state.attempts[0], id: 'other-team-same-student', teamCode: TEAM_B, values: { documentPdf: 'https://drive.google.com/file/d/other-file/view' } });
+    const team = { teamCode: TEAM_A, members: state.students.filter((student) => student.teamCode === TEAM_A) };
+    const row = buildTeamDeliverableRows(state, team)[0];
+    expect(row.outputs).toHaveLength(1);
+    expect(row.responses.map((response) => response.id)).not.toContain('other-team-same-student');
   });
 
   it('shows existing AI Review results without exposing run or rerun controls', () => {
@@ -303,7 +484,7 @@ describe('adviser My advised teams review', () => {
     renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'View AI Review' }));
-    const dialog = await screen.findByRole('dialog', { name: /AI Review: PDF/i });
+    const dialog = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
     expect(dialog).toHaveTextContent('The submitted PDF does not clearly connect requirements to acceptance evidence.');
     expect(workflow.runDocumentCheck).not.toHaveBeenCalled();
   });
@@ -337,11 +518,14 @@ describe('adviser My advised teams review', () => {
     expect(dialog).toHaveTextContent('Created time');
     expect(dialog).toHaveTextContent('Drive ownerOriginal Drive Owner');
     fireEvent.click(within(dialog).getByRole('tab', { name: 'File history' }));
-    expect(screen.getByText('WildTrack observed file history')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Recorded checks' })).toBeInTheDocument();
     expect(screen.getByText(/only file states WildTrack observed/i)).toBeInTheDocument();
-    expect(screen.getByText(/Google Drive revision metadata, when authorized and available/i)).toBeInTheDocument();
     expect(screen.getByText('Content changed')).toBeInTheDocument();
-    expect(screen.getByText(/Modified by editor@example.com/)).toHaveTextContent('Google Drive File metadata');
+    expect(within(dialog).getByRole('region', { name: 'WildTrack observations' })).toHaveTextContent('editor@example.com');
+    const technicalDetails = screen.getByText('Technical record details').closest('details');
+    expect(technicalDetails).not.toHaveAttribute('open');
+    fireEvent.click(within(technicalDetails).getByText('Technical record details'));
+    expect(technicalDetails).toHaveTextContent('Google Drive File metadata');
   });
 
   it('targets Document Check and AI state to the explicit PDF artifact instead of the first submitted URL', async () => {
@@ -392,7 +576,7 @@ describe('adviser My advised teams review', () => {
     expect(workflow.revokeAcceptance).toHaveBeenCalledWith('response-a2');
   });
 
-  it('saves student-visible feedback against the selected group output', () => {
+  it('saves student-visible feedback against the selected group output', async () => {
     renderPage();
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Feedback for student' }), {

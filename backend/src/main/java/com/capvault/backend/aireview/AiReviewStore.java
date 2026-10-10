@@ -66,6 +66,11 @@ public class AiReviewStore {
 
     public Claim claim(String key, UUID workspaceId, UUID deliverableId, String team, String pdfHash,
                        String contextHash, UUID expectedRetryToken, boolean rerunRequested) {
+        return claim(key, workspaceId, deliverableId, team, pdfHash, contextHash, expectedRetryToken, rerunRequested, null);
+    }
+
+    public Claim claim(String key, UUID workspaceId, UUID deliverableId, String team, String pdfHash,
+                       String contextHash, UUID expectedRetryToken, boolean rerunRequested, UUID expectedRerunToken) {
         UUID token = UUID.randomUUID();
         Job existing = find(key).orElse(null);
         if (existing == null) {
@@ -85,7 +90,8 @@ public class AiReviewStore {
         // Deliberate rerun is different from reusing an identical completed PDF
         // and from retrying an uncertain request. The CAS claim gives all five
         // students sharing this context ONE in-flight provider call across nodes.
-        if (rerunRequested && existing.state().equals("COMPLETED") && expectedRetryToken == null) {
+        if (rerunRequested && existing.state().equals("COMPLETED") && expectedRetryToken == null
+                && (expectedRerunToken == null || existing.token().equals(expectedRerunToken))) {
             Job prior = existing;
             int changed = tx.execute(status -> jdbc.update("""
                 UPDATE ai_review_jobs SET state = 'RUNNING', claim_token = ?, started_at = ?,

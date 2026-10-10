@@ -1,5 +1,14 @@
 # Live progress and resume checkpoint
 
+## Active checkpoint — 10 October 2026: staff UI and durable AI batches verified locally
+
+Continue `docs/REVIEW_FORMS_CHANGE_SUMMARY_2026-10-10.md`, `docs/FILE_HISTORY_TODAYS_WORK_2026-10-10.md` and `docs/AI_REVIEW_BATCH_REPAIR_2026-10-10.md`; GitHub request #94 and PR95 (unmerged). Work remains on canonical `wildtrack-dev`, preserving unrelated dirty coursework/study files. File History, activity sorting, adviser output selection and form editor changes are implemented. All 612 frontend tests, 23 affected browser role-flow tests and the production build pass; the real Spring/H2/browser retirement-and-replacement journey passes.
+
+The durable batch implementation (V34, server orchestration, provider-free preparation, scoped hashes, retry/claim safeguards, hook/dialog/panel/API integration) passes 50 batch/cache/store tests and five Drive tests. History access passes 12 tests. Long recorded history now shows three latest checks with older entries collapsed; NOT_CONFIGURED distinguishes Google connection setup from NOT_CONNECTED consent. Artifact URL freshness fixes the modal’s false Outdated warning after unrelated edits. Local in-app preview verified history expansion and AI scope choices with sample data. The live Drive 503 cause and actual delegated OAuth setup remain unconfirmed; do not infer them from PDF page count or workspace monitoring.
+
+STD-20261010-03 adds eight local enhancement records to the existing DOCX; the historical 50-case baseline is unchanged. The PDF still contains the earlier baseline until a new export is made. Next: finish PR95 checks, obtain merge approval, deploy and retest actual SDD/STD Drive retrieval and history setup. No hosted deployment or fresh Gemini accuracy is claimed from these local tests.
+
+
 Updated: 2026-09-22
 Mode: Continue existing distributed validation; initial-saved-record Goal 3 selected; real evidence pending
 Current branch: wildtrack-rebrand

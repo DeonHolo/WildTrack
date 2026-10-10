@@ -43,4 +43,14 @@ class AiReviewStoreLifecycleTest {
         assertThat(saved.completedAt()).isNotNull();
         assertThat(saved.latestAttemptCompletedAt()).isNotNull();
     }
+
+    @Test void aPreparedRerunCannotReplaceANewerCompletedAttempt() {
+        var first = store.claim("k", workspace, deliverable, "team", "pdf", "ctx", null).job();
+        store.complete(first, "first");
+        var newer = store.claim("k", workspace, deliverable, "team", "pdf", "ctx", null, true).job();
+        store.complete(newer, "newer");
+        var stalePlan = store.claim("k", workspace, deliverable, "team", "pdf", "ctx", null, true, first.token());
+        assertThat(stalePlan.acquired()).isFalse();
+        assertThat(stalePlan.job().latestAttemptReportJson()).isEqualTo("newer");
+    }
 }

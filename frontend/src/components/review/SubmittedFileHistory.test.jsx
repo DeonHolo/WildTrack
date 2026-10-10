@@ -70,9 +70,29 @@ describe('SubmittedFileHistory', () => {
     getSubmittedFileHistory.mockResolvedValue({ status: 'NOT_CONNECTED', revisions: [] });
     renderHistory({ audience: 'student' });
     expect(await screen.findByText(/No submitter of this file currently has usable Drive history access/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Optionally allow Drive metadata' }));
+    expect(screen.getByText(/signing into WildTrack alone does not grant this access/)).toBeInTheDocument();
+    expect(screen.getByText(/Optional, read-only permission/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Drive edit history' }));
     expect(startDriveHistoryConsent).toHaveBeenCalledTimes(1);
     expect(getSubmittedFileHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['staff', 'student'])('separates unavailable server configuration from submitter consent for %s', async audience => {
+    getSubmittedFileHistory.mockResolvedValue({ status: 'NOT_CONFIGURED', revisions: [] });
+    renderHistory({ audience });
+    expect(await screen.findByText('Drive history connection needs setup')).toBeInTheDocument();
+    expect(screen.getByText(/Document Check and recorded checks still work/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect Drive edit history' })).not.toBeInTheDocument();
+    expect(startDriveHistoryConsent).not.toHaveBeenCalled();
+  });
+
+  it('recognizes the previous server setup response without blaming a submitter', async () => {
+    getSubmittedFileHistory.mockResolvedValue({ status: 'UNAVAILABLE', revisions: [],
+      coverageMessage: 'Drive revision history is not enabled in this WildTrack environment yet. A WildTrack administrator needs to finish enabling it. Document Check remains available.' });
+    renderHistory({ audience: 'student' });
+    expect(await screen.findByText('Drive history connection needs setup')).toBeInTheDocument();
+    expect(screen.queryByText(/finish enabling it/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect Drive edit history' })).not.toBeInTheDocument();
   });
 
   it('drops a late response when the selected file changes', async () => {
@@ -85,5 +105,41 @@ describe('SubmittedFileHistory', () => {
     resolveFirst(firstPage);
     expect(await screen.findByRole('group', { name: 'Drive revision 1 on page 1' })).toBeInTheDocument();
     expect(screen.queryByText('Restricted Editor')).not.toBeInTheDocument();
+  });
+
+  it.each(['workspaceId', 'responseId', 'fieldId'])('resets paging and ignores the previous page reply when %s changes', async scope => {
+    let resolveOldPage;
+    getSubmittedFileHistory.mockResolvedValueOnce(firstPage)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOldPage = resolve; }))
+      .mockResolvedValueOnce({ ...firstPage, revisions: [{ id: 'new-scope', size: 8192 }], nextPageToken: null });
+    const { rerender } = renderHistory();
+    await screen.findByRole('group', { name: 'Drive revision 1 on page 1' });
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(getSubmittedFileHistory).toHaveBeenCalledWith(...Object.values(target), 'opaque-backend-token'));
+    const newTarget = { ...target, [scope]: 'new-scoped-value' };
+    rerender(<MantineProvider theme={wildTrackTheme}><SubmittedFileHistory {...newTarget} /></MantineProvider>);
+    await waitFor(() => expect(getSubmittedFileHistory).toHaveBeenLastCalledWith(newTarget.workspaceId, newTarget.responseId, newTarget.fieldId, ''));
+    resolveOldPage({ ...firstPage, revisions: [{ id: 'stale-scope', size: 1024 }] });
+    expect(await screen.findByRole('group', { name: 'Drive revision 1 on page 1' })).toHaveTextContent('8.0 KB');
+    expect(screen.queryByRole('group', { name: 'Drive revision 1 on page 2' })).not.toBeInTheDocument();
+  });
+
+  it('reuses supplied current-file metadata while keeping original check records intact', async () => {
+    renderHistory({ initialHistory: { ...firstPage, fileMetadata: { driveOwner: 'Provider owner',
+      lastModifiedBy: 'Provider editor', lastModifiedByStudent: { studentName: 'Roster editor', email: 'editor@example.test' } } },
+      observedHistory: { observations: [{ changeType: 'FIRST_OBSERVED', firstObservedAt: '2026-09-01', driveOwner: 'Recorded owner', modifiedBy: 'Recorded editor' }] } });
+    const details = screen.getByRole('region', { name: 'File details' });
+    expect(await within(details).findByText('Provider owner')).toBeInTheDocument();
+    expect(within(details).getByText('Roster editor')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Recorded file checks' })).toHaveTextContent('Recorded editor');
+    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
+  });
+
+  it('does not expose supplied current-file owner or editor metadata to students', async () => {
+    const { container } = renderHistory({ audience: 'student', initialHistory: { ...firstPage,
+      fileMetadata: { driveOwner: 'Private owner', lastModifiedByStudent: { studentName: 'Private student', email: 'private@example.test' } } } });
+    await screen.findByRole('group', { name: 'Drive revision 1 on page 1' });
+    expect(container.textContent).not.toMatch(/Private owner|Private student|private@example|Restricted Editor|editor.secret|owner.secret/);
+    expect(screen.queryByRole('region', { name: 'File details' })).not.toBeInTheDocument();
   });
 });

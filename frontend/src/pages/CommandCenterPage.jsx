@@ -5,6 +5,7 @@ import {
   Alert,
   Button,
   Group,
+  NativeSelect,
   Pagination,
   Paper,
   Progress,
@@ -28,6 +29,7 @@ import { AiReviewDialog } from '../components/review/AiReviewDialog.jsx';
 import { AiReviewReportDialog } from '../components/review/AiReviewReportDialog.jsx';
 import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
 import { emptyMonitoringState, loadMonitoringState } from '../lib/monitoringClient.js';
+import { sortWorkQueue, WORK_QUEUE_SORT_OPTIONS } from '../lib/workQueueSorting.js';
 import {
   applyDocumentCheck,
   applyArtifactAiReview,
@@ -85,6 +87,7 @@ export function CommandCenterPage() {
   const [aiRunning, setAiRunning] = useState(new Set());
   const [checkError, setCheckError] = useState('');
   const [query, setQuery] = useState('');
+  const [sortMode, setSortMode] = useState('priority');
   const [page, setPage] = useState(1);
   const [runningIds, setRunningIds] = useState(new Set());
   const [bulkDismissProgress, setBulkDismissProgress] = useState(null);
@@ -107,6 +110,7 @@ export function CommandCenterPage() {
     setAiDialogTarget(null);
     setAiRunning(new Set());
     setCheckError('');
+    setPage(1);
   }, [isCurrentScope]);
 
   // Keep dismissal state in the resource snapshot, not component-local state.
@@ -125,10 +129,10 @@ export function CommandCenterPage() {
   // result or first page. All work intentionally covers every category.
   const sectionTasks = displayedTasks.filter(task => filter === 'all' || task.category === filter);
   const visibleTasks = useMemo(
-    () => displayedTasks
+    () => sortWorkQueue(displayedTasks
       .filter((task) => filter === 'all' || task.category === filter)
-      .filter((task) => taskMatchesQuery(task, query)),
-    [filter, displayedTasks, query]
+      .filter((task) => taskMatchesQuery(task, query)), sortMode),
+    [filter, displayedTasks, query, sortMode]
   );
   const counts = useMemo(
     () => QUEUE_FILTERS.reduce((result, item) => ({
@@ -562,6 +566,7 @@ export function CommandCenterPage() {
 
         <div className="wt-command-toolbar">
           <TextInput
+            label="Search"
             aria-label="Search work queue"
             type="search"
             placeholder="Search student, team, deliverable, or issue"
@@ -569,6 +574,16 @@ export function CommandCenterPage() {
             value={query}
             onChange={(event) => {
               setQuery(event.currentTarget.value);
+              setPage(1);
+            }}
+          />
+          <NativeSelect
+            label="Sort by"
+            data={WORK_QUEUE_SORT_OPTIONS}
+            value={sortMode}
+            w={{ base: '100%', sm: 200 }}
+            onChange={(event) => {
+              setSortMode(event.currentTarget.value);
               setPage(1);
             }}
           />
@@ -668,7 +683,8 @@ export function CommandCenterPage() {
         rechecking={Boolean(checkResponse && runningIds.has(checkResponse.id))}
         error={checkError} onClose={() => { setCheckDialogTarget(null); setCheckError(''); }} onRecheck={recheckFromDialog} />
       <AiReviewReportDialog opened={Boolean(aiReport || aiReview?.previousReport)} report={aiReport} review={aiReview}
-        fieldLabel={aiField?.label} onClose={() => setAiDialogTarget(null)} />
+        fieldLabel={aiField?.label} deliverableTitle={state.deliverables.find(item => item.id === aiResponse?.deliverableId)?.title}
+        onClose={() => setAiDialogTarget(null)} />
     </Stack>
   );
 }
@@ -871,7 +887,7 @@ function buildWorkQueue(state, openConflicts = [], dismissedKeys = new Set()) {
       });
     });
 
-  return tasks.sort((a, b) => priorityOf(a.category) - priorityOf(b.category) || dateValue(b.updatedAt) - dateValue(a.updatedAt));
+  return sortWorkQueue(tasks);
 }
 
 function identityLabel(identity) {
@@ -919,10 +935,6 @@ function taskMatchesQuery(task, query) {
   if (!needle) return true;
   return [task.type, task.title, task.detail, task.studentName, task.teamCode, task.deliverableCode]
     .some((value) => String(value || '').toLowerCase().includes(needle));
-}
-
-function priorityOf(category) {
-  return { identity: 0, document: 1, review: 2, workspace: 3, archive: 4 }[category] ?? 5;
 }
 
 function dateValue(value) {

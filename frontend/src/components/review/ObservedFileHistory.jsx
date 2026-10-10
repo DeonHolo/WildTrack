@@ -1,45 +1,75 @@
-import { Badge, Group, Stack, Text } from '@mantine/core';
-import { formatDateTime } from '../../lib/workflow.js';
+import { historyDate, newestHistoryEntries, observationTime } from '../../lib/fileHistoryPresentation.js';
+import { DriveIdentityValue } from './DriveIdentityValue.jsx';
+import './FileHistory.css';
 
 export function ObservedFileHistory({ history }) {
   if (!history) return null;
-  const observations = history.observations || [];
+  const observations = newestHistoryEntries(history.observations, observationTime);
   return (
-    <Stack gap="sm" data-testid="observed-file-history">
-      <Text fw={750}>WildTrack observed file history</Text>
-      <Text size="md" lh={1.5} c="dimmed">{history.coverageMessage || 'File states recorded when WildTrack ran Document Check.'}</Text>
-      <Text size="md" lh={1.5} c="dimmed">Google Drive revision metadata, when authorized and available, is shown separately below.</Text>
-      {observations.length ? observations.map((observation, index) => (
-        <Stack key={`${observation.firstObservedAt}-${observation.contentIdentifier || index}`} gap="xs" className="observed-file-history-entry">
-          <Group gap="xs" wrap="wrap">
-            <Badge size="sm" variant="light" color={observation.changeType === 'CONTENT_CHANGED' ? 'orange' : 'gray'}>
-              {changeLabel(observation.changeType)}
-            </Badge>
-            <Text size="md" lh={1.5} c="dimmed">Observed {formatDateTime(observation.firstObservedAt)}</Text>
-          </Group>
-          {observation.lastObservedAt && observation.lastObservedAt !== observation.firstObservedAt ? (
-            <Text size="md" lh={1.5} c="dimmed">Seen again {formatDateTime(observation.lastObservedAt)}</Text>
-          ) : null}
-          <Text size="md" lh={1.5} c="dimmed">
-            Drive modified {observation.driveModifiedTime ? formatDateTime(observation.driveModifiedTime) : 'Unavailable'}
-          </Text>
-          <Text size="md" lh={1.5} c="dimmed" className="observed-file-history-identifier">
-            Content identifier {observation.contentIdentifier || 'Unavailable'}
-          </Text>
-          <Text size="md" lh={1.5} c="dimmed">
-            Modified by {observation.modifiedBy || 'Unavailable'} · {observation.editorMetadataSource || 'Google Drive File metadata'}
-          </Text>
-        </Stack>
-      )) : <Text size="md" lh={1.5} c="dimmed">No persisted Document Check observation is available for this file.</Text>}
-    </Stack>
+    <section className="file-history-section" data-testid="observed-file-history" aria-label="WildTrack observations">
+      <div className="file-history-section-heading">
+        <h3>Recorded checks</h3>
+        {observations.length ? <span className="file-history-count">{observations.length} {observations.length === 1 ? 'entry' : 'entries'}</span> : null}
+      </div>
+      <p className="file-history-caption">Snapshots from WildTrack’s checks, starting with its first inspection. Latest check first.</p>
+      {observations.length ? <ol className="file-history-timeline" aria-label="Recorded file checks">
+        {observations.slice(0, 3).map((observation, index) => (
+          <RecordedCheck key={observationKey(observation, index)} observation={observation} />
+        ))}
+      </ol> : <p className="file-history-empty">No recorded checks yet. A completed Document Check records the file state here.</p>}
+      {observations.length > 3 ? <details className="file-history-technical">
+        <summary>Earlier checks ({observations.length - 3})</summary>
+        <ol className="file-history-timeline" aria-label="Earlier recorded file checks">
+          {observations.slice(3).map((observation, index) => (
+            <RecordedCheck key={observationKey(observation, index + 3)} observation={observation} />
+          ))}
+        </ol>
+      </details> : null}
+      {observations.length ? <details className="file-history-technical">
+        <summary>Technical record details</summary>
+        <p className="file-history-caption">These identifiers distinguish recorded file contents; they are not downloadable copies.</p>
+        {observations.map((observation, index) => <div className="file-history-record" key={observationKey(observation, index)}>
+          <h4>{changeLabel(observation.changeType)} · {historyDate(observationTime(observation))}</h4>
+          <dl>
+            <dt>First recorded</dt><dd>{historyDate(observation.firstObservedAt)}</dd>
+            <dt>Last recorded</dt><dd>{historyDate(observation.lastObservedAt || observation.firstObservedAt)}</dd>
+            <dt>Drive edit time</dt><dd>{historyDate(observation.driveModifiedTime)}</dd>
+            <dt>Content identifier</dt><dd className="file-history-identifier">{observation.contentIdentifier || 'Unavailable'}</dd>
+            <dt>Metadata source</dt><dd>{observation.editorMetadataSource || 'Google Drive File metadata'}</dd>
+            {observation.driveOwner || observation.driveOwnerStudent ? <><dt>Recorded owner</dt><dd>
+              <DriveIdentityValue registeredStudent={observation.driveOwnerStudent} providerValue={observation.driveOwner} />
+            </dd></> : null}
+          </dl>
+        </div>)}
+        <p className="file-history-caption">{history.coverageMessage || 'This history contains only file states WildTrack observed when Document Check ran.'}</p>
+      </details> : null}
+    </section>
   );
+}
+
+function RecordedCheck({ observation }) {
+  return <li className="file-history-entry">
+    <div className="file-history-entry-heading">
+      <h4>{changeLabel(observation.changeType)}</h4>
+      <span className="file-history-date">Checked {historyDate(observationTime(observation))}</span>
+    </div>
+    <div className="file-history-editor"><span>Modified by</span>
+      <DriveIdentityValue registeredStudent={observation.modifiedByStudent}
+        providerValue={observation.modifiedBy || observation.modifiedByEmail} />
+    </div>
+    {observation.driveModifiedTime ? <p className="file-history-caption">Drive edit: {historyDate(observation.driveModifiedTime)}</p> : null}
+  </li>;
+}
+
+function observationKey(observation, index) {
+  return [observation.fileId, observation.contentIdentifier, observation.firstObservedAt, observation.changeType].filter(Boolean).join(':') || `unidentified-${index}`;
 }
 
 function changeLabel(type) {
   if (type === 'CONTENT_CHANGED') return 'Content changed';
-  if (type === 'METADATA_CHANGED') return 'Metadata changed';
-  if (type === 'SOURCE_CHANGED') return 'Source changed';
-  if (type === 'FIRST_OBSERVED') return 'First observed';
-  if (type === 'METADATA_OBSERVED') return 'Metadata observed';
-  return 'Observed version';
+  if (type === 'METADATA_CHANGED') return 'File details changed';
+  if (type === 'SOURCE_CHANGED') return 'Submitted file changed';
+  if (type === 'FIRST_OBSERVED') return 'First recorded';
+  if (type === 'METADATA_OBSERVED') return 'File details recorded';
+  return 'File checked';
 }

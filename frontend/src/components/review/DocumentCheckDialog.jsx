@@ -5,6 +5,7 @@ import { Button, StatusIndicator } from '../ui.jsx';
 import { formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../../lib/workflow.js';
 import { ObservedFileHistory } from './ObservedFileHistory.jsx';
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
+import { DriveIdentityValue } from './DriveIdentityValue.jsx';
 import { getSubmittedFileHistory } from '../../lib/api.js';
 
 export function DocumentCheckDialog({
@@ -54,12 +55,13 @@ export function DocumentCheckDialog({
   const missingSections = report?.missingSections || [];
   const expectedSectionCount = comparison?.expectedTemplateHeadings?.length || 0;
   const detectedSectionCount = comparison?.detectedTemplateHeadings?.length || 0;
-  const currentStatus = documentCheckStatus(effectiveResponse);
+  const currentStatus = documentCheckStatus(effectiveResponse, fileLink);
+  const outdated = currentStatus === 'Outdated';
   const successful = currentStatus === 'Ready for review' || currentStatus === 'Looks substantially filled';
   const substanceStatus = submissionSubstanceStatus(report);
-  const overviewNeedsAttention = substanceStatus
+  const overviewNeedsAttention = outdated || (substanceStatus
     ? substanceStatus !== 'Looks substantially filled'
-    : Boolean(report?.redFlags?.length || report?.missingSections?.length);
+    : Boolean(report?.redFlags?.length || report?.missingSections?.length));
   const latestObservation = studentView ? null : observedHistory?.observations?.[0];
   const sharedMetadata = sharedHistory?.key === targetKey && open ? sharedHistory?.data?.fileMetadata : null;
   const ownerSource = sharedMetadata?.driveOwner || sharedMetadata?.driveOwnerStudent
@@ -118,8 +120,9 @@ export function DocumentCheckDialog({
           <div className={'document-check-overview ' + (overviewNeedsAttention ? 'attention' : '')}>
             {successful && !overviewNeedsAttention ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
             <div>
-              <StatusIndicator status={studentView ? studentDocumentCheckStatus(effectiveResponse) : currentStatus} />
-              <p>{studentView ? studentSummary(report, effectiveResponse) : report?.summary || effectiveResponse.checkSummary || 'No Document Check result is available.'}</p>
+              <StatusIndicator status={studentView ? studentDocumentCheckStatus(effectiveResponse, fileLink) : currentStatus} />
+              <p>{outdated ? 'This saved check belongs to an earlier submission. Check again to refresh it.'
+                : studentView ? studentSummary(report, effectiveResponse) : report?.summary || effectiveResponse.checkSummary || 'No Document Check result is available.'}</p>
             </div>
           </div>
 
@@ -288,20 +291,24 @@ export function compactMissingSections(sections, visibleCount = 3) {
   return remaining > 0 ? `${visible}… and ${remaining} more` : visible;
 }
 
-export function documentCheckStatus(response) {
+export function documentCheckStatus(response, fileLink) {
   if (response?.fileCheckStatus === 'Checking') return 'Checking';
   if (response?.documentCheck?.status === 'Error' || response?.fileCheckStatus === 'Error') return 'Could not check';
   if (response?.documentCheck?.status === 'Unavailable') return 'Not checked';
   if (!response?.documentCheck) return 'Not checked';
-  if (response.documentCheck.sourceResponseUpdatedAt !== (response.updatedAt || response.submittedAt)) return 'Outdated';
+  // A field-aware check survives edits to other answers, just as its table row does.
+  const sameSource = response.documentCheck.sourceUrl && fileLink != null
+    ? String(response.documentCheck.sourceUrl).trim() === String(fileLink).trim()
+    : response.documentCheck.sourceResponseUpdatedAt === (response.updatedAt || response.submittedAt);
+  if (!sameSource) return 'Outdated';
   const substanceStatus = submissionSubstanceStatus(response.documentCheck);
   if (substanceStatus) return substanceStatus;
   if (response.documentCheck.redFlags?.length || response.documentCheck.missingSections?.length) return 'Needs attention';
   return 'Ready for review';
 }
 
-export function studentDocumentCheckStatus(response) {
-  const status = documentCheckStatus(response);
+export function studentDocumentCheckStatus(response, fileLink) {
+  const status = documentCheckStatus(response, fileLink);
   if (status === 'Ready for review') return 'Check complete';
   if (status === 'Outdated') return 'Check outdated';
   return status;
@@ -332,37 +339,6 @@ function CheckFact({ label, value, ready, neutral = false, wide = false }) {
       {wide ? value : <strong>{value}</strong>}
     </div>
   );
-}
-
-function DriveIdentityValue({ registeredStudent, providerValue }) {
-  const studentName = String(registeredStudent?.studentName || '').trim();
-  const googleEmail = String(registeredStudent?.email || '').trim();
-  const verified = Boolean(studentName && googleEmail);
-  const raw = String(providerValue || '').trim();
-  if (!verified && (!raw || raw === 'Unavailable')) return <strong>Unavailable</strong>;
-
-  // Existing provider-only strings can be "Display name (email)". Splitting
-  // their layout does not establish a verified registered WildTrack identity.
-  const providerParts = !verified && /^(.*?)\s*\(([^()\s]+@[^()\s]+)\)$/.exec(raw);
-  const emailOnly = !verified && !providerParts && /^[^\s()@]+@[^\s()@]+$/.test(raw);
-  const name = verified ? studentName : providerParts ? providerParts[1].trim() : emailOnly ? '' : raw;
-  const email = verified ? googleEmail : providerParts ? providerParts[2] : emailOnly ? raw : '';
-  return (
-    <div className="document-check-identity-value">
-      {name ? <strong className="document-check-identity-name">{name}</strong> : null}
-      {email ? <span className="document-check-identity-email" title={email}>
-        {name ? '(' : null}<EmailWithBreaks email={email} />{name ? ')' : null}
-      </span> : null}
-    </div>
-  );
-}
-
-function EmailWithBreaks({ email }) {
-  return String(email).split(/([@.+_-])/g).map((part, index) => (
-    // Allow wrapping *after* email separators, never at arbitrary characters
-    // inside a domain (such as "gma/il.com"). Full text stays accessible.
-    <span key={index}>{part}{/^[@.+_-]$/.test(part) ? <wbr /> : null}</span>
-  ));
 }
 
 function formatBytes(value) {

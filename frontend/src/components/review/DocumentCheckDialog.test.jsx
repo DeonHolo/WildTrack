@@ -300,3 +300,39 @@ describe('DocumentCheck submission substance', () => {
     expect(documentCheckStatus({ ...response, documentCheck: legacy })).toBe('Needs attention');
   });
 });
+
+describe('DocumentCheck saved-source freshness', () => {
+  beforeEach(() => { getSubmittedFileHistory.mockReset().mockResolvedValue(sharedHistory); });
+  const changedResponse = { ...response, updatedAt: '2026-10-10T08:00:00+08:00',
+    documentCheck: { ...response.documentCheck, sourceUrl: fileLink,
+      summary: 'The PDF was readable when checked.' } };
+
+  it.each(['staff', 'student'])('keeps the same PDF current after unrelated answer edits for %s', audience => {
+    show({ response: changedResponse, audience });
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).queryByText(/outdated/i)).not.toBeInTheDocument();
+    expect(within(dialog).getByText(audience === 'student' ? 'Check complete' : 'Ready for review')).toBeVisible();
+    expect(documentCheckStatus(changedResponse, ` ${fileLink} `)).toBe('Ready for review');
+  });
+
+  it('explains a changed PDF link with an attention state and clears it after a fresh check', () => {
+    const newLink = 'https://drive.google.com/file/d/new-submitted-pdf/view';
+    const view = show({ response: changedResponse, fileLink: newLink });
+    expect(screen.getByText('Outdated')).toBeVisible();
+    const reason = screen.getByText('This saved check belongs to an earlier submission. Check again to refresh it.');
+    expect(reason.closest('.document-check-overview')).toHaveClass('attention');
+    expect(screen.queryByText('The PDF was readable when checked.')).not.toBeInTheDocument();
+    view.rerender(<MantineProvider theme={wildTrackTheme} forceColorScheme="light">
+      <DocumentCheckDialog response={changedResponse} fileLink={newLink}
+        documentCheck={{ ...changedResponse.documentCheck, sourceUrl: newLink,
+          sourceResponseUpdatedAt: changedResponse.updatedAt }} open onClose={vi.fn()} />
+    </MantineProvider>);
+    expect(screen.queryByText('Outdated')).not.toBeInTheDocument();
+    expect(screen.getByText('Ready for review')).toBeVisible();
+  });
+
+  it('retains timestamp checks for legacy reports without a saved file URL', () => {
+    expect(documentCheckStatus({ ...changedResponse, documentCheck: response.documentCheck }, fileLink)).toBe('Outdated');
+    expect(documentCheckStatus(response, fileLink)).toBe('Ready for review');
+  });
+});

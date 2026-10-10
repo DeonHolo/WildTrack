@@ -491,7 +491,7 @@ for (const viewport of editorViewports) {
     await page.keyboard.press('Escape');
 
     await pdfCard.getByRole('textbox', { name: 'Field label' }).click();
-    await page.getByRole('button', { name: '+ Add Button' }).click();
+    await page.getByRole('button', { name: 'Add question' }).click();
     const newLabel = page.getByRole('textbox', { name: 'Field label' }).last();
     await newLabel.fill('Project Summary');
     const moveUp = page.getByRole('button', { name: 'Move Project Summary up' });

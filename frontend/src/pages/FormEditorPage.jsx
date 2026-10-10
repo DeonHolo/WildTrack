@@ -58,6 +58,7 @@ import {
 import { emptyFormsState, loadFormsState } from '../lib/formsClient.js';
 import { saveDeliverable } from '../lib/submissionClient.js';
 import { getActiveTrackerColumns, getTrackerColumn, getWorkspacePublicKey } from '../lib/workflow.js';
+import '../styles/form-designer.css';
 
 const FIELD_TYPES = [
   { value: 'shortText', label: 'Short answer' },
@@ -75,6 +76,24 @@ const FIELD_TYPES = [
   { value: 'academicTeamCode', label: 'Team Code' },
   { value: 'academicSection', label: 'Section' }
 ];
+
+const FIELD_TYPE_COMBOBOX_PROPS = {
+  withinPortal: true,
+  position: 'bottom-start',
+  middlewares: {
+    flip: { padding: 12 },
+    shift: { padding: 12 },
+    size: {
+      padding: 12,
+      apply({ availableHeight, availableWidth, elements }) {
+        Object.assign(elements.floating.style, {
+          maxHeight: `${Math.max(0, Math.min(360, availableHeight))}px`,
+          maxWidth: `${Math.max(0, availableWidth)}px`
+        });
+      }
+    }
+  }
+};
 
 export function FormEditorPage() {
   const { formId } = useParams();
@@ -100,8 +119,15 @@ export function FormEditorPage() {
   const historyRef = useRef({ past: [], future: [] });
   const questionRefs = useRef(new Map());
   const pendingScrollId = useRef('');
+  const persistedFieldsRef = useRef(new Map());
+  const draggingIdRef = useRef('');
+  const dropTargetRef = useRef(null);
+  const dragPreviewRef = useRef(null);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [draggingId, setDraggingId] = useState('');
+  const [dropTarget, setDropTarget] = useState(null);
+  const [insertedId, setInsertedId] = useState('');
+  const [questionAnnouncement, setQuestionAnnouncement] = useState('');
   const editing = Boolean(formId);
   const workspaceKey = getWorkspacePublicKey(activeWorkspace);
   const activeColumns = useMemo(() => getActiveTrackerColumns(state), [state]);
@@ -127,6 +153,10 @@ export function FormEditorPage() {
     setSaveState('idle');
     setSaveError('');
     setDeletedQuestion(null);
+    persistedFieldsRef.current = persistedFieldSnapshots(initial?.fields || []);
+    clearQuestionDrag();
+    setInsertedId('');
+    setQuestionAnnouncement('');
   }, [activeWorkspaceId, activeColumns, editing, formId, state, status]);
 
   useEffect(() => {
@@ -134,8 +164,20 @@ export function FormEditorPage() {
     const node = questionRefs.current.get(pendingScrollId.current);
     if (!node) return;
     pendingScrollId.current = '';
-    node.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    node.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+    const label = node.querySelector('[data-question-label]');
+    label?.focus({ preventScroll: true });
+    label?.select();
   }, [draft, selectedId]);
+
+  useEffect(() => {
+    if (!insertedId) return undefined;
+    const timeout = window.setTimeout(() => setInsertedId(''), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [insertedId]);
+
+  useEffect(() => () => dragPreviewRef.current?.remove(), []);
 
   useEffect(() => {
     if (!dirty) return undefined;
@@ -149,6 +191,10 @@ export function FormEditorPage() {
 
   useEffect(() => {
     const handleHistoryShortcut = (event) => {
+      if (event.key === 'Escape' && draggingIdRef.current) {
+        clearQuestionDrag();
+        setQuestionAnnouncement('Question move cancelled.');
+      }
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const key = event.key.toLowerCase();
       if (key === 'z' && !event.shiftKey) {
@@ -268,6 +314,9 @@ export function FormEditorPage() {
     });
     setSelectedId(field.id);
     pendingScrollId.current = field.id;
+    setInsertedId(field.id);
+    const active = draftRef.current.fields.filter((item) => item.active !== false);
+    setQuestionAnnouncement(`Added New question at position ${active.findIndex((item) => item.id === field.id) + 1} of ${active.length}. Edit its field label.`);
   }
 
   function duplicateQuestion(field) {
@@ -294,9 +343,10 @@ export function FormEditorPage() {
       [fields[first], fields[second]] = [fields[second], fields[first]];
       return { ...current, fields };
     });
+    announceQuestionPosition(fieldId);
   }
 
-  function reorderQuestion(sourceId, targetId) {
+  function reorderQuestion(sourceId, targetId, side) {
     if (!sourceId || !targetId || sourceId === targetId) return;
     commitDraft((current) => {
       const fields = [...current.fields];
@@ -305,10 +355,92 @@ export function FormEditorPage() {
       if (sourceIndex < 0 || targetIndex < 0) return current;
       const [moved] = fields.splice(sourceIndex, 1);
       const nextTargetIndex = fields.findIndex((field) => field.id === targetId);
-      const insertAt = sourceIndex < targetIndex ? nextTargetIndex + 1 : nextTargetIndex;
+      const insertAt = nextTargetIndex + (side === 'after' ? 1 : 0);
       fields.splice(insertAt, 0, moved);
       return { ...current, fields };
     });
+    setSelectedId(sourceId);
+    announceQuestionPosition(sourceId);
+  }
+
+  function announceQuestionPosition(fieldId) {
+    const active = draftRef.current?.fields.filter((field) => field.active !== false) || [];
+    const index = active.findIndex((field) => field.id === fieldId);
+    if (index >= 0) setQuestionAnnouncement(`Moved ${active[index].label} to position ${index + 1} of ${active.length}. Save to keep this order.`);
+  }
+
+  function clearQuestionDrag() {
+    draggingIdRef.current = '';
+    dropTargetRef.current = null;
+    dragPreviewRef.current?.remove();
+    dragPreviewRef.current = null;
+    setDraggingId('');
+    setDropTarget(null);
+  }
+
+  function startQuestionDrag(field, event) {
+    draggingIdRef.current = field.id;
+    dropTargetRef.current = null;
+    setDraggingId(field.id);
+    setDropTarget(null);
+    setSelectedId(field.id);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData?.('text/plain', field.id);
+    const card = questionRefs.current.get(field.id);
+    if (card && event.dataTransfer.setDragImage) {
+      const preview = card.cloneNode(true);
+      preview.classList.remove('is-selected', 'is-dragging', 'is-new-question');
+      preview.classList.add('wt-question-drag-preview');
+      preview.setAttribute('aria-hidden', 'true');
+      preview.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id'));
+      preview.style.width = `${card.getBoundingClientRect().width}px`;
+      document.body.appendChild(preview);
+      dragPreviewRef.current = preview;
+      event.dataTransfer.setDragImage(preview, 28, 28);
+    }
+    setQuestionAnnouncement(`Moving ${field.label}. Drop before or after another question, or use Move up and Move down.`);
+  }
+
+  function questionDropSide(fieldId, event) {
+    const bounds = questionRefs.current.get(fieldId)?.getBoundingClientRect();
+    if (bounds?.height && Number.isFinite(event.clientY)) {
+      return event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
+    }
+    const active = draftRef.current?.fields.filter((field) => field.active !== false) || [];
+    return active.findIndex((field) => field.id === draggingIdRef.current)
+      < active.findIndex((field) => field.id === fieldId) ? 'after' : 'before';
+  }
+
+  function previewQuestionDrop(field, event) {
+    if (!draggingIdRef.current) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    if (field.id === draggingIdRef.current) {
+      dropTargetRef.current = null;
+      setDropTarget(null);
+      return;
+    }
+    const side = questionDropSide(field.id, event);
+    if (dropTargetRef.current?.id === field.id && dropTargetRef.current.side === side) return;
+    const target = { id: field.id, side };
+    dropTargetRef.current = target;
+    setDropTarget(target);
+    setQuestionAnnouncement(`Drop ${side} ${field.label}.`);
+  }
+
+  function dropQuestion(field, event) {
+    if (!draggingIdRef.current) return;
+    event.preventDefault();
+    const sourceId = draggingIdRef.current;
+    const side = dropTargetRef.current?.id === field.id
+      ? dropTargetRef.current.side : questionDropSide(field.id, event);
+    clearQuestionDrag();
+    reorderQuestion(sourceId, field.id, side);
+  }
+
+  function retireOriginalDefinition(field) {
+    const original = persistedFieldsRef.current.get(field.definitionId);
+    return { ...(original || field), active: false };
   }
 
   function removeQuestion(field) {
@@ -319,7 +451,7 @@ export function FormEditorPage() {
     commitDraft((current) => ({
       ...current,
       fields: field.definitionId
-        ? current.fields.map((item) => item.id === field.id ? { ...item, active: false } : item)
+        ? current.fields.map((item) => item.id === field.id ? retireOriginalDefinition(item) : item)
         : current.fields.filter((item) => item.id !== field.id)
     }));
     const next = activeFields.find((item) => item.id !== field.id);
@@ -332,7 +464,7 @@ export function FormEditorPage() {
     commitDraft((current) => {
       const existingIndex = current.fields.findIndex((item) => item.id === field.id);
       if (existingIndex >= 0) {
-        const fields = current.fields.map((item) => item.id === field.id ? { ...item, active: true } : item);
+        const fields = current.fields.map((item) => item.id === field.id ? { ...field, active: true } : item);
         return { ...current, fields };
       }
       const fields = [...current.fields];
@@ -404,7 +536,10 @@ export function FormEditorPage() {
     setSaveState('saving');
     setSaveError('');
     try {
-      const payload = buildDeliverableFormPayload(state, draft, nextStatus);
+      const payload = buildDeliverableFormPayload(state, {
+        ...draft,
+        fields: draft.fields.map((field) => field.definitionId && field.active === false ? retireOriginalDefinition(field) : field)
+      }, nextStatus);
       const saved = await saveDeliverable(activeWorkspaceId, payload);
       const editorForm = makeEditableDeliverableForm(saved);
       setState((current) => ({
@@ -413,6 +548,7 @@ export function FormEditorPage() {
       }));
       setDraft(editorForm);
       draftRef.current = editorForm;
+      persistedFieldsRef.current = persistedFieldSnapshots(editorForm.fields);
       historyRef.current = { past: [], future: [] };
       setHistoryRevision((value) => value + 1);
       setBaseline(snapshot(editorForm));
@@ -470,6 +606,7 @@ export function FormEditorPage() {
       <Text size="sm" c={saveState === 'saved' ? 'green' : 'dimmed'} role="status">
         {saveState === 'saving' ? 'Saving form…' : saveState === 'saved' ? 'Saved' : dirty ? 'Unsaved changes' : 'No unsaved changes'}
       </Text>
+      <div className="wt-form-editor-announcement" aria-live="polite" aria-atomic="true">{questionAnnouncement}</div>
 
       <div className="wt-form-editor-grid">
         <Stack gap="md" className="wt-form-editor-main">
@@ -504,10 +641,13 @@ export function FormEditorPage() {
                 onSelect={() => setSelectedId(field.id)}
                 onUpdate={(changes) => updateField(field.id, changes)}
                 onMove={(direction) => moveQuestion(field.id, direction)}
-                onDragStart={() => setDraggingId(field.id)}
-                onDrop={() => { reorderQuestion(draggingId, field.id); setDraggingId(''); }}
-                onDragEnd={() => setDraggingId('')}
+                onDragStart={(event) => startQuestionDrag(field, event)}
+                onDragOver={(event) => previewQuestionDrop(field, event)}
+                onDrop={(event) => dropQuestion(field, event)}
+                onDragEnd={clearQuestionDrag}
                 dragging={draggingId === field.id}
+                dropSide={dropTarget?.id === field.id ? dropTarget.side : null}
+                inserted={insertedId === field.id}
                 cardRef={(node) => {
                   if (node) questionRefs.current.set(field.id, node);
                   else questionRefs.current.delete(field.id);
@@ -522,9 +662,9 @@ export function FormEditorPage() {
         </Stack>
 
         <Stack gap="sm" className="wt-form-editor-side">
-          <Paper withBorder radius="md" p={6} className="wt-form-editor-action-rail">
-            <Button variant="default" onClick={addQuestion}>+ Add Button</Button>
-          </Paper>
+          <Button variant="light" color="wildtrackMaroon" size="md" fullWidth
+            className="wt-form-editor-action-rail wt-form-editor-add-question"
+            leftSection={<Plus size={20} aria-hidden="true" />} onClick={addQuestion}>Add question</Button>
           <Paper withBorder p="md" radius="md" className="wt-form-editor-status-card">
             <Stack gap="xs">
               <Text fw={750}>Form status</Text>
@@ -594,7 +734,7 @@ export function FormEditorPage() {
   }
 }
 
-function QuestionCard({ field, selected, position, total, first, last, onSelect, onUpdate, onMove, onDragStart, onDrop, onDragEnd, dragging, cardRef, onDuplicate, onRemove, hasAnotherAnchor }) {
+function QuestionCard({ field, selected, position, total, first, last, onSelect, onUpdate, onMove, onDragStart, onDragOver, onDrop, onDragEnd, dragging, dropSide, inserted, cardRef, onDuplicate, onRemove, hasAnotherAnchor }) {
   const isChoice = CHOICE_FIELD_TYPES.has(field.type);
   const isPdf = field.type === 'drive';
   const isAnchor = field.type === 'academicStudentNumber';
@@ -611,15 +751,17 @@ function QuestionCard({ field, selected, position, total, first, last, onSelect,
   }
 
   return (
+    <div className="wt-question-slot" onDragOver={onDragOver} onDrop={onDrop}>
+    {dropSide ? <div className={`wt-question-drop-indicator is-${dropSide}`} aria-hidden="true">
+      <span>Drop {dropSide} {field.label || 'this question'}</span>
+    </div> : null}
     <Paper
       withBorder
       p={{ base: 'md', sm: 'lg' }}
       radius="md"
       ref={cardRef}
-      className={`wt-question-card${selected ? ' is-selected' : ''}${dragging ? ' is-dragging' : ''}`}
+      className={`wt-question-card${selected ? ' is-selected' : ''}${dragging ? ' is-dragging' : ''}${inserted ? ' is-new-question' : ''}`}
       onClick={onSelect}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => { event.preventDefault(); onDrop(); }}
     >
       <Stack gap="md">
         <Group justify="space-between" gap="sm" align="center">
@@ -628,15 +770,17 @@ function QuestionCard({ field, selected, position, total, first, last, onSelect,
               variant="subtle"
               color="gray"
               aria-label={`Drag ${field.label}`}
+              title="Drag to reorder, or use Move up and Move down"
+              className="wt-question-drag-handle"
               draggable
-              onDragStart={(event) => { event.stopPropagation(); event.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
+              onDragStart={(event) => { event.stopPropagation(); onDragStart(event); }}
               onDragEnd={onDragEnd}
             >
-              <DotsSixVertical size={18} />
+              <DotsSixVertical size={18} aria-hidden="true" />
             </ActionIcon>
             <div>
               <Text size="xs" c="dimmed">Question {position} of {total}</Text>
-              <Group gap="xs"><Text fw={800}>Question</Text><Badge variant="light">{typeLabel(field.type)}</Badge>{isAnchor ? <Badge color="wildtrackMaroon" variant="light">Identity anchor</Badge> : null}</Group>
+              <Group gap="xs"><Text fw={800}>Question</Text><Badge variant="light">{typeLabel(field.type)}</Badge>{isAnchor ? <Badge color="wildtrackMaroon" variant="light">Identity anchor</Badge> : null}{inserted ? <Badge color="wildtrackMaroon" variant="light">New question</Badge> : null}</Group>
             </div>
           </Group>
           <Group gap={4}>
@@ -647,9 +791,11 @@ function QuestionCard({ field, selected, position, total, first, last, onSelect,
           </Group>
         </Group>
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
-          <TextInput label="Field label" value={field.label} required onChange={(event) => onUpdate({ label: event.currentTarget.value })} />
+          <TextInput label="Field label" data-question-label value={field.label} required onChange={(event) => onUpdate({ label: event.currentTarget.value })} />
           <Select label="Field type" value={field.type} data={FIELD_TYPES.map((item) => ({ ...item, disabled: item.value === 'academicStudentNumber' && hasAnotherAnchor }))} allowDeselect={false} disabled={isAnchor}
-            classNames={{ dropdown: 'wt-field-type-dropdown' }}
+            classNames={{ dropdown: 'wt-field-type-dropdown wt-form-designer-type-dropdown', option: 'wt-form-designer-type-option' }}
+            withScrollArea={false}
+            comboboxProps={FIELD_TYPE_COMBOBOX_PROPS}
             onChange={(value) => value && changeType(value)} />
         </SimpleGrid>
         <TextInput label="Help text" value={field.helpText || ''} placeholder="Optional guidance shown below the question"
@@ -668,7 +814,13 @@ function QuestionCard({ field, selected, position, total, first, last, onSelect,
         ) : null}
       </Stack>
     </Paper>
+    </div>
   );
+}
+
+function persistedFieldSnapshots(fields) {
+  return new Map(fields.filter((field) => field.definitionId).map((field) => [field.definitionId,
+    { ...field, options: (field.options || []).map((option) => ({ ...option })) }]));
 }
 
 function ChoiceEditor({ field, onUpdate }) {

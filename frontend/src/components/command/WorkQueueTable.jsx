@@ -10,6 +10,7 @@ import {
 } from '@phosphor-icons/react';
 import { Link } from 'react-router-dom';
 import { formatDateTime } from '../../lib/workflow.js';
+import { workQueueTimestamp } from '../../lib/workQueueSorting.js';
 
 const TYPE_ICONS = {
   'Document Check': FileMagnifyingGlass,
@@ -39,6 +40,7 @@ export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchi
           <Table.Tbody>
             {tasks.map((task) => {
               const Icon = TYPE_ICONS[task.type] || WarningCircle;
+              const activityTimestamp = workQueueTimestamp(task.updatedAt);
               return (
                 <Table.Tr key={task.id}>
                   <Table.Td>
@@ -57,7 +59,9 @@ export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchi
                     <Text size="sm" className="wt-mono">{task.teamCode}</Text>
                     <Text size="xs" c="dimmed">{task.deliverableCode}</Text>
                   </Table.Td>
-                  <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{task.updatedAt ? formatDateTime(task.updatedAt) : 'Current import'}</Text></Table.Td>
+                  <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{activityTimestamp !== null
+                    ? formatDateTime(new Date(activityTimestamp))
+                    : task.category === 'workspace' && task.type === 'Import warning' ? 'Current import' : 'Not recorded'}</Text></Table.Td>
                   <Table.Td>
                     <div className="wt-command-row-actions">
                     {task.action === 'check' ? (

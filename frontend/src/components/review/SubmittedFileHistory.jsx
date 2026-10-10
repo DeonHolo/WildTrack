@@ -1,17 +1,25 @@
-import { Alert, Badge, Button, Group, Loader, Paper, Stack, Text } from '@mantine/core';
+import { Alert, Button, Group, Loader } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { getSubmittedFileHistory, startDriveHistoryConsent } from '../../lib/api.js';
-import { formatDateTime } from '../../lib/workflow.js';
+import { historyDate, newestHistoryEntries, observationTime } from '../../lib/fileHistoryPresentation.js';
+import { DriveIdentityValue } from './DriveIdentityValue.jsx';
 import { ObservedFileHistory } from './ObservedFileHistory.jsx';
 
 function readableBytes(bytes) {
   if (bytes == null || bytes === '') return 'Unavailable';
   const size = Number(bytes);
   if (!Number.isFinite(size) || size < 0) return 'Unavailable';
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   return size < 1024 ? `${size} bytes` : `${(size / 1024).toFixed(1)} KB`;
 }
 
-export function SubmittedFileHistory({ workspaceId, responseId, fieldId, observedHistory, audience = 'staff', initialHistory = null, initialLoading = false, onRefresh, refreshing = false }) {
+// Switching the scoped file discards the previous file's page and opaque tokens.
+export function SubmittedFileHistory(props) {
+  const scopeKey = JSON.stringify([props.workspaceId, props.responseId, props.fieldId]);
+  return <FileHistoryContent key={scopeKey} {...props} />;
+}
+
+function FileHistoryContent({ workspaceId, responseId, fieldId, observedHistory, audience = 'staff', initialHistory = null, initialLoading = false, onRefresh, refreshing = false }) {
   const studentView = audience === 'student';
   const [pageTokens, setPageTokens] = useState(['']);
   const [pageIndex, setPageIndex] = useState(0);
@@ -50,84 +58,94 @@ export function SubmittedFileHistory({ workspaceId, responseId, fieldId, observe
     return () => { current = false; };
   }, [workspaceId, responseId, fieldId, token, pageIndex, initialHistory, initialLoading]);
 
-  const revisions = Array.isArray(history?.revisions) ? history.revisions : [];
+  const revisions = newestHistoryEntries(history?.revisions, revision => revision.modifiedTime);
+  const latest = newestHistoryEntries(observedHistory?.observations, observationTime)[0];
+  const metadata = history?.fileMetadata;
+  const owner = metadata?.driveOwner || metadata?.driveOwnerStudent ? metadata : latest;
+  const editor = metadata?.lastModifiedBy || metadata?.lastModifiedByStudent ? metadata : latest;
   const status = history?.status || 'UNAVAILABLE';
+  const hasRevisions = ['AVAILABLE', 'INCOMPLETE'].includes(status);
+  const needsSetup = status === 'NOT_CONFIGURED' || (status === 'UNAVAILABLE'
+    && history?.coverageMessage?.startsWith('Drive revision history is not enabled in this WildTrack environment yet.'));
 
   return (
-    <Stack gap="md" aria-label="Submitted file history">
-      {!studentView ? (
-        <Paper withBorder p="md" radius="md" aria-label="WildTrack observations">
-          <ObservedFileHistory history={observedHistory} />
-          {!observedHistory ? <Text size="sm" c="dimmed">WildTrack observed history is unavailable for this file.</Text> : null}
-        </Paper>
-      ) : <Text size="sm" c="dimmed">WildTrack observations are available to authorized staff. Google Drive revision details for your submitted PDF appear below without owner or editor identities.</Text>}
+    <div className="file-history" aria-label="Submitted file history">
+      {!studentView ? <section className="file-history-overview" aria-label="File details">
+        <h3>File details</h3>
+        <dl className="file-history-facts">
+          <div><dt>Owner</dt><dd><DriveIdentityValue registeredStudent={owner?.driveOwnerStudent} providerValue={owner?.driveOwner} /></dd></div>
+          <div><dt>Last modified by</dt><dd><DriveIdentityValue
+            registeredStudent={editor === metadata ? metadata?.lastModifiedByStudent : latest?.modifiedByStudent}
+            providerValue={editor === metadata ? metadata?.lastModifiedBy : latest?.modifiedBy || latest?.modifiedByEmail} /></dd></div>
+          <div><dt>Drive edit time</dt><dd>{historyDate(metadata?.lastModifiedTime || latest?.driveModifiedTime)}</dd></div>
+          <div><dt>Last recorded check</dt><dd>{historyDate(latest && observationTime(latest))}</dd></div>
+        </dl>
+        <p className="file-history-caption">{metadata ? 'Available details from Google Drive; recorded checks remain unchanged.' : 'Details from the last recorded check; newer Drive details may be unavailable.'}</p>
+      </section> : null}
 
-      <Paper withBorder p="md" radius="md" aria-label="Google Drive revision metadata">
-        <Stack gap="sm">
-          <Group justify="space-between" align="center" gap="sm" wrap="wrap">
-            <Text fw={750}>Google Drive revision metadata</Text>
-            <Group gap="xs" wrap="wrap">
-              <Badge variant="light">Page {pageIndex + 1}</Badge>
-              {onRefresh ? <Button variant="light" size="sm" loading={refreshing} disabled={loading || refreshing}
-                onClick={() => {
-                  setPageIndex(0);
-                  setPageTokens(['']);
-                  onRefresh();
-                }}>Refresh history</Button> : null}
-            </Group>
-          </Group>
-          <Text size="md" lh={1.5} c="dimmed">Google Drive may provide revisions of the exact PDF submitted in this form. Access permissions and Google retention affect coverage.</Text>
+      {!studentView ? observedHistory ? <ObservedFileHistory history={observedHistory} />
+        : <section className="file-history-section" aria-label="WildTrack observations"><h3>Recorded checks</h3>
+          <p className="file-history-empty">WildTrack observed history is unavailable for this file.</p></section> : null}
 
-          {loading ? <Group role="status" gap="xs"><Loader size="xs" /><Text size="sm">Loading file history…</Text></Group> : null}
-          {error ? <Alert color="orange" role="alert">{error}</Alert> : null}
-          {!loading && !error && status !== 'AVAILABLE' && status !== 'INCOMPLETE' ? (
-            <Alert color="blue" role="status">
-              {history?.coverageMessage || (status === 'NOT_CONNECTED'
-                ? 'No submitter of this file currently has usable Drive history access. An owner or editor may authorize access when signing in.'
-                : status === 'PERMISSION_DENIED' ? 'Connected submitters currently lack permission to read the file revisions.'
-                  : 'Google Drive revision history is currently unavailable for this submitted file.')}
-              {studentView && status === 'NOT_CONNECTED' ? (
-                <Button variant="light" size="sm" mt="sm" onClick={startDriveHistoryConsent}>Optionally allow Drive metadata</Button>
-              ) : null}
-            </Alert>
-          ) : null}
+      <section className="file-history-section" aria-label="Google Drive revision metadata">
+        <div className="file-history-section-heading">
+          <h3>Google Drive edits</h3>
+          {onRefresh ? <Button variant="default" size="sm" mih={44} loading={refreshing} disabled={loading || refreshing}
+            onClick={() => { setPageIndex(0); setPageTokens(['']); onRefresh(); }}>Refresh history</Button> : null}
+        </div>
+        <p className="file-history-caption">{studentView
+          ? 'Edits Google returns for your submitted PDF. Owner and editor identities are hidden.'
+          : 'Edits returned by Google, separate from WildTrack’s recorded checks. These may include edits before submission.'}</p>
 
-          {!loading && !error && ['AVAILABLE', 'INCOMPLETE'].includes(status) && !revisions.length ? (
-            <Text size="md" lh={1.5} c="dimmed">No Google Drive revisions were returned for this submitted file.</Text>
-          ) : null}
-          {!loading && !error && ['AVAILABLE', 'INCOMPLETE'].includes(status) ? revisions.map((revision, index) => (
-            <Paper key={`${revision.id || 'revision'}-${index}`} withBorder radius="sm" p="sm" role="group" aria-label={`Drive revision ${index + 1} on page ${pageIndex + 1}`}>
-              <Stack gap={3}>
-                <Group gap="xs" wrap="wrap">
-                  <Badge color="blue" variant="light" size="xs">Google Drive revision</Badge>
-                  <Text size="md" fw={650}>{revision.modifiedTime ? formatDateTime(revision.modifiedTime) : 'Modification time unavailable'}</Text>
-                </Group>
-                <Text size="md" lh={1.5} c="dimmed">File type: {revision.mimeType || 'Unavailable'} · Size: {readableBytes(revision.size)}</Text>
-                {!studentView && revision.modifiedBy ? <Text size="md" lh={1.5}>Modified by {revision.modifiedBy}{revision.modifiedByEmail && !revision.modifiedBy.includes(revision.modifiedByEmail) ? ` (${revision.modifiedByEmail})` : ''}</Text> : null}
-                {!studentView && !revision.modifiedBy && revision.modifiedByEmail ? <Text size="md" lh={1.5}>Modified by {revision.modifiedByEmail}</Text> : null}
-                {!studentView && !revision.modifiedBy && !revision.modifiedByEmail ? <Text size="md" lh={1.5} c="dimmed">Editor identity unavailable</Text> : null}
-              </Stack>
-            </Paper>
-          )) : null}
+        {loading ? <Group role="status" gap="xs" className="file-history-state"><Loader size="xs" /><span>Loading file history…</span></Group> : null}
+        {error ? <Alert color="orange" role="alert">{error}</Alert> : null}
+        {!loading && !error && !hasRevisions ? <div className="file-history-state" role="status">
+          <h4>{needsSetup ? 'Drive history connection needs setup' : 'Drive edit history unavailable'}</h4>
+          <p>{needsSetup
+            ? 'WildTrack’s Google connection for revision history is unavailable in this environment. An administrator needs to check the connection settings. Document Check and recorded checks still work.'
+            : history?.coverageMessage || (status === 'NOT_CONNECTED'
+            ? 'No submitter of this file currently has usable Drive history access. A submitter who can view its revisions can connect below; signing into WildTrack alone does not grant this access.'
+            : status === 'PERMISSION_DENIED' ? 'Connected submitters currently lack permission to read the file revisions.'
+              : 'Google Drive revision history is currently unavailable for this submitted file.')}</p>
+          {studentView && status === 'NOT_CONNECTED' ? <Button mt="sm" variant="default" mih={44} size="sm"
+            onClick={async () => {
+              try { await startDriveHistoryConsent(); }
+              catch (failure) { setError(failure.message || 'Drive consent could not be started.'); }
+            }}>
+            Connect Drive edit history
+          </Button> : null}
+          {studentView && status === 'NOT_CONNECTED' ? <p className="file-history-caption">Optional, read-only permission to view revision metadata. It does not let WildTrack change your Drive files.</p> : null}
+        </div> : null}
 
-          {!loading && !error && ['AVAILABLE', 'INCOMPLETE'].includes(status) ? (
-            <Group justify="space-between" gap="sm" wrap="wrap">
-              <Button variant="default" size="xs" disabled={pageIndex === 0} onClick={() => setPageIndex(index => index - 1)}>Previous page</Button>
-              <Text size="sm" c="dimmed">Page {pageIndex + 1}</Text>
-              <Button variant="default" size="xs" disabled={!history?.nextPageToken} onClick={() => {
-                if (!history?.nextPageToken) return;
-                setPageTokens(current => [...current.slice(0, pageIndex + 1), history.nextPageToken]);
-                setPageIndex(index => index + 1);
-              }}>Next page</Button>
-            </Group>
-          ) : null}
-          <Text size="md" lh={1.5} c="dimmed">{studentView
-            ? 'This history can be incomplete. Earlier edits may be unavailable because of file permissions, access changes, or Google retention.'
-            : history?.historyMayBeIncomplete || status === 'INCOMPLETE'
-              ? 'Revision history may be incomplete because Google can omit older revisions or editor information.'
-              : 'WildTrack only displays the revisions Google returns for this submitted file. Earlier edits may be unavailable.'}</Text>
-        </Stack>
-      </Paper>
-    </Stack>
+        {!loading && !error && hasRevisions ? <>
+          {revisions.length ? <>
+            <p className="file-history-caption">Page {pageIndex + 1} · {revisions.length} {revisions.length === 1 ? 'edit' : 'edits'} · Newest first on this page</p>
+            <ol className="file-history-timeline" aria-label="Google Drive edits">
+              {revisions.map((revision, index) => <li key={revision.id || `${revision.modifiedTime}-${index}`}
+                className="file-history-entry" role="group" aria-label={`Drive revision ${index + 1} on page ${pageIndex + 1}`}>
+                <div className="file-history-entry-heading"><h4>PDF revision</h4>
+                  <span className="file-history-date">{historyDate(revision.modifiedTime)}</span></div>
+                <p>{revision.mimeType === 'application/pdf' ? 'PDF' : revision.mimeType || 'File type unavailable'} · {readableBytes(revision.size)}</p>
+                {!studentView ? <div className="file-history-editor"><span>Modified by</span><DriveIdentityValue
+                  providerValue={revision.modifiedBy && revision.modifiedByEmail && !revision.modifiedBy.includes(revision.modifiedByEmail)
+                    ? `${revision.modifiedBy} (${revision.modifiedByEmail})` : revision.modifiedBy || revision.modifiedByEmail} /></div> : null}
+              </li>)}
+            </ol>
+          </> : <p className="file-history-empty">No Google Drive revisions were returned for this submitted file.</p>}
+          {pageIndex > 0 || history?.nextPageToken ? <Group justify="space-between" gap="sm" wrap="wrap" className="file-history-pagination">
+            <Button variant="default" size="sm" mih={44} disabled={pageIndex === 0} onClick={() => setPageIndex(index => index - 1)}>Previous page</Button>
+            <span>Page {pageIndex + 1}</span>
+            <Button variant="default" size="sm" mih={44} disabled={!history?.nextPageToken} onClick={() => {
+              if (!history?.nextPageToken) return;
+              setPageTokens(current => [...current.slice(0, pageIndex + 1), history.nextPageToken]);
+              setPageIndex(index => index + 1);
+            }}>Next page</Button>
+          </Group> : null}
+        </> : null}
+      </section>
+      <p className="file-history-limit">{studentView
+        ? 'This history can be incomplete. Earlier edits may be unavailable because of file permissions, access changes, or Google retention.'
+        : 'Recorded checks cover only WildTrack inspections. Google may omit older edits or identities; neither list proves authorship or a complete editing history.'}</p>
+    </div>
   );
 }

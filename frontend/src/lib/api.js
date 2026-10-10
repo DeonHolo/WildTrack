@@ -708,6 +708,24 @@ export async function saveStaffDirectory(payload) {
 }
 
 export function getAiReviewStatus() { return request('/ai-reviews/status'); }
+export function prepareAiReviewBatch(workspaceId, targets) {
+  return request(withWorkspace('/ai-reviews/batches', workspaceId), { method: 'POST', body: { targets } });
+}
+export function getLatestAiReviewBatch(workspaceId) {
+  return request(withWorkspace('/ai-reviews/batches/latest', workspaceId));
+}
+export function getAiReviewBatch(workspaceId, id) {
+  return request(withWorkspace(`/ai-reviews/batches/${encodeURIComponent(id)}`, workspaceId));
+}
+export function startAiReviewBatch(workspaceId, id, options) {
+  return request(withWorkspace(`/ai-reviews/batches/${encodeURIComponent(id)}/start`, workspaceId), { method: 'POST', body: options });
+}
+export function resumeAiReviewBatch(workspaceId, id) {
+  return request(withWorkspace(`/ai-reviews/batches/${encodeURIComponent(id)}/resume`, workspaceId), { method: 'POST' });
+}
+export function cancelAiReviewBatchPreparation(workspaceId, id) {
+  return request(withWorkspace(`/ai-reviews/batches/${encodeURIComponent(id)}/cancel`, workspaceId), { method: 'POST' });
+}
 export function getSavedAiReview(workspaceId, responseId, fieldId = null) {
   const fieldQuery = fieldId ? `?fieldId=${encodeURIComponent(fieldId)}` : '';
   return request(withWorkspace(`/ai-reviews/${encodeURIComponent(responseId)}${fieldQuery}`, workspaceId));

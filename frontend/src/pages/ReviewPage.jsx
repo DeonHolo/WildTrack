@@ -7,6 +7,7 @@ import {
   Collapse,
   Button,
   Group,
+  Modal,
   Pagination,
   Paper,
   Progress,
@@ -26,6 +27,9 @@ import { archiveAttempts as archiveServerAttempts } from '../lib/archiveClient.j
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { AiReviewDialog } from '../components/review/AiReviewDialog.jsx';
 import { AiReviewReportDialog } from '../components/review/AiReviewReportDialog.jsx';
+import { AiReviewBatchDialog } from '../components/review/AiReviewBatchDialog.jsx';
+import { AiReviewBatchPanel } from '../components/review/AiReviewBatchPanel.jsx';
+import { useAiReviewBatch } from '../app/useAiReviewBatch.js';
 import { ReviewDeliverablesTable } from '../components/review/ReviewDeliverablesTable.jsx';
 import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
 import { ReviewSubmissionsTable } from '../components/review/ReviewSubmissionsTable.jsx';
@@ -93,6 +97,7 @@ export function ReviewPage() {
     activeWorkspaceId,
     loadReviewDesk,
     emptyReviewDesk, 'monitoring');
+  const aiBatch = useAiReviewBatch(activeWorkspaceId, reload);
   const [searchParams] = useSearchParams();
   const linkedResponseId = searchParams.get('response') || '';
   const linkedResponse = state.attempts.find((response) => response.id === linkedResponseId) || null;
@@ -345,11 +350,16 @@ export function ReviewPage() {
 
   async function requestAiReview(targetsOrIds, retryAcknowledged = false, retryTokens = {}, excludeArchived = false,
       rerunRequested = false) {
-    if (aiBusy.current || !isCurrentScope()) return;
+    if (!isCurrentScope()) return;
+    if (aiBusy.current || aiBatch.running) {
+      notifications.show({ color: 'blue', title: 'AI Review already running',
+        message: 'A review is already running. PDFs included in the batch will be checked there; no additional AI request was sent.' });
+      return;
+    }
     const candidates = normalizeAiTargets(targetsOrIds, state)
-      .filter((target) => isArtifactDocumentCheckCurrent(target.response, target.field));
+      .filter((target) => !excludeArchived || target.response?.archiveStatus !== 'Archived');
     if (!candidates.length) {
-      notifications.show({ message: 'No selected PDF artifacts have a current Document Check and AI Review enabled.' });
+      notifications.show({ message: 'No selected PDF submissions have AI Review enabled.' });
       return;
     }
     const effectiveRetryTokens = { ...retryTokens };
@@ -366,6 +376,11 @@ export function ReviewPage() {
         modals.openConfirmModal({ title: 'AI review is not connected', centered: true,
           children: <Text size="sm">{provider.message || 'Gemini is ready to connect. Add its API key to the backend to enable reviews.'} No documents have been sent.</Text>,
           labels: { confirm: 'Understood', cancel: 'Close' } });
+        return;
+      }
+      if (!rerunRequested || candidates.length > 1) {
+        setAiProgress(null);
+        await aiBatch.prepare(candidates);
         return;
       }
       const modalId = modals.open({ title: retryAcknowledged ? 'Retry AI reviews?'
@@ -759,6 +774,13 @@ export function ReviewPage() {
           <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done) || !allAiTargets.length} onClick={() => requestAiReview(allAiTargets, false, {}, true)}>AI review all</Button>
           <Button variant="subtle" onClick={() => setOverviewOpen(value => !value)} aria-expanded={overviewOpen}>{overviewOpen ? 'Hide overview' : 'Deliverable overview'}</Button></Group>
       </Group></Paper>
+      <AiReviewBatchPanel batch={aiBatch.batch} error={aiBatch.error} busy={aiBatch.busy}
+        onResume={aiBatch.resume} onChoose={aiBatch.open} onRefresh={reload}
+        onPrepare={() => requestAiReview(allAiTargets, false, {}, true)} />
+      <Modal opened={aiBatch.opened} onClose={aiBatch.cancel} title="AI review submissions" centered size="lg">
+        <AiReviewBatchDialog key={aiBatch.batch?.id || 'new'} plan={aiBatch.batch} error={aiBatch.error}
+          busy={aiBatch.busy} onStart={aiBatch.start} onCancel={aiBatch.cancel} />
+      </Modal>
       {aiProgress ? <Alert role="status" color={aiProgress.failures.length || aiProgress.skippedInaccessible?.length || aiProgress.savedRefresh?.errors.length ? 'orange' : 'blue'} title={aiProgress.savedRefresh?.done
         ? aiProgress.savedRefresh.checked === aiProgress.savedRefresh.total
           && aiProgress.savedRefresh.available === aiProgress.savedRefresh.total
@@ -1074,6 +1096,7 @@ export function ReviewPage() {
         report={aiReportDialogReport}
         review={aiReportDialogReview}
         fieldLabel={aiReportDialogField?.label}
+        deliverableTitle={aiReportDialogDeliverable?.title}
         onClose={() => setAiReportDialogTarget(null)}
       />
       </ResourceBoundary>

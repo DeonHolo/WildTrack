@@ -119,6 +119,38 @@ class AiReviewDeduplicationTest {
     }
     private AiReviewService.View run(FormResponse response) { return service.review(workspace, response.getId(), "admin", false); }
 
+    @Test void preparationHashesDifferentLinksWithoutClaimingOrCallingTheProvider() {
+        var one = service.preview(workspace, first.getId(), null, "admin");
+        var two = service.preview(workspace, second.getId(), null, "admin");
+        assertThat(one.key()).isEqualTo(two.key());
+        assertThat(one.category()).isEqualTo("MISSING");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ai_review_jobs", Integer.class)).isZero();
+        verify(provider, never()).review(any());
+        files.put("file-second", "%PDF-new-document-bytes".getBytes(StandardCharsets.UTF_8));
+        assertThat(service.preview(workspace, second.getId(), null, "admin").key()).isNotEqualTo(one.key());
+    }
+
+    @Test void preparationDisclosesOlderReviewAfterSubmittedUrlChangesWithoutReusingItAsCurrent() {
+        service.review(workspace, first.getId(), null, "admin", false, null, false);
+        first.setValuesJson("{\"documentPdf\":\"https://drive.google.com/file/d/file-second/view\"}");
+        files.put("file-second", "%PDF-updated-document".getBytes(StandardCharsets.UTF_8));
+        var plan = service.preview(workspace, first.getId(), null, "admin");
+        assertThat(plan.outdated()).isTrue();
+        assertThat(plan.generatedAt()).isNotNull();
+        assertThat(plan.category()).isEqualTo("MISSING");
+        verify(provider, times(1)).review(any());
+    }
+
+
+    @Test void plannedContentsChangingBeforeStartCannotClaimOrSendAReview() {
+        var plan = service.preview(workspace, first.getId(), null, "admin");
+        files.put("file-first", "%PDF-replaced-document".getBytes(StandardCharsets.UTF_8));
+        assertThatThrownBy(() -> service.reviewPlanned(workspace, first.getId(), plan.fieldId(), "admin",
+            false, null, false, plan.key(), null)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("changed after preparation");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ai_review_jobs", Integer.class)).isZero();
+        verify(provider, never()).review(any());
+    }
+
     @Test void missingSubmittedDriveFileFailsBeforeClaimWithActionable422() {
         doThrow(new GoogleDriveUnavailableException("Private Drive 404 text should not leak",
             new HttpClientErrorException(HttpStatus.NOT_FOUND), GoogleDriveUnavailableException.Kind.FILE_ACCESS))

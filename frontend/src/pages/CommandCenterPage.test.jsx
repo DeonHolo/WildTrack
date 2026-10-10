@@ -149,6 +149,11 @@ function pageTree() {
 
 function renderPage() { return render(pageTree()); }
 
+function workQueueTitles() {
+  return within(screen.getByRole('table', { name: "Today's work queue" }))
+    .getAllByRole('row').slice(1).map(row => row.querySelector('strong').textContent);
+}
+
 describe("today's work queues", () => {
   beforeEach(() => {
     notifications.clean();
@@ -349,6 +354,149 @@ describe("today's work queues", () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Review' }));
     expect(screen.getByText('No review work')).toBeInTheDocument();
+  });
+
+  it('defaults to Priority and orders all task types using their existing activity timestamps', () => {
+    const activity = day => `2026-10-${String(day).padStart(2, '0')}T08:00:00Z`;
+    workflow.state = makeState([
+      response('document-001', { updatedAt: '', submittedAt: activity(1) }),
+      response('identity-002', { identityConflict: true, updatedAt: activity(2) }),
+      checkedResponse('review-003', { documentCheck: { status: 'Current', checkedAt: activity(3),
+        sourceResponseUpdatedAt: submittedAt } }),
+      response('accepted-004', { reviewStatus: 'Accepted', acceptance: { acceptedAt: activity(4) } })
+    ]);
+    workflow.state.fileEvents = [{ id: 'file-event', fileId: 'shared-file', kind: 'CONTENT_CHANGED',
+      observedAt: activity(5), responseIds: ['document-001'], teamCodes: ['TEAM-1'] }];
+    workflow.state.openConflicts = [{ id: 'account-conflict', studentNumber: 'student-6', studentName: 'Account owner',
+      status: 'OPEN', createdAt: activity(6) }];
+    workflow.state.classRecord = { importSummary: { sourceType: 'Tracker', resultStatus: 'Imported with warnings',
+      warnings: ['Missing deadline row.'] }, sources: { tracker: { connectedAt: activity(7) } } };
+    workflow.state.archives = [
+      { id: 'archive-verified', teamCode: 'TEAM-8', deliverableTitle: 'SRS', integrityStatus: 'Verification failed',
+        lastCheckedAt: activity(8), archivedAt: activity(1) },
+      { id: 'archive-stored', teamCode: 'TEAM-9', deliverableTitle: 'SRS', storageStatus: 'Failed', archivedAt: activity(9) }
+    ];
+    renderPage();
+
+    const sort = screen.getByRole('combobox', { name: 'Sort by' });
+    expect(sort).toHaveValue('priority');
+    expect(within(sort).getAllByRole('option').map(option => option.textContent))
+      .toEqual(['Priority', 'Newest activity', 'Oldest activity']);
+    expect(workQueueTitles()).toEqual([
+      'Account owner has unresolved Google account claims',
+      'Student identity-002 used an identity already associated with another response',
+      'SRS | PDF content changed', 'Student document-001 | SRS', 'Student review-003 | SRS',
+      'Tracker import needs attention', 'TEAM-9 | SRS', 'TEAM-8 | SRS', 'Student accepted-004 | SRS'
+    ]);
+    const newest = [
+      'TEAM-9 | SRS', 'TEAM-8 | SRS', 'Tracker import needs attention',
+      'Account owner has unresolved Google account claims', 'SRS | PDF content changed',
+      'Student accepted-004 | SRS', 'Student review-003 | SRS',
+      'Student identity-002 used an identity already associated with another response', 'Student document-001 | SRS'
+    ];
+    fireEvent.change(sort, { target: { value: 'newest' } });
+    expect(workQueueTitles()).toEqual(newest);
+    fireEvent.change(sort, { target: { value: 'oldest' } });
+    expect(workQueueTitles()).toEqual([...newest].reverse());
+    expect(screen.getByRole('tab', { name: 'Open (9)' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Dismissed (0)' })).toBeInTheDocument();
+    expect(screen.getByText('Showing 1-9 of 9')).toBeInTheDocument();
+    expect(api.dismissWorkTask).not.toHaveBeenCalled();
+    expect(workflow.runDocumentCheck).not.toHaveBeenCalled();
+  });
+
+  it('sorts before pagination and resets to the first page on sort or workspace changes', () => {
+    workflow.activeWorkspaceId = 'ws-sort-old';
+    workflow.state = makeState(Array.from({ length: 53 }, (_, index) => response(
+      `unchecked-${String(index + 1).padStart(3, '0')}`,
+      { updatedAt: new Date(Date.UTC(2026, 9, 1, 0, index)).toISOString() }
+    )));
+    const view = renderPage();
+    expect(workQueueTitles()[0]).toBe('Student unchecked-053 | SRS');
+    fireEvent.click(screen.getByRole('button', { name: '2', exact: true }));
+    expect(screen.getByText('Showing 51-53 of 53')).toBeInTheDocument();
+    expect(workQueueTitles()).toEqual([
+      'Student unchecked-003 | SRS', 'Student unchecked-002 | SRS', 'Student unchecked-001 | SRS'
+    ]);
+
+    const sort = screen.getByRole('combobox', { name: 'Sort by' });
+    fireEvent.change(sort, { target: { value: 'oldest' } });
+    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
+    expect(workQueueTitles()).toHaveLength(50);
+    expect(workQueueTitles()[0]).toBe('Student unchecked-001 | SRS');
+    expect(workQueueTitles()[49]).toBe('Student unchecked-050 | SRS');
+    fireEvent.click(screen.getByRole('button', { name: '2', exact: true }));
+    expect(workQueueTitles()[0]).toBe('Student unchecked-051 | SRS');
+    fireEvent.change(sort, { target: { value: 'newest' } });
+    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
+    expect(workQueueTitles()[0]).toBe('Student unchecked-053 | SRS');
+
+    fireEvent.click(screen.getByRole('button', { name: '2', exact: true }));
+    workflow.activeWorkspaceId = 'ws-sort-new';
+    view.rerender(pageTree());
+    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Sort by' })).toHaveValue('newest');
+    expect(workQueueTitles()[0]).toBe('Student unchecked-053 | SRS');
+  });
+
+  it('keeps missing and invalid activity last in both chronological modes with deterministic ties', () => {
+    workflow.state = makeState([
+      response('tied-b', { updatedAt: '2026-10-10T16:00:00+08:00' }),
+      response('missing', { updatedAt: null, submittedAt: null }),
+      response('old', { updatedAt: '2026-10-01T08:00:00Z' }),
+      response('tied-a', { updatedAt: '2026-10-10T08:00:00Z' }),
+      response('invalid', { updatedAt: 'invalid date' })
+    ]);
+    renderPage();
+    const sort = screen.getByRole('combobox', { name: 'Sort by' });
+    fireEvent.change(sort, { target: { value: 'newest' } });
+    expect(workQueueTitles()).toEqual(['tied-a', 'tied-b', 'old', 'invalid', 'missing']
+      .map(id => `Student ${id} | SRS`));
+    fireEvent.change(sort, { target: { value: 'oldest' } });
+    expect(workQueueTitles()).toEqual(['old', 'tied-a', 'tied-b', 'invalid', 'missing']
+      .map(id => `Student ${id} | SRS`));
+    expect(within(screen.getByRole('table', { name: "Today's work queue" })).getAllByText('Not recorded'))
+      .toHaveLength(2);
+  });
+
+  it('preserves filters, counts, dismissal, restoration, and the selected response after sorting', async () => {
+    workflow.activeWorkspaceId = 'ws-sort-actions';
+    const review = (id, checkedAt) => checkedResponse(id, { documentCheck: {
+      status: 'Current', checkedAt, sourceResponseUpdatedAt: submittedAt
+    } });
+    workflow.state = makeState([
+      review('review-new', '2026-10-10T08:00:00Z'),
+      review('review-old', '2026-10-01T08:00:00Z'),
+      review('review-dismissed', '2026-10-05T08:00:00Z'), response('unchecked-other')
+    ]);
+    workflow.state.dismissedKeys = ['review:review-dismissed'];
+    renderPage();
+    const filters = screen.getByRole('group', { name: 'Work queue filter' });
+    fireEvent.click(within(filters).getByRole('button', { name: 'Review' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search work queue' }), { target: { value: 'review' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort by' }), { target: { value: 'oldest' } });
+    expect(workQueueTitles()).toEqual(['Student review-old | SRS', 'Student review-new | SRS']);
+    expect(within(filters).getByRole('button', { name: 'Review' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('searchbox', { name: 'Search work queue' })).toHaveValue('review');
+    expect(screen.getByRole('tab', { name: 'Open (3)' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Dismissed (1)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dismiss all Review notifications' })).toHaveTextContent('(2)');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss Review decision: Student review-old | SRS' }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Open (2)' })).toBeInTheDocument());
+    expect(api.dismissWorkTask).toHaveBeenCalledWith('ws-sort-actions', 'review:review-old');
+    fireEvent.click(screen.getByRole('tab', { name: 'Dismissed (2)' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort by' }), { target: { value: 'newest' } });
+    expect(workQueueTitles()).toEqual(['Student review-dismissed | SRS', 'Student review-old | SRS']);
+    fireEvent.click(screen.getByRole('button', { name: 'Restore Review decision: Student review-old | SRS' }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Open (3)' })).toBeInTheDocument());
+    expect(api.restoreWorkTask).toHaveBeenCalledWith('ws-sort-actions', 'review:review-old');
+    fireEvent.click(screen.getByRole('tab', { name: 'Open (3)' }));
+    expect(workQueueTitles()).toEqual(['Student review-new | SRS', 'Student review-old | SRS']);
+    fireEvent.click(screen.getByRole('button', { name: 'Review Student review-old response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student review-old' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Accept response' }));
+    await waitFor(() => expect(workflow.acceptResponse).toHaveBeenCalledWith('review-old'));
   });
 
   it('shows a concise all-clear state when no actionable work exists', () => {
@@ -694,7 +842,7 @@ describe("today's work queues", () => {
     expect(within(drawer).queryByText('Previously saved AI findings.')).not.toBeInTheDocument();
     expect(within(drawer).getByText('Fresh rerun findings from Gemini.')).toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole('button', { name: 'View AI Review' }));
-    expect(await screen.findByRole('dialog', { name: 'AI Review: PDF Drive link' }))
+    expect(await screen.findByRole('dialog', { name: 'AI Review: Week 9: Software Requirements Specification' }))
       .toHaveTextContent('Fresh rerun findings from Gemini.');
   });
 
@@ -747,7 +895,7 @@ describe("today's work queues", () => {
       .getByRole('button', { name: 'Rerun review' }));
     await waitFor(() => expect(within(drawer).getByText(/Latest AI Review inconclusive/)).toBeInTheDocument());
     fireEvent.click(within(drawer).getByRole('button', { name: 'View previous AI Review' }));
-    const saved = await screen.findByRole('dialog', { name: 'AI Review: PDF Drive link' });
+    const saved = await screen.findByRole('dialog', { name: 'AI Review: Week 9: Software Requirements Specification' });
     expect(saved).toHaveTextContent('Previously saved AI Review');
     expect(saved).toHaveTextContent('Title page: Software Project Management Plan');
     expect(saved).not.toHaveTextContent('AI review completed.');

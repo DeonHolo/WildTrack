@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
@@ -75,6 +75,12 @@ function renderEditor(path) {
 
 describe('full-page form editor', () => {
   beforeEach(() => {
+    // Floating menus need viewport geometry; jsdom otherwise reports no space.
+    vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1280);
+    vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 20, y: 100, top: 100, left: 20, bottom: 136, right: 340, width: 320, height: 36, toJSON() {}
+    });
     formsClient.loadFormsState.mockReset().mockResolvedValue(state());
     submissionClient.saveDeliverable.mockReset().mockImplementation(async (_workspaceId, payload) => ({
       ...payload,
@@ -178,7 +184,7 @@ describe('full-page form editor', () => {
     fireEvent.click(redo);
     expect(screen.getByRole('textbox', { name: 'Form title' })).toHaveValue('Revised SRS title');
 
-    fireEvent.click(screen.getByRole('button', { name: '+ Add Button' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add question' }));
     expect(screen.getByDisplayValue('New question')).toBeInTheDocument();
     expect(screen.getAllByText(/Question [0-9]+ of [0-9]+/).length).toBeGreaterThan(0);
     expect(screen.queryByText('Section 1 of 1')).not.toBeInTheDocument();
@@ -191,12 +197,40 @@ describe('full-page form editor', () => {
     await screen.findByDisplayValue('SRS Submission');
 
     fireEvent.click(screen.getByDisplayValue('Framework PDF'));
-    fireEvent.click(screen.getByRole('button', { name: '+ Add Button' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add question' }));
 
     const labels = screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value);
     expect(labels.indexOf('New question')).toBe(labels.indexOf('Framework PDF') + 1);
     expect(screen.getByDisplayValue('New question').closest('.wt-question-card')).toHaveClass('is-selected');
+    expect(screen.getByDisplayValue('New question').closest('.wt-question-card')).toHaveClass('is-new-question');
+    expect(screen.getByDisplayValue('New question')).toHaveFocus();
+    expect(document.querySelector('.wt-form-editor-announcement')).toHaveTextContent('Added New question at position 6 of 7');
+    expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
+  });
+
+  it('inserts with visible focus and a temporary highlight while respecting reduced motion', async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: query === '(prefers-reduced-motion: reduce)', addEventListener: vi.fn(), removeEventListener: vi.fn()
+    }));
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Add question' }));
+      const label = screen.getByDisplayValue('New question');
+      expect(label).toHaveFocus();
+      expect(label.closest('.wt-question-card')).toHaveClass('is-new-question');
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' });
+      act(() => vi.advanceTimersByTime(4000));
+      expect(label.closest('.wt-question-card')).not.toHaveClass('is-new-question');
+      expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      matchMedia.mockRestore();
+    }
   });
 
   it('renders the saved public URL as a top-right action button', async () => {
@@ -246,6 +280,70 @@ describe('full-page form editor', () => {
     expect(activeOrder).toEqual(['studentNumber', 'studentName', 'teamCode', 'section', 'scope', 'framework']);
   });
 
+  it.each(['before', 'after'])('previews and performs an explicit %s-card drop without saving or changing persisted identities', async (side) => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    const source = screen.getByRole('button', { name: 'Drag Framework PDF' });
+    const sourceCard = source.closest('.wt-question-card');
+    const targetCard = screen.getAllByRole('textbox', { name: 'Field label' }).find((input) => input.value === 'Team Code').closest('.wt-question-card');
+    targetCard.getBoundingClientRect = () => ({ top: 100, height: 200 });
+    const dataTransfer = { effectAllowed: '', dropEffect: '', setData: vi.fn(), setDragImage: vi.fn() };
+    fireEvent.dragStart(source, { dataTransfer });
+    expect(sourceCard).toHaveClass('is-dragging');
+    expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', 'framework');
+    expect(document.querySelector('.wt-question-drag-preview')).toHaveAttribute('aria-hidden', 'true');
+    const over = new Event('dragover', { bubbles: true, cancelable: true });
+    Object.defineProperties(over, { clientY: { value: side === 'before' ? 120 : 280 }, dataTransfer: { value: dataTransfer } });
+    fireEvent(targetCard, over);
+    const indicator = document.querySelector('.wt-question-drop-indicator');
+    expect(indicator).toHaveClass(`is-${side}`);
+    expect(indicator).toHaveTextContent(`Drop ${side} Team Code`);
+    expect(document.querySelector('.wt-form-editor-announcement')).toHaveTextContent(`Drop ${side} Team Code`);
+    fireEvent.drop(targetCard);
+    expect(document.querySelector('.wt-question-drop-indicator')).not.toBeInTheDocument();
+    expect(document.querySelector('.wt-question-drag-preview')).not.toBeInTheDocument();
+    expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
+    const expected = side === 'before'
+      ? ['Student Number', 'Student Name', 'Framework PDF', 'Team Code', 'Section', 'Scope']
+      : ['Student Number', 'Student Name', 'Team Code', 'Framework PDF', 'Section', 'Scope'];
+    expect(screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value)).toEqual(expected);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalled());
+    const saved = submissionClient.saveDeliverable.mock.calls[0][1];
+    expect(saved.fields.find((field) => field.id === 'framework')).toMatchObject({ definitionId: 'field-framework', type: 'drive' });
+    expect(saved.fields.find((field) => field.id === 'scope').options.map((option) => option.id)).toEqual(['option-a', 'option-b']);
+  });
+
+  it('cancels a drag with Escape, removes its preview, and preserves the clean draft', async () => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    const before = screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value);
+    const source = screen.getByRole('button', { name: 'Drag Framework PDF' });
+    fireEvent.dragStart(source, { dataTransfer: { effectAllowed: '', setDragImage: vi.fn() } });
+    fireEvent.dragOver(screen.getByDisplayValue('Scope').closest('.wt-question-card'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(source.closest('.wt-question-card')).not.toHaveClass('is-dragging');
+    expect(document.querySelector('.wt-question-drop-indicator')).not.toBeInTheDocument();
+    expect(document.querySelector('.wt-question-drag-preview')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value)).toEqual(before);
+    expect(screen.getByRole('status')).toHaveTextContent('No unsaved changes');
+    expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
+  });
+
+  it('keeps move buttons as accessible reorder alternatives with a position announcement', async () => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    const move = screen.getByRole('button', { name: 'Move Framework PDF up' });
+    move.focus();
+    fireEvent.click(move);
+    expect(move).toHaveFocus();
+    expect(screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value)).toEqual([
+      'Student Number', 'Student Name', 'Team Code', 'Framework PDF', 'Section', 'Scope'
+    ]);
+    expect(document.querySelector('.wt-form-editor-announcement')).toHaveTextContent('Moved Framework PDF to position 4 of 6');
+    expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
+  });
+
   it('reviews academic suggestions before applying selection and order, with Student Number locked', async () => {
     const data = state();
     data.deliverables[0].fields.splice(1, 0, {
@@ -290,7 +388,67 @@ describe('full-page form editor', () => {
     await screen.findByDisplayValue('SRS Submission');
     const frameworkCard = screen.getByDisplayValue('Framework PDF').closest('.wt-question-card');
     fireEvent.click(within(frameworkCard).getByRole('textbox', { name: 'Field type' }));
-    await waitFor(() => expect(document.querySelector('.wt-field-type-dropdown')).toBeInTheDocument());
+    const pdfOption = await screen.findByRole('option', { name: 'Google Drive PDF link', exact: true });
+    const dropdown = pdfOption.closest('.wt-field-type-dropdown');
+    expect(dropdown).toHaveClass('wt-form-designer-type-dropdown');
+    expect(frameworkCard).not.toContainElement(dropdown);
+    expect(within(dropdown).getByRole('option', { name: 'Google Drive PDF link', exact: true })).toBeInTheDocument();
+    expect(within(dropdown).getByRole('option', { name: 'Section', exact: true })).toBeInTheDocument();
+    expect(within(dropdown).getAllByRole('option')).toHaveLength(14);
+  });
+
+  it.each(['Framework PDF', 'Scope'])('retires the original persisted definition after a type edit and rejected Save: %s', async (label) => {
+    const loaded = state();
+    const original = loaded.deliverables[0].fields.find((field) => field.label === label);
+    const oldResponse = { id: 'old-response', deliverableId: 'form-srs', values: {
+      framework: 'https://drive.google.com/file/d/original-pdf/view', scope: 'Campus'
+    } };
+    loaded.attempts = [oldResponse];
+    formsClient.loadFormsState.mockResolvedValueOnce(loaded);
+    submissionClient.saveDeliverable.mockImplementation(async (_workspaceId, payload) => {
+      const persisted = payload.fields.find((field) => field.definitionId === original.definitionId);
+      if (persisted.type !== original.type) throw new Error('A submission field type cannot be changed after responses exist. Remove it from the form and add a new field instead.');
+      return { ...payload, updatedAt: '2026-09-19T04:00:00' };
+    });
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    const card = screen.getByDisplayValue(label).closest('.wt-question-card');
+    fireEvent.click(within(card).getByRole('textbox', { name: 'Field type' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Short answer', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('A submission field type cannot be changed after responses exist');
+
+    fireEvent.click(screen.getByRole('button', { name: `Remove ${label}` }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add question' }));
+    const replacement = screen.getByDisplayValue('New question').closest('.wt-question-card');
+    fireEvent.change(within(replacement).getByRole('textbox', { name: 'Field label' }), { target: { value: 'Replacement note' } });
+    fireEvent.click(within(replacement).getByRole('textbox', { name: 'Field type' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Paragraph', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    const saved = submissionClient.saveDeliverable.mock.calls.at(-1)[1];
+    expect(saved.fields.find((field) => field.definitionId === original.definitionId))
+      .toMatchObject({ id: original.id, type: original.type, label: original.label, active: false });
+    expect(saved.fields.find((field) => field.definitionId === original.definitionId).options.map((option) => option.id))
+      .toEqual(original.options.map((option) => option.id));
+    expect(saved.fields.find((field) => field.label === 'Replacement note'))
+      .toMatchObject({ definitionId: null, type: 'textarea', active: true });
+    expect(saved.fields.find((field) => field.label === 'Replacement note').id).not.toBe(original.id);
+    expect(loaded.attempts[0]).toEqual(oldResponse);
+  });
+
+  it('restores the edited draft type on deletion Undo rather than discarding the pending edit', async () => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    const card = screen.getByDisplayValue('Framework PDF').closest('.wt-question-card');
+    fireEvent.click(within(card).getByRole('textbox', { name: 'Field type' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Paragraph', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Framework PDF' }));
+    const snackbar = screen.getByText('Item deleted').closest('.wt-form-editor-delete-snackbar');
+    fireEvent.click(within(snackbar).getByRole('button', { name: 'Undo' }));
+    const restored = screen.getByDisplayValue('Framework PDF').closest('.wt-question-card');
+    expect(within(restored).getByRole('textbox', { name: 'Field type' })).toHaveValue('Paragraph');
+    expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
   });
 
   it('keeps Student Number as a single non-duplicable identity anchor', async () => {

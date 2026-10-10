@@ -9,7 +9,6 @@ import {
   Button,
   Divider,
   Group,
-  NativeSelect,
   Paper,
   Progress,
   ScrollArea,
@@ -119,13 +118,15 @@ export function AdviserViewPage() {
   const selectedTeam = allTeams.find((team) => team.teamCode === requestedTeamCode) || allTeams[0] || null;
   const selectedTeamCode = selectedTeam?.teamCode || '';
   const deliverableRows = useMemo(
-    () => selectedTeam ? buildTeamDeliverableRows(state, selectedTeam) : [],
-    [selectedTeam, state]
+    () => selectedTeam ? buildTeamDeliverableRows(state, selectedTeam).map((row) => ({
+      ...row,
+      ...resolveGroupOutput(row, selectedOutputIds[outputSelectionKey(activeWorkspaceId, selectedTeamCode, row.deliverable.id)])
+    })) : [],
+    [activeWorkspaceId, selectedTeam, selectedTeamCode, selectedOutputIds, state]
   );
   const selectedRow = deliverableRows.find((row) => row.deliverable.id === requestedDeliverableId) || deliverableRows[0] || null;
-  const selectedOutputId = selectedRow ? selectedOutputIds[selectedRow.deliverable.id] : '';
-  const selectedOutput = selectedRow?.outputs.find((output) => output.id === selectedOutputId) || selectedRow?.currentOutput || null;
-  const selectedResponse = selectedOutput?.latest || null;
+  const selectedOutput = selectedRow?.currentOutput || null;
+  const selectedResponse = selectedRow?.currentResponse || null;
   const currentFeedback = selectedResponse?.feedback?.find((item) => item.visibility !== 'Staff') || null;
   const checkDialogResponse = state.attempts.find((response) => response.id === checkDialogTarget?.responseId) || null;
   const checkDialogDeliverable = checkDialogResponse
@@ -175,7 +176,6 @@ export function AdviserViewPage() {
   }, [adviserName, adviserOptions, reviewStatus, viewOtherAdviser]);
 
   useEffect(() => {
-    setSelectedOutputIds({});
     setBatchProgress(null);
     setAiReviewDialogTarget(null);
   }, [selectedTeamCode]);
@@ -241,14 +241,22 @@ export function AdviserViewPage() {
   }
 
   function selectOutput(outputId) {
-    if (!selectedRow) return;
-    setSelectedOutputIds((current) => ({ ...current, [selectedRow.deliverable.id]: outputId }));
+    const output = selectedRow?.outputs.find((item) => item.id === outputId);
+    const response = output && reviewResponseForOutput(output);
+    if (!response || !isCurrentScope()) return;
+    const key = outputSelectionKey(activeWorkspaceId, selectedTeamCode, selectedRow.deliverable.id);
+    setSelectedOutputIds((current) => ({
+      ...current,
+      [key]: { outputId, responseId: response.id, sourceResponseUpdatedAt: response.updatedAt || response.submittedAt }
+    }));
+    setFeedbackError(null);
+    setCheckDialogTarget(null);
   }
 
   async function submitFeedback(event) {
     event.preventDefault();
     const note = feedback.trim();
-    if (!selectedResponse || !note) return;
+    if (!selectedResponse || !note || !isCurrentScope()) return;
     setFeedbackError(null);
     try {
       const serverState = await saveReviewFeedback(selectedResponse.id, { note, visibility: 'Student' });
@@ -318,7 +326,7 @@ export function AdviserViewPage() {
   }
 
   async function changeAcceptance(action) {
-    if (!isCurrentScope()) return;
+    if (!selectedResponse || !isCurrentScope()) return;
     setFeedbackError(null);
     try {
       const serverState = await action(selectedResponse.id);
@@ -517,13 +525,13 @@ export function AdviserViewPage() {
                         </Table.Td>
                         <Table.Td>
                           <Text fw={750}>{groupFileLabel(row)}</Text>
-                          <Text size="xs" c={row.hasConflict ? 'red' : 'dimmed'}>{row.hasConflict ? 'Selection required' : outputOwnerLabel(row.currentOutput)}</Text>
+                          <Text size="xs" c={row.requiresSelection ? 'orange.9' : 'dimmed'}>{groupSelectionLabel(row)}</Text>
                         </Table.Td>
                         <Table.Td className="wt-review-status-cell">
-                          <StatusIndicator status={documentCheckLabel(row.currentOutput?.latest, row.deliverable)} />
+                          <StatusIndicator status={documentCheckLabel(row.currentResponse, row.deliverable)} />
                         </Table.Td>
                         <Table.Td className="wt-review-status-cell">
-                          <StatusIndicator status={decisionLabel(row.currentOutput?.latest)} />
+                          <StatusIndicator status={decisionLabel(row.currentResponse)} />
                         </Table.Td>
                         <Table.Td>
                           <Tooltip label={`Open ${row.deliverable.shortTitle} details`}>
@@ -604,6 +612,7 @@ export function AdviserViewPage() {
         report={aiReviewDialogReport}
         review={aiReviewDialogReview}
         fieldLabel={aiReviewDialogField?.label || 'PDF'}
+        deliverableTitle={aiReviewDialogDeliverable?.title}
       />
       </ResourceBoundary>
     </Stack>
@@ -646,7 +655,7 @@ function SelectedGroupOutput({
         </div>
         <Group gap="xs" wrap="wrap">
           {accepted ? (
-            <Button color="red" variant="light" leftSection={<XCircle size={17} />} onClick={onRevoke}>Revoke acceptance</Button>
+            <Button color="red" variant="light" leftSection={<XCircle size={17} aria-hidden="true" />} onClick={onRevoke}>Revoke acceptance</Button>
           ) : (
             <Button color="wildtrackMaroon" leftSection={<CheckCircle size={17} aria-hidden="true" />} disabled={!response} onClick={onAccept}>Accept group output</Button>
           )}
@@ -654,24 +663,69 @@ function SelectedGroupOutput({
       </div>
 
       {row.hasConflict ? (
-        <Alert color="orange" variant="light" icon={<WarningCircle size={20} />} title={`${row.outputs.length} different files were submitted`}>
-          Choose the file that represents the team's current output before leaving feedback or accepting it.
-        </Alert>
+        row.requiresSelection ? (
+          <Alert color="orange" variant="light" icon={<WarningCircle size={20} aria-hidden="true" />} title={row.outputs.length + ' different files were submitted'}>
+            {row.acceptedOutputCount > 1
+              ? 'More than one file has current acceptance. Compare the submitted files and choose which output to review.'
+              : "Choose the team's current output below. Feedback and acceptance stay unavailable until a file is selected."}
+          </Alert>
+        ) : (
+          <Alert
+            role="status"
+            color={accepted ? 'green' : 'wildtrackMaroon'}
+            variant="light"
+            icon={<CheckCircle size={20} aria-hidden="true" />}
+            title={accepted ? 'Accepted group output' : 'Current group output selected'}
+          >
+            {'File ' + (row.outputs.findIndex((item) => item.id === outputId) + 1) + (accepted ? ' is accepted.' : ' is selected for feedback and review.')} Other submitted files remain available below for comparison.
+          </Alert>
+        )
       ) : null}
 
       {row.outputs.length > 1 ? (
-        <NativeSelect
+        <Select
           label="Current group output"
-          value={outputId}
-          onChange={(event) => onSelectOutput(event.currentTarget.value)}
+          description="Choose a submitted file to review. Feedback and decisions apply to the selected output."
+          placeholder="Choose a submitted file"
+          size="md"
+          searchable
+          allowDeselect={false}
+          value={outputId || null}
+          onChange={onSelectOutput}
           data={row.outputs.map((item, index) => ({
             value: item.id,
-            label: `File ${index + 1} | ${outputOwnerLabel(item)} | saved ${formatDateTime(item.latest.updatedAt || item.latest.submittedAt)}`
+            label: 'File ' + (index + 1) + ' | ' + outputOwnerLabel(item)
           }))}
+          renderOption={({ option, checked }) => {
+            const item = row.outputs.find((output) => output.id === option.value);
+            const itemResponse = reviewResponseForOutput(item);
+            return (
+              <Group wrap="nowrap" align="flex-start" w="100%">
+                <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
+                  <Text size="sm" fw={750} style={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{option.label}</Text>
+                  <Text size="xs" c="dimmed">
+                    {'saved ' + formatDateTime(itemResponse.updatedAt || itemResponse.submittedAt) + (itemResponse.reviewStatus === 'Accepted' ? ' | Accepted' : '')}
+                  </Text>
+                </Stack>
+                {checked ? <CheckCircle size={20} aria-hidden="true" style={{ flexShrink: 0 }} /> : null}
+              </Group>
+            );
+          }}
+          styles={{ input: { minHeight: 44 }, option: { minHeight: 44 } }}
         />
       ) : null}
 
-      {!response ? (
+      {response ? (
+        <Paper withBorder radius="sm" p="sm">
+          <Text size="sm" fw={750}>{response.studentName || outputOwnerLabel(row.currentOutput)}</Text>
+          <Text size="xs" c="dimmed">Saved {formatDateTime(response.updatedAt || response.submittedAt)}</Text>
+        </Paper>
+      ) : null}
+
+
+      {!response && row.requiresSelection ? (
+        <Text size="sm" c="dimmed">Select a group output to view its submission artifacts.</Text>
+      ) : !response ? (
         <Alert color="gray" variant="light" icon={<Files size={20} />} title="No group output received">
           No member of this team has submitted this deliverable yet.
         </Alert>
@@ -877,7 +931,7 @@ export function buildAdviserTeams(state, adviserName, query = '') {
       const assignedAdviser = getTeamAdviser(state, teamCode);
       const memberNumbers = new Set(members.map((member) => normalizeStudentNumber(member.studentNumber)));
       const responseCount = state.attempts.filter((response) => (
-        response.teamCode === teamCode || memberNumbers.has(normalizeStudentNumber(response.studentNumber))
+        response.teamCode ? response.teamCode === teamCode : memberNumbers.has(normalizeStudentNumber(response.studentNumber))
       )).length;
       return { teamCode, members, project, assignedAdviser, responseCount };
     })
@@ -890,15 +944,16 @@ export function buildTeamDeliverableRows(state, team) {
   return sortDeliverables(state, getPublishedDeliverables(state)).map((deliverable) => {
     const responses = state.attempts
       .filter((response) => response.deliverableId === deliverable.id)
-      .filter((response) => response.teamCode === team.teamCode || teamNumbers.has(normalizeStudentNumber(response.studentNumber)))
+      .filter((response) => response.teamCode
+        ? response.teamCode === team.teamCode
+        : teamNumbers.has(normalizeStudentNumber(response.studentNumber)))
       .sort(sortResponsesNewestFirst);
-    const outputs = groupEquivalentResponses(responses, team.members);
+    const outputs = groupEquivalentResponses(responses, team.members, deliverable);
     const receivedMembers = new Set(responses.map((response) => normalizeStudentNumber(response.studentNumber)).filter(Boolean));
     return {
       deliverable,
       responses,
       outputs,
-      currentOutput: outputs[0] || null,
       hasConflict: outputs.filter((output) => output.hasSubmittedValue).length > 1,
       receivedMemberCount: receivedMembers.size,
       responseCount: responses.length
@@ -906,11 +961,12 @@ export function buildTeamDeliverableRows(state, team) {
   });
 }
 
-function groupEquivalentResponses(responses, members) {
+function groupEquivalentResponses(responses, members, deliverable) {
+  const fields = submissionArtifactFields(deliverable.fields || []);
   const groups = new Map();
   responses.forEach((response) => {
-    const hasSubmittedValue = Object.values(response.values || {}).some((value) => String(value || '').trim());
-    const signature = outputSignature(response.values) || `response:${response.id}`;
+    const hasSubmittedValue = fields.some((field) => String(response.values?.[field.id] || '').trim());
+    const signature = outputSignature(response.values, fields) || `response:${response.id}`;
     const current = groups.get(signature) || { id: signature, hasSubmittedValue, responses: [], latest: response, senderNames: [] };
     current.responses.push(response);
     if (sortResponsesNewestFirst(response, current.latest) < 0) current.latest = response;
@@ -921,20 +977,57 @@ function groupEquivalentResponses(responses, members) {
   return [...groups.values()].sort((first, second) => sortResponsesNewestFirst(first.latest, second.latest));
 }
 
-function outputSignature(values = {}) {
-  return Object.values(values)
-    .map((value) => String(value || '').trim())
-    .filter(Boolean)
-    .map(normalizeLinkForGrouping)
-    .sort()
-    .join('|');
+function outputSignature(values = {}, fields = []) {
+  const entries = fields.map((field) => [
+    field.definitionId || field.id,
+    normalizeLinkForGrouping(String(values[field.id] || '').trim())
+  ]).sort(([first], [second]) => first.localeCompare(second));
+  return entries.some(([, value]) => value) ? JSON.stringify(entries) : '';
 }
 
 function normalizeLinkForGrouping(value) {
-  const driveFileId = value.match(/\/file\/d\/([^/?#]+)/i)?.[1] || value.match(/[?&]id=([^&#]+)/i)?.[1];
+  const driveFileId = value.match(/\/file\/d\/([^/?#]+)/i)?.[1]
+    || (/^https?:\/\/(?:drive|docs)\.google\.com\//i.test(value) ? value.match(/[?&]id=([^&#]+)/i)?.[1] : null);
   if (driveFileId) return `drive:${driveFileId}`;
-  return value.toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
+  return value.replace(/#.*$/, '').replace(/\/$/, '');
 }
+
+function outputSelectionKey(workspaceId, teamCode, deliverableId) {
+  return JSON.stringify([workspaceId, teamCode, deliverableId]);
+}
+
+function reviewResponseForOutput(output) {
+  return output.responses.find((response) => response.reviewStatus === 'Accepted') || output.latest;
+}
+
+function resolveGroupOutput(row, selection) {
+  const explicitOutput = row.outputs.find((output) => output.id === selection?.outputId);
+  const explicitResponse = explicitOutput?.responses.find((response) => (
+    response.id === selection.responseId
+      && (response.updatedAt || response.submittedAt) === selection.sourceResponseUpdatedAt
+  ));
+  const acceptedOutputs = row.outputs.filter((output) => output.responses.some((response) => response.reviewStatus === 'Accepted'));
+  const currentOutput = explicitResponse ? explicitOutput
+    : acceptedOutputs.length === 1 ? acceptedOutputs[0]
+      : !row.hasConflict ? row.outputs.find((output) => output.hasSubmittedValue) || row.outputs[0] || null
+        : null;
+  return {
+    currentOutput,
+    currentResponse: explicitResponse || (currentOutput ? reviewResponseForOutput(currentOutput) : null),
+    requiresSelection: row.hasConflict && !currentOutput,
+    acceptedOutputCount: acceptedOutputs.length
+  };
+}
+
+function groupSelectionLabel(row) {
+  if (row.requiresSelection) return 'Selection required';
+  if (!row.currentOutput) return 'No file received';
+  if (!row.hasConflict) return outputOwnerLabel(row.currentOutput);
+  const fileNumber = row.outputs.indexOf(row.currentOutput) + 1;
+  const status = row.currentResponse?.reviewStatus === 'Accepted' ? 'Accepted' : 'Selected';
+  return `${status}: File ${fileNumber} | ${outputOwnerLabel(row.currentOutput)}`;
+}
+
 
 function sortResponsesNewestFirst(first, second) {
   return new Date(second.updatedAt || second.submittedAt || 0) - new Date(first.updatedAt || first.submittedAt || 0);

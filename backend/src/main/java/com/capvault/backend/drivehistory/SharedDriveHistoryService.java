@@ -116,9 +116,9 @@ public class SharedDriveHistoryService {
         PageCursor continuing = pageToken == null || pageToken.isBlank() ? null
             : resolveCursor(pageToken, session.googleSubject(), target.getId(), selected.fieldId(), fileId);
         if (!access.isConfigured()) {
-            return SharedDriveHistoryView.unavailable("UNAVAILABLE",
-                "Drive revision history is not enabled in this WildTrack environment yet. "
-                + "A WildTrack administrator needs to finish enabling it. Document Check remains available.", fileId);
+            return SharedDriveHistoryView.unavailable("NOT_CONFIGURED",
+                "WildTrack cannot use the Google connection for revision history in this environment. "
+                + "An administrator needs to check its connection settings. Document Check and recorded checks still work.", fileId);
         }
 
         // Subject preference avoids trying other people's tokens for a file the

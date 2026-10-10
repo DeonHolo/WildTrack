@@ -183,8 +183,8 @@ class SharedDriveHistoryServiceTest {
         SharedDriveHistoryView result = history.forSubmission(workspaceId, viewerSubmission.getId(),
             "pdf-field-id", null, http);
 
-        assertThat(result.status()).isEqualTo("UNAVAILABLE");
-        assertThat(result.coverageMessage()).contains("WildTrack environment", "administrator")
+        assertThat(result.status()).isEqualTo("NOT_CONFIGURED");
+        assertThat(result.coverageMessage()).contains("environment", "administrator", "connection settings")
             .doesNotContain("owner", "consent");
     }
 
