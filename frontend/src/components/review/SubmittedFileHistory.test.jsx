@@ -70,9 +70,29 @@ describe('SubmittedFileHistory', () => {
     getSubmittedFileHistory.mockResolvedValue({ status: 'NOT_CONNECTED', revisions: [] });
     renderHistory({ audience: 'student' });
     expect(await screen.findByText(/No submitter of this file currently has usable Drive history access/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Optionally allow Drive metadata' }));
+    expect(screen.getByText(/signing into WildTrack alone does not grant this access/)).toBeInTheDocument();
+    expect(screen.getByText(/Optional, read-only permission/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Drive edit history' }));
     expect(startDriveHistoryConsent).toHaveBeenCalledTimes(1);
     expect(getSubmittedFileHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['staff', 'student'])('separates unavailable server configuration from submitter consent for %s', async audience => {
+    getSubmittedFileHistory.mockResolvedValue({ status: 'NOT_CONFIGURED', revisions: [] });
+    renderHistory({ audience });
+    expect(await screen.findByText('Drive history connection needs setup')).toBeInTheDocument();
+    expect(screen.getByText(/Document Check and recorded checks still work/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect Drive edit history' })).not.toBeInTheDocument();
+    expect(startDriveHistoryConsent).not.toHaveBeenCalled();
+  });
+
+  it('recognizes the previous server setup response without blaming a submitter', async () => {
+    getSubmittedFileHistory.mockResolvedValue({ status: 'UNAVAILABLE', revisions: [],
+      coverageMessage: 'Drive revision history is not enabled in this WildTrack environment yet. A WildTrack administrator needs to finish enabling it. Document Check remains available.' });
+    renderHistory({ audience: 'student' });
+    expect(await screen.findByText('Drive history connection needs setup')).toBeInTheDocument();
+    expect(screen.queryByText(/finish enabling it/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect Drive edit history' })).not.toBeInTheDocument();
   });
 
   it('drops a late response when the selected file changes', async () => {

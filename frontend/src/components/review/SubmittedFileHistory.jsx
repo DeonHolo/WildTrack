@@ -65,6 +65,8 @@ function FileHistoryContent({ workspaceId, responseId, fieldId, observedHistory,
   const editor = metadata?.lastModifiedBy || metadata?.lastModifiedByStudent ? metadata : latest;
   const status = history?.status || 'UNAVAILABLE';
   const hasRevisions = ['AVAILABLE', 'INCOMPLETE'].includes(status);
+  const needsSetup = status === 'NOT_CONFIGURED' || (status === 'UNAVAILABLE'
+    && history?.coverageMessage?.startsWith('Drive revision history is not enabled in this WildTrack environment yet.'));
 
   return (
     <div className="file-history" aria-label="Submitted file history">
@@ -93,14 +95,16 @@ function FileHistoryContent({ workspaceId, responseId, fieldId, observedHistory,
         </div>
         <p className="file-history-caption">{studentView
           ? 'Edits Google returns for your submitted PDF. Owner and editor identities are hidden.'
-          : 'Edits returned by Google, separate from WildTrack’s recorded checks.'}</p>
+          : 'Edits returned by Google, separate from WildTrack’s recorded checks. These may include edits before submission.'}</p>
 
         {loading ? <Group role="status" gap="xs" className="file-history-state"><Loader size="xs" /><span>Loading file history…</span></Group> : null}
         {error ? <Alert color="orange" role="alert">{error}</Alert> : null}
         {!loading && !error && !hasRevisions ? <div className="file-history-state" role="status">
-          <h4>Drive edit history unavailable</h4>
-          <p>{history?.coverageMessage || (status === 'NOT_CONNECTED'
-            ? 'No submitter of this file currently has usable Drive history access. An owner or editor may authorize access when signing in.'
+          <h4>{needsSetup ? 'Drive history connection needs setup' : 'Drive edit history unavailable'}</h4>
+          <p>{needsSetup
+            ? 'WildTrack’s Google connection for revision history is unavailable in this environment. An administrator needs to check the connection settings. Document Check and recorded checks still work.'
+            : history?.coverageMessage || (status === 'NOT_CONNECTED'
+            ? 'No submitter of this file currently has usable Drive history access. A submitter who can view its revisions can connect below; signing into WildTrack alone does not grant this access.'
             : status === 'PERMISSION_DENIED' ? 'Connected submitters currently lack permission to read the file revisions.'
               : 'Google Drive revision history is currently unavailable for this submitted file.')}</p>
           {studentView && status === 'NOT_CONNECTED' ? <Button mt="sm" variant="default" mih={44} size="sm"
@@ -108,8 +112,9 @@ function FileHistoryContent({ workspaceId, responseId, fieldId, observedHistory,
               try { await startDriveHistoryConsent(); }
               catch (failure) { setError(failure.message || 'Drive consent could not be started.'); }
             }}>
-            Optionally allow Drive metadata
+            Connect Drive edit history
           </Button> : null}
+          {studentView && status === 'NOT_CONNECTED' ? <p className="file-history-caption">Optional, read-only permission to view revision metadata. It does not let WildTrack change your Drive files.</p> : null}
         </div> : null}
 
         {!loading && !error && hasRevisions ? <>

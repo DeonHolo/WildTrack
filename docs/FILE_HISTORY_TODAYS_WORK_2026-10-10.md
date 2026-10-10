@@ -2,9 +2,13 @@
 
 ## Verified local completion
 
-The requested UI changes are implemented. The complete frontend suite passed 604/604 tests and the production build passed. The actual backend/browser form journey verified rejected type-change → removal → save without refresh, preserved original stored values and replacement persistence after reload. Adviser selection, history scope/privacy, sorting and form feedback regressions are included in that suite.
+The requested UI changes are implemented in PR95 (unmerged). The complete frontend suite passed 612/612 tests and the production build passed. The actual backend/browser form journey verified rejected type-change → removal → save without refresh, preserved original stored values and replacement persistence after reload. Adviser selection, history scope/privacy, sorting and form feedback regressions are included in that suite. Shared history access tests passed 12/12; affected browser role flows passed 23/23.
 
-At 375 px the in-app local preview showed a 36 px search box, Newest activity selected and no page overflow. Add question focused and selected the new label; menu and insertion screenshots are retained in STD-20261010-03. Native drag input interrupted further browser proof; do not claim a completed live drag or hosted deployment. Production decisions and Google permissions were not changed.
+At 375 px the in-app local preview showed a 36 px search box, Newest activity selected and no page overflow. Add question focused and selected the new label. After a preview reload recovered interrupted browser input, the history showed three recent checks and expanded/collapsed older records correctly; the prepared AI scope modal showed unique and total counts separately. Screenshots are retained in STD-20261010-03 and use fixtures. Do not claim a completed live drag or hosted deployment.
+
+Latest follow-up: the dialog now follows the artifact row’s source-URL freshness rule, with timestamp fallback only for legacy checks. Editing an unrelated answer no longer makes the same PDF look outdated. Actual outdated checks use attention styling and a refresh explanation. This is source association, not certification that mutable Drive bytes cannot change.
+
+The former “not enabled” message came from failed delegated OAuth configuration, not missing submitter permission. It now returns NOT_CONFIGURED with connection-setup wording. NOT_CONNECTED remains the separate optional submitter consent state. Public file metadata, recorded checks and automatic workspace monitoring can work independently. Staff cannot grant another person’s Google permissions.
 
 The additional durable AI batch implementation and its verification are recorded in AI_REVIEW_BATCH_REPAIR_2026-10-10.md. Preserve unrelated coursework and frozen validation evidence.
 

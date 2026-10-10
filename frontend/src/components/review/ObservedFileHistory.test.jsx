@@ -27,4 +27,25 @@ describe('recorded file checks', () => {
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
     expect(screen.queryByText('Technical record details')).not.toBeInTheDocument();
   });
+
+  it('shows only the latest three checks and expands older records without losing their evidence', () => {
+    const history = { observations: Array.from({ length: 8 }, (_, index) => ({
+      firstObservedAt: `2026-10-${String(index + 1).padStart(2, '0')}T09:00:00Z`,
+      modifiedBy: `Editor ${index + 1}`, contentIdentifier: `sha256:record-${index + 1}`
+    })) };
+    render(<ObservedFileHistory history={history} />);
+    const recent = within(screen.getByRole('list', { name: 'Recorded file checks' })).getAllByRole('listitem');
+    expect(recent).toHaveLength(3);
+    expect(recent[0]).toHaveTextContent('Editor 8');
+    expect(recent[2]).toHaveTextContent('Editor 6');
+    expect(screen.getByText('Editor 1')).not.toBeVisible();
+    fireEvent.click(screen.getByText('Earlier checks (5)'));
+    expect(within(screen.getByRole('list', { name: 'Earlier recorded file checks' })).getAllByRole('listitem')).toHaveLength(5);
+    expect(screen.getByText('Editor 1')).toBeVisible();
+    fireEvent.click(screen.getByText('Earlier checks (5)'));
+    expect(screen.getByText('Editor 1')).not.toBeVisible();
+    fireEvent.click(screen.getByText('Technical record details'));
+    expect(screen.getByText('sha256:record-1')).toBeVisible();
+    expect(history.observations[0].modifiedBy).toBe('Editor 1');
+  });
 });

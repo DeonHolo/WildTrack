@@ -11,22 +11,20 @@ export function ObservedFileHistory({ history }) {
         <h3>Recorded checks</h3>
         {observations.length ? <span className="file-history-count">{observations.length} {observations.length === 1 ? 'entry' : 'entries'}</span> : null}
       </div>
-      <p className="file-history-caption">File states saved during Document Check. Latest check first.</p>
+      <p className="file-history-caption">Snapshots from WildTrack’s checks, starting with its first inspection. Latest check first.</p>
       {observations.length ? <ol className="file-history-timeline" aria-label="Recorded file checks">
-        {observations.map((observation, index) => (
-          <li className="file-history-entry" key={observationKey(observation, index)}>
-            <div className="file-history-entry-heading">
-              <h4>{changeLabel(observation.changeType)}</h4>
-              <span className="file-history-date">Checked {historyDate(observationTime(observation))}</span>
-            </div>
-            <div className="file-history-editor"><span>Modified by</span>
-              <DriveIdentityValue registeredStudent={observation.modifiedByStudent}
-                providerValue={observation.modifiedBy || observation.modifiedByEmail} />
-            </div>
-            {observation.driveModifiedTime ? <p className="file-history-caption">Drive edit: {historyDate(observation.driveModifiedTime)}</p> : null}
-          </li>
+        {observations.slice(0, 3).map((observation, index) => (
+          <RecordedCheck key={observationKey(observation, index)} observation={observation} />
         ))}
       </ol> : <p className="file-history-empty">No recorded checks yet. A completed Document Check records the file state here.</p>}
+      {observations.length > 3 ? <details className="file-history-technical">
+        <summary>Earlier checks ({observations.length - 3})</summary>
+        <ol className="file-history-timeline" aria-label="Earlier recorded file checks">
+          {observations.slice(3).map((observation, index) => (
+            <RecordedCheck key={observationKey(observation, index + 3)} observation={observation} />
+          ))}
+        </ol>
+      </details> : null}
       {observations.length ? <details className="file-history-technical">
         <summary>Technical record details</summary>
         <p className="file-history-caption">These identifiers distinguish recorded file contents; they are not downloadable copies.</p>
@@ -47,6 +45,20 @@ export function ObservedFileHistory({ history }) {
       </details> : null}
     </section>
   );
+}
+
+function RecordedCheck({ observation }) {
+  return <li className="file-history-entry">
+    <div className="file-history-entry-heading">
+      <h4>{changeLabel(observation.changeType)}</h4>
+      <span className="file-history-date">Checked {historyDate(observationTime(observation))}</span>
+    </div>
+    <div className="file-history-editor"><span>Modified by</span>
+      <DriveIdentityValue registeredStudent={observation.modifiedByStudent}
+        providerValue={observation.modifiedBy || observation.modifiedByEmail} />
+    </div>
+    {observation.driveModifiedTime ? <p className="file-history-caption">Drive edit: {historyDate(observation.driveModifiedTime)}</p> : null}
+  </li>;
 }
 
 function observationKey(observation, index) {

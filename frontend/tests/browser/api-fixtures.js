@@ -81,6 +81,11 @@ export async function installApiFixtures(page, {
     calls.push({ method, path, workspaceId: url.searchParams.get('workspaceId'), body: request.postDataJSON() });
     const reply = (json, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
     if (method === 'GET' && path === '/auth/session') return reply(identity);
+    if (method === 'GET' && path === '/ai-reviews/batches/latest') {
+      expect(role).toBe('admin');
+      expect(url.searchParams.get('workspaceId')).toBe(workspace.id);
+      return reply(null);
+    }
     if (method === 'GET' && path === '/drive-history/auth/status') {
       return reply({ configured: false, connected: false, message: 'Mock browser fixture has no live Google consent.' });
     }
