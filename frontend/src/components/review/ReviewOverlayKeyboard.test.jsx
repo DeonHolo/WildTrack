@@ -17,17 +17,17 @@ it('Escape closes AI Review first, preserves the submission drawer, then closes 
         student={{ name: 'DOE, JANE' }} state={{ projectMetadata: [] }}
         deliverable={{ shortTitle: 'SRS', fields: [] }}
         onClose={() => { closeDrawer(); setDrawerOpened(false); }} />
-      <AiReviewReportDialog opened={reportOpened} fieldLabel="SRS PDF"
+      <AiReviewReportDialog opened={reportOpened} deliverableTitle="Software Requirements Specification" fieldLabel="SRS PDF"
         report={{ summary: 'Saved review', findings: [] }}
         onClose={() => { closeReport(); setReportOpened(false); }} />
     </MantineProvider>;
   }
   render(<ReviewOverlays />);
-  const review = await screen.findByRole('dialog', { name: 'AI Review: SRS PDF' });
+  const review = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
   fireEvent.keyDown(review, { key: 'Escape' });
   expect(closeReport).toHaveBeenCalledTimes(1);
   expect(closeDrawer).not.toHaveBeenCalled();
-  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'AI Review: SRS PDF' })).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'AI Review: Software Requirements Specification' })).not.toBeInTheDocument());
   const drawer = screen.getByRole('dialog', { name: 'Review DOE, JANE' });
   fireEvent.keyDown(drawer, { key: 'Escape' });
   expect(closeDrawer).toHaveBeenCalledTimes(1);

@@ -121,6 +121,85 @@ public class AiReviewService {
     }
     private record Context(String hash, String title, String instructions, String template) { }
     private record ReviewTarget(String fieldId, String fieldKey, String label, String sourceUrl, boolean legacyStore) { }
+    record Preview(UUID responseId, String fieldId, String key, String category, boolean outdated,
+                   String deliverableTitle, String artifactLabel, String studentName, String sourceUrl,
+                   String sourceResponseUpdatedAt, String generatedAt, String modifiedAt,
+                   UUID jobToken, UUID retryToken) { }
+    private record Prepared(byte[] bytes, PdfInspection inspection, String key, String modifiedAt) { }
+
+    /** Explicit preparation downloads/verifies the current PDF but never calls Gemini or claims a job. */
+    Preview preview(UUID workspaceId, UUID responseId, String fieldId, String subject) {
+        var response = authorized(workspaceId, responseId, subject);
+        requireAdministrator(subject);
+        var target = target(response, fieldId);
+        var context = context(response, target);
+        var prepared = prepare(response, target, context);
+        var current = store.find(prepared.key()).orElse(null);
+        var prior = linked(response, target).orElse(null);
+        boolean outdated = prior != null && !prior.key().equals(prepared.key());
+        View saved = current == null ? null : view(current, response, target, true, true);
+        String category = saved == null ? "MISSING" : switch (saved.status()) {
+            case "RUNNING" -> "RUNNING";
+            case "UNCERTAIN" -> "FAILED";
+            case "COMPLETED" -> saved.report() == null || saved.report().outcome() == AiReviewProvider.ReviewOutcome.INCONCLUSIVE
+                ? "INCONCLUSIVE" : saved.report().outcome() == AiReviewProvider.ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS ? "CLEAN" : "ISSUES";
+            default -> "MISSING";
+        };
+        String title = deliverables.findById(response.getDeliverableId()).orElseThrow().getTitle();
+        String priorDate = prior == null ? null : instantText(prior.latestAttemptCompletedAt() != null
+            ? prior.latestAttemptCompletedAt() : prior.completedAt());
+        return new Preview(responseId, target.fieldId(), prepared.key(), category, outdated, title, target.label(),
+            response.getStudentName(), target.sourceUrl(), response.getUpdatedAt().toString(), priorDate,
+            prepared.modifiedAt(), current == null ? null : current.token(), saved == null ? null : saved.retryToken());
+    }
+
+    void requireAdministrator(String subject) {
+        if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Only administrators can start AI reviews.");
+    }
+
+    private java.util.Optional<AiReviewStore.Job> linked(FormResponse response, ReviewTarget target) {
+        String sourceHash = sha256(target.sourceUrl().getBytes(StandardCharsets.UTF_8));
+        var prior = target.legacyStore() ? store.linked(response.getId(), response.getRevision())
+            : store.linkedField(response.getId(), target.fieldId(), sourceHash);
+        if (prior.isEmpty() && target.fieldId().endsWith(":legacy")) prior = store.linked(response.getId(), response.getRevision());
+        // Preparation may disclose an older report even after the submitted URL changed.
+        // Normal saved-report reads retain their current-source checks.
+        if (prior.isEmpty() && !target.legacyStore()) {
+            var fieldLink = store.linkedFieldsFor(List.of(response.getId()))
+                .getOrDefault(response.getId(), Map.of()).get(target.fieldId());
+            if (fieldLink != null) prior = java.util.Optional.of(fieldLink.job());
+        }
+        if (prior.isEmpty() && (target.legacyStore() || target.fieldId().endsWith(":legacy"))) {
+            var legacyLink = store.linkedFor(List.of(response.getId())).get(response.getId());
+            if (legacyLink != null) prior = java.util.Optional.of(legacyLink.job());
+        }
+
+        return prior.filter(job -> sameScope(job, response));
+    }
+
+    private Prepared prepare(FormResponse response, ReviewTarget target, Context context) {
+        if (!drive.isConfigured()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Document access is not configured.");
+        var reference = DriveLinkParser.parse(target.sourceUrl());
+        var metadata = preclaimDrive(() -> drive.getMetadata(reference));
+        if (!"application/pdf".equalsIgnoreCase(metadata.mimeType()) || !metadata.canDownload())
+            throw new IllegalArgumentException("AI review requires a downloadable PDF. Run Document Check first.");
+        if (metadata.size() != null && metadata.size() > driveProperties.maximumFileSizeBytes())
+            throw new IllegalArgumentException("The PDF exceeds the document size limit.");
+        byte[] bytes = preclaimDrive(() -> drive.download(reference));
+        if (bytes == null || bytes.length > driveProperties.maximumFileSizeBytes())
+            throw new IllegalArgumentException("The PDF exceeds the document size limit.");
+        var afterDownload = preclaimDrive(() -> drive.getMetadata(reference));
+        if (!Objects.equals(metadata.md5Checksum(), afterDownload.md5Checksum())
+                || !Objects.equals(metadata.modifiedTime(), afterDownload.modifiedTime()))
+            throw stale("The Drive file changed during download. Prepare the review again.");
+        var inspection = pdf.inspect(bytes);
+        if (!inspection.readable()) throw new IllegalArgumentException("AI review requires a readable, unencrypted PDF.");
+        String team = response.getTeamCode().trim().toLowerCase(Locale.ROOT);
+        if (team.isBlank()) throw new IllegalArgumentException("Assign this response to a team before AI review.");
+        String key = digest(List.of(response.getWorkspaceId().toString(), response.getDeliverableId().toString(),
+            target.fieldId(), team, sha256(bytes), context.hash()));
+        return new Prepared(bytes, inspection, key, metadata.modifiedTime() == null ? null : metadata.modifiedTime().toString());
+    }
 
     public Map<String, Object> status(String subject) {
         requireRole(subject);
@@ -144,8 +223,15 @@ public class AiReviewService {
 
     public View review(UUID workspaceId, UUID responseId, String fieldId, String subject,
             boolean retryAcknowledged, UUID expectedRetryToken, boolean rerunRequested) {
+        return reviewPlanned(workspaceId, responseId, fieldId, subject, retryAcknowledged,
+            expectedRetryToken, rerunRequested, null, null);
+    }
+
+    View reviewPlanned(UUID workspaceId, UUID responseId, String fieldId, String subject,
+            boolean retryAcknowledged, UUID expectedRetryToken, boolean rerunRequested,
+            String expectedKey, UUID expectedRerunToken) {
         FormResponse response = authorized(workspaceId, responseId, subject);
-        if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Only administrators can start AI reviews.");
+        requireAdministrator(subject);
         if (!provider.isConfigured()) return empty("UNAVAILABLE", "Gemini API key is not configured. No AI request was made.");
         if (retryAcknowledged && rerunRequested) {
             throw new IllegalArgumentException("Choose either retrying an uncertain request or rerunning a completed review.");
@@ -154,28 +240,17 @@ public class AiReviewService {
             throw new IllegalArgumentException("Reload the uncertain review before confirming a retry.");
         ReviewTarget target = target(response, fieldId);
         Context context = context(response, target);
-        if (!drive.isConfigured()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Document access is not configured.");
         String source = target.sourceUrl();
-        var reference = DriveLinkParser.parse(source);
-        var metadata = preclaimDrive(() -> drive.getMetadata(reference));
-        if (!"application/pdf".equalsIgnoreCase(metadata.mimeType()) || !metadata.canDownload())
-            throw new IllegalArgumentException("AI review requires a downloadable PDF. Run Document Check first.");
-        if (metadata.size() != null && metadata.size() > driveProperties.maximumFileSizeBytes())
-            throw new IllegalArgumentException("The PDF exceeds the document size limit.");
-        byte[] bytes = preclaimDrive(() -> drive.download(reference));
-        if (bytes == null || bytes.length > driveProperties.maximumFileSizeBytes())
-            throw new IllegalArgumentException("The PDF exceeds the document size limit.");
-        var afterDownload = preclaimDrive(() -> drive.getMetadata(reference));
-        if (!Objects.equals(metadata.md5Checksum(), afterDownload.md5Checksum())
-                || !Objects.equals(metadata.modifiedTime(), afterDownload.modifiedTime()))
-            throw stale("The Drive file changed during download. Try again.");
-        var inspection = pdf.inspect(bytes);
-        if (!inspection.readable()) throw new IllegalArgumentException("AI review requires a readable, unencrypted PDF.");
+        var prepared = prepare(response, target, context);
+        byte[] bytes = prepared.bytes();
+        var inspection = prepared.inspection();
         String documentHash = sha256(bytes);
         // Team/workspace isolation also prevents a cache hit from exposing another team's review.
         String team = response.getTeamCode().trim().toLowerCase(Locale.ROOT);
         if (team.isBlank()) throw new IllegalArgumentException("Assign this response to a team before AI review.");
-        String key = digest(List.of(workspaceId.toString(), response.getDeliverableId().toString(), target.fieldId(), team, documentHash, context.hash()));
+        String key = prepared.key();
+        if (expectedKey != null && !expectedKey.equals(key))
+            throw stale("This PDF or its requirements changed after preparation. Prepare a new batch before reviewing it.");
         String sourceValueHash = sha256(source.getBytes(StandardCharsets.UTF_8));
         assertCurrent(response, target, context, subject);
         var prior = target.legacyStore() ? store.linked(response.getId(), response.getRevision())
@@ -183,7 +258,7 @@ public class AiReviewService {
         if (prior.isEmpty() && target.fieldId().endsWith(":legacy"))
             prior = store.linked(response.getId(), response.getRevision());
         var claim = store.claim(key, workspaceId, response.getDeliverableId(), team, documentHash,
-            context.hash(), retryAcknowledged ? expectedRetryToken : null, rerunRequested);
+            context.hash(), retryAcknowledged ? expectedRetryToken : null, rerunRequested, expectedRerunToken);
         if (claim.acquired() && prior.isPresent() && sameScope(prior.get(), response)
                 && !prior.get().key().equals(key)) store.preservePreviousResults(claim.job(), prior.get());
         link(target, response, sourceValueHash, key);

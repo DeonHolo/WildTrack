@@ -2,7 +2,7 @@ import { Alert, Modal, Stack, Text } from '@mantine/core';
 import { AiReviewReport } from './AiReviewReport.jsx';
 import { formatDateTime } from '../../lib/workflow.js';
 
-export function AiReviewReportDialog({ opened, onClose, report, review, fieldLabel = 'PDF' }) {
+export function AiReviewReportDialog({ opened, onClose, report, review, fieldLabel = 'PDF', deliverableTitle = 'Submission' }) {
   const previous = !report && Boolean(review?.previousReport || review?.lastSubstantiveReport);
   const displayReport = report || review?.previousReport || review?.lastSubstantiveReport;
   if (!displayReport) return null;
@@ -13,7 +13,7 @@ export function AiReviewReportDialog({ opened, onClose, report, review, fieldLab
     <Modal
       opened={opened}
       onClose={onClose}
-      title={`AI Review: ${fieldLabel}`}
+      title={`AI Review: ${deliverableTitle}`}
       size="52rem"
       centered
       transitionProps={{ duration: 0 }}
@@ -21,6 +21,7 @@ export function AiReviewReportDialog({ opened, onClose, report, review, fieldLab
       closeButtonProps={{ 'aria-label': 'Close AI Review details' }}
     >
       <Stack gap="md">
+        {fieldLabel && fieldLabel !== deliverableTitle ? <Text size="sm" className="wt-ai-review-reference">Artifact: {fieldLabel}</Text> : null}
         {previous ? (
           <Alert color="orange" title={inconclusive ? 'Latest AI Review inconclusive' : review?.status === 'OUTDATED'
             ? 'Review settings changed; report is historical' : review?.status === 'RUNNING'

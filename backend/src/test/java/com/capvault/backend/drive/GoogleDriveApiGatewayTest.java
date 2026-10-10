@@ -16,6 +16,23 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 class GoogleDriveApiGatewayTest {
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void transportDiagnosticsIdentifyDownloadStageWithoutExposingSecrets(org.springframework.boot.test.system.CapturedOutput output) {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://www.googleapis.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(containsString("alt=media"))).andRespond(request -> {
+            throw new java.net.SocketTimeoutException("private-api-key private-file-id");
+        });
+        var gateway = new GoogleDriveApiGateway(new GoogleDriveProperties(true, "private-api-key", 25_000_000), builder.build());
+        assertThatThrownBy(() -> gateway.download(new DriveFileReference("private-file-id", null)))
+            .isInstanceOf(GoogleDriveUnavailableException.class);
+        assertThat(output.getOut()).contains("stage=download", "kind=TRANSPORT", "causeType=SocketTimeoutException")
+            .doesNotContain("private-api-key", "private-file-id", "https://www.googleapis.com");
+        server.verify();
+    }
+
+
 
     @Test
     void requestsAndReturnsAvailableLastModifyingUserMetadata() {

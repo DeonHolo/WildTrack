@@ -86,4 +86,40 @@ describe('SubmittedFileHistory', () => {
     expect(await screen.findByRole('group', { name: 'Drive revision 1 on page 1' })).toBeInTheDocument();
     expect(screen.queryByText('Restricted Editor')).not.toBeInTheDocument();
   });
+
+  it.each(['workspaceId', 'responseId', 'fieldId'])('resets paging and ignores the previous page reply when %s changes', async scope => {
+    let resolveOldPage;
+    getSubmittedFileHistory.mockResolvedValueOnce(firstPage)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOldPage = resolve; }))
+      .mockResolvedValueOnce({ ...firstPage, revisions: [{ id: 'new-scope', size: 8192 }], nextPageToken: null });
+    const { rerender } = renderHistory();
+    await screen.findByRole('group', { name: 'Drive revision 1 on page 1' });
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(getSubmittedFileHistory).toHaveBeenCalledWith(...Object.values(target), 'opaque-backend-token'));
+    const newTarget = { ...target, [scope]: 'new-scoped-value' };
+    rerender(<MantineProvider theme={wildTrackTheme}><SubmittedFileHistory {...newTarget} /></MantineProvider>);
+    await waitFor(() => expect(getSubmittedFileHistory).toHaveBeenLastCalledWith(newTarget.workspaceId, newTarget.responseId, newTarget.fieldId, ''));
+    resolveOldPage({ ...firstPage, revisions: [{ id: 'stale-scope', size: 1024 }] });
+    expect(await screen.findByRole('group', { name: 'Drive revision 1 on page 1' })).toHaveTextContent('8.0 KB');
+    expect(screen.queryByRole('group', { name: 'Drive revision 1 on page 2' })).not.toBeInTheDocument();
+  });
+
+  it('reuses supplied current-file metadata while keeping original check records intact', async () => {
+    renderHistory({ initialHistory: { ...firstPage, fileMetadata: { driveOwner: 'Provider owner',
+      lastModifiedBy: 'Provider editor', lastModifiedByStudent: { studentName: 'Roster editor', email: 'editor@example.test' } } },
+      observedHistory: { observations: [{ changeType: 'FIRST_OBSERVED', firstObservedAt: '2026-09-01', driveOwner: 'Recorded owner', modifiedBy: 'Recorded editor' }] } });
+    const details = screen.getByRole('region', { name: 'File details' });
+    expect(await within(details).findByText('Provider owner')).toBeInTheDocument();
+    expect(within(details).getByText('Roster editor')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Recorded file checks' })).toHaveTextContent('Recorded editor');
+    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
+  });
+
+  it('does not expose supplied current-file owner or editor metadata to students', async () => {
+    const { container } = renderHistory({ audience: 'student', initialHistory: { ...firstPage,
+      fileMetadata: { driveOwner: 'Private owner', lastModifiedByStudent: { studentName: 'Private student', email: 'private@example.test' } } } });
+    await screen.findByRole('group', { name: 'Drive revision 1 on page 1' });
+    expect(container.textContent).not.toMatch(/Private owner|Private student|private@example|Restricted Editor|editor.secret|owner.secret/);
+    expect(screen.queryByRole('region', { name: 'File details' })).not.toBeInTheDocument();
+  });
 });

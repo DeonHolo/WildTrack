@@ -5,6 +5,7 @@ import { Button, StatusIndicator } from '../ui.jsx';
 import { formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../../lib/workflow.js';
 import { ObservedFileHistory } from './ObservedFileHistory.jsx';
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
+import { DriveIdentityValue } from './DriveIdentityValue.jsx';
 import { getSubmittedFileHistory } from '../../lib/api.js';
 
 export function DocumentCheckDialog({
@@ -332,37 +333,6 @@ function CheckFact({ label, value, ready, neutral = false, wide = false }) {
       {wide ? value : <strong>{value}</strong>}
     </div>
   );
-}
-
-function DriveIdentityValue({ registeredStudent, providerValue }) {
-  const studentName = String(registeredStudent?.studentName || '').trim();
-  const googleEmail = String(registeredStudent?.email || '').trim();
-  const verified = Boolean(studentName && googleEmail);
-  const raw = String(providerValue || '').trim();
-  if (!verified && (!raw || raw === 'Unavailable')) return <strong>Unavailable</strong>;
-
-  // Existing provider-only strings can be "Display name (email)". Splitting
-  // their layout does not establish a verified registered WildTrack identity.
-  const providerParts = !verified && /^(.*?)\s*\(([^()\s]+@[^()\s]+)\)$/.exec(raw);
-  const emailOnly = !verified && !providerParts && /^[^\s()@]+@[^\s()@]+$/.test(raw);
-  const name = verified ? studentName : providerParts ? providerParts[1].trim() : emailOnly ? '' : raw;
-  const email = verified ? googleEmail : providerParts ? providerParts[2] : emailOnly ? raw : '';
-  return (
-    <div className="document-check-identity-value">
-      {name ? <strong className="document-check-identity-name">{name}</strong> : null}
-      {email ? <span className="document-check-identity-email" title={email}>
-        {name ? '(' : null}<EmailWithBreaks email={email} />{name ? ')' : null}
-      </span> : null}
-    </div>
-  );
-}
-
-function EmailWithBreaks({ email }) {
-  return String(email).split(/([@.+_-])/g).map((part, index) => (
-    // Allow wrapping *after* email separators, never at arbitrary characters
-    // inside a domain (such as "gma/il.com"). Full text stays accessible.
-    <span key={index}>{part}{/^[@.+_-]$/.test(part) ? <wbr /> : null}</span>
-  ));
 }
 
 function formatBytes(value) {

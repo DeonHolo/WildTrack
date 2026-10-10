@@ -3659,6 +3659,9 @@
 .wt-command-item-copy p { white-space: normal; overflow-wrap: anywhere; }
 .wt-command-toolbar { flex-wrap: wrap; }
 .wt-command-toolbar .mantine-TextInput-root { flex: 1 1 280px; }
+@media (max-width: 720px) {
+  .wt-command-toolbar .mantine-TextInput-root { flex: 0 1 auto; min-width: 0; }
+}
 @media (max-width: 1180px) {
   .wt-command-table th:nth-child(1) { width: 13%; }
   .wt-command-table th:nth-child(2) { width: 33%; }

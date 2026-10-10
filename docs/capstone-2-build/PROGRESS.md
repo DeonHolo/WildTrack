@@ -1,5 +1,11 @@
 # Live progress and resume checkpoint
 
+## Active checkpoint — 10 October 2026: staff UI and durable AI batches verified locally
+
+Continue `docs/FILE_HISTORY_TODAYS_WORK_2026-10-10.md` and `docs/AI_REVIEW_BATCH_REPAIR_2026-10-10.md`; GitHub request #94. Work remains on canonical `wildtrack-dev`, preserving unrelated dirty coursework/study files. File History, activity sorting, adviser output selection and form editor changes are implemented. All 604 frontend tests and the production build pass; the real Spring/H2/browser retirement-and-replacement journey passes.
+
+The durable batch implementation (V34, server orchestration, provider-free preparation, scoped hashes, retry/claim safeguards, hook/dialog/panel/API integration) passes 50 batch/cache/store tests and five Drive tests. STD-20261010-03 adds eight local enhancement records to the existing document; the historical 50-case baseline is unchanged. Publication and hosted retesting remain separate. The live Drive 503 cause is still unknown; safe diagnostics were added without raising the cap or blaming sharing. Local in-app screenshots verify queue spacing and form focus/menu; interrupted native drag input limited further browser proof.
+
 Updated: 2026-09-22
 Mode: Continue existing distributed validation; initial-saved-record Goal 3 selected; real evidence pending
 Current branch: wildtrack-rebrand

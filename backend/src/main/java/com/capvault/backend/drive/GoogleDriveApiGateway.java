@@ -5,6 +5,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,8 +19,8 @@ import org.springframework.web.util.UriUtils;
 
 final class GoogleDriveApiGateway implements GoogleDriveGateway {
 
-    private static final String METADATA_FIELDS =
-        "id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,owners(displayName,emailAddress),lastModifyingUser(displayName,emailAddress),capabilities(canDownload),webViewLink";
+    private static final Logger LOG = LoggerFactory.getLogger(GoogleDriveApiGateway.class);
+    private static final String METADATA_FIELDS = "id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,owners(displayName,emailAddress),lastModifyingUser(displayName,emailAddress),capabilities(canDownload),webViewLink";
 
     private final GoogleDriveProperties properties;
     private final RestClient restClient;
@@ -30,6 +33,7 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
 
     @Override
     public DriveFileMetadata getMetadata(DriveFileReference reference) {
+        long started = System.nanoTime();
         try {
             DriveApiFile response = restClient.get()
                 .uri(metadataPath(reference.fileId()))
@@ -55,14 +59,17 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
                 soleOwnerEmail(response.owners())
             );
         } catch (RestClientResponseException exception) {
+            logFailure("metadata", started, exception);
             throw translate(exception);
         } catch (RestClientException exception) {
+            logFailure("metadata", started, exception);
             throw unavailable(GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE);
         }
     }
 
     @Override
     public byte[] download(DriveFileReference reference) {
+        long started = System.nanoTime();
         try {
             byte[] bytes = restClient.get()
                 .uri(downloadPath(reference.fileId()))
@@ -77,8 +84,10 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
             }
             return bytes;
         } catch (RestClientResponseException exception) {
+            logFailure("download", started, exception);
             throw translate(exception);
         } catch (RestClientException exception) {
+            logFailure("download", started, exception);
             throw unavailable(GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE);
         }
     }
@@ -142,6 +151,18 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
         String email = owners.get(0).emailAddress();
         return email == null || email.isBlank() ? null : email.trim();
     }
+
+    private static void logFailure(String stage, long started, RestClientException exception) {
+        Throwable cause = exception;
+        for (int depth = 0; depth < 8 && cause.getCause() != null; depth++) cause = cause.getCause();
+        int status = exception instanceof RestClientResponseException upstream ? upstream.getStatusCode().value() : 0;
+        String kind = exception instanceof RestClientResponseException upstream
+            ? classify(status, upstreamReasons(upstream.getResponseBodyAsString())).name() : "TRANSPORT";
+        // Never log request URIs, API keys, file IDs, response bodies or exception messages.
+        LOG.warn("Drive request failed stage={} elapsedMs={} upstreamStatus={} kind={} causeType={}",
+            stage, (System.nanoTime() - started) / 1_000_000, status, kind, cause.getClass().getSimpleName());
+    }
+
 
     private static GoogleDriveUnavailableException translate(RestClientResponseException exception) {
         int status = exception.getStatusCode().value();
