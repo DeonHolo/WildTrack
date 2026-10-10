@@ -58,6 +58,9 @@ export function mergeAcademicSuggestions(fields = [], students = []) {
   }).filter(Boolean);
   const activeOther = active.filter((field) => !ACADEMIC_FIELD_TYPES.has(field.type));
   const retired = fields.filter((field) => field.active === false && field !== reactivatedStudentNumber);
+  if (academic.every((field) => active.includes(field))) {
+    return [...active.filter((field) => !ACADEMIC_FIELD_TYPES.has(field.type) || academic.includes(field)), ...retired];
+  }
   return [...academic, ...activeOther, ...retired];
 }
 
