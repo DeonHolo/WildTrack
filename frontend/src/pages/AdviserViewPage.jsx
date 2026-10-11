@@ -27,6 +27,7 @@ import {
   ArrowSquareOut,
   CaretRight,
   CheckCircle,
+  Eye,
   Files,
   FolderOpen,
   MagnifyingGlass,
@@ -732,10 +733,10 @@ function SelectedGroupOutput({
       ) : (
         <Stack gap="md">
           <ResponseTimingSummary timing={response.timing} />
-          <section>
-            <div className="wt-adviser-detail-heading">
-              <Text fw={800}>Submission artifacts</Text>
-              <Text size="xs" c="dimmed">Each PDF is checked and reviewed independently.</Text>
+          <section className="wt-review-detail-section">
+            <div>
+              <Text fw={750}>Submission artifacts</Text>
+              <Text size="xs" c="dimmed">Only PDF artifacts configured for review are sent through Document Check or AI Review.</Text>
             </div>
             <Stack gap="sm" mt="sm">
               {submissionArtifactFields(row.deliverable.fields || []).map((field) => (
@@ -823,11 +824,11 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpe
       : 'Not applicable';
 
   return (
-    <Paper withBorder radius="sm" p="md" role="group" aria-label={`${field.label || 'Submission artifact'} artifact`}>
-      <Stack gap="xs">
-        <Group justify="space-between" align="flex-start" wrap="wrap">
+    <Paper withBorder radius="md" p="md" role="group" aria-label={`${field.label || 'Submission artifact'} artifact`}>
+      <Stack gap="sm">
+        <Group justify="space-between" align="flex-start" wrap="nowrap">
           <div>
-            <Text fw={750}>{field.label || 'Submission artifact'}</Text>
+            <Text fw={750} size="sm">{field.label || 'Submission artifact'}</Text>
             <Text size="xs" c="dimmed">{submissionFieldTypeLabel(field)}</Text>
           </div>
           {reviewablePdf ? <StatusIndicator status={checkStatus} /> : null}
@@ -847,29 +848,32 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpe
         ) : <Text size="sm" c="dimmed">No value submitted for this artifact.</Text>}
 
         {reviewablePdf ? (
-          <Stack gap="xs">
-            <Group gap="xs" wrap="wrap">
-              <Button
-                variant="light"
-                color="wildtrackMaroon"
-                size="xs"
-                loading={checking}
-                disabled={!value}
+          <>
+            <Group gap="xs" wrap="wrap" className="wt-review-artifact-actions">
+              <Button variant="light" color="wildtrackMaroon" size="xs"
+                loading={checking} disabled={!value}
                 leftSection={<MagnifyingGlass size={15} aria-hidden="true" />}
-                onClick={onOpenDocumentCheck}
-              >
+                onClick={onOpenDocumentCheck}>
                 {isArtifactDocumentCheckCurrent(response, field) ? 'View Document Check' : 'Check document'}
               </Button>
-              {aiEnabled ? <StatusIndicator status={aiStatus} /> : null}
+              {aiEnabled && aiReportForDisplay ? (
+                <Button variant="light" color="wildtrackMaroon" size="xs"
+                  leftSection={<Eye size={15} aria-hidden="true" />} onClick={onOpenAiReview}>
+                  View AI Review
+                </Button>
+              ) : null}
             </Group>
-            <Text size="sm" c="dimmed">{check?.summary || 'No current Document Check is available for this PDF.'}</Text>
+            <Text size="sm">{check?.summary || 'No current Document Check is available for this PDF.'}</Text>
             {aiEnabled ? (
-              <Group gap="xs" wrap="wrap">
-                {aiReportForDisplay ? <Button variant="subtle" size="xs" color="wildtrackMaroon" onClick={onOpenAiReview}>View AI Review</Button> : null}
+              <Stack gap={3}>
+                <Group justify="space-between">
+                  <Text size="xs" fw={750}>AI Review</Text>
+                  <StatusIndicator status={aiStatus} />
+                </Group>
                 {!aiReportForDisplay ? <Text size="xs" c="dimmed">No current AI Review is available. AI Review is initiated by Sir/Admin.</Text> : null}
-              </Group>
+              </Stack>
             ) : null}
-          </Stack>
+          </>
         ) : (
           <Text size="xs" c="dimmed">Recorded as submission evidence. Document Check and AI Review do not apply to this artifact.</Text>
         )}
