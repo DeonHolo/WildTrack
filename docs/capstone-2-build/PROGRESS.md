@@ -1,6 +1,18 @@
 # Live progress and resume checkpoint
 
-## Active checkpoint — 10 October 2026: staff UI and durable AI batches verified locally
+## Active checkpoint — 11 October 2026: Forms/review follow-up verified; publication next
+
+PR95 merged as `9081daa3c3999c2c746ee7c6f8e303dedada534b`; Heroku and Vercel production deployments succeeded on 10 October. Continue on canonical `wildtrack-dev`; preserve unrelated dirty coursework and frozen study evidence. STD DOCX/PDF/ZIP is frozen. All new request/test records are Markdown in [the STD folder](<../old documents, templates/outputs/04-Software-Test-Document/UI_REVIEW_FOLLOWUP_2026-10-11.md>); [development handoff](../DEVELOPMENT_HANDOFF_2026-10-10.md) has the exact next actions.
+
+Implemented: question edge auto-scroll and current insertion cue; grouped Drive failures with saved affected-file identity; safe continuation after proven preclaim retrieval failures; immediate scoped cached AI-batch progress; per-artifact Rerun Document Check; automatic resolution of restored-access queue alerts; removal of duplicate history details/intro; browser template text preview with expected/detected headings; context-aware TOC parsing. Uncertain postclaim/provider failures retain explicit retry safeguards. No new Gemini request was sent.
+
+Verification: 638/638 frontend tests and production build pass; 72 batch/deduplication, 26 heading/template, 39 file-check/AI-template impact and 40 monitor/security/resolution tests pass in separate suites. Actual 58-page STD extraction now finds Introduction/Test Plan/Test Cases on pages 8/10/12; 11/12 useful headings match. The genuine remaining Test Results versus A.2. Execution Summary naming difference is retained. Original document hashes are unchanged.
+
+Fresh live File History refresh still returns NOT_CONFIGURED for the separate revision OAuth connection; current public-PDF metadata/download works. This is distinct from missing submitter consent. Exact missing deployment setting and the historical Drive 503 cause remain unconfirmed. Local IAB preview access was rejected by its URL policy, so no new local visual or hosted deployment pass is claimed.
+
+Next: publish this follow-up after checks pass, rerun the existing STD Document Check on live, then finish revision OAuth configuration and test genuine eligible owner/editor consent. Keep first-render pending-read/cache isolation tests; eventual restoration assertions miss flicker. Earlier checkpoints below are historical.
+
+## Previous checkpoint — 10 October 2026: staff UI and durable AI batches verified locally
 
 Continue `docs/REVIEW_FORMS_CHANGE_SUMMARY_2026-10-10.md`, `docs/FILE_HISTORY_TODAYS_WORK_2026-10-10.md` and `docs/AI_REVIEW_BATCH_REPAIR_2026-10-10.md`; GitHub request #94 and PR95 (unmerged). Work remains on canonical `wildtrack-dev`, preserving unrelated dirty coursework/study files. File History, activity sorting, adviser output selection and form editor changes are implemented. All 612 frontend tests, 23 affected browser role-flow tests and the production build pass; the real Spring/H2/browser retirement-and-replacement journey passes.
 

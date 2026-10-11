@@ -31,8 +31,10 @@ vi.mock('../app/WorkspaceSession.jsx', () => ({
     refreshSession: workflow.refreshSession })
 }));
 
-vi.mock('../hooks/useWorkspaceResource.js', () => ({
-  useWorkspaceResource: () => {
+vi.mock('../hooks/useWorkspaceResource.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { useWorkspaceResource: (...args) => {
+    if (args[3] === 'ai-review-batch') return actual.useWorkspaceResource(...args);
     const [, rerender] = useReducer((value) => value + 1, 0);
     return {
     data: workflow.state,
@@ -44,7 +46,8 @@ vi.mock('../hooks/useWorkspaceResource.js', () => ({
     error: ''
     };
   }
-}));
+  };
+});
 
 vi.mock('../lib/api.js', () => ({
   getIdentityConflicts: vi.fn().mockResolvedValue([]),
@@ -313,6 +316,21 @@ describe('deliverable-first submission review', () => {
     }));
   });
 
+  it('reruns a current Document Check directly from its artifact without starting AI Review', async () => {
+    const saved = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    workflow.runDocumentCheck.mockResolvedValue({ ok: true,
+      report: { ...saved.documentCheck, summary: 'Fresh document inspection saved.' } });
+    renderPage('/review?response=response-ron-srs');
+    expect(screen.getByRole('button', { name: 'View Document Check' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Rerun Document Check' }));
+    await waitFor(() => expect(workflow.runDocumentCheck).toHaveBeenCalledWith('response-ron-srs', expect.objectContaining({ id: 'documentPdf' })));
+    const checkDialog = (await screen.findByRole('button', { name: 'Close Document Check details' })).closest('[role="dialog"]');
+    expect(checkDialog).toHaveTextContent('Fresh document inspection saved.');
+    expect(workflow.runDocumentCheck).toHaveBeenCalledTimes(1);
+    expect(workflow.runAiReviews).not.toHaveBeenCalled();
+    expect(startAiReviewBatch).not.toHaveBeenCalled();
+  });
+
   it('reuses a completed Document Check across ordinary page opens and requests one check after the artifact changes', async () => {
     const responseId = 'response-ron-srs';
     const entry = `/review?response=${responseId}`;
@@ -340,7 +358,7 @@ describe('deliverable-first submission review', () => {
     }) });
 
     const changedView = renderPage(entry);
-    fireEvent.click(await screen.findByRole('button', { name: 'Check again', exact: true }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Rerun Document Check', exact: true }));
     expect(await screen.findByRole('button', { name: 'Close Document Check details' })).toBeVisible();
     expect(workflow.runDocumentCheck).toHaveBeenCalledTimes(1);
     expect(workflow.runDocumentCheck).toHaveBeenCalledWith(responseId, expect.objectContaining({ id: 'documentPdf' }));
@@ -556,9 +574,9 @@ describe('deliverable-first submission review', () => {
     fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
     const dialog = await screen.findByRole('dialog', { name: 'AI review submissions' });
     await waitFor(() => expect(dialog).toHaveTextContent('1 unique document to review'));
-    expect(dialog).toHaveTextContent('1 PDF submissions could not be verified');
-    expect(dialog).toHaveTextContent('Their uniqueness is unknown');
-    fireEvent.click(within(dialog).getByText('See verification failures'));
+    expect(dialog).toHaveTextContent('Some PDFs could not be verified');
+    expect(dialog).toHaveTextContent('excluded from the review count because their contents could not be verified');
+    fireEvent.click(within(dialog).getByText('See affected PDFs'));
     expect(dialog).toHaveTextContent('could not be confirmed as a sharing problem');
     expect(startAiReviewBatch).not.toHaveBeenCalled();
   });
@@ -1156,7 +1174,9 @@ describe('deliverable-first submission review', () => {
     ['Validation Instrument', 'Framework / Model', 'Validation Response Sheet', 'MVP Validation Highlights', 'Validation Evidence']
       .forEach(label => expect(within(drawer).getByText(label)).toBeInTheDocument());
     expect(within(drawer).getByText('Framework PDF is ready for staff review.')).toBeInTheDocument();
-    expect(within(drawer).getAllByRole('button', { name: /Document Check|Check document|Check again/ })).toHaveLength(2);
+    expect(within(drawer).getByRole('button', { name: 'View Document Check' })).toBeEnabled();
+    expect(within(drawer).getByRole('button', { name: 'Rerun Document Check' })).toBeEnabled();
+    expect(within(drawer).getByRole('button', { name: 'Check document' })).toBeEnabled();
 
     fireEvent.click(within(drawer).getByRole('button', { name: 'Check document' }));
     await waitFor(() => expect(workflow.runDocumentCheck).toHaveBeenCalledWith(

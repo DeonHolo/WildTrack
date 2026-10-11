@@ -90,4 +90,12 @@ public class DocumentTemplateController {
     ) {
         service.delete(workspaceId, id);
     }
+
+    @GetMapping("/{id}/structure")
+    public DocumentTemplateStructureResponse structure(
+        @PathVariable UUID id,
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+    ) {
+        return service.readStructure(workspaceId, id);
+    }
 }

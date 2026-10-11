@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cancelAiReviewBatchPreparation, getAiReviewBatch, getLatestAiReviewBatch, prepareAiReviewBatch,
   resumeAiReviewBatch, startAiReviewBatch } from '../lib/api.js';
+import { useWorkspaceSession } from './WorkspaceSession.jsx';
+import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+
+const emptyBatch = () => null;
 
 export function useAiReviewBatch(workspaceId, onFinished) {
-  const [batch, setBatch] = useState(null);
+  const { session } = useWorkspaceSession();
+  const accountKey = session?.authenticated ? JSON.stringify([session.email, session.googleSubject, session.roles]) : '';
+  // Keep the last verified display across route mounts. The shared cache scopes it to
+  // account/roles/workspace and revalidates with GET; cached progress never starts AI.
+  const { data: batch, setData: setBatch, error: readError } = useWorkspaceResource(
+    workspaceId, getLatestAiReviewBatch, emptyBatch, 'ai-review-batch');
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -13,14 +22,10 @@ export function useAiReviewBatch(workspaceId, onFinished) {
   const callback = useRef(onFinished);
   callback.current = onFinished;
   useEffect(() => {
-    const current = ++scope.current;
-    const sequence = ++operation.current;
-    setBatch(null); setOpened(false); setError(''); setBusy(false);
-    if (workspaceId) getLatestAiReviewBatch(workspaceId).then(saved => {
-      if (scope.current === current && operation.current === sequence) setBatch(saved);
-    }).catch(() => {}); // Legacy deployments/no saved batch must not manufacture a new request.
+    scope.current += 1; operation.current += 1;
+    setOpened(false); setError(''); setBusy(false); finished.current.clear();
     return () => { scope.current += 1; operation.current += 1; };
-  }, [workspaceId]);
+  }, [workspaceId, accountKey]);
   useEffect(() => {
     if (!batch?.id || !['PLANNING', 'RUNNING'].includes(batch.state)) return;
     const current = scope.current;
@@ -44,7 +49,7 @@ export function useAiReviewBatch(workspaceId, onFinished) {
     }
     timer = setTimeout(poll, 1000);
     return () => { stopped = true; clearTimeout(timer); };
-  }, [workspaceId, batch?.id, batch?.state]);
+  }, [workspaceId, accountKey, batch?.id, batch?.state, setBatch]);
 
   const prepare = useCallback(async targets => {
     const current = scope.current;
@@ -60,7 +65,7 @@ export function useAiReviewBatch(workspaceId, onFinished) {
     } finally {
       if (scope.current === current && operation.current === sequence) setBusy(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, accountKey, setBatch]);
   async function start(options) {
     const current = scope.current;
     setBusy(true); setError('');
@@ -89,5 +94,5 @@ export function useAiReviewBatch(workspaceId, onFinished) {
       }).catch(() => {});
     }
   }
-  return { batch, opened, busy, error, prepare, start, resume, cancel, open: () => setOpened(true), running: batch?.state === 'RUNNING' };
+  return { batch, opened, busy, error: error || readError, prepare, start, resume, cancel, open: () => setOpened(true), running: batch?.state === 'RUNNING' };
 }

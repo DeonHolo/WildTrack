@@ -424,6 +424,14 @@ export function getDocumentTemplateFileUrl(workspaceId, templateId) {
   return `${API_BASE_URL}${withWorkspace(`/templates/${templateId}/file`, workspaceId)}`;
 }
 
+export function getDocumentTemplateStructure(workspaceId, templateId) {
+  return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/structure`, workspaceId));
+}
+
+export function getDocumentTemplatePreviewUrl(workspaceId, templateId) {
+  return `/templates/${encodeURIComponent(templateId)}/preview?workspaceId=${encodeURIComponent(workspaceId)}`;
+}
+
 export async function deleteDocumentTemplate(workspaceId, templateId) {
   return requestForm(withWorkspace(`/templates/${templateId}`, workspaceId), {
     method: 'DELETE'

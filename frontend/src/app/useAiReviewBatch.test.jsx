@@ -1,6 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAiReviewBatch } from './useAiReviewBatch.js';
+import { createWorkspaceResourceCache } from '../lib/workspaceResourceCache.js';
+
+const workspace = vi.hoisted(() => ({ session: null, resourceCache: null }));
+vi.mock('./WorkspaceSession.jsx', () => ({ useWorkspaceSession: () => workspace }));
 
 const api = vi.hoisted(() => ({ latest: vi.fn(), get: vi.fn(), prepare: vi.fn(), start: vi.fn(), resume: vi.fn(), cancel: vi.fn() }));
 vi.mock('../lib/api.js', () => ({
@@ -12,7 +16,12 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
 const plan = (id, state = 'READY') => ({ id, state, version: 1, entries: [] });
 
 describe('server-owned AI batch lifecycle', () => {
-  beforeEach(() => { Object.values(api).forEach(mock => mock.mockReset()); api.latest.mockResolvedValue(null); });
+  beforeEach(() => {
+    localStorage.clear();
+    workspace.session = { authenticated: true, email: 'admin@school.edu', roles: ['ADMIN'] };
+    workspace.resourceCache = createWorkspaceResourceCache();
+    Object.values(api).forEach(mock => mock.mockReset()); api.latest.mockResolvedValue(null);
+  });
   afterEach(() => vi.useRealTimers());
 
   it('prepares without a start request and sends generation consent only on explicit confirmation', async () => {
@@ -32,11 +41,48 @@ describe('server-owned AI batch lifecycle', () => {
     const first = renderHook(() => useAiReviewBatch('workspace'));
     await waitFor(() => expect(first.result.current.running).toBe(true));
     first.unmount();
+    const pending = deferred(); api.latest.mockReturnValueOnce(pending.promise);
     const second = renderHook(() => useAiReviewBatch('workspace'));
-    await waitFor(() => expect(second.result.current.running).toBe(true));
+    // Assert the first render, while the server read is still unresolved: eventual
+    // restoration alone passes even when the panel briefly vanishes on navigation.
+    expect(second.result.current.batch).toMatchObject({ id: 'batch', state: 'RUNNING' });
+    expect(second.result.current.running).toBe(true);
+    await act(async () => pending.resolve(plan('batch', 'PAUSED')));
+    expect(second.result.current.batch.state).toBe('PAUSED');
     expect(api.cancel).not.toHaveBeenCalled();
     expect(api.start).not.toHaveBeenCalled();
     expect(api.prepare).not.toHaveBeenCalled();
+  });
+
+  it('never shows another workspace or account/role snapshot during a pending restore', async () => {
+    api.latest.mockResolvedValue(plan('private', 'PAUSED'));
+    const { result, rerender } = renderHook(({ id }) => useAiReviewBatch(id), { initialProps: { id: 'one' } });
+    await waitFor(() => expect(result.current.batch?.id).toBe('private'));
+    api.latest.mockReturnValue(new Promise(() => {}));
+    rerender({ id: 'two' });
+    expect(result.current.batch).toBe(null);
+    rerender({ id: 'one' });
+    expect(result.current.batch?.id).toBe('private');
+    workspace.session = { ...workspace.session, roles: ['STUDENT'] };
+    rerender({ id: 'one' });
+    expect(result.current.batch).toBe(null);
+    workspace.session = { authenticated: true, email: 'another@school.edu', roles: ['ADMIN'] };
+    rerender({ id: 'one' });
+    expect(result.current.batch).toBe(null);
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it('drops cached private progress when revalidation denies access', async () => {
+    api.latest.mockResolvedValue(plan('private', 'PAUSED'));
+    const first = renderHook(() => useAiReviewBatch('workspace'));
+    await waitFor(() => expect(first.result.current.batch?.id).toBe('private'));
+    first.unmount();
+    api.latest.mockRejectedValueOnce(Object.assign(new Error('Session expired'), { status: 401 }));
+    const second = renderHook(() => useAiReviewBatch('workspace'));
+    expect(second.result.current.batch?.id).toBe('private');
+    await waitFor(() => expect(second.result.current.batch).toBe(null));
+    expect(second.result.current.error).toBe('Session expired');
+    expect(api.start).not.toHaveBeenCalled();
   });
 
   it('ignores late status and preparation results from the previous workspace', async () => {

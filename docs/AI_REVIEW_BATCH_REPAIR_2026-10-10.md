@@ -1,5 +1,7 @@
 # AI Review batch repair — 10 October 2026
 
+Current status, 11 October: PR95 merged as `9081daa` and both production deployments succeeded. The checkpoint below records its original local verification. The newer batch continuation/failure grouping/cache fixes are in [the STD Markdown follow-up](<old documents, templates/outputs/04-Software-Test-Document/UI_REVIEW_FOLLOWUP_2026-10-11.md>). Do not edit the STD DOCX/PDF/ZIP or follow an older export instruction while they are frozen.
+
 ## Verified local implementation checkpoint
 
 GitHub request: https://github.com/DeonHolo/WildTrack/issues/94. Canonical branch is `wildtrack-dev`. The implementation has passed local verification; publication and hosted verification are separate.

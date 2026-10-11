@@ -58,7 +58,7 @@ function state() {
   };
 }
 
-function renderEditor(path) {
+function renderEditor(path, options) {
   return render(
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
       <MemoryRouter initialEntries={[path]} future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
@@ -69,8 +69,47 @@ function renderEditor(path) {
           <Route path="/review" element={<h1>Review destination</h1>} />
         </Routes>
       </MemoryRouter>
-    </MantineProvider>
+    </MantineProvider>, options
   );
+}
+
+function dragAt(target, type, clientX, clientY) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, { clientX: { value: clientX }, clientY: { value: clientY } });
+  fireEvent(target, event);
+}
+
+function dragScrollViewport(scroller = document.documentElement, height = 800) {
+  const frames = new Map();
+  let nextId = 0;
+  const request = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    frames.set(++nextId, callback);
+    return nextId;
+  });
+  const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => frames.delete(id));
+  const scrollHeight = vi.spyOn(scroller, 'scrollHeight', 'get').mockReturnValue(2400);
+  const clientHeight = vi.spyOn(scroller, 'clientHeight', 'get').mockReturnValue(height);
+  const clientWidth = vi.spyOn(scroller, 'clientWidth', 'get').mockReturnValue(1280);
+  const originalTop = scroller.scrollTop;
+  scroller.scrollTop = 0;
+  return {
+    frames,
+    nextFrame(time) {
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        pending.forEach((callback) => callback(time));
+      });
+    },
+    restore() {
+      request.mockRestore();
+      cancel.mockRestore();
+      scrollHeight.mockRestore();
+      clientHeight.mockRestore();
+      clientWidth.mockRestore();
+      scroller.scrollTop = originalTop;
+    }
+  };
 }
 
 describe('full-page form editor', () => {
@@ -312,6 +351,93 @@ describe('full-page form editor', () => {
     const saved = submissionClient.saveDeliverable.mock.calls[0][1];
     expect(saved.fields.find((field) => field.id === 'framework')).toMatchObject({ definitionId: 'field-framework', type: 'drive' });
     expect(saved.fields.find((field) => field.id === 'scope').options.map((option) => option.id)).toEqual(['option-a', 'option-b']);
+  });
+
+  it('scrolls while held at the page edge and updates the insertion cue before dropping', async () => {
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByDisplayValue('SRS Submission');
+    const viewport = dragScrollViewport();
+    const source = screen.getByRole('button', { name: 'Drag Framework PDF' });
+    const target = screen.getByDisplayValue('Scope').closest('.wt-question-card');
+    target.getBoundingClientRect = () => ({ top: 735 - document.documentElement.scrollTop, height: 130, left: 20, right: 340 });
+    try {
+      fireEvent.dragStart(source, { dataTransfer: { effectAllowed: 'move' } });
+      dragAt(target, 'dragover', 100, 790);
+      expect(document.querySelector('.wt-question-drop-indicator')).toHaveClass('is-before');
+      viewport.nextFrame(16);
+      const firstScroll = document.documentElement.scrollTop;
+      expect(firstScroll).toBeGreaterThan(0);
+      viewport.nextFrame(32);
+      expect(document.documentElement.scrollTop).toBeGreaterThan(firstScroll);
+      expect(document.querySelector('.wt-question-drop-indicator')).toHaveClass('is-after');
+      fireEvent.drop(target);
+      expect(viewport.frames.size).toBe(0);
+      expect(screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value))
+        .toEqual(['Student Number', 'Student Name', 'Team Code', 'Section', 'Scope', 'Framework PDF']);
+      expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
+    } finally { viewport.restore(); }
+  });
+
+  it.each(['Escape', 'drop outside a card', 'drag end', 'leave viewport', 'blur', 'unmount'])
+    ('stops drag auto-scroll on %s without saving or reordering', async (reason) => {
+      const editor = renderEditor('/forms/form-srs/edit');
+      await screen.findByDisplayValue('SRS Submission');
+      const before = screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value);
+      const viewport = dragScrollViewport();
+      const source = screen.getByRole('button', { name: 'Drag Framework PDF' });
+      try {
+        fireEvent.dragStart(source, { dataTransfer: { effectAllowed: 'move', setDragImage: vi.fn() } });
+        dragAt(document, 'dragover', 100, 790);
+        viewport.nextFrame(16);
+        expect(document.documentElement.scrollTop).toBeGreaterThan(0);
+        if (reason === 'Escape') fireEvent.keyDown(window, { key: 'Escape' });
+        else if (reason === 'drop outside a card') fireEvent.drop(document.body);
+        else if (reason === 'drag end') fireEvent.dragEnd(source);
+        else if (reason === 'leave viewport') dragAt(document, 'dragleave', 100, 801);
+        else if (reason === 'blur') fireEvent.blur(window);
+        else editor.unmount();
+        const stoppedAt = document.documentElement.scrollTop;
+        expect(viewport.frames.size).toBe(0);
+        viewport.nextFrame(32);
+        expect(document.documentElement.scrollTop).toBe(stoppedAt);
+        if (reason !== 'unmount') {
+          expect(screen.getAllByRole('textbox', { name: 'Field label' }).map((input) => input.value)).toEqual(before);
+          expect(screen.getByRole('status')).toHaveTextContent('No unsaved changes');
+        }
+        expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
+      } finally { viewport.restore(); }
+    });
+
+  it('uses the nested scroll viewport edges, pauses away from them, and scrolls in both directions', async () => {
+    const scrollArea = document.createElement('section');
+    scrollArea.style.overflowY = 'auto';
+    document.body.appendChild(scrollArea);
+    const editor = renderEditor('/forms/form-srs/edit', { container: scrollArea });
+    await screen.findByDisplayValue('SRS Submission');
+    const viewport = dragScrollViewport(scrollArea, 300);
+    scrollArea.getBoundingClientRect = () => ({ top: 200, left: 20, height: 300, width: 1280 });
+    const source = screen.getByRole('button', { name: 'Drag Framework PDF' });
+    const pageTop = document.documentElement.scrollTop;
+    try {
+      fireEvent.dragStart(source, { dataTransfer: { effectAllowed: 'move' } });
+      dragAt(document, 'dragover', 100, 495);
+      viewport.nextFrame(16);
+      expect(scrollArea.scrollTop).toBeGreaterThan(0);
+      expect(document.documentElement.scrollTop).toBe(pageTop);
+      dragAt(document, 'dragover', 100, 790);
+      expect(viewport.frames.size).toBe(0);
+      const beforeUp = scrollArea.scrollTop;
+      dragAt(document, 'dragover', 100, 205);
+      viewport.nextFrame(32);
+      expect(scrollArea.scrollTop).toBeLessThan(beforeUp);
+      dragAt(document, 'dragover', 100, 350);
+      expect(viewport.frames.size).toBe(0);
+      fireEvent.dragEnd(source);
+    } finally {
+      editor.unmount();
+      viewport.restore();
+      scrollArea.remove();
+    }
   });
 
   it('cancels a drag with Escape, removes its preview, and preserves the clean draft', async () => {

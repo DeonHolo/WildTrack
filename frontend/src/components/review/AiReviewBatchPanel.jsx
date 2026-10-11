@@ -1,4 +1,5 @@
 import { Alert, Button, Group, Progress, Stack, Text } from '@mantine/core';
+import { AiReviewBatchFailures } from './AiReviewBatchFailures.jsx';
 
 export function AiReviewBatchPanel({ batch, error, busy, onResume, onChoose, onPrepare, onRefresh }) {
   if (!batch || batch.state === 'CANCELLED') return error ? <Alert color="red" role="alert">{error}</Alert> : null;
@@ -16,12 +17,7 @@ export function AiReviewBatchPanel({ batch, error, busy, onResume, onChoose, onP
       <Text size="sm">{batch.message}</Text>
       {batch.reusedDocuments ? <Text size="sm">{batch.reusedDocuments} saved {batch.reusedDocuments === 1 ? 'review reused' : 'reviews reused'}.</Text> : null}
       {error ? <Text size="sm">{error}</Text> : null}
-      {failed ? <details className="wt-ai-batch-details"><summary>See items needing attention ({failed})</summary>
-        {batch.entries.filter(entry => entry.error).map(entry => <div key={`${entry.target.responseId}:${entry.target.fieldId}`}>
-          {entry.preview ? <Text size="sm" fw={600}>{entry.preview.deliverableTitle} — {entry.preview.studentName}</Text> : null}
-          <Text size="sm">{entry.error}</Text>
-        </div>)}
-      </details> : null}
+      {failed ? <AiReviewBatchFailures entries={batch.entries} /> : null}
       <Group gap="sm">
         {batch.state === 'READY' ? <Button onClick={onChoose}>Choose review scope</Button> : null}
         {paused && batch.pendingDocuments > 0 ? <Button loading={busy} onClick={onResume}>Continue remaining ({batch.pendingDocuments})</Button> : null}

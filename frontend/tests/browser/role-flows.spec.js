@@ -321,6 +321,8 @@ for (const viewport of artworkViewports) {
 test('workspace archive closeout preflight stays readable without overlapping controls on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openAs(page, 'admin', '/workspace');
+  // DEV preview can render management before the authenticated active catalog settles.
+  await expect(page.getByRole('textbox', { name: 'Academic workspace', exact: true })).toHaveValue('IT Capstone');
   const management = page.getByRole('region', { name: 'Academic workspace management' });
   await management.getByRole('button', { name: 'Expand Academic workspaces' }).click();
   const workspace = management.getByRole('table', { name: 'Academic workspaces' })

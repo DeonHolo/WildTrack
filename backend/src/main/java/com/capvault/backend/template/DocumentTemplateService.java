@@ -23,6 +23,7 @@ import com.capvault.backend.deliverable.DeliverableFieldRepository;
 import com.capvault.backend.deliverable.DeliverableFieldType;
 import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DocumentCheckPolicy;
+import com.capvault.backend.filecheck.TemplateComparator;
 
 /**
  * Official templates are stored durably in PostgreSQL. The legacy local
@@ -43,6 +44,7 @@ public class DocumentTemplateService {
     private final GoogleDriveGateway driveGateway;
     private final DeliverableRepository deliverableRepository;
     private final DeliverableFieldRepository fieldRepository;
+    private final TemplateComparator comparator;
 
     public DocumentTemplateService(
         DocumentTemplateRepository repository,
@@ -50,7 +52,8 @@ public class DocumentTemplateService {
         TemplateStorageProperties properties,
         GoogleDriveGateway driveGateway,
         DeliverableRepository deliverableRepository,
-        DeliverableFieldRepository fieldRepository
+        DeliverableFieldRepository fieldRepository,
+        TemplateComparator comparator
     ) {
         this.repository = repository;
         this.textExtractor = textExtractor;
@@ -58,6 +61,7 @@ public class DocumentTemplateService {
         this.driveGateway = driveGateway;
         this.deliverableRepository = deliverableRepository;
         this.fieldRepository = fieldRepository;
+        this.comparator = comparator;
     }
 
     @Transactional(readOnly = true)
@@ -182,6 +186,17 @@ public class DocumentTemplateService {
             template.getOriginalFilename(),
             template.getContentType()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public DocumentTemplateStructureResponse readStructure(UUID workspaceId, UUID templateId) {
+        DocumentTemplate template = findById(workspaceId, templateId);
+        TemplateFile file = readFile(workspaceId, templateId);
+        String text = textExtractor.extract(file.bytes(), file.filename(), file.contentType());
+        var comparison = comparator.compare(text, text);
+        return new DocumentTemplateStructureResponse(template.getId(), template.getDisplayName(),
+            file.filename(), file.contentType(), text,
+            comparison.expectedTemplateHeadings(), comparison.detectedTemplateHeadings());
     }
 
     @Transactional

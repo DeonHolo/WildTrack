@@ -1,7 +1,7 @@
 import { Alert, Button, Group, Loader } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { getSubmittedFileHistory, startDriveHistoryConsent } from '../../lib/api.js';
-import { historyDate, newestHistoryEntries, observationTime } from '../../lib/fileHistoryPresentation.js';
+import { historyDate, newestHistoryEntries } from '../../lib/fileHistoryPresentation.js';
 import { DriveIdentityValue } from './DriveIdentityValue.jsx';
 import { ObservedFileHistory } from './ObservedFileHistory.jsx';
 
@@ -59,32 +59,16 @@ function FileHistoryContent({ workspaceId, responseId, fieldId, observedHistory,
   }, [workspaceId, responseId, fieldId, token, pageIndex, initialHistory, initialLoading]);
 
   const revisions = newestHistoryEntries(history?.revisions, revision => revision.modifiedTime);
-  const latest = newestHistoryEntries(observedHistory?.observations, observationTime)[0];
-  const metadata = history?.fileMetadata;
-  const owner = metadata?.driveOwner || metadata?.driveOwnerStudent ? metadata : latest;
-  const editor = metadata?.lastModifiedBy || metadata?.lastModifiedByStudent ? metadata : latest;
   const status = history?.status || 'UNAVAILABLE';
   const hasRevisions = ['AVAILABLE', 'INCOMPLETE'].includes(status);
+  const incomplete = hasRevisions && (history?.historyMayBeIncomplete || status === 'INCOMPLETE');
   const needsSetup = status === 'NOT_CONFIGURED' || (status === 'UNAVAILABLE'
     && history?.coverageMessage?.startsWith('Drive revision history is not enabled in this WildTrack environment yet.'));
 
   return (
     <div className="file-history" aria-label="Submitted file history">
-      {!studentView ? <section className="file-history-overview" aria-label="File details">
-        <h3>File details</h3>
-        <dl className="file-history-facts">
-          <div><dt>Owner</dt><dd><DriveIdentityValue registeredStudent={owner?.driveOwnerStudent} providerValue={owner?.driveOwner} /></dd></div>
-          <div><dt>Last modified by</dt><dd><DriveIdentityValue
-            registeredStudent={editor === metadata ? metadata?.lastModifiedByStudent : latest?.modifiedByStudent}
-            providerValue={editor === metadata ? metadata?.lastModifiedBy : latest?.modifiedBy || latest?.modifiedByEmail} /></dd></div>
-          <div><dt>Drive edit time</dt><dd>{historyDate(metadata?.lastModifiedTime || latest?.driveModifiedTime)}</dd></div>
-          <div><dt>Last recorded check</dt><dd>{historyDate(latest && observationTime(latest))}</dd></div>
-        </dl>
-        <p className="file-history-caption">{metadata ? 'Available details from Google Drive; recorded checks remain unchanged.' : 'Details from the last recorded check; newer Drive details may be unavailable.'}</p>
-      </section> : null}
-
       {!studentView ? observedHistory ? <ObservedFileHistory history={observedHistory} />
-        : <section className="file-history-section" aria-label="WildTrack observations"><h3>Recorded checks</h3>
+        : <section className="file-history-section" aria-label="WildTrack observations">
           <p className="file-history-empty">WildTrack observed history is unavailable for this file.</p></section> : null}
 
       <section className="file-history-section" aria-label="Google Drive revision metadata">
@@ -95,7 +79,8 @@ function FileHistoryContent({ workspaceId, responseId, fieldId, observedHistory,
         </div>
         <p className="file-history-caption">{studentView
           ? 'Edits Google returns for your submitted PDF. Owner and editor identities are hidden.'
-          : 'Edits returned by Google, separate from WildTrack’s recorded checks. These may include edits before submission.'}</p>
+          : 'Edits returned by Google, separate from WildTrack’s recorded checks. These may include edits before submission.'}
+          {incomplete ? ' Google may omit older edits or editor details.' : ''}</p>
 
         {loading ? <Group role="status" gap="xs" className="file-history-state"><Loader size="xs" /><span>Loading file history…</span></Group> : null}
         {error ? <Alert color="orange" role="alert">{error}</Alert> : null}
@@ -143,9 +128,6 @@ function FileHistoryContent({ workspaceId, responseId, fieldId, observedHistory,
           </Group> : null}
         </> : null}
       </section>
-      <p className="file-history-limit">{studentView
-        ? 'This history can be incomplete. Earlier edits may be unavailable because of file permissions, access changes, or Google retention.'
-        : 'Recorded checks cover only WildTrack inspections. Google may omit older edits or identities; neither list proves authorship or a complete editing history.'}</p>
     </div>
   );
 }

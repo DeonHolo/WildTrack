@@ -27,6 +27,8 @@ import com.capvault.backend.template.DocumentTemplateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -130,6 +132,68 @@ class AiReviewDeduplicationTest {
         assertThat(service.preview(workspace, second.getId(), null, "admin").key()).isNotEqualTo(one.key());
     }
 
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void failedPreclaimCopyDoesNotPreventAnAccessibleDuplicateFromReceivingOneReview(boolean rerun) {
+        var third = response("file-third", "team-one");
+        if (rerun) { run(second); clearInvocations(provider); }
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V34__durable_ai_review_batches.sql")).execute(datasource);
+        var batchClock = Clock.systemUTC();
+        var mapper = new ObjectMapper();
+        var batchStore = new AiReviewBatchStore(jdbc, mapper, batchClock, new DataSourceTransactionManager(datasource));
+        var checks = mock(FileCheckReportRepository.class);
+        when(checks.findFirstByWorkspaceIdAndExternalResponseIdAndFieldIdOrderByCheckedAtDesc(any(), anyString(), any()))
+            .thenReturn(Optional.empty());
+        var batches = new AiReviewBatchService(batchStore, service, checks, mapper, batchClock);
+        var preparing = batches.prepare(workspace, "admin", List.of(new AiReviewBatchService.Target(first.getId(), null),
+            new AiReviewBatchService.Target(second.getId(), null), new AiReviewBatchService.Target(third.getId(), null)));
+        batches.tick(); batches.tick(); batches.tick();
+        var plan = batches.get(workspace, preparing.id(), "admin");
+        assertThat(plan.uniqueDocuments()).isEqualTo(1);
+        doAnswer(inv -> {
+            String fileId = inv.getArgument(0, DriveFileReference.class).fileId();
+            if (fileId.equals("file-first")) throw new GoogleDriveUnavailableException("Private Drive failure", GoogleDriveUnavailableException.Kind.UNKNOWN);
+            return files.get(fileId);
+        }).when(drive).download(any());
+        batches.start(workspace, plan.id(), "admin", plan.version(), rerun ? "ALL" : "ATTENTION", true, false);
+        batches.tick();
+        assertThat(batches.get(workspace, plan.id(), "admin").state()).isEqualTo("RUNNING");
+        verify(provider, never()).review(any());
+        batches.tick(); batches.tick(); batches.tick();
+        var completed = batches.get(workspace, plan.id(), "admin");
+        assertThat(completed.state()).isEqualTo("COMPLETED");
+        assertThat(completed.completedDocuments()).isEqualTo(1);
+        assertThat(completed.entries().get(0).noAiStarted()).isTrue();
+        assertThat(completed.entries().get(2).reused()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ai_review_jobs", Integer.class)).isEqualTo(1);
+        verify(provider, times(1)).review(any());
+    }
+
+    @Test void localDisplayIdentityDoesNotReadProvidersAndRejectsAnotherWorkspace() {
+        var identity = service.displayIdentity(workspace, first.getId(), null, "admin");
+        assertThat(identity.deliverableTitle()).isEqualTo("Requirements");
+        assertThat(identity.studentName()).isEqualTo(first.getStudentName());
+        assertThat(identity.sourceUrl()).isEqualTo("https://drive.google.com/file/d/file-first/view");
+        assertThatThrownBy(() -> service.displayIdentity(UUID.randomUUID(), first.getId(), null, "admin"))
+            .isInstanceOf(ResponseStatusException.class);
+        verify(drive, never()).getMetadata(any());
+        verify(drive, never()).download(any());
+        verify(provider, never()).review(any());
+    }
+
+    @Test void unavailableTargetHasLocalLabelsButNoInventedSource() {
+        var identity = service.displayIdentity(workspace, first.getId(), "retired-field", "admin");
+        assertThat(identity.deliverableTitle()).isEqualTo("Requirements");
+        assertThat(identity.studentName()).isEqualTo(first.getStudentName());
+        assertThat(identity.sourceUrl()).isNull();
+        verify(drive, never()).getMetadata(any());
+    }
+
+    @Test void displayIdentityDoesNotTurnAnUntrustedSchemeIntoAnOpenPdfLink() {
+        first.setValuesJson("{\"documentPdf\":\"javascript://drive.google.com/file/d/file-first\"}");
+        assertThat(service.displayIdentity(workspace, first.getId(), null, "admin").sourceUrl()).isNull();
+        verify(drive, never()).getMetadata(any());
+    }
+
     @Test void preparationDisclosesOlderReviewAfterSubmittedUrlChangesWithoutReusingItAsCurrent() {
         service.review(workspace, first.getId(), null, "admin", false, null, false);
         first.setValuesJson("{\"documentPdf\":\"https://drive.google.com/file/d/file-second/view\"}");
@@ -211,10 +275,13 @@ class AiReviewDeduplicationTest {
         var tasks = new java.util.ArrayList<Runnable>();
         service = newService(store, tasks::add);
         assertThatThrownBy(() -> run(first))
-            .isInstanceOf(ResponseStatusException.class)
+            .isInstanceOf(AiReviewService.DrivePreparationFailure.class)
             .satisfies(problem -> {
-                var http = (ResponseStatusException) problem;
+                var http = (AiReviewService.DrivePreparationFailure) problem;
                 assertThat(http.getStatusCode()).isEqualTo(expectedStatus);
+                assertThat(http.identity().sourceUrl()).isEqualTo("https://drive.google.com/file/d/file-first/view");
+                if (expectedStatus == HttpStatus.UNPROCESSABLE_ENTITY)
+                    assertThat(http.kind()).isEqualTo(GoogleDriveUnavailableException.Kind.FILE_ACCESS);
                 assertThat(http.getReason()).startsWith(expectedMessage)
                     .contains("No AI review was started.")
                     .doesNotContain("Private", "file-first", "403", "404");

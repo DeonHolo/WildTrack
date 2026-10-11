@@ -125,7 +125,58 @@ public class AiReviewService {
                    String deliverableTitle, String artifactLabel, String studentName, String sourceUrl,
                    String sourceResponseUpdatedAt, String generatedAt, String modifiedAt,
                    UUID jobToken, UUID retryToken) { }
+    record DisplayIdentity(String deliverableTitle, String artifactLabel, String studentName, String sourceUrl,
+                           String fileName) {
+        static DisplayIdentity from(Preview preview) {
+            return new DisplayIdentity(preview.deliverableTitle(), preview.artifactLabel(), preview.studentName(),
+                safeSource(preview.sourceUrl()), null);
+        }
+        DisplayIdentity withoutSource() { return new DisplayIdentity(deliverableTitle, artifactLabel, studentName, null, null); }
+        static String safeSource(String source) {
+            try {
+                String scheme = java.net.URI.create(source.trim()).getScheme();
+                if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) return null;
+                DriveLinkParser.parse(source);
+                return source;
+            } catch (IllegalArgumentException | NullPointerException invalid) { return null; }
+        }
+    }
+    /** The type proves this failure occurred before any review job was claimed. */
+    static final class DrivePreparationFailure extends ResponseStatusException {
+        private final GoogleDriveUnavailableException.Kind kind;
+        private final DisplayIdentity identity;
+        DrivePreparationFailure(GoogleDriveUnavailableException.Kind kind, String reason) {
+            this(kind, reason, null);
+        }
+        private DrivePreparationFailure(GoogleDriveUnavailableException.Kind kind, String reason, DisplayIdentity identity) {
+            super(kind == GoogleDriveUnavailableException.Kind.FILE_ACCESS ? HttpStatus.UNPROCESSABLE_ENTITY
+                : HttpStatus.SERVICE_UNAVAILABLE, reason);
+            this.kind = kind == null ? GoogleDriveUnavailableException.Kind.UNKNOWN : kind; this.identity = identity;
+        }
+        GoogleDriveUnavailableException.Kind kind() { return kind; }
+        DisplayIdentity identity() { return identity; }
+        DrivePreparationFailure identified(DisplayIdentity value) { return new DrivePreparationFailure(kind, getReason(), value); }
+    }
     private record Prepared(byte[] bytes, PdfInspection inspection, String key, String modifiedAt) { }
+
+    /** Local, authorized labels for a failed preflight; no Drive or Gemini calls. */
+    DisplayIdentity displayIdentity(UUID workspaceId, UUID responseId, String fieldId, String subject) {
+        var response = authorized(workspaceId, responseId, subject);
+        requireAdministrator(subject);
+        try { return displayIdentity(response, target(response, fieldId)); }
+        catch (IllegalArgumentException unavailable) {
+            var deliverable = deliverables.findById(response.getDeliverableId())
+                .filter(d -> d.getWorkspaceId().equals(workspaceId)).orElseThrow(() -> unavailable);
+            return new DisplayIdentity(deliverable.getTitle(), "PDF artifact", response.getStudentName(), null, null);
+        }
+    }
+
+    private DisplayIdentity displayIdentity(FormResponse response, ReviewTarget target) {
+        var deliverable = deliverables.findById(response.getDeliverableId())
+            .filter(d -> d.getWorkspaceId().equals(response.getWorkspaceId())).orElseThrow();
+        return new DisplayIdentity(deliverable.getTitle(), target.label(), response.getStudentName(),
+            DisplayIdentity.safeSource(target.sourceUrl()), null);
+    }
 
     /** Explicit preparation downloads/verifies the current PDF but never calls Gemini or claims a job. */
     Preview preview(UUID workspaceId, UUID responseId, String fieldId, String subject) {
@@ -178,7 +229,13 @@ public class AiReviewService {
     }
 
     private Prepared prepare(FormResponse response, ReviewTarget target, Context context) {
-        if (!drive.isConfigured()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Document access is not configured.");
+        try { return preparePdf(response, target, context); }
+        catch (DrivePreparationFailure failure) { throw failure.identified(displayIdentity(response, target)); }
+    }
+
+    private Prepared preparePdf(FormResponse response, ReviewTarget target, Context context) {
+        if (!drive.isConfigured()) throw new DrivePreparationFailure(GoogleDriveUnavailableException.Kind.CONFIGURATION,
+            "Document access is not configured. No AI review was started.");
         var reference = DriveLinkParser.parse(target.sourceUrl());
         var metadata = preclaimDrive(() -> drive.getMetadata(reference));
         if (!"application/pdf".equalsIgnoreCase(metadata.mimeType()) || !metadata.canDownload())
@@ -302,7 +359,7 @@ public class AiReviewService {
             // Only an explicit file-access classification should send staff to
             // student sharing settings; Drive 403 also covers key/quota failures.
             if (unavailable.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS) {
-                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                throw new DrivePreparationFailure(unavailable.kind(),
                     "The submitted Drive PDF could not be opened. Google Drive reported a file-access or download restriction. "
                     + "Check sharing settings and the complete submission link. No AI review was started.");
             }
@@ -311,7 +368,7 @@ public class AiReviewService {
                 case RATE_LIMIT -> "Google Drive is rate-limited. Wait before trying again.";
                 default -> "WildTrack could not retrieve the submitted PDF from Google Drive. The backend access failure could not be confirmed as a sharing problem.";
             };
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, message + " No AI review was started.");
+            throw new DrivePreparationFailure(unavailable.kind(), message + " No AI review was started.");
         }
     }
 

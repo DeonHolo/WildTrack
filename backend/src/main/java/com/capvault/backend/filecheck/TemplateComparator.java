@@ -1,10 +1,11 @@
 package com.capvault.backend.filecheck;
 
 import java.util.Arrays;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -17,6 +18,8 @@ public class TemplateComparator {
         Pattern.compile("^.+\\.{2,}.+\\d+\\s*$");
     private static final Pattern TOP_LEVEL_HEADING =
         Pattern.compile("^\\d+[.)]?\\s+.+");
+    private static final Pattern PLAIN_TOC_ENTRY =
+        Pattern.compile("^.*[A-Za-z].*\\s+\\d+\\s*$");
 
     private final FileCheckProperties properties;
 
@@ -42,8 +45,10 @@ public class TemplateComparator {
             .filter(line -> normalizedSubmission.contains(normalize(line)))
             .count();
         List<String> expectedHeadings = structuralHeadings(templateText);
+        List<String> submittedLines = lines(submittedText);
+        Set<Integer> submittedTocEntries = tocEntries(submittedLines).keySet();
         List<TemplateComparison.SectionEvidence> sectionEvidence = expectedHeadings.stream()
-            .map(heading -> headingEvidence(submittedText, heading))
+            .map(heading -> headingEvidence(submittedLines, submittedTocEntries, heading))
             .toList();
         List<String> detectedHeadings = sectionEvidence.stream()
             .filter(evidence -> "DETECTED".equals(evidence.status()))
@@ -89,24 +94,35 @@ public class TemplateComparator {
     }
 
     private static List<String> structuralHeadings(String value) {
-        List<String> lines = value == null ? List.of() : value.lines().map(String::trim).toList();
-        List<String> toc = tocHeadings(lines);
-        if (toc.size() >= 2) return toc;
+        List<String> lines = lines(value);
+        Map<Integer, String> entries = tocEntries(lines);
+        List<String> toc = entries.values().stream()
+            .filter(TemplateComparator::isRequiredHeading)
+            .distinct()
+            .toList();
+        if (!toc.isEmpty()) return toc;
 
         // Without a usable TOC, stay conservative. Top-level numbered sections are much
         // safer than treating every numbered example row or uppercase sample value as a heading.
-        return lines.stream()
+        return java.util.stream.IntStream.range(0, lines.size())
+            .filter(index -> !entries.containsKey(index))
+            .mapToObj(lines::get)
             .filter(line -> line.length() >= 3 && line.length() <= 100)
             .filter(line -> TOP_LEVEL_HEADING.matcher(line).matches())
             .filter(line -> !isTocEntry(line))
             .map(TemplateComparator::stripLeadingNumber)
             .filter(line -> line.length() >= 3)
             .filter(line -> !isDocumentBoilerplate(line))
+            .filter(line -> !isTemplatePlaceholderHeading(line))
             .distinct()
             .toList();
     }
 
-    private static List<String> tocHeadings(List<String> lines) {
+    private static List<String> lines(String value) {
+        return (value == null ? "" : value).lines().map(String::trim).toList();
+    }
+
+    private static Map<Integer, String> tocEntries(List<String> lines) {
         int tocStart = -1;
         for (int index = 0; index < lines.size(); index++) {
             if ("table of contents".equals(normalize(lines.get(index)))) {
@@ -114,35 +130,41 @@ public class TemplateComparator {
                 break;
             }
         }
-        if (tocStart < 0) return List.of();
+        if (tocStart < 0) return Map.of();
 
-        List<String> result = new ArrayList<>();
+        Map<Integer, String> result = new LinkedHashMap<>();
+        Set<String> titles = new LinkedHashSet<>();
         int lastEntryIndex = -1;
         for (int index = tocStart; index < lines.size() && index < tocStart + 180; index++) {
             String line = lines.get(index);
-            if (isTocEntry(line)) {
+            // DOCX extraction flattens TOC tab stops into spaces. Only accept plain
+            // page suffixes inside a TOC, and stop when a listed body heading begins.
+            if (!isTocEntry(line) && titles.contains(canonicalHeadingLine(line))) break;
+            if (isTocEntry(line) || PLAIN_TOC_ENTRY.matcher(line).matches()) {
                 String heading = tocHeading(line);
-                if (heading.length() >= 3
-                        && !isDocumentBoilerplate(heading)
-                        && !isTemplatePlaceholderHeading(heading)
-                        && !result.contains(heading)) {
-                    result.add(heading);
-                    lastEntryIndex = index;
-                }
+                result.put(index, heading);
+                if (!heading.isBlank()) titles.add(normalize(heading));
+                lastEntryIndex = index;
                 continue;
             }
             if (lastEntryIndex >= 0 && index - lastEntryIndex > 12) break;
         }
-        return List.copyOf(result);
+        return result;
     }
 
-    private static TemplateComparison.SectionEvidence headingEvidence(String text, String expectedHeading) {
+    private static boolean isRequiredHeading(String heading) {
+        return heading.length() >= 3 && !isDocumentBoilerplate(heading)
+            && !isTemplatePlaceholderHeading(heading);
+    }
+
+    private static TemplateComparison.SectionEvidence headingEvidence(
+        List<String> lines, Set<Integer> tocEntries, String expectedHeading
+    ) {
         String expected = normalize(expectedHeading);
         if (!expected.isBlank()) {
-            List<String> lines = (text == null ? "" : text).lines().toList();
             for (int index = 0; index < lines.size(); index++) {
                 String line = lines.get(index).trim();
-                if (line.isBlank() || isTocEntry(line)) continue;
+                if (line.isBlank() || isTocEntry(line) || tocEntries.contains(index)) continue;
                 if (expected.equals(canonicalHeadingLine(line))) {
                     return new TemplateComparison.SectionEvidence(
                         expectedHeading, "DETECTED", line, index + 1, "NORMALIZED_EXACT");
@@ -164,7 +186,7 @@ public class TemplateComparator {
             "$1"
         );
         value = value.replaceFirst("\\s*\\.{2,}\\s*$", "");
-        return displayHeading(value);
+        return isTemplatePlaceholderHeading(value) ? "" : displayHeading(value);
     }
 
     private static String canonicalHeadingLine(String line) {
@@ -181,6 +203,8 @@ public class TemplateComparator {
         String normalized = normalize(heading);
         return normalized.matches(".*\\bcase n\\b.*")
             || normalized.matches(".*\\btest n\\b.*")
+            || normalized.matches("^module \\d+$")
+            || heading.matches("(?i)^\\d+\\.n(?:\\.(?:\\d+|n))*\\s+.*")
             || normalized.equals("transaction name")
             || normalized.startsWith("insert ");
     }

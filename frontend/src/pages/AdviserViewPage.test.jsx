@@ -518,7 +518,8 @@ describe('adviser My advised teams review', () => {
     expect(dialog).toHaveTextContent('Created time');
     expect(dialog).toHaveTextContent('Drive ownerOriginal Drive Owner');
     fireEvent.click(within(dialog).getByRole('tab', { name: 'File history' }));
-    expect(screen.getByRole('heading', { name: 'Recorded checks' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Recorded checks' })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('region', { name: 'WildTrack observations' })).toHaveTextContent('1 entry');
     expect(screen.getByText(/only file states WildTrack observed/i)).toBeInTheDocument();
     expect(screen.getByText('Content changed')).toBeInTheDocument();
     expect(within(dialog).getByRole('region', { name: 'WildTrack observations' })).toHaveTextContent('editor@example.com');

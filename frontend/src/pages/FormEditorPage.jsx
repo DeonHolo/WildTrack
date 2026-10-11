@@ -57,6 +57,7 @@ import {
 } from '../lib/forms.js';
 import { emptyFormsState, loadFormsState } from '../lib/formsClient.js';
 import { saveDeliverable } from '../lib/submissionClient.js';
+import { createQuestionDragAutoScroll } from '../lib/questionDragAutoScroll.js';
 import { getActiveTrackerColumns, getTrackerColumn, getWorkspacePublicKey } from '../lib/workflow.js';
 import '../styles/form-designer.css';
 
@@ -123,6 +124,7 @@ export function FormEditorPage() {
   const draggingIdRef = useRef('');
   const dropTargetRef = useRef(null);
   const dragPreviewRef = useRef(null);
+  const dragAutoScrollRef = useRef(null);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [draggingId, setDraggingId] = useState('');
   const [dropTarget, setDropTarget] = useState(null);
@@ -177,7 +179,35 @@ export function FormEditorPage() {
     return () => window.clearTimeout(timeout);
   }, [insertedId]);
 
-  useEffect(() => () => dragPreviewRef.current?.remove(), []);
+  useEffect(() => {
+    const trackDrag = (event) => {
+      if (draggingIdRef.current) dragAutoScrollRef.current?.update(event);
+    };
+    const leaveViewport = (event) => {
+      if (!event.relatedTarget && (event.target === document || event.target === document.documentElement
+        || event.clientX < 0 || event.clientY < 0
+        || event.clientX > window.innerWidth || event.clientY > window.innerHeight)) {
+        dragAutoScrollRef.current?.stop();
+      }
+    };
+    const finishDrag = () => {
+      if (draggingIdRef.current) clearQuestionDrag();
+    };
+    document.addEventListener('dragover', trackDrag);
+    document.addEventListener('dragleave', leaveViewport);
+    document.addEventListener('drop', finishDrag);
+    document.addEventListener('dragend', finishDrag);
+    window.addEventListener('blur', finishDrag);
+    return () => {
+      document.removeEventListener('dragover', trackDrag);
+      document.removeEventListener('dragleave', leaveViewport);
+      document.removeEventListener('drop', finishDrag);
+      document.removeEventListener('dragend', finishDrag);
+      window.removeEventListener('blur', finishDrag);
+      dragAutoScrollRef.current?.stop();
+      dragPreviewRef.current?.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!dirty) return undefined;
@@ -370,6 +400,8 @@ export function FormEditorPage() {
   }
 
   function clearQuestionDrag() {
+    dragAutoScrollRef.current?.stop();
+    dragAutoScrollRef.current = null;
     draggingIdRef.current = '';
     dropTargetRef.current = null;
     dragPreviewRef.current?.remove();
@@ -379,6 +411,7 @@ export function FormEditorPage() {
   }
 
   function startQuestionDrag(field, event) {
+    clearQuestionDrag();
     draggingIdRef.current = field.id;
     dropTargetRef.current = null;
     setDraggingId(field.id);
@@ -387,18 +420,32 @@ export function FormEditorPage() {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData?.('text/plain', field.id);
     const card = questionRefs.current.get(field.id);
+    if (card) dragAutoScrollRef.current = createQuestionDragAutoScroll(card, previewQuestionDropAtPoint);
     if (card && event.dataTransfer.setDragImage) {
       const preview = card.cloneNode(true);
       preview.classList.remove('is-selected', 'is-dragging', 'is-new-question');
       preview.classList.add('wt-question-drag-preview');
       preview.setAttribute('aria-hidden', 'true');
-      preview.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id'));
+      preview.querySelectorAll('[id], [for]').forEach((node) => {
+        node.removeAttribute('id');
+        node.removeAttribute('for');
+      });
       preview.style.width = `${card.getBoundingClientRect().width}px`;
       document.body.appendChild(preview);
       dragPreviewRef.current = preview;
       event.dataTransfer.setDragImage(preview, 28, 28);
     }
-    setQuestionAnnouncement(`Moving ${field.label}. Drop before or after another question, or use Move up and Move down.`);
+    setQuestionAnnouncement(`Moving ${field.label}. Hold near the top or bottom to scroll. Drop before or after another question, or use Move up and Move down.`);
+  }
+
+  function previewQuestionDropAtPoint(point) {
+    if (!draggingIdRef.current) return;
+    const cards = (draftRef.current?.fields || []).filter((field) => field.active !== false)
+      .map((field) => ({ field, bounds: questionRefs.current.get(field.id)?.getBoundingClientRect() }))
+      .filter(({ bounds }) => bounds?.height);
+    const target = cards.find(({ bounds }) => point.clientY <= bounds.top + bounds.height) || cards.at(-1);
+    if (!target || point.clientX < target.bounds.left || point.clientX > target.bounds.right) return;
+    previewQuestionDrop(target.field, { clientY: point.clientY, preventDefault() {} });
   }
 
   function questionDropSide(fieldId, event) {
@@ -770,7 +817,7 @@ function QuestionCard({ field, selected, position, total, first, last, onSelect,
               variant="subtle"
               color="gray"
               aria-label={`Drag ${field.label}`}
-              title="Drag to reorder, or use Move up and Move down"
+              title="Drag to reorder. Hold near the top or bottom to scroll, or use Move up and Move down."
               className="wt-question-drag-handle"
               draggable
               onDragStart={(event) => { event.stopPropagation(); onDragStart(event); }}
