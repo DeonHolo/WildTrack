@@ -302,6 +302,47 @@ describe("today's work queues", () => {
       .toHaveAttribute('href', '/archive?record=archive-failed-1');
   });
 
+  it('reruns a saved Document Check from Today’s work without starting an AI request', async () => {
+    const current = workflow.state.attempts.find(item => item.id === 'review-002');
+    workflow.runDocumentCheck.mockResolvedValue({ ok: true,
+      report: { ...current.documentCheck, summary: 'Fresh Today’s work inspection.' } });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Student review-002 response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student review-002' });
+    expect(within(drawer).getByRole('button', { name: 'View Document Check' })).toBeEnabled();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun Document Check' }));
+    await waitFor(() => expect(workflow.runDocumentCheck).toHaveBeenCalledWith('review-002'));
+    expect(workflow.runDocumentCheck).toHaveBeenCalledTimes(1);
+    expect(workflow.runAiReview).not.toHaveBeenCalled();
+  });
+
+  it('prevents duplicate checks while pending and refreshes resolved access alerts after the saved result', async () => {
+    workflow.activeWorkspaceId = 'workspace-it';
+    workflow.state.fileEvents = [{
+      id: 71, fileId: 'restored-pdf', kind: 'ACCESS_UNAVAILABLE', observedAt: '2026-04-19T11:05:00+08:00',
+      responseIds: ['review-002']
+    }];
+    api.getFileMonitorEvents.mockResolvedValue([{ ...workflow.state.fileEvents[0], resolved: true }]);
+    const current = workflow.state.attempts.find(item => item.id === 'review-002');
+    let finish;
+    workflow.runDocumentCheck.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    renderPage();
+    expect(screen.getByText('PDF access unavailable')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Review Student review-002 response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student review-002' });
+    const rerun = within(drawer).getByRole('button', { name: 'Rerun Document Check' });
+    fireEvent.click(rerun);
+    expect(rerun).toBeDisabled();
+    fireEvent.click(rerun);
+    expect(workflow.runDocumentCheck).toHaveBeenCalledTimes(1);
+    expect(api.getFileMonitorEvents).not.toHaveBeenCalled();
+    await act(async () => finish({ ok: true, report: current.documentCheck }));
+    await waitFor(() => expect(api.getFileMonitorEvents).toHaveBeenCalledWith('workspace-it'));
+    expect(screen.queryAllByText(/PDF access unavailable/)).toHaveLength(0);
+    expect(api.dismissWorkTask).not.toHaveBeenCalled();
+    expect(workflow.runAiReview).not.toHaveBeenCalled();
+  });
+
   it('keeps two pending PDF artifacts in one response task and checks both explicit fields', async () => {
     const attempt = response('mvp-001', {
       values: {
@@ -576,7 +617,7 @@ describe("today's work queues", () => {
       .not.toHaveTextContent('Second verified content change.');
   });
 
-  it('keeps an undismissed access failure visible when the file subsequently becomes accessible', () => {
+  it('removes an access failure after access is restored without creating another unfinished task', () => {
     const attempt = checkedResponse('shared-001');
     workflow.state = makeState([attempt]);
     workflow.state.fileEvents = [
@@ -588,10 +629,23 @@ describe("today's work queues", () => {
     renderPage();
 
     const open = screen.getByRole('tabpanel', { name: 'Open notifications' });
-    expect(within(open).getByText('PDF access unavailable')).toBeInTheDocument();
-    expect(within(open).getByText(/Linked submission: Student shared-001/)).toBeInTheDocument();
+    expect(within(open).queryByText('PDF access unavailable')).not.toBeInTheDocument();
     expect(within(open).queryByText('PDF access restored')).not.toBeInTheDocument();
-    expect(within(open).getAllByRole('button', { name: 'Review affected response for PDF access unavailable' })).toHaveLength(1);
+    expect(within(open).queryByRole('button', { name: 'Review affected response for PDF access unavailable' })).not.toBeInTheDocument();
+    expect(api.dismissWorkTask).not.toHaveBeenCalled();
+  });
+
+  it('removes a server-resolved access alert after a manual recheck and retains a newer failure', () => {
+    const attempt = checkedResponse('shared-001');
+    workflow.state = makeState([attempt]);
+    const base = { fileId: 'access-file', responseIds: [attempt.id], teamCodes: [attempt.teamCode], kind: 'ACCESS_UNAVAILABLE' };
+    workflow.state.fileEvents = [{ ...base, id: 'old-failure', observedAt: '2026-09-22T09:00:00Z', resolved: true }];
+    const page = renderPage();
+    expect(screen.queryByText('PDF access unavailable')).not.toBeInTheDocument();
+    workflow.state = { ...workflow.state, fileEvents: [{ ...base, id: 'new-failure', observedAt: '2026-09-22T11:00:00Z' }, ...workflow.state.fileEvents] };
+    page.rerender(pageTree());
+    expect(screen.getByRole('tabpanel', { name: 'Open notifications' })).toHaveTextContent('PDF access unavailable');
+    expect(api.dismissWorkTask).not.toHaveBeenCalled();
   });
 
   it('keeps an older unresolved significant alert when a later significant event is dismissed', () => {

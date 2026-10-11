@@ -192,4 +192,75 @@ class TemplateComparatorTest {
             .doesNotContain("SKYSYNC", "Transaction Name");
         assertThat(result.missingTemplateHeadings()).isEmpty();
     }
+
+    @Test
+    void docxTocPageNumbersAreNotPartOfRequiredSectionNames() {
+        String template = """
+            Table of Contents
+            1. Introduction 4
+            2. Test Plan 5
+            3. Test Cases 6
+            Introduction
+            System overview and scope.
+            Test Plan
+            Testing approach.
+            Test Cases
+            Case details.
+            """;
+        var result = comparator.compare(template,
+            "1. Introduction\nActual overview\n2. Test Plan\nActual plan\n3. Test Cases\nActual cases");
+
+        assertThat(result.expectedTemplateHeadings()).containsExactly("Introduction", "Test Plan", "Test Cases");
+        assertThat(result.missingTemplateHeadings()).isEmpty();
+    }
+
+    @Test
+    void plainAndTabbedTocOnlyMentionsDoNotProveBodySections() {
+        String template = "Table of Contents\n1. Introduction\t4\n2. Test Plan\t5\n3. Test Cases\t6";
+        var result = comparator.compare(template, template);
+
+        assertThat(result.expectedTemplateHeadings()).containsExactly("Introduction", "Test Plan", "Test Cases");
+        assertThat(result.detectedTemplateHeadings()).isEmpty();
+        assertThat(result.missingTemplateHeadings()).hasSize(3);
+    }
+
+    @Test
+    void literalNumbersInBodyHeadingNamesRemainSignificant() {
+        var result = comparator.compare("1. Section 1\n2. Section 2", "1. Section 1\nSection text");
+
+        assertThat(result.expectedTemplateHeadings()).containsExactly("Section 1", "Section 2");
+        assertThat(result.detectedTemplateHeadings()).containsExactly("Section 1");
+        assertThat(result.missingTemplateHeadings()).containsExactly("Section 2");
+    }
+
+    @Test
+    void tocStopsAtTheRepeatedBodyHeadingEvenWhenItsNameEndsInANumber() {
+        String template = "Table of Contents\n1. Section 1 4\n2. Section 2 5\n1. Section 1\n2. Section 2";
+        var result = comparator.compare(template, template);
+
+        assertThat(result.expectedTemplateHeadings()).containsExactly("Section 1", "Section 2");
+        assertThat(result.detectedTemplateHeadings()).containsExactly("Section 1", "Section 2");
+    }
+
+    @Test
+    void templatePlaceholderBranchesAreNotFixedRequiredSections() {
+        String template = """
+            Table of Contents
+            1. Introduction 4
+            3. Test Cases 6
+            3.n Case-n 6
+            3.n.1 Purpose 6
+            3.n.2 Inputs 6
+
+            Module 1 6
+            A.2 Test Results 7
+            Introduction
+            Test Cases
+            A.2 Test Results
+            """;
+        var result = comparator.compare(template, "Introduction\nTest Cases\nA.2 Test Results");
+
+        assertThat(result.expectedTemplateHeadings()).containsExactly("Introduction", "Test Cases", "Test Results");
+        assertThat(result.missingTemplateHeadings()).isEmpty();
+    }
 }

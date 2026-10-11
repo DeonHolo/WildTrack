@@ -2,7 +2,9 @@
 
 ## Verified local completion
 
-The requested UI changes are implemented in PR95 (unmerged). The complete frontend suite passed 612/612 tests and the production build passed. The actual backend/browser form journey verified rejected type-change → removal → save without refresh, preserved original stored values and replacement persistence after reload. Adviser selection, history scope/privacy, sorting and form feedback regressions are included in that suite. Shared history access tests passed 12/12; affected browser role flows passed 23/23.
+The requested UI changes shipped in merged PR95 (`9081daa`); Heroku and Vercel production deployments succeeded on 10 October. The complete frontend suite passed 612/612 tests and the production build passed. The actual backend/browser form journey verified rejected type-change → removal → save without refresh, preserved original stored values and replacement persistence after reload. Adviser selection, history scope/privacy, sorting and form feedback regressions are included in that suite. Shared history access tests passed 12/12; affected browser role flows passed 23/23.
+
+The 11 October simplification and automatic access-alert resolution are recorded in [the STD Markdown follow-up](<old documents, templates/outputs/04-Software-Test-Document/UI_REVIEW_FOLLOWUP_2026-10-11.md>). A fresh live history refresh still reports NOT_CONFIGURED; the normal public-PDF connection works. No new STD DOCX/PDF/ZIP edits are authorized during this follow-up.
 
 At 375 px the in-app local preview showed a 36 px search box, Newest activity selected and no page overflow. Add question focused and selected the new label. After a preview reload recovered interrupted browser input, the history showed three recent checks and expanded/collapsed older records correctly; the prepared AI scope modal showed unique and total counts separately. Screenshots are retained in STD-20261010-03 and use fixtures. Do not claim a completed live drag or hosted deployment.
 

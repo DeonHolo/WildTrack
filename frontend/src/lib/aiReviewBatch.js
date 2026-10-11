@@ -20,3 +20,19 @@ export function aiBatchSelection(plan, mode, includeOutdated) {
     updated: groups.filter(group => group.some(entry => entry.preview.outdated)).length
   };
 }
+
+export function aiBatchFailureGroups(entries = []) {
+  const groups = new Map();
+  for (const entry of entries) {
+    const error = String(entry.error || '').trim();
+    if (!error) continue;
+    const driveAccess = error.startsWith('The submitted Drive PDF could not be opened.');
+    const driveRetrieval = error.startsWith('WildTrack could not retrieve the submitted PDF from Google Drive.');
+    const message = driveAccess || driveRetrieval
+      ? 'These PDFs could not be opened from Google Drive. No AI review started for them.' : error;
+    if (!groups.has(message)) groups.set(message, { message, entries: [] });
+    groups.get(message).entries.push({ ...entry,
+      failureDetail: driveAccess ? 'Access or download restricted' : driveRetrieval ? 'Server retrieval failed' : '' });
+  }
+  return [...groups.values()];
+}

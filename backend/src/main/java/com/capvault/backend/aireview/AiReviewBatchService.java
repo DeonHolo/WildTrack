@@ -23,26 +23,37 @@ public class AiReviewBatchService {
     public record Target(UUID responseId, String fieldId) { }
     public record Entry(Target target, AiReviewService.Preview preview, String phase, boolean selected,
                         boolean rerun, UUID retryToken, String checkedAt, boolean newerHistory,
-                        String resultStatus, boolean reused, String error, boolean noAiStarted) {
+                        String resultStatus, boolean reused, String error, boolean noAiStarted,
+                        AiReviewService.DisplayIdentity identity) {
+        public Entry(Target target, AiReviewService.Preview preview, String phase, boolean selected,
+                     boolean rerun, UUID retryToken, String checkedAt, boolean newerHistory,
+                     String resultStatus, boolean reused, String error, boolean noAiStarted) {
+            this(target, preview, phase, selected, rerun, retryToken, checkedAt, newerHistory,
+                resultStatus, reused, error, noAiStarted, null);
+        }
         static Entry pending(Target target) {
             return new Entry(target, null, "PREPARING", false, false, null, null, false, null, false, "", true);
         }
         Entry selected(boolean value, boolean rerunValue, UUID retry) {
             return new Entry(target, preview, value ? "PENDING" : phase, value, rerunValue, retry,
-                checkedAt, newerHistory, resultStatus, reused, error, noAiStarted);
+                checkedAt, newerHistory, resultStatus, reused, error, noAiStarted, identity);
         }
         Entry phase(String next) {
             return new Entry(target, preview, next, selected, rerun, retryToken, checkedAt, newerHistory,
-                resultStatus, reused, error, noAiStarted);
+                resultStatus, reused, error, noAiStarted, identity);
         }
         Entry result(AiReviewService.View review, String message) {
             return new Entry(target, preview, "RUNNING".equals(review.status()) ? "WAITING" : "DONE", selected,
                 rerun, review.retryToken(), checkedAt, newerHistory, review.status(), review.reused(), message,
-                "UNAVAILABLE".equals(review.status()) || "QUEUE_FULL".equals(review.failureCode()));
+                "UNAVAILABLE".equals(review.status()) || "QUEUE_FULL".equals(review.failureCode()), identity);
         }
         Entry failed(String message, boolean notStarted) {
             return new Entry(target, preview, "DONE", selected, rerun, retryToken, checkedAt, newerHistory,
-                "FAILED", false, message, notStarted);
+                "FAILED", false, message, notStarted, identity);
+        }
+        Entry identity(AiReviewService.DisplayIdentity value) {
+            return new Entry(target, preview, phase, selected, rerun, retryToken, checkedAt, newerHistory,
+                resultStatus, reused, error, noAiStarted, value);
         }
     }
     public record Data(List<Entry> entries, String mode, boolean includeOutdated, boolean retryAcknowledged, String message) {
@@ -70,13 +81,13 @@ public class AiReviewBatchService {
             throw new IllegalArgumentException("Choose between 1 and 1000 PDF artifacts.");
         var distinct = targets.stream().distinct().toList();
         return view(store.create(workspace, subject, new Data(distinct.stream().map(Entry::pending).toList(),
-            "ATTENTION", true, false, "Checking current PDFs and saved reviews. No Gemini request has been started.")));
+            "ATTENTION", true, false, "Checking current PDFs and saved reviews. No Gemini request has been started.")), subject);
     }
 
-    public View get(UUID workspace, UUID id, String subject) { return view(authorized(workspace, id, subject)); }
+    public View get(UUID workspace, UUID id, String subject) { return view(authorized(workspace, id, subject), subject); }
     public View latest(UUID workspace, String subject) {
         reviews.requireAdministrator(subject);
-        return store.running(workspace).or(() -> store.latest(workspace)).map(this::view).orElse(null);
+        return store.running(workspace).or(() -> store.latest(workspace)).map(row -> view(row, subject)).orElse(null);
     }
 
     public View start(UUID workspace, UUID id, String subject, long version, String mode,
@@ -105,7 +116,7 @@ public class AiReviewBatchService {
 
     public View resume(UUID workspace, UUID id, String subject) {
         var row = authorized(workspace, id, subject);
-        if (!row.state().equals("PAUSED")) return view(row);
+        if (!row.state().equals("PAUSED")) return view(row, subject);
         if (row.data().entries().stream().noneMatch(e -> e.selected() && e.phase().equals("PENDING")))
             throw conflict("No unstarted documents remain. Prepare a new batch to explicitly retry failed reviews.");
         if (!store.action(row, "RUNNING", row.data().entries(row.data().entries(),
@@ -160,8 +171,11 @@ public class AiReviewBatchService {
         int index = indexOf(entries, "PREPARING");
         if (index < 0) { store.saveLeased(row, "READY", row.data()); return; }
         var entry = entries.get(index);
+        var identity = entry.identity();
         try {
+            identity = reviews.displayIdentity(row.workspaceId(), entry.target().responseId(), entry.target().fieldId(), row.subject());
             var p = reviews.preview(row.workspaceId(), entry.target().responseId(), entry.target().fieldId(), row.subject());
+            identity = AiReviewService.DisplayIdentity.from(p);
             var report = checks.findFirstByWorkspaceIdAndExternalResponseIdAndFieldIdOrderByCheckedAtDesc(
                 row.workspaceId(), p.responseId().toString(), p.fieldId().endsWith(":legacy") ? null : p.fieldId()).orElse(null);
             boolean gap = false;
@@ -175,12 +189,14 @@ public class AiReviewBatchService {
             }
             entries.set(index, new Entry(entry.target(), p, "PREPARED", false, false, null, checkedAt, gap, null, false, "", true));
         } catch (ResponseStatusException denied) {
+            if (denied instanceof AiReviewService.DrivePreparationFailure drive && drive.identity() != null) identity = drive.identity();
             entries.set(index, new Entry(entry.target(), null, "UNVERIFIED", false, false, null, null, false, null, false,
                 denied.getReason() == null ? "This PDF could not be verified. No AI review was started." : denied.getReason(), true));
         } catch (IllegalArgumentException invalid) {
             entries.set(index, new Entry(entry.target(), null, "UNVERIFIED", false, false, null, null, false, null, false,
                 "This artifact is unavailable or is not a readable PDF eligible for AI Review. No AI review was started.", true));
         }
+        entries.set(index, entries.get(index).identity(identity));
         boolean ready = indexOf(entries, "PREPARING") < 0;
         store.saveLeased(row, ready ? "READY" : "PLANNING", row.data().entries(entries,
             ready ? "Current contents and review settings verified. Choose which documents to review." : row.data().message()));
@@ -211,11 +227,21 @@ public class AiReviewBatchService {
             entries.set(index, entry.result(review, message));
             if (!starting && Set.of("NOT_REVIEWED", "OUTDATED").contains(review.status())) next = "PAUSED";
             if (review.status().equals("UNAVAILABLE") || PAUSE_CODES.contains(review.failureCode() == null ? "" : review.failureCode())) next = "PAUSED";
-        } catch (ResponseStatusException beforeClaim) {
-            entries.set(index, entry.failed(beforeClaim.getReason() == null ? "The PDF could not be verified. No AI review was started." : beforeClaim.getReason(), true));
-            if (beforeClaim.getStatusCode().value() == 503) next = "PAUSED";
+        } catch (AiReviewService.DrivePreparationFailure beforeClaim) {
+            entries.set(index, entry.failed(beforeClaim.getReason(), true)
+                .identity(beforeClaim.identity() == null ? entry.identity() : beforeClaim.identity()));
+            // A different submitted copy may still be accessible. Its normal job claim deduplicates Gemini.
+            transferUnclaimedIntent(entries, entry);
+            if (Set.of(com.capvault.backend.drive.GoogleDriveUnavailableException.Kind.CONFIGURATION,
+                    com.capvault.backend.drive.GoogleDriveUnavailableException.Kind.RATE_LIMIT).contains(beforeClaim.kind())) next = "PAUSED";
+        } catch (ResponseStatusException uncertain) {
+            // The final source check can throw after the executor has already started Gemini.
+            entries.set(index, entry.failed(uncertain.getReason() == null
+                ? "The saved review status could not be confirmed. Check saved reviews before retrying." : uncertain.getReason(), false));
+            next = "PAUSED";
         } catch (IllegalArgumentException invalid) {
-            entries.set(index, entry.failed("This PDF could not be prepared for AI Review. No AI review was started.", true));
+            entries.set(index, entry.failed("This artifact could not be processed. Check saved reviews before retrying.", false));
+            next = "PAUSED";
         }
         String message = next.equals("PAUSED") ? "Batch paused. Continue unstarted documents or explicitly prepare retries; uncertain requests are never automatically repeated." : row.data().message();
         store.saveLeased(row, next, row.data().entries(entries, message));
@@ -225,12 +251,24 @@ public class AiReviewBatchService {
         reviews.requireAdministrator(subject);
         return store.find(id, workspace).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Batch not found in this workspace."));
     }
+    private static void transferUnclaimedIntent(List<Entry> entries, Entry failed) {
+        if (!failed.rerun() && failed.retryToken() == null) return;
+        for (int i = 0; i < entries.size(); i++) {
+            var next = entries.get(i);
+            if (next.selected() && next.phase().equals("PENDING") && next.preview() != null
+                    && next.preview().key().equals(failed.preview().key())) {
+                // The Drive failure occurred before claim, so the explicitly approved intent/token is unconsumed.
+                entries.set(i, next.selected(true, failed.rerun(), failed.retryToken()));
+                return;
+            }
+        }
+    }
     private static int indexOf(List<Entry> entries, String phase) {
         for (int i = 0; i < entries.size(); i++) if (entries.get(i).phase().equals(phase)) return i;
         return -1;
     }
-    private View view(AiReviewBatchStore.Row row) {
-        var entries = row.data().entries();
+    private View view(AiReviewBatchStore.Row row, String subject) {
+        var entries = row.data().entries().stream().map(entry -> restoredIdentity(row.workspaceId(), entry, subject)).toList();
         Map<String, List<Entry>> groups = new LinkedHashMap<>();
         entries.stream().filter(e -> e.preview() != null).forEach(e -> groups.computeIfAbsent(e.preview().key(), k -> new ArrayList<>()).add(e));
         var selected = groups.values().stream().filter(g -> g.stream().anyMatch(Entry::selected)).toList();
@@ -239,6 +277,18 @@ public class AiReviewBatchService {
         int reused = (int) selected.stream().filter(g -> g.stream().filter(Entry::selected).allMatch(e -> e.phase().equals("DONE") && e.reused())).count();
         return new View(row.id(), row.state(), row.version(), row.updatedAt().toString(), entries, entries.size(),
             (int) entries.stream().filter(e -> !e.phase().equals("PREPARING")).count(), groups.size(), selected.size(), complete, pending, reused, row.data().message());
+    }
+    private Entry restoredIdentity(UUID workspace, Entry entry, String subject) {
+        if (entry.identity() != null) return entry;
+        if (entry.preview() != null) return entry.identity(AiReviewService.DisplayIdentity.from(entry.preview()));
+        if (!entry.phase().equals("UNVERIFIED")) return entry;
+        try {
+            var current = reviews.displayIdentity(workspace, entry.target().responseId(), entry.target().fieldId(), subject);
+            // Old preflights did not save their source: current labels cannot prove the historical failed URL.
+            return current == null ? entry : entry.identity(current.withoutSource());
+        } catch (ResponseStatusException | IllegalArgumentException | org.springframework.security.access.AccessDeniedException unavailable) {
+            return entry;
+        }
     }
     private static ResponseStatusException conflict(String message) { return new ResponseStatusException(HttpStatus.CONFLICT, message); }
 }

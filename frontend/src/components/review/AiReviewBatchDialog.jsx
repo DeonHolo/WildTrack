@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Button, Checkbox, Group, Progress, Radio, Stack, Text } from '@mantine/core';
 import { aiBatchGroups, aiBatchSelection } from '../../lib/aiReviewBatch.js';
 import { formatDateTime } from '../../lib/workflow.js';
+import { AiReviewBatchFailures } from './AiReviewBatchFailures.jsx';
 
 export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
   const [mode, setMode] = useState('ATTENTION');
@@ -41,11 +42,9 @@ export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
           </div>)}
         </details>
       </Alert> : null}
-      {unverified.length ? <Alert color="orange" title={`${unverified.length} PDF submissions could not be verified`}>
-        <Text size="sm">They are excluded from the review count. Their uniqueness is unknown, and no AI review has started for them.</Text>
-        <details className="wt-ai-batch-details"><summary>See verification failures</summary>
-          {unverified.map(entry => <Text size="sm" key={`${entry.target.responseId}:${entry.target.fieldId}`}>{entry.error}</Text>)}
-        </details>
+      {unverified.length ? <Alert color="orange" title="Some PDFs could not be verified">
+        <AiReviewBatchFailures entries={unverified} />
+        <Text size="sm" mt="xs">These submissions are excluded from the review count because their contents could not be verified.</Text>
       </Alert> : null}
       <Text size="sm">Identical PDFs in the same team, deliverable and artifact field share one review. The count uses verified file contents and current review settings.</Text>
       <Text size="sm">New and repeated reviews send PDF contents to Gemini and use AI tokens.{counts.reruns ? ` ${counts.reruns} completed ${counts.reruns === 1 ? 'review will' : 'reviews will'} be rerun.` : ''}{counts.running ? ` ${counts.running} already-running ${counts.running === 1 ? 'review will' : 'reviews will'} be followed without another AI request.` : ''}</Text>

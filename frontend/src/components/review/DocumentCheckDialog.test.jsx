@@ -81,6 +81,10 @@ describe('DocumentCheck shared submitted-file metadata', () => {
     expect(getSubmittedFileHistory).toHaveBeenCalledExactlyOnceWith('workspace-it', 'response-1', 'pdf-field-1');
     fireEvent.click(within(dialog).getByRole('tab', { name: 'File history' }));
     expect(await within(dialog).findByRole('group', { name: 'Drive revision 1 on page 1' })).toHaveTextContent('Staff Editor');
+    expect(within(dialog).queryByRole('region', { name: 'File details' })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'Check result' }));
+    expect(identityFact(dialog, 'Drive owner')).toBeVisible();
+    expect(identityFact(dialog, 'Last modified by')).toHaveTextContent('Staff Editor');
     expect(getSubmittedFileHistory).toHaveBeenCalledTimes(1);
   });
 

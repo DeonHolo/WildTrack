@@ -1,8 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, decideIdentityConflict, describeSnapshotFailures, getAiReviewStatus, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getMyResponse, getSavedAiReview, logout, requestAiReview, saveBackendDeliverable, submitResponse } from './api.js';
+import { ApiError, decideIdentityConflict, describeSnapshotFailures, getAiReviewStatus, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getDocumentTemplatePreviewUrl, getDocumentTemplateStructure, getMyResponse, getSavedAiReview, logout, requestAiReview, saveBackendDeliverable, submitResponse } from './api.js';
 import { fetchCurrentSession, logoutSession } from './session.js';
 
 describe('production API delivery', () => {
+  it('reads template structure through its scoped GET contract and uses a preview route for Open', async () => {
+    const structure = { expectedHeadings: ['Introduction'], detectedHeadings: ['Introduction'], extractedText: 'Introduction' };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(structure), {
+      status: 200, headers: { 'Content-Type': 'application/json' }
+    }));
+    await expect(getDocumentTemplateStructure('workspace-a', 'template-std')).resolves.toEqual(structure);
+    expect(fetchMock).toHaveBeenCalledWith('/api/templates/template-std/structure?workspaceId=workspace-a',
+      expect.objectContaining({ method: 'GET', credentials: 'include' }));
+    expect(getDocumentTemplatePreviewUrl('workspace-a', 'template-std'))
+      .toBe('/templates/template-std/preview?workspaceId=workspace-a');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it('treats the backend empty 200 for an absent owned response as no response', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
     await expect(getMyResponse('workspace', 'form')).resolves.toBeNull();

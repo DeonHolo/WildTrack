@@ -25,7 +25,7 @@ import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { extractSheetId, formatDateTime, getActiveTrackerColumns } from '../lib/workflow.js';
-import { getDocumentTemplateFileUrl, getFileMonitorSettings, setFileMonitorSettings } from '../lib/api.js';
+import { getDocumentTemplatePreviewUrl, getFileMonitorSettings, setFileMonitorSettings } from '../lib/api.js';
 import { removeSubmissionTemplate, saveSubmissionTemplate } from '../lib/submissionClient.js';
 import {
   applyWorkspaceSheetPreview,
@@ -809,7 +809,7 @@ export function WorkspacePage() {
                     <td>
                       <div className="wt-row-actions">
                         {item.originalFilename || item.fileUrl ? (
-                          <Button component="a" type="button" size="xs" variant="secondary" icon={ArrowSquareOut} href={item.fileUrl || getDocumentTemplateFileUrl(activeWorkspaceId, item.id)} target="_blank" rel="noreferrer">
+                          <Button component="a" type="button" size="xs" variant="secondary" icon={ArrowSquareOut} href={getDocumentTemplatePreviewUrl(activeWorkspaceId, item.id)} target="_blank" rel="noopener noreferrer">
                             Open
                           </Button>
                         ) : null}

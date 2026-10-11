@@ -8,10 +8,8 @@ export function ObservedFileHistory({ history }) {
   return (
     <section className="file-history-section" data-testid="observed-file-history" aria-label="WildTrack observations">
       <div className="file-history-section-heading">
-        <h3>Recorded checks</h3>
         {observations.length ? <span className="file-history-count">{observations.length} {observations.length === 1 ? 'entry' : 'entries'}</span> : null}
       </div>
-      <p className="file-history-caption">Snapshots from WildTrack’s checks, starting with its first inspection. Latest check first.</p>
       {observations.length ? <ol className="file-history-timeline" aria-label="Recorded file checks">
         {observations.slice(0, 3).map((observation, index) => (
           <RecordedCheck key={observationKey(observation, index)} observation={observation} />

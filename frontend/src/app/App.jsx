@@ -17,6 +17,7 @@ import { ReviewPage } from '../pages/ReviewPage.jsx';
 import { StudentStatusPage } from '../pages/StudentStatusPage.jsx';
 import { TrackerPage } from '../pages/TrackerPage.jsx';
 import { WorkspacePage } from '../pages/WorkspacePage.jsx';
+import { TemplatePreviewPage } from '../pages/TemplatePreviewPage.jsx';
 import { DriveHistoryConsent } from '../components/auth/DriveHistoryConsent.jsx';
 
 export default function App() {
@@ -80,6 +81,11 @@ export default function App() {
         <Route path="/workspace" element={(
           <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
             <StaffApplicationShell><WorkspacePage /></StaffApplicationShell>
+          </RoleBoundary>
+        )} />
+        <Route path="/templates/:templateId/preview" element={(
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+            <TemplatePreviewPage />
           </RoleBoundary>
         )} />
         <Route path="*" element={<RoleHomeRedirect />} />

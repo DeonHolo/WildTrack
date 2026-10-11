@@ -278,8 +278,8 @@ export function ReviewPage() {
     });
   }
 
-  async function openOrRunDocumentCheck(response, field) {
-    if (!isArtifactDocumentCheckCurrent(response, field)) {
+  async function openOrRunDocumentCheck(response, field, rerun = false) {
+    if (rerun || !isArtifactDocumentCheckCurrent(response, field)) {
       const result = await runDocumentCheck(response.id, field);
       if (!result.ok) return;
     }
@@ -1053,6 +1053,7 @@ export function ReviewPage() {
         checkError={checkError?.targetKey?.startsWith(`${selectedResponse?.id}:`) ? checkError?.message : ''}
         onClose={() => setSelectedResponseId('')}
         onDocumentCheck={(field) => openOrRunDocumentCheck(selectedResponse, field)}
+        onRerunDocumentCheck={(field) => openOrRunDocumentCheck(selectedResponse, field, true)}
         onFileHistory={(field) => setCheckDialogTarget({
           responseId: selectedResponse.id,
           fieldId: field.definitionId || field.id,

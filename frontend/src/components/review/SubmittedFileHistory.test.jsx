@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
@@ -63,7 +63,7 @@ describe('SubmittedFileHistory', () => {
     expect(await screen.findByRole('group', { name: 'Drive revision 1 on page 1' })).toHaveTextContent('4.0 KB');
     expect(container.textContent).not.toMatch(/editor\.secret|owner\.secret|observed\.secret|Restricted Editor/i);
     expect(screen.queryByLabelText('WildTrack observations')).not.toBeInTheDocument();
-    expect(screen.getByText(/history can be incomplete/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Google may omit older edits/i)).toHaveLength(1);
   });
 
   it('explains absent consent and offers it without browsing Drive', async () => {
@@ -124,13 +124,14 @@ describe('SubmittedFileHistory', () => {
     expect(screen.queryByRole('group', { name: 'Drive revision 1 on page 2' })).not.toBeInTheDocument();
   });
 
-  it('reuses supplied current-file metadata while keeping original check records intact', async () => {
+  it('reuses supplied revisions without repeating file metadata or replacing original check records', async () => {
     renderHistory({ initialHistory: { ...firstPage, fileMetadata: { driveOwner: 'Provider owner',
       lastModifiedBy: 'Provider editor', lastModifiedByStudent: { studentName: 'Roster editor', email: 'editor@example.test' } } },
       observedHistory: { observations: [{ changeType: 'FIRST_OBSERVED', firstObservedAt: '2026-09-01', driveOwner: 'Recorded owner', modifiedBy: 'Recorded editor' }] } });
-    const details = screen.getByRole('region', { name: 'File details' });
-    expect(await within(details).findByText('Provider owner')).toBeInTheDocument();
-    expect(within(details).getByText('Roster editor')).toBeInTheDocument();
+    expect(await screen.findByRole('group', { name: 'Drive revision 1 on page 1' })).toHaveTextContent('Restricted Editor');
+    expect(screen.queryByRole('region', { name: 'File details' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Provider owner')).not.toBeInTheDocument();
+    expect(screen.queryByText('Roster editor')).not.toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Recorded file checks' })).toHaveTextContent('Recorded editor');
     expect(getSubmittedFileHistory).not.toHaveBeenCalled();
   });

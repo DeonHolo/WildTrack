@@ -114,6 +114,37 @@ class DocumentTemplateControllerTest {
     }
 
     @Test
+    void previewsReadableTextAndBodyStructureWithoutAddingTextToListResponses() throws Exception {
+        String text = "Table of Contents\n1. Introduction\t4\n2. Test Plan\t5\n3. Test Cases\t6\n"
+            + "Introduction\nOverview instructions\nTest Plan\nPlan instructions\nTest Cases\nCase instructions\n";
+        String id = responseId(upload("STD", null, "Official STD", text));
+
+        mockMvc.perform(get("/api/templates/" + id + "/structure").with(session()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.templateId").value(id))
+            .andExpect(jsonPath("$.displayName").value("Official STD"))
+            .andExpect(jsonPath("$.originalFilename").value("template.docx"))
+            .andExpect(jsonPath("$.extractedText").value(org.hamcrest.Matchers.containsString("Overview instructions")))
+            .andExpect(jsonPath("$.expectedHeadings", hasItems("Introduction", "Test Plan", "Test Cases")))
+            .andExpect(jsonPath("$.detectedHeadings", hasItems("Introduction", "Test Plan", "Test Cases")));
+
+        mockMvc.perform(get("/api/templates").with(session()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].extractedText").doesNotExist());
+    }
+
+    @Test
+    void templateStructureRequiresAuthenticationAndTheMatchingWorkspace() throws Exception {
+        String id = responseId(upload("Official SRS", "1. Introduction\nDescribe the project and its intended audience."));
+
+        mockMvc.perform(get("/api/templates/" + id + "/structure"))
+            .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/templates/" + id + "/structure").with(session())
+                .param("workspaceId", UUID.randomUUID().toString()))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void downloadsAndStoresDriveLinkedTemplate() throws Exception {
         byte[] bytes = docx("Official Drive template instructions and expected SRS sections");
         DriveFileReference reference = new DriveFileReference("drive-template-id", null);

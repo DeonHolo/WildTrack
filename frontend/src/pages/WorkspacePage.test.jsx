@@ -85,6 +85,7 @@ vi.mock('../lib/api.js', () => ({
   setFileMonitorSettings: (...args) => workflow.setFileMonitorSettings(...args),
   getDriveConnectionStatus: vi.fn().mockResolvedValue({ configured: true, message: 'Google Drive connected.' }),
   getDocumentTemplateFileUrl: vi.fn(() => '/api/templates/template/file'),
+  getDocumentTemplatePreviewUrl: vi.fn((workspaceId, templateId) => `/templates/${templateId}/preview?workspaceId=${workspaceId}`),
   getStaffProfiles: vi.fn().mockResolvedValue([
     {
       id: 'staff-1',
@@ -809,6 +810,17 @@ describe('workspace operations', () => {
       fieldId: 'field-highlights',
       file
     })));
+  });
+
+  it('opens an official DOCX template in a scoped browser preview instead of its download endpoint', async () => {
+    workflow.state.templates = [{
+      id: 'template-std', deliverable: 'SRS', name: 'STD template', originalFilename: 'STD TEMPLATE.docx'
+    }];
+    renderPage();
+    const open = screen.getByRole('link', { name: 'Open' });
+    expect(open).toHaveAttribute('href', '/templates/template-std/preview?workspaceId=workspace-it');
+    expect(open).toHaveAttribute('target', '_blank');
+    expect(open).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('keeps a replacement attached to its original deliverable', async () => {

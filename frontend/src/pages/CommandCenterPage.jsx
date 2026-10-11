@@ -1,6 +1,6 @@
 import { StudentAccountManagement } from '../components/command/StudentAccountManagement.jsx';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -90,6 +90,9 @@ export function CommandCenterPage() {
   const [sortMode, setSortMode] = useState('priority');
   const [page, setPage] = useState(1);
   const [runningIds, setRunningIds] = useState(new Set());
+  const [checkingFields, setCheckingFields] = useState(new Set());
+  const pendingChecks = useRef(new Set());
+  const fileEventRefresh = useRef(0);
   const [bulkDismissProgress, setBulkDismissProgress] = useState(null);
   const [resolvedTaskIds, setResolvedTaskIds] = useState(new Set());
   const [batchProgress, setBatchProgress] = useState(null);
@@ -101,6 +104,9 @@ export function CommandCenterPage() {
   useEffect(() => {
     setAccountManagementOpen(false);
     setRunningIds(new Set());
+    setCheckingFields(new Set());
+    pendingChecks.current = new Set();
+    fileEventRefresh.current += 1;
     setBulkDismissProgress(null);
     setResolvedTaskIds(new Set());
     setBatchProgress(null);
@@ -241,9 +247,9 @@ export function CommandCenterPage() {
     if (task.response) setSelectedResponseId(task.response.id);
   }
 
-  async function openOrCheckSelected(field) {
+  async function openOrCheckSelected(field, rerun = false) {
     if (!selectedResponse || !field) return;
-    if (!isArtifactDocumentCheckCurrent(selectedResponse, field)) {
+    if (rerun || !isArtifactDocumentCheckCurrent(selectedResponse, field)) {
       setCheckError('');
       const result = await runDocumentCheck(selectedResponse.id, [field]);
       if (!isCurrentScope()) return;
@@ -425,6 +431,7 @@ export function CommandCenterPage() {
   }
 
   async function runDocumentCheck(responseId, fields = null) {
+    if (!isCurrentScope()) return { ok: false, error: 'The active workspace changed.' };
     const response = state.attempts.find((item) => item.id === responseId);
     if (!response) return { ok: false, error: 'The selected response was not found.' };
     const deliverable = state.deliverables.find((item) => item.id === response.deliverableId);
@@ -432,27 +439,56 @@ export function CommandCenterPage() {
     const targetFields = fields?.length ? fields : (reviewableFields.length === 1 ? reviewableFields : []);
     if (!targetFields.length && reviewableFields.length > 1) return { ok: false, error: 'Choose which PDF artifacts to check.' };
     if (!targetFields.length) return { ok: false, error: 'This response has no reviewable PDF artifact.' };
-    const result = targetFields.length === 1
-      ? await runReviewDocumentCheck(workspaceId, response, deliverable, targetFields[0])
-      : await runReviewDocumentChecks(workspaceId, targetFields.map((field) => ({ response, field })), state.deliverables, {
-          shouldContinue: isCurrentScope
-        });
-    if (isCurrentScope() && (result.ok || result.results?.some((item) => item.ok))) {
-      setState((current) => ({
-        ...current,
-        attempts: current.attempts.map((item) => {
-          if (item.id !== responseId) return item;
-          if (result.report) return applyDocumentCheck(item, result.report);
-          return (result.results || []).filter((entry) => entry.ok && entry.report)
-            .reduce((updated, entry) => applyDocumentCheck(updated, entry.report), item);
-        })
-      }));
+    const keys = targetFields.map(field => responseId + ':' + (field.definitionId || field.id));
+    if (keys.some(key => pendingChecks.current.has(key))) {
+      return { ok: false, error: 'Document Check is already running for this PDF.' };
     }
-    if (result.results) {
-      const firstFailure = result.results.find((item) => !item.ok);
-      return { ...result, error: firstFailure?.error || (result.ok ? '' : 'One or more PDF artifacts could not be checked.') };
+    keys.forEach(key => pendingChecks.current.add(key));
+    setCheckingFields(new Set(pendingChecks.current));
+    try {
+      const result = targetFields.length === 1
+        ? await runReviewDocumentCheck(workspaceId, response, deliverable, targetFields[0])
+        : await runReviewDocumentChecks(workspaceId, targetFields.map((field) => ({ response, field })), state.deliverables, {
+            shouldContinue: isCurrentScope
+          });
+      if (isCurrentScope() && (result.ok || result.results?.some((item) => item.ok))) {
+        setState((current) => ({
+          ...current,
+          attempts: current.attempts.map((item) => {
+            if (item.id !== responseId) return item;
+            if (result.report) return applyDocumentCheck(item, result.report);
+            return (result.results || []).filter((entry) => entry.ok && entry.report)
+              .reduce((updated, entry) => applyDocumentCheck(updated, entry.report), item);
+          })
+        }));
+        // Refresh the saved access state; this read never starts another check.
+        void refreshFileEvents();
+      }
+      if (result.results) {
+        const firstFailure = result.results.find((item) => !item.ok);
+        return { ...result, error: firstFailure?.error || (result.ok ? '' : 'One or more PDF artifacts could not be checked.') };
+      }
+      return result;
+    } catch (error) {
+      return { ok: false, error: error?.message || 'Document Check could not finish.' };
+    } finally {
+      if (isCurrentScope()) {
+        keys.forEach(key => pendingChecks.current.delete(key));
+        setCheckingFields(new Set(pendingChecks.current));
+      }
     }
-    return result;
+  }
+
+  async function refreshFileEvents() {
+    const requestId = ++fileEventRefresh.current;
+    try {
+      const fileEvents = await getFileMonitorEvents(workspaceId);
+      if (isCurrentScope() && requestId === fileEventRefresh.current) {
+        setState(current => ({ ...current, fileEvents: fileEvents || [] }));
+      }
+    } catch {
+      // The periodic queue refresh will retry; keep the saved check result.
+    }
   }
 
   function confirmArchive(task) {
@@ -663,9 +699,10 @@ export function CommandCenterPage() {
       </ResourceBoundary>
       <ReviewResponseDrawer opened={Boolean(selectedResponse && selectedStudent && selectedDeliverable)}
         response={selectedResponse} student={selectedStudent} state={state} deliverable={selectedDeliverable}
-        checkingFields={runningIds} checkingAiFields={aiRunning} checkError={checkError}
+        checkingFields={checkingFields} checkingAiFields={aiRunning} checkError={checkError}
         onClose={() => { setSelectedResponseId(''); setCheckError(''); }}
         onDocumentCheck={openOrCheckSelected}
+        onRerunDocumentCheck={field => openOrCheckSelected(field, true)}
         onFileHistory={field => setCheckDialogTarget({ responseId: selectedResponse.id,
           fieldId: field.definitionId || field.id, initialTab: 'history' })}
         onViewAiReview={field => setAiDialogTarget({ responseId: selectedResponse.id, fieldId: field.definitionId || field.id })}
@@ -680,7 +717,7 @@ export function CommandCenterPage() {
         historyTarget={workspaceId && checkResponse?.id && checkFieldId ? { workspaceId, responseId: checkResponse.id,
           fieldId: checkFieldId } : null}
         fileLink={checkField ? checkResponse?.values?.[checkField.id] : ''}
-        rechecking={Boolean(checkResponse && runningIds.has(checkResponse.id))}
+        rechecking={Boolean(checkResponse && checkingFields.has(checkResponse.id + ':' + checkFieldId))}
         error={checkError} onClose={() => { setCheckDialogTarget(null); setCheckError(''); }} onRecheck={recheckFromDialog} />
       <AiReviewReportDialog opened={Boolean(aiReport || aiReview?.previousReport)} report={aiReport} review={aiReview}
         fieldLabel={aiField?.label} deliverableTitle={state.deliverables.find(item => item.id === aiResponse?.deliverableId)?.title}
@@ -703,11 +740,15 @@ function buildWorkQueue(state, openConflicts = [], dismissedKeys = new Set()) {
     eventsByFile.set(event.fileId, group);
   }
   for (const events of eventsByFile.values()) {
-    // One prominent event per file. A subsequent metadata observation or access
-    // restoration must not bury an unresolved content, type, or access alert.
+    // A later successful access check resolves only access alerts. Content/type
+    // changes still need review; restoration itself is not an unfinished task.
     events.sort((a, b) => dateValue(b.observedAt) - dateValue(a.observedAt));
-    const significantEvents = events.filter(event => isSignificantFileEvent(event.kind));
-    const candidates = significantEvents.length ? significantEvents : events;
+    const restoredAt = Math.max(0, ...events.filter(event => event.kind === 'ACCESS_RESTORED').map(event => dateValue(event.observedAt)));
+    const actionable = events.filter(event => !event.resolved && event.kind !== 'ACCESS_RESTORED'
+      && !(['ACCESS_UNAVAILABLE', 'DOWNLOAD_UNAVAILABLE'].includes(event.kind) && dateValue(event.observedAt) < restoredAt));
+    if (!actionable.length) continue;
+    const significantEvents = actionable.filter(event => isSignificantFileEvent(event.kind));
+    const candidates = significantEvents.length ? significantEvents : actionable;
     // A dismissed newer significant alert must not hide an older significant
     // alert that this staff member has not dismissed yet.
     const primary = candidates.find(event => !dismissedKeys.has(fileEventTaskId(event))) || candidates[0];

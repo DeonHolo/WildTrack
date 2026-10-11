@@ -47,6 +47,7 @@ export function ReviewResponseDrawer({
   checkError = '',
   onClose,
   onDocumentCheck,
+  onRerunDocumentCheck,
   onFileHistory,
   onViewAiReview,
   onAiReview,
@@ -105,6 +106,7 @@ export function ReviewResponseDrawer({
                 checking={checkingFields.has(artifactKey(response.id, field))}
                 reviewing={checkingAiFields.has(`${response.id}:${field.definitionId || field.id}`)}
                 onDocumentCheck={() => onDocumentCheck?.(field)}
+                onRerunDocumentCheck={onRerunDocumentCheck ? () => onRerunDocumentCheck(field) : null}
                 onFileHistory={() => onFileHistory?.(field)}
                 onViewAiReview={() => onViewAiReview?.(field)}
                 onAiReview={() => onAiReview?.(field)}
@@ -148,7 +150,7 @@ export function ReviewResponseDrawer({
   );
 }
 
-function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, onFileHistory, onViewAiReview, onAiReview }) {
+function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, onRerunDocumentCheck, onFileHistory, onViewAiReview, onAiReview }) {
   const value = String(response.values?.[field.id] || '').trim();
   const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
   const report = artifactDocumentCheck(response, field);
@@ -189,9 +191,15 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
           <>
             <Group gap="xs" wrap="wrap" className="wt-review-artifact-actions">
               <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<MagnifyingGlass size={15} />}
-                loading={checking} disabled={!value} onClick={onDocumentCheck}>
-                {isArtifactDocumentCheckCurrent(response, field) ? 'View Document Check' : field.documentCheckPolicy === 'MANUAL' ? 'Check document' : 'Check again'}
+                loading={!isArtifactDocumentCheckCurrent(response, field) && checking} disabled={!value} onClick={onDocumentCheck}>
+                {isArtifactDocumentCheckCurrent(response, field) ? 'View Document Check' : report ? 'Rerun Document Check' : field.documentCheckPolicy === 'MANUAL' ? 'Check document' : 'Check again'}
               </Button>
+              {isArtifactDocumentCheckCurrent(response, field) && onRerunDocumentCheck ? (
+                <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<ArrowCounterClockwise size={15} aria-hidden="true" />}
+                  loading={checking} disabled={!value} onClick={onRerunDocumentCheck}>
+                  Rerun Document Check
+                </Button>
+              ) : null}
               {aiReport || previousAiReport ? (
                 <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<Eye size={15} aria-hidden="true" />}
                   onClick={onViewAiReview}>

@@ -2,11 +2,8 @@
 .file-history h3, .file-history-section h3 { margin: 0; font-size: 1.125rem; font-weight: 700; }
 .file-history h4, .file-history-section h4 { margin: 0; font-size: 1rem; font-weight: 650; }
 .file-history p, .file-history-section p { margin: 4px 0 0; }
-.file-history-overview { padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
-.file-history-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; margin: 16px 0; }
-.file-history dt, .file-history-section dt, .file-history-caption, .file-history-date, .file-history-count, .file-history-limit { color: var(--muted); font-size: 0.875rem; }
+.file-history dt, .file-history-section dt, .file-history-caption, .file-history-date, .file-history-count { color: var(--muted); font-size: 0.875rem; }
 .file-history dd, .file-history-section dd { margin: 2px 0 0; overflow-wrap: anywhere; }
-.file-history-facts dt { margin-bottom: 4px; }
 .file-history .document-check-identity-value, .file-history-section .document-check-identity-value { min-width: 0; font-size: 1rem; line-height: 1.55; }
 .file-history .document-check-identity-value strong, .file-history-section .document-check-identity-value strong { font-weight: 550; }
 .file-history-section { margin-top: 24px; }
@@ -26,9 +23,7 @@
 .file-history-identifier { overflow-wrap: anywhere; }
 .file-history-state { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
 .file-history-pagination { margin-top: 16px; }
-.file-history-limit { margin-top: 24px !important; padding-top: 16px; border-top: 1px solid var(--border); }
 @media (max-width: 480px) {
-  .file-history-facts { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .file-history-entry-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
   .file-history-record dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .file-history-record dd { margin-bottom: 8px; }

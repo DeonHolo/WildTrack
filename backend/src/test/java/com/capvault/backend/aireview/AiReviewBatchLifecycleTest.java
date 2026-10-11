@@ -11,15 +11,20 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import com.capvault.backend.filecheck.FileCheckReportRepository;
+import com.capvault.backend.drive.GoogleDriveUnavailableException.Kind;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 class AiReviewBatchLifecycleTest {
@@ -125,6 +130,144 @@ class AiReviewBatchLifecycleTest {
         service.resume(workspace, plan.id(), "admin"); service.tick(); service.tick();
         verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
         verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @ParameterizedTest @EnumSource(value = Kind.class, names = {"FILE_ACCESS", "UNKNOWN", "PROVIDER_UNAVAILABLE"})
+    void definitePreclaimDriveFailureDoesNotStopAnUnrelatedPdf(Kind kind) {
+        when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin")))
+            .thenAnswer(inv -> preview(inv.getArgument(1), inv.getArgument(1).toString(), "MISSING", null));
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenThrow(new AiReviewService.DrivePreparationFailure(kind, "Drive read failed. No AI review was started."));
+        service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.state()).isEqualTo("RUNNING");
+        assertThat(progress.entries().get(0).noAiStarted()).isTrue();
+        assertThat(progress.completedDocuments()).isEqualTo(1);
+        assertThat(progress.pendingDocuments()).isEqualTo(1);
+        service.tick(); service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("COMPLETED");
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @ParameterizedTest @EnumSource(value = Kind.class, names = {"CONFIGURATION", "RATE_LIMIT"})
+    void driveConfigurationAndQuotaFailuresStillPauseTheBatch(Kind kind) {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenThrow(new AiReviewService.DrivePreparationFailure(kind, "Drive setup or quota failure. No AI review was started."));
+        service.tick(); service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.state()).isEqualTo("PAUSED");
+        assertThat(progress.entries().get(0).noAiStarted()).isTrue();
+        verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @ParameterizedTest @ValueSource(ints = {409, 503})
+    void unclassifiedHttpFailuresCannotClaimNoAiStarted(int status) {
+        when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin")))
+            .thenAnswer(inv -> preview(inv.getArgument(1), "same-key", "CLEAN", null));
+        var plan = prepared(); start(plan, "ALL", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenThrow(new ResponseStatusException(HttpStatus.valueOf(status), "Saved status could not be confirmed."));
+        service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.state()).isEqualTo("PAUSED");
+        assertThat(progress.entries().get(0).noAiStarted()).isFalse();
+        assertThat(progress.entries().get(1).rerun()).isFalse();
+        assertThat(progress.entries().get(1).retryToken()).isNull();
+        verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"NOT_CONFIGURED", "API_KEY_REJECTED", "RATE_LIMITED", "MODEL_UNAVAILABLE", "PROVIDER_CONNECTION_FAILED"})
+    void providerFailuresRemainPausedWithoutReplaying(String failureCode) {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenReturn(result("UNCERTAIN", failureCode, false));
+        service.tick(); service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.state()).isEqualTo("PAUSED");
+        assertThat(progress.entries().get(0).noAiStarted()).isFalse();
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+        verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void lateValidationFailureCannotClaimTheProviderWasNotStarted() {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenThrow(new IllegalArgumentException("Selected artifact was retired."));
+        service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.state()).isEqualTo("PAUSED");
+        assertThat(progress.entries().get(0).noAiStarted()).isFalse();
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"CLEAN", "FAILED"})
+    void unclaimedIntentMovesToAnAccessibleDuplicateWithoutAnotherRerunLeader(String category) {
+        UUID retry = category.equals("FAILED") ? UUID.randomUUID() : null;
+        when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin")))
+            .thenAnswer(inv -> preview(inv.getArgument(1), "same-key", category, retry));
+        var plan = prepared(); start(plan, "ALL", retry != null);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenThrow(new AiReviewService.DrivePreparationFailure(Kind.UNKNOWN, "Preclaim Drive failure. No AI review was started."));
+        service.tick(); service.tick(); service.tick();
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(second), eq("pdf"), eq("admin"),
+            eq(retry != null), eq(retry), eq(category.equals("CLEAN")), eq("same-key"), any());
+        assertThat(service.get(workspace, plan.id(), "admin").completedDocuments()).isEqualTo(1);
+    }
+
+    @Test void unverifiedIdentitySurvivesDatabaseRestoreWithoutEnteringVerifiedCounts() {
+        var identity = new AiReviewService.DisplayIdentity("Refactored STD", "Test PDF", "First Student", "https://drive.google.com/file/d/first/view", null);
+        when(reviews.displayIdentity(workspace, first, "pdf", "admin")).thenReturn(identity);
+        when(reviews.preview(workspace, first, "pdf", "admin"))
+            .thenThrow(new AiReviewService.DrivePreparationFailure(Kind.FILE_ACCESS, "PDF could not be opened."));
+        var plan = prepared();
+        var restored = new AiReviewBatchService(new AiReviewBatchStore(jdbc, json, clock, manager), reviews, checks, json, clock);
+        var result = restored.get(workspace, plan.id(), "admin");
+        assertThat(result.entries().get(0).identity()).isEqualTo(identity);
+        assertThat(result.entries().get(0).preview()).isNull();
+        assertThat(result.uniqueDocuments()).isEqualTo(1);
+        assertThat(result.entries().get(0).phase()).isEqualTo("UNVERIFIED");
+    }
+
+    @Test void typedPreclaimFailureKeepsTheFailingSourceEvenIfTheLocalLookupWasStale() {
+        var stale = new AiReviewService.DisplayIdentity("Old SRS", "Old PDF", "First Student", "https://drive.google.com/file/d/old/view", null);
+        var actual = new AiReviewService.DisplayIdentity("Current SRS", "Current PDF", "First Student", "https://drive.google.com/file/d/actual/view", null);
+        when(reviews.displayIdentity(workspace, first, "pdf", "admin")).thenReturn(stale);
+        when(reviews.preview(workspace, first, "pdf", "admin")).thenThrow(
+            new AiReviewService.DrivePreparationFailure(Kind.FILE_ACCESS, "Actual PDF could not be opened.").identified(actual));
+        assertThat(prepared().entries().get(0).identity()).isEqualTo(actual);
+    }
+
+    @Test void legacyUnverifiedIdentityUsesAuthorizedLabelsWithoutInventingAnOriginalUrl() {
+        var legacy = new AiReviewBatchService.Entry(new AiReviewBatchService.Target(first, "pdf"), null, "UNVERIFIED",
+            false, false, null, null, false, null, false, "Old PDF access failure", true);
+        var row = store.create(workspace, "admin", new AiReviewBatchService.Data(List.of(legacy), "ATTENTION", true, false, "Prepared"));
+        // Exercise an actual old payload that omits the additive field, rather than a serialized null.
+        var oldJson = json.valueToTree(row.data());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) oldJson.path("entries").get(0)).remove("identity");
+        jdbc.update("UPDATE ai_review_batches SET state = 'READY', payload_json = ? WHERE id = ?", oldJson.toString(), row.id());
+        when(reviews.displayIdentity(workspace, first, "pdf", "admin")).thenReturn(new AiReviewService.DisplayIdentity(
+            "Refactored SDD", "Design PDF", "Current Student", "https://drive.google.com/file/d/current-file/view", null));
+        var result = service.get(workspace, row.id(), "admin");
+        assertThat(result.entries().get(0).identity().deliverableTitle()).isEqualTo("Refactored SDD");
+        assertThat(result.entries().get(0).identity().sourceUrl()).isNull();
+        assertThat(result.entries().get(0).preview()).isNull();
+        assertThat(result.uniqueDocuments()).isZero();
+        verify(reviews, never()).preview(any(), any(), any(), any());
+    }
+
+    @Test void restoringPreparedIdentityKeepsTheOriginalSourceWhenTheCurrentLinkChanged() {
+        var original = preview(first, "original-key", "MISSING", null);
+        var legacy = new AiReviewBatchService.Entry(new AiReviewBatchService.Target(first, "pdf"), original, "DONE",
+            true, false, null, null, false, "FAILED", false, "Old PDF access failure", true);
+        var row = store.create(workspace, "admin", new AiReviewBatchService.Data(List.of(legacy), "ATTENTION", true, false, "Paused"));
+        when(reviews.displayIdentity(workspace, first, "pdf", "admin")).thenReturn(new AiReviewService.DisplayIdentity(
+            "Changed deliverable", "Changed artifact", "Current Student", "https://drive.google.com/file/d/replaced/view", null));
+        var result = service.get(workspace, row.id(), "admin");
+        assertThat(result.entries().get(0).identity().sourceUrl()).isEqualTo(original.sourceUrl());
+        assertThat(result.entries().get(0).identity().deliverableTitle()).isEqualTo(original.deliverableTitle());
+        verify(reviews, never()).displayIdentity(any(), any(), any(), any());
     }
 
     @Test void expiredLeaseRecoveryDoesNotReplayAnInterruptedStartAndRejectsLateWrites() {

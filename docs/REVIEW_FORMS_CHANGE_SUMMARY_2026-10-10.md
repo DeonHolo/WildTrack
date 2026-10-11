@@ -1,6 +1,6 @@
 # Requested review and Forms changes — 10 October 2026
 
-Implementation: https://github.com/DeonHolo/WildTrack/pull/95, from `wildtrack-dev` to `main`. The PR is unmerged; production screenshots can still show the older UI. Keep unrelated coursework and frozen evidence intact.
+Implementation: https://github.com/DeonHolo/WildTrack/pull/95, from `wildtrack-dev` to `main`. Merged as `9081daa`; Heroku and Vercel production deployments succeeded on 10 October. The 11 October follow-up is recorded in [the STD Markdown change record](<old documents, templates/outputs/04-Software-Test-Document/UI_REVIEW_FOLLOWUP_2026-10-11.md>). New evidence is Markdown only; the STD DOCX/PDF/ZIP is frozen.
 
 | Request | Implemented behavior |
 | --- | --- |
