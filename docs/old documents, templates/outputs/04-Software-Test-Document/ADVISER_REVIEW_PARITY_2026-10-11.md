@@ -6,6 +6,10 @@ The user requested that **My advised teams** artifact cards match Admin Review, 
 
 Existing adviser permissions and artifact targeting are preserved. No AI run, retry or rerun control was introduced, and no separate Document Check rerun control was added. Previously available initial checks, saved current/legacy/historical report viewing, selected-output acceptance, feedback and workspace scoping still use their existing handlers. Detailed AI findings remain in the saved-review modal.
 
-Validation: **78 existing frontend tests passed** across AdviserViewPage, ReviewResponseDrawer and ReviewPage; the production frontend build passed. These are local component/request-layer tests, not a hosted visual acceptance claim. No new provider request was made. The change is ready for a follow-up PR and is not covered by the earlier PR96 merge approval.
+Validation: **78 existing frontend tests passed** across AdviserViewPage, ReviewResponseDrawer and ReviewPage; the production frontend build passed. GitHub frontend checks and Vercel preview also passed for head `0b3a8c6b79980d085718e6439411fa0d79f488bf`.
+
+The user separately approved PR97. It merged as `c15da2da4dab9efd7fb85d8f31c906cce135a45d`. Vercel Production deployment `6997377464` succeeded at 2026-10-11 15:04:55 UTC; Heroku `wildtrack` deployment `6997376018` succeeded at 15:05:34 UTC.
+
+Hosted verification: opened **My advised teams > CapVault > STD** in the live app. The card displayed the two saved-report actions together, with the eye icon and labeled AI Review status, and neither rerun control. View AI Review opened the saved **AI Review: STD Submission** modal. No new Gemini request was made. The local proof image is `.scratch/ui-followup-20261011/adviser-live-actions.png`.
 
 No STD DOCX, PDF or ZIP was edited.
