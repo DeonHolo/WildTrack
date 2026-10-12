@@ -66,10 +66,7 @@ public class DocumentTemplateService {
 
     @Transactional(readOnly = true)
     public List<DocumentTemplateResponse> list(UUID workspaceId) {
-        return repository.findAllByWorkspaceIdOrderByDeliverableKeyAsc(workspaceId)
-            .stream()
-            .map(DocumentTemplateResponse::from)
-            .toList();
+        return repository.findSummariesByWorkspaceIdOrderByDeliverableKeyAsc(workspaceId);
     }
 
     @Transactional
@@ -220,6 +217,15 @@ public class DocumentTemplateService {
                 .orElse(null);
         }
         return find(workspaceId, deliverableKey);
+    }
+
+    @Transactional(readOnly = true)
+    public DocumentTemplateText findText(UUID workspaceId, String deliverableKey, String fieldId) {
+        String normalizedField = normalizeNullable(fieldId);
+        return (normalizedField == null
+            ? repository.findTextByWorkspaceIdAndDeliverableKeyIgnoreCaseAndFieldIdIsNull(workspaceId, deliverableKey)
+            : repository.findTextByWorkspaceIdAndDeliverableKeyIgnoreCaseAndFieldId(workspaceId, deliverableKey, normalizedField))
+            .orElse(null);
     }
 
     private DocumentTemplateResponse saveBytes(

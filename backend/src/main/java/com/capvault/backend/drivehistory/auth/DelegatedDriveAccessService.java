@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Subject-scoped, optional delegated authorization. Access tokens live only in short-lived process memory. */
+/** Subject-scoped delegated authorization. Access tokens live only in short-lived process memory. */
 @Service
 public class DelegatedDriveAccessService {
     private final DriveOAuthGrantRepository grants;
@@ -32,8 +32,16 @@ public class DelegatedDriveAccessService {
 
     @Transactional(readOnly = true)
     public boolean connected(String googleSubject) {
-        return isConfigured() && googleSubject != null
-            && grants.findById(googleSubject).map(DriveOAuthGrant::connected).orElse(false);
+        if (!isConfigured() || googleSubject == null || googleSubject.isBlank()) return false;
+        DriveOAuthGrant grant = grants.findById(googleSubject).filter(DriveOAuthGrant::connected).orElse(null);
+        if (grant == null) return false;
+        try {
+            // A saved grant must still be decryptable with the current subject-bound storage key.
+            // This is a local check only; application requests never probe Google for login status.
+            return !cipher.decrypt(googleSubject, grant.getEncryptedRefreshToken()).isBlank();
+        } catch (IllegalStateException unusableStoredGrant) {
+            return false;
+        }
     }
 
     @Transactional

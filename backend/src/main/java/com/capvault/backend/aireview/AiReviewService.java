@@ -29,6 +29,8 @@ import com.capvault.backend.staff.StaffAccessResolver;
 import com.capvault.backend.staff.StaffRole;
 import com.capvault.backend.template.DocumentTemplateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.access.AccessDeniedException;
@@ -37,6 +39,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AiReviewService {
+    private static final Logger LOG = LoggerFactory.getLogger(AiReviewService.class);
     // Post-validation behavior is part of the persisted review cache fingerprint.
     // Do not reuse pre-TOC-fix reports whose false missing-index claim survived grounding.
     static final String PROMPT_VERSION = "wildtrack-academic-review-v17";
@@ -322,24 +325,33 @@ public class AiReviewService {
         if (claim.acquired()) {
             try {
                 executor.execute(() -> {
+                    String stage = "source_validation";
                     try {
                         assertCurrent(response, target, context, subject);
                         if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Administrator access changed.");
+                        stage = "provider";
                         var raw = provider.review(new AiReviewProvider.Input(key + ":" + claim.job().token(), bytes, inspection.extractedText(),
                             SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template()));
+                        stage = "grounding";
                         var result = groundAndValidate(raw, context, inspection.extractedText(), inspection.pages());
                         // Every valid result is saved; only a substantive result replaces report history.
+                        stage = "persistence";
                         store.complete(claim.job(), json.writeValueAsString(result),
                             result.outcome() != AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+                        stage = "source_validation";
                         assertCurrent(response, target, context, subject);
                     } catch (Exception failure) {
+                        String failureCode = failure instanceof GeminiAiReviewProvider.Failure gemini
+                            ? gemini.code : failure instanceof InconclusiveReviewResult inconclusive
+                                ? inconclusive.code : failure instanceof InvalidReviewResult
+                                    ? "INVALID_RESPONSE" : "PROVIDER_OUTCOME_UNKNOWN";
+                        // Fixed labels/types only: exception messages and provider details can contain private data.
+                        LOG.warn("AI review failure: stage={} code={} exception={}", stage,
+                            diagnosticFailureCode(failureCode), failure.getClass().getSimpleName());
                         if (failure instanceof ResponseStatusException || failure instanceof AccessDeniedException)
                             unlink(target, response, sourceValueHash, key);
                         // A timeout/crash can occur after billing. Never retry automatically.
-                        store.uncertain(claim.job(), failure instanceof GeminiAiReviewProvider.Failure gemini
-                            ? gemini.code : failure instanceof InconclusiveReviewResult inconclusive
-                                ? inconclusive.code : failure instanceof InvalidReviewResult
-                                    ? "INVALID_RESPONSE" : "PROVIDER_OUTCOME_UNKNOWN");
+                        store.uncertain(claim.job(), failureCode);
                     }
                 });
             } catch (RejectedExecutionException full) {
@@ -468,15 +480,15 @@ public class AiReviewService {
             .filter(d -> d.getWorkspaceId().equals(response.getWorkspaceId()))
             .orElseThrow(() -> new IllegalArgumentException("Deliverable not found."));
         if (!deliverable.isPdfRequired()) throw new IllegalArgumentException("AI document review is only available for PDF deliverables.");
-        var template = templates.find(response.getWorkspaceId(), deliverable.getTrackerColumnKey(), target.fieldId());
+        var template = templates.findText(response.getWorkspaceId(), deliverable.getTrackerColumnKey(), target.fieldId());
         String baseTitle = Objects.requireNonNullElse(deliverable.getTitle(), "");
         String title = target.fieldId().endsWith(":legacy") ? baseTitle : baseTitle + " — " + target.label();
         String instructions = Objects.requireNonNullElse(deliverable.getInstructions(), "");
-        String text = template == null ? "" : Objects.requireNonNullElse(template.getExtractedText(), "");
+        String text = template == null ? "" : Objects.requireNonNullElse(template.extractedText(), "");
         String version = provider.cacheVersion();
         if (version == null || version.isBlank()) throw new IllegalStateException("AI provider must declare its model/settings version.");
         String hash = digest(List.of(PROMPT_VERSION, SYSTEM_INSTRUCTION, version, title, instructions,
-            template == null ? "none" : template.getSha256(), text));
+            template == null ? "none" : template.sha256(), text));
         return new Context(hash, title, instructions, text);
     }
 
@@ -1026,6 +1038,17 @@ public class AiReviewService {
 
     private static InvalidReviewResult invalidReview() {
         return new InvalidReviewResult();
+    }
+
+    private static String diagnosticFailureCode(String code) {
+        return switch (Objects.requireNonNullElse(code, "")) {
+            case "NOT_CONFIGURED", "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE", "RATE_LIMITED",
+                 "API_KEY_REJECTED", "MODEL_UNAVAILABLE", "PROVIDER_OUTCOME_UNKNOWN", "PROVIDER_TIMEOUT",
+                 "PROVIDER_CONNECTION_FAILED", "INVALID_RESPONSE", "FILE_PROCESSING_FAILED", "CONTENT_BLOCKED",
+                 "OUTPUT_TRUNCATED", "REQUEST_SCHEMA_REJECTED", "REQUEST_REJECTED", "NO_GROUNDED_FINDINGS",
+                 "FINDINGS_FILTERED", "INSUFFICIENT_REVIEW_EVIDENCE" -> code;
+            default -> "PROVIDER_OUTCOME_UNKNOWN";
+        };
     }
 
     private static final class InvalidReviewResult extends RuntimeException {

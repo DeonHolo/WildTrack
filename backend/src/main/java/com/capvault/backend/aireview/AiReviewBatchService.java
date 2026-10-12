@@ -43,9 +43,12 @@ public class AiReviewBatchService {
                 resultStatus, reused, error, noAiStarted, identity);
         }
         Entry result(AiReviewService.View review, String message) {
-            return new Entry(target, preview, "RUNNING".equals(review.status()) ? "WAITING" : "DONE", selected,
-                rerun, review.retryToken(), checkedAt, newerHistory, review.status(), review.reused(), message,
-                "UNAVAILABLE".equals(review.status()) || "QUEUE_FULL".equals(review.failureCode()), identity);
+            // A status read is always reused; keep the original claim's billing/reuse fact.
+            boolean claimReused = Set.of("WAITING", "STARTING").contains(phase) ? reused : review.reused();
+            String status = "COMPLETED".equals(review.status()) && review.report() == null ? "FAILED" : review.status();
+            return new Entry(target, preview, "RUNNING".equals(status) ? "WAITING" : "DONE", selected,
+                rerun, review.retryToken(), checkedAt, newerHistory, status, claimReused, message,
+                "UNAVAILABLE".equals(status) || "QUEUE_FULL".equals(review.failureCode()), identity);
         }
         Entry failed(String message, boolean notStarted) {
             return new Entry(target, preview, "DONE", selected, rerun, retryToken, checkedAt, newerHistory,
@@ -206,7 +209,10 @@ public class AiReviewBatchService {
         List<Entry> entries = new ArrayList<>(row.data().entries());
         int index = -1;
         for (int i = 0; i < entries.size(); i++) if (entries.get(i).selected() && Set.of("WAITING", "STARTING", "PENDING").contains(entries.get(i).phase())) { index = i; break; }
-        if (index < 0) { store.saveLeased(row, "COMPLETED", row.data().entries(entries, "AI Review batch finished. Saved results are available.")); return; }
+        if (index < 0) {
+            store.saveLeased(row, "COMPLETED", row.data().entries(entries, finishedMessage(entries)));
+            return;
+        }
         Entry entry = entries.get(index);
         boolean starting = entry.phase().equals("PENDING");
         if (starting) {
@@ -221,7 +227,10 @@ public class AiReviewBatchService {
                     entry.retryToken() != null && row.data().retryAcknowledged(), entry.retryToken(), entry.rerun(),
                     entry.preview().key(), entry.preview().jobToken())
                 : reviews.saved(row.workspaceId(), entry.target().responseId(), entry.target().fieldId(), row.subject());
-            String message = review.status().equals("COMPLETED") && review.report() != null
+            String message = review.status().equals("RUNNING") ? ""
+                : review.status().equals("COMPLETED") && review.report() == null
+                ? "No saved AI Review was produced for this document. Check saved reviews before retrying."
+                : review.status().equals("COMPLETED") && review.report() != null
                 && review.report().outcome() == AiReviewProvider.ReviewOutcome.INCONCLUSIVE ? "This review is inconclusive; it does not establish a clean result."
                 : review.status().equals("COMPLETED") ? "" : review.message();
             entries.set(index, entry.result(review, message));
@@ -267,6 +276,15 @@ public class AiReviewBatchService {
         for (int i = 0; i < entries.size(); i++) if (entries.get(i).phase().equals(phase)) return i;
         return -1;
     }
+    private static String finishedMessage(List<Entry> entries) {
+        var selected = entries.stream().filter(Entry::selected).toList();
+        if (selected.isEmpty()) return "AI Review batch finished. No documents were selected.";
+        if (selected.stream().anyMatch(e -> !"COMPLETED".equals(e.resultStatus()) || !e.error().isBlank()))
+            return "AI Review batch finished with items needing attention. Open the affected PDFs below.";
+        return "AI Review batch finished. Saved results are available.";
+    }
+
+
     private View view(AiReviewBatchStore.Row row, String subject) {
         var entries = row.data().entries().stream().map(entry -> restoredIdentity(row.workspaceId(), entry, subject)).toList();
         Map<String, List<Entry>> groups = new LinkedHashMap<>();
@@ -274,9 +292,9 @@ public class AiReviewBatchService {
         var selected = groups.values().stream().filter(g -> g.stream().anyMatch(Entry::selected)).toList();
         int complete = (int) selected.stream().filter(g -> g.stream().filter(Entry::selected).allMatch(e -> e.phase().equals("DONE"))).count();
         int pending = (int) selected.stream().filter(g -> g.stream().anyMatch(e -> e.selected() && e.phase().equals("PENDING"))).count();
-        int reused = (int) selected.stream().filter(g -> g.stream().filter(Entry::selected).allMatch(e -> e.phase().equals("DONE") && e.reused())).count();
+        int reused = (int) selected.stream().filter(g -> g.stream().filter(Entry::selected).allMatch(e -> e.phase().equals("DONE") && "COMPLETED".equals(e.resultStatus()) && e.error().isBlank() && e.reused())).count();
         return new View(row.id(), row.state(), row.version(), row.updatedAt().toString(), entries, entries.size(),
-            (int) entries.stream().filter(e -> !e.phase().equals("PREPARING")).count(), groups.size(), selected.size(), complete, pending, reused, row.data().message());
+            (int) entries.stream().filter(e -> !e.phase().equals("PREPARING")).count(), groups.size(), selected.size(), complete, pending, reused, row.state().equals("COMPLETED") ? finishedMessage(entries) : row.data().message());
     }
     private Entry restoredIdentity(UUID workspace, Entry entry, String subject) {
         if (entry.identity() != null) return entry;

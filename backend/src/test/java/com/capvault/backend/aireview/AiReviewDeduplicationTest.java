@@ -27,9 +27,12 @@ import com.capvault.backend.template.DocumentTemplateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -562,9 +565,8 @@ class AiReviewDeduplicationTest {
         deliverable.setInstructions("Updated requirements");
         assertThat(service.saved(workspace, first.getId(), "admin").status()).isEqualTo("OUTDATED");
         assertThat(run(first).reused()).isFalse();
-        var template = mock(com.capvault.backend.template.DocumentTemplate.class);
-        when(template.getSha256()).thenReturn("updated-template"); when(template.getExtractedText()).thenReturn("New template requirements");
-        when(templates.find(eq(workspace), eq("SRS"), anyString())).thenReturn(template);
+        var template = new com.capvault.backend.template.DocumentTemplateText("New template requirements", "updated-template");
+        when(templates.findText(eq(workspace), eq("SRS"), anyString())).thenReturn(template);
         assertThat(run(first).reused()).isFalse();
         when(provider.cacheVersion()).thenReturn("fake-provider:model-2:temperature-0");
         assertThat(run(first).reused()).isFalse();
@@ -736,6 +738,83 @@ class AiReviewDeduplicationTest {
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("Choose which PDF artifact");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_review_jobs", Integer.class)).isZero();
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void providerFailureLogsOnlyFixedDiagnosticLabelsAndExceptionType(CapturedOutput output) {
+        String privateDetail = "private-provider-body https://private.example/pdf?token=secret student-private@example.com";
+        when(provider.review(any())).thenThrow(new IllegalStateException(privateDetail));
+
+        var failed = run(first);
+
+        assertThat(failed.status()).isEqualTo("UNCERTAIN");
+        assertThat(failed.failureCode()).isEqualTo("PROVIDER_OUTCOME_UNKNOWN");
+        assertThat(output.getAll()).contains("AI review failure: stage=provider code=PROVIDER_OUTCOME_UNKNOWN exception=IllegalStateException")
+            .doesNotContain(privateDetail, "private-provider-body", "student-private@example.com", "https://private.example",
+                "file-first@example.com", "https://drive.google.com/file/d/file-first");
+        verify(provider, times(1)).review(any());
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void invalidGroundingLogsItsStageWithoutLoggingTheReviewBody(CapturedOutput output) {
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result("", List.of(), List.of(),
+            List.of(), "private-review-body-and-token"));
+
+        var failed = run(first);
+
+        assertThat(failed.status()).isEqualTo("UNCERTAIN");
+        assertThat(failed.failureCode()).isEqualTo("INVALID_RESPONSE");
+        assertThat(output.getAll()).contains("AI review failure: stage=grounding code=INVALID_RESPONSE exception=InvalidReviewResult")
+            .doesNotContain("private-review-body-and-token", "The AI provider returned an invalid or ungrounded review.");
+        verify(provider, times(1)).review(any());
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void persistenceFailureLogsItsStageWithoutLoggingDatabaseDetails(CapturedOutput output) {
+        var storage = spy(store);
+        doThrow(new IllegalStateException("private-database-content-and-token"))
+            .when(storage).complete(any(), anyString(), anyBoolean());
+        service = newService(storage);
+
+        var failed = run(first);
+
+        assertThat(failed.status()).isEqualTo("UNCERTAIN");
+        assertThat(failed.failureCode()).isEqualTo("PROVIDER_OUTCOME_UNKNOWN");
+        assertThat(output.getAll()).contains("AI review failure: stage=persistence code=PROVIDER_OUTCOME_UNKNOWN exception=IllegalStateException")
+            .doesNotContain("private-database-content-and-token");
+        verify(provider, times(1)).review(any());
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void sourceValidationFailureLogsItsStageAndMakesNoProviderRequest(CapturedOutput output) {
+        var tasks = new java.util.ArrayList<Runnable>();
+        service = newService(store, tasks::add);
+        assertThat(run(first).status()).isEqualTo("RUNNING");
+        when(roles.activeRolesFor("admin")).thenReturn(Set.of(StaffRole.ADVISER));
+
+        tasks.get(0).run();
+
+        assertThat(output.getAll()).contains("AI review failure: stage=source_validation code=PROVIDER_OUTCOME_UNKNOWN exception=AccessDeniedException")
+            .doesNotContain("Administrator access changed.", "file-first@example.com", "https://drive.google.com/file/d/file-first");
+        assertThat(jdbc.queryForObject("SELECT state FROM ai_review_jobs", String.class)).isEqualTo("UNCERTAIN");
+        verify(provider, never()).review(any());
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void unknownProviderCodeIsNotCopiedIntoDiagnosticLogs(CapturedOutput output) {
+        String privateCode = "private-code-with-token";
+        when(provider.review(any())).thenThrow(new GeminiAiReviewProvider.Failure(privateCode, "private-detail"));
+
+        var failed = run(first);
+
+        assertThat(failed.failureCode()).isEqualTo(privateCode);
+        assertThat(output.getAll()).contains("AI review failure: stage=provider code=PROVIDER_OUTCOME_UNKNOWN exception=Failure")
+            .doesNotContain(privateCode, "private-detail");
     }
 
     @Test void uncertainProviderFailuresRequireExplicitRetryAndAreNeverTreatedAsSuccess() {

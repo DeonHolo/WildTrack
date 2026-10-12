@@ -1,5 +1,7 @@
 # Drive history setup - 11 October 2026
 
+> 12 October follow-up: Google blocked the submitter because the OAuth project was in Testing without that account on its test-user list. Required Drive consent is being integrated into sign-in behind an explicit rollout switch. See [Required Drive login](REQUIRED_DRIVE_LOGIN_2026-10-12.md) for the audience fix, access behavior, and production prerequisite. The live observations below are dated 11 October, not a successful current Google grant.
+
 The current user OAuth flow requests four scopes. OAuth is the authorization mechanism, not an additional scope. The Google Cloud `drive` filter hides the identity scopes.
 
 | Google Auth Platform Data Access scope | Purpose |

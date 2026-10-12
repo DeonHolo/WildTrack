@@ -19,7 +19,7 @@ import com.capvault.backend.drive.GoogleDriveProperties;
 import com.capvault.backend.drive.GoogleDriveUnavailableException;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseRepository;
-import com.capvault.backend.template.DocumentTemplate;
+import com.capvault.backend.template.DocumentTemplateText;
 import com.capvault.backend.template.DocumentTemplateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
@@ -125,12 +125,10 @@ class FileCheckCapturedPdfAuditTest {
         String values = "{\"frameworkPdf\":\"" + PDF + "\",\"highlightsPdf\":\"" + PDF + "\"}";
         submission(first, workspace, values, firstSaved);
         submission(second, workspace, values, secondSaved);
-        DocumentTemplate framework = mock(DocumentTemplate.class);
-        DocumentTemplate highlights = mock(DocumentTemplate.class);
-        when(framework.getExtractedText()).thenReturn("1 Introduction\n2 Framework methodology\n");
-        when(highlights.getExtractedText()).thenReturn("1 Validation highlights\n2 Evidence summary\n");
-        when(templates.find(workspace, KEY, "framework-field")).thenReturn(framework);
-        when(templates.find(workspace, KEY, "highlights-field")).thenReturn(highlights);
+        DocumentTemplateText framework = new DocumentTemplateText("1 Introduction\n2 Framework methodology\n", "framework-hash");
+        DocumentTemplateText highlights = new DocumentTemplateText("1 Validation highlights\n2 Evidence summary\n", "highlights-hash");
+        when(templates.findText(workspace, KEY, "framework-field")).thenReturn(framework);
+        when(templates.findText(workspace, KEY, "highlights-field")).thenReturn(highlights);
         var ref = new DriveFileReference("shared-pdf", null);
         byte[] bytes = "%PDF-synthetic-testing".getBytes(StandardCharsets.UTF_8);
         var metadata = metadata("shared-pdf", bytes.length, md5(bytes));
@@ -150,8 +148,9 @@ class FileCheckCapturedPdfAuditTest {
 
         verify(drive, times(1)).download(ref);
         verify(pdfInspector, times(1)).inspect(bytes);
-        verify(templates, times(2)).find(workspace, KEY, "framework-field");
-        verify(templates, times(2)).find(workspace, KEY, "highlights-field");
+        verify(templates, times(2)).findText(workspace, KEY, "framework-field");
+        verify(templates, times(2)).findText(workspace, KEY, "highlights-field");
+        verify(templates, never()).findText(workspace, KEY, null);
         verify(templates, never()).find(workspace, KEY);
         for (FileCheckResponse report : List.of(firstFramework, firstHighlights, secondFramework, secondHighlights)) {
             assertThat(report.status()).isEqualTo("COMPLETED");

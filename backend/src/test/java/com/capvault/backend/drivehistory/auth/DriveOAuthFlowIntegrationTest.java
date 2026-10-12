@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest(properties = {
+    "wildtrack.drive-history.required-for-login=true",
     "wildtrack.drive-history.oauth.enabled=true",
     "wildtrack.drive-history.oauth.client-id=mock-web-client",
     "wildtrack.drive-history.oauth.client-secret=mock-secret",
@@ -97,10 +98,14 @@ class DriveOAuthFlowIntegrationTest {
         mvc.perform(get("/api/drive-history/auth/status").cookie(session))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.configured").value(true))
+            .andExpect(jsonPath("$.required").value(true))
             .andExpect(jsonPath("$.connected").value(true));
+        mvc.perform(get("/api/workspaces").cookie(session)).andExpect(status().isOk());
         mvc.perform(post("/api/drive-history/auth/disconnect").cookie(session).with(csrf()))
             .andExpect(status().isOk()).andExpect(jsonPath("$.connected").value(false));
         assertThat(grants.findById("subject-one").orElseThrow().getEncryptedRefreshToken()).isNull();
+        mvc.perform(get("/api/workspaces").cookie(session))
+            .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("DRIVE_HISTORY_REQUIRED"));
     }
 
     @Test
@@ -150,7 +155,10 @@ class DriveOAuthFlowIntegrationTest {
         mvc.perform(get("/api/drive-history/auth/status").cookie(session))
             .andExpect(status().isOk()).andExpect(jsonPath("$.connected").value(false));
         mvc.perform(get("/api/auth/session").cookie(session))
-            .andExpect(status().isOk()).andExpect(jsonPath("$.authenticated").value(true));
+            .andExpect(status().isOk()).andExpect(jsonPath("$.authenticated").value(true))
+            .andExpect(jsonPath("$.driveHistoryConnected").value(false));
+        mvc.perform(get("/api/workspaces").cookie(session))
+            .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("DRIVE_HISTORY_REQUIRED"));
     }
 
     @Test

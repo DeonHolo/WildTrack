@@ -20,6 +20,7 @@ function show() {
 describe('post-login Drive history consent', () => {
   beforeEach(() => {
     sessionStorage.clear();
+    window.history.replaceState({}, '', '/');
     getDriveHistoryConsentStatus.mockReset().mockResolvedValue({ configured: true, connected: false });
     startDriveHistoryConsent.mockReset();
     useWorkspaceSession.mockReturnValue({ session: { authenticated: true, googleSubject: 'student-subject', email: 'student@example.test' } });
@@ -53,4 +54,24 @@ describe('post-login Drive history consent', () => {
     show();
     expect(getDriveHistoryConsentStatus).not.toHaveBeenCalled();
   });
+
+  it.each(['declined', 'error', 'unavailable'])('shows optional %s callback feedback and waits for explicit retry', async outcome => {
+    window.history.replaceState({}, '', '/student?driveHistory=' + outcome + '&section=it');
+    sessionStorage.setItem('wildtrack.drive-history-consent-dismissed:student-subject', '1');
+    show();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/permission/);
+    expect(startDriveHistoryConsent).not.toHaveBeenCalled();
+    expect(window.location.search).toBe('?section=it');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Drive permission' }));
+    await waitFor(() => expect(startDriveHistoryConsent).toHaveBeenCalledTimes(1));
+  });
+
+  it('has no optional prompt or skip action when Drive permission is required for login', () => {
+    useWorkspaceSession.mockReturnValue({ session: { authenticated: true, googleSubject: 'student-subject', driveHistoryRequired: true, driveHistoryConnected: false } });
+    show();
+    expect(getDriveHistoryConsentStatus).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Skip for now' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Google Drive history access' })).not.toBeInTheDocument();
+  });
+
 });

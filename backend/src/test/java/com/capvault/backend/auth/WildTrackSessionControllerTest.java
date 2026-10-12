@@ -18,6 +18,7 @@ import com.capvault.backend.config.ApiExceptionHandler;
 import com.capvault.backend.config.TimeConfig;
 import com.capvault.backend.staff.StaffAccessResolver;
 import com.capvault.backend.config.WildTrackSessionProperties;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -46,6 +47,15 @@ class WildTrackSessionControllerTest {
 
     @MockBean
     private StaffAccessResolver staffAccessResolver;
+
+    @MockBean
+    private DriveHistoryLoginPolicy driveHistoryLogin;
+
+    @BeforeEach
+    void optionalDriveHistoryPolicy() {
+        when(driveHistoryLogin.status(org.mockito.ArgumentMatchers.nullable(String.class)))
+            .thenReturn(new DriveHistoryLoginPolicy.Status(false, false, false));
+    }
 
     private static final Instant NOW = Instant.parse("2026-08-24T00:00:00Z");
     private static final Instant EXPIRY = Instant.parse("2026-11-22T00:00:00Z");
@@ -96,9 +106,12 @@ class WildTrackSessionControllerTest {
             .andExpect(jsonPath("$.authenticated").value(true))
             .andExpect(jsonPath("$.email").value("student@gmail.com"))
             .andExpect(jsonPath("$.roles").isArray())
+            .andExpect(jsonPath("$.googleSubject").value("google-subject-123"))
+            .andExpect(jsonPath("$.driveHistoryRequired").value(false))
+            .andExpect(jsonPath("$.driveHistoryConnected").value(false))
+            .andExpect(jsonPath("$.driveHistoryConfigured").value(false))
             .andExpect(jsonPath("$.expiresAt").exists())
-            .andExpect(jsonPath("$.tokenHash").doesNotExist())
-            .andExpect(jsonPath("$.googleSubject").doesNotExist());
+            .andExpect(jsonPath("$.tokenHash").doesNotExist());
     }
 
     @Test

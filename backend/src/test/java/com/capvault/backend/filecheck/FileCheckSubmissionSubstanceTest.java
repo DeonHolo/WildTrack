@@ -24,7 +24,7 @@ import com.capvault.backend.drive.GoogleDriveGateway;
 import com.capvault.backend.drive.GoogleDriveProperties;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseRepository;
-import com.capvault.backend.template.DocumentTemplate;
+import com.capvault.backend.template.DocumentTemplateText;
 import com.capvault.backend.template.DocumentTemplateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -150,11 +150,10 @@ class FileCheckSubmissionSubstanceTest {
             when(reportRepository.save(any(FileCheckReport.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
             if (templateText == null) {
-                when(templateService.find(workspaceId, deliverableKey, fieldId)).thenReturn(null);
+                when(templateService.findText(workspaceId, deliverableKey, fieldId)).thenReturn(null);
             } else {
-                DocumentTemplate template = mock(DocumentTemplate.class);
-                when(template.getExtractedText()).thenReturn(templateText);
-                when(templateService.find(workspaceId, deliverableKey, fieldId)).thenReturn(template);
+                when(templateService.findText(workspaceId, deliverableKey, fieldId))
+                    .thenReturn(new DocumentTemplateText(templateText, "template-hash"));
             }
         }
 

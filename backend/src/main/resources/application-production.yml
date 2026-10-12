@@ -15,6 +15,9 @@ server:
         name: WILDTRACK_UI_SESSION
         path: /
   tomcat:
+    threads:
+      max: ${WILDTRACK_HTTP_MAX_THREADS:32}
+      min-spare: ${WILDTRACK_HTTP_MIN_SPARE_THREADS:4}
     max-http-form-post-size: 2MB
     max-swallow-size: 2MB
 
@@ -29,7 +32,8 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME}
     password: ${SPRING_DATASOURCE_PASSWORD}
     hikari:
-      maximum-pool-size: ${WILDTRACK_DB_MAX_POOL_SIZE:10}
+      maximum-pool-size: ${WILDTRACK_DB_MAX_POOL_SIZE:6}
+      minimum-idle: ${WILDTRACK_DB_MIN_IDLE:1}
   h2:
     console:
       enabled: false

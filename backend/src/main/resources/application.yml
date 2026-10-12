@@ -47,6 +47,8 @@ wildtrack:
     max-files-per-cycle: ${WILDTRACK_FILE_MONITOR_MAX_FILES_PER_CYCLE:20}
     tick-ms: ${WILDTRACK_FILE_MONITOR_TICK_MS:60000}
   drive-history:
+    # Enable only after the intended Google OAuth audience and permissions are ready.
+    required-for-login: ${WILDTRACK_DRIVE_HISTORY_REQUIRED_FOR_LOGIN:false}
     oauth:
       enabled: ${WILDTRACK_DRIVE_HISTORY_OAUTH_ENABLED:false}
       client-id: ${WILDTRACK_DRIVE_HISTORY_CLIENT_ID:${WILDTRACK_GOOGLE_CLIENT_ID:}}

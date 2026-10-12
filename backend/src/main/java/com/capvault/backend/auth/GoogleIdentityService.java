@@ -18,6 +18,13 @@ public class GoogleIdentityService {
             throw new InvalidGoogleCredentialException("Google did not return a sign-in credential.");
         }
         GoogleIdentity identity = verifier.verify(credential.trim());
+        return normalize(identity);
+    }
+
+    public static GoogleIdentity normalize(GoogleIdentity identity) {
+        if (identity == null) {
+            throw new InvalidGoogleCredentialException("Google sign-in did not include a usable account identity.");
+        }
         if (identity.subject() == null || identity.subject().isBlank()
             || identity.email() == null || identity.email().isBlank()) {
             throw new InvalidGoogleCredentialException("Google sign-in did not include a usable account identity.");

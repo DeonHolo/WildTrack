@@ -52,6 +52,11 @@ public class DriveOAuthConsentService {
     }
     public record Completion(String returnPath, String status) { }
 
+    @Transactional(readOnly = true)
+    public boolean hasPendingConnectState(String state) {
+        return state != null && RANDOM_VALUE.matcher(state).matches() && pendingStates.existsById(hash(state));
+    }
+
     @Transactional
     public Begin begin(StoredWildTrackSession session, String requestedReturnPath) {
         if (!properties.configured()) {
@@ -115,12 +120,15 @@ public class DriveOAuthConsentService {
 
             String encrypted = exchanged.refreshToken() != null && !exchanged.refreshToken().isBlank()
                 ? cipher.encrypt(googleSubject, exchanged.refreshToken()) : null;
-            if (encrypted == null) {
+            if (encrypted == null && access.connected(googleSubject)) {
                 encrypted = grants.findById(googleSubject).filter(DriveOAuthGrant::connected)
                     .map(DriveOAuthGrant::getEncryptedRefreshToken).orElse(null);
             }
-            if (encrypted == null) return new Completion(returnPath, "unavailable");
-            grants.save(new DriveOAuthGrant(googleSubject, encrypted, exchanged.scope(), clock.instant()));
+            // Respect the persisted grant's limits before writing. Oversized results cannot complete sign-in.
+            if (encrypted == null || encrypted.length() > 2048 || exchanged.scope().length() > 2048) {
+                return new Completion(returnPath, "unavailable");
+            }
+            grants.saveAndFlush(new DriveOAuthGrant(googleSubject, encrypted, exchanged.scope(), clock.instant()));
             access.cacheAccessToken(googleSubject, exchanged.accessToken(),
                 exchanged.expiresIn() == null ? 300 : exchanged.expiresIn());
             return new Completion(returnPath, "connected");
@@ -141,12 +149,12 @@ public class DriveOAuthConsentService {
         return scopes != null && Arrays.asList(scopes.trim().split("\\s+")).contains(DriveOAuthProperties.DRIVE_SCOPE);
     }
 
-    private static String safeReturnPath(String requested) {
+    static String safeReturnPath(String requested) {
         if (requested == null || requested.isBlank()) return "/";
         // The frontend preserves its existing workspace/selection query string
         // during the OAuth round trip. Validate the path and query separately:
         // no scheme, authority, fragment, control characters or backslashes.
-        if (requested.length() > 1500 || requested.indexOf('#') >= 0
+        if (requested.length() > 500 || requested.indexOf('#') >= 0
                 || requested.indexOf('\\') >= 0) {
             throw new IllegalArgumentException("Return path must be a relative application path.");
         }
