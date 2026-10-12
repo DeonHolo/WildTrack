@@ -1,8 +1,8 @@
-import { Container, Loader, Text } from '@mantine/core';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { getGoogleSignInReturnTo } from '../../lib/googleSignIn.js';
 import { isPublicInformationPath } from '../../lib/publicInformation.js';
+import { SessionLoadingScreen } from './SessionLoadingScreen.jsx';
 
 export function GoogleSignInGate({ children }) {
   const { session, sessionStatus } = useWorkspaceSession();
@@ -20,7 +20,7 @@ export function GoogleSignInGate({ children }) {
   // Keep sign-in mounted while an ordinary credential or session refresh completes.
   if (isSignInRoute && (session !== null || sessionStatus === 'error')) return children;
   if (!publicForm && !publicInformation && (session === null || sessionStatus === 'loading')) {
-    return <Container size="sm" py="xl"><Text role="status"><Loader size="xs" mr="xs" />Checking Google sign-in…</Text></Container>;
+    return <SessionLoadingScreen />;
   }
   return children;
 }
