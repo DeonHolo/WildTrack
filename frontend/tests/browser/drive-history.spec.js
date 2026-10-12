@@ -37,12 +37,12 @@ test('checked PDF has one Document Check entry with both tabs and refreshes shar
   });
 
   await page.goto('/student');
-  await expect(page.getByRole('button', { name: 'Allow Drive history' })).toBeVisible();
-  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await expect(page.getByRole('button', { name: 'Allow Drive history' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'File history' })).toHaveCount(0);
   await page.getByRole('button', { name: 'View Document Check' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('tab', { name: 'Check result' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Google Drive history access' })).toHaveCount(0);
   await expect(dialog.getByRole('tab', { name: 'File history' })).toBeVisible();
   await dialog.getByRole('tab', { name: 'File history' }).click();
   await expect(dialog.getByText('No eligible submitter has yet authorized this file.')).toBeVisible();

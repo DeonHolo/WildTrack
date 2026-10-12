@@ -18,7 +18,6 @@ import { StudentStatusPage } from '../pages/StudentStatusPage.jsx';
 import { TrackerPage } from '../pages/TrackerPage.jsx';
 import { WorkspacePage } from '../pages/WorkspacePage.jsx';
 import { TemplatePreviewPage } from '../pages/TemplatePreviewPage.jsx';
-import { DriveHistoryConsent } from '../components/auth/DriveHistoryConsent.jsx';
 import { DriveHistoryLoginGate } from '../components/auth/DriveHistoryLoginGate.jsx';
 import { PublicInformationPage } from '../pages/PublicInformationPage.jsx';
 
@@ -96,7 +95,6 @@ export default function App() {
         )} />
         <Route path="*" element={<RoleHomeRedirect />} />
       </Routes>
-      <DriveHistoryConsent />
       <DevelopmentRolePreview enabled={import.meta.env.DEV} />
       </DriveHistoryLoginGate>
     </WorkspaceSessionProvider>
