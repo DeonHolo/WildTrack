@@ -37,8 +37,9 @@
 }
 
 .wt-brand-mark {
+  display: block;
   flex: 0 0 auto;
-  border: 1px solid rgba(72, 16, 32, 0.22);
+  object-fit: contain;
 }
 
 .wt-brand-copy {
@@ -56,6 +57,10 @@
 
 .wt-brand-copy small {
   color: var(--wt-muted);
+}
+
+.wt-brand-copy strong {
+  color: var(--wt-maroon-deep);
 }
 
 .wt-staff-shell,
@@ -284,10 +289,20 @@
   text-decoration: none;
 }
 
+.wt-public-brand-mark {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
 .wt-public-brand strong,
 .wt-public-brand small {
   display: block;
   letter-spacing: 0;
+}
+
+.wt-public-brand strong {
+  color: var(--wt-maroon-deep);
 }
 
 .wt-account-email {
