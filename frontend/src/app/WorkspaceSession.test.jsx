@@ -47,6 +47,37 @@ describe('WorkspaceSession', () => {
     expect(localStorage.getItem(browserStorageKeys.activeWorkspace)).toBe('ws-1');
   });
 
+  it.each([false, true])('does not echo an older tab identity notification when authenticated=%s', async authenticated => {
+    const session = { authenticated, email: authenticated ? 'server@student.test' : undefined, roles: [], driveHistoryRequired: false, driveHistoryConnected: false };
+    api.getCurrentSession.mockResolvedValue(session);
+    const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
+    const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
+    await waitFor(() => expect(result.current.sessionStatus).toBe('ready'));
+    const identity = authenticated ? JSON.stringify([session.email, session.googleSubject, session.roles]) : '';
+    localStorage.setItem('wildtrack.session-identity', identity);
+    let finish;
+    api.getCurrentSession.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: 'wildtrack.session-identity', newValue: identity })); });
+    expect(result.current.account).toBeNull();
+    expect(result.current.workspaces).toEqual([]);
+    await act(async () => { finish(session); });
+    await waitFor(() => expect(result.current.sessionStatus).toBe('ready'));
+    expect(api.getCurrentSession).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem('wildtrack.session-identity')).toBe(identity);
+  });
+
+  it('still broadcasts a directly verified account and permission change', async () => {
+    const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
+    const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
+    await waitFor(() => expect(result.current.sessionStatus).toBe('ready'));
+    const changed = { authenticated: true, email: 'other@student.test', googleSubject: 'other-subject', roles: [], driveHistoryRequired: true, driveHistoryConnected: true };
+    api.getCurrentSession.mockResolvedValueOnce(changed);
+    await act(async () => { await result.current.refreshSession(); });
+    const identity = JSON.stringify([changed.email, changed.googleSubject, changed.roles]);
+    expect(localStorage.getItem('wildtrack.session-identity')).toBe(JSON.stringify([identity, true, true]));
+    expect(result.current.account?.email).toBe(changed.email);
+  });
+
   it('does not restore an authenticated session when a refresh finishes after logout', async () => {
     const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
     const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
