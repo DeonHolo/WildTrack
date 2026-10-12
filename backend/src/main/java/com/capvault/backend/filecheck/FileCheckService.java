@@ -19,7 +19,7 @@ import com.capvault.backend.drive.GoogleDriveProperties;
 import com.capvault.backend.drive.GoogleDriveUnavailableException;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseRepository;
-import com.capvault.backend.template.DocumentTemplate;
+import com.capvault.backend.template.DocumentTemplateText;
 import com.capvault.backend.template.DocumentTemplateService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -283,8 +283,8 @@ public class FileCheckService {
             ), metadata);
         }
 
-        DocumentTemplate template = templateService.find(workspaceId, request.deliverableKey(), request.fieldId());
-        String templateText = template == null ? null : template.getExtractedText();
+        DocumentTemplateText template = templateService.findText(workspaceId, request.deliverableKey(), request.fieldId());
+        String templateText = template == null ? null : template.extractedText();
         TemplateComparison comparison = templateText == null || templateText.isBlank()
             ? TemplateComparison.unavailable()
             : templateComparator.compare(templateText, inspection.extractedText());

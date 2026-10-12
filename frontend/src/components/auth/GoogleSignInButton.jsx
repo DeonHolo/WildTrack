@@ -1,8 +1,11 @@
 import { Alert, Box, Loader, Stack, Text } from '@mantine/core';
 import { WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
-import { authenticateGoogle } from '../../lib/api.js';
-import { clearGoogleAutoPromptSuppression, disableGoogleAutoSelect, isGoogleAutoPromptSuppressed } from '../../lib/googleIdentitySession.js';
+import { authenticateGoogle, startGoogleSignIn } from '../../lib/api.js';
+import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
+import { getGoogleSignInReturnTo } from '../../lib/driveHistoryLogin.js';
+import { clearGoogleAutoPromptSuppression, isGoogleAutoPromptSuppressed } from '../../lib/googleIdentitySession.js';
+import './GoogleSignInButton.css';
 
 export { disableGoogleAutoSelect } from '../../lib/googleIdentitySession.js';
 
@@ -11,7 +14,6 @@ let googleIdentityPromise;
 function loadGoogleIdentity() {
   if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
   if (googleIdentityPromise) return googleIdentityPromise;
-
   googleIdentityPromise = new Promise((resolve, reject) => {
     const existing = document.querySelector('script[data-wildtrack-google-identity]');
     const script = existing || document.createElement('script');
@@ -35,21 +37,31 @@ export function GoogleSignInButton({
   clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID,
   enableOneTap = false,
   autoSelect = false,
-  onAuthenticated
+  onAuthenticated,
+  returnTo
 }) {
   const buttonRef = useRef(null);
   const callbackRef = useRef(onAuthenticated);
-  const [status, setStatus] = useState(clientId ? 'loading' : 'error');
-  const [error, setError] = useState(clientId ? '' : 'Google sign-in is not configured on this machine.');
-
-  useEffect(() => {
-    callbackRef.current = onAuthenticated;
-  }, [onAuthenticated]);
+  let workspaceSession = null;
+  try { workspaceSession = useWorkspaceSession(); } catch { /* Standalone identity button. */ }
+  const requiredLogin = workspaceSession?.session?.driveHistoryRequired === true;
+  const completionRef = useRef(workspaceSession?.completeGoogleSignIn);
+  const destinationRef = useRef(returnTo);
+  const verifyingRef = useRef(false);
+  completionRef.current = workspaceSession?.completeGoogleSignIn;
+  destinationRef.current = returnTo;
+  callbackRef.current = onAuthenticated;
+  const [status, setStatus] = useState(requiredLogin ? 'ready' : clientId ? 'loading' : 'error');
+  const [error, setError] = useState(requiredLogin || clientId ? '' : 'Google sign-in is not configured on this machine.');
 
   useEffect(() => {
     let active = true;
+    if (requiredLogin) {
+      setStatus('ready');
+      setError('');
+      return () => { active = false; };
+    }
     if (!clientId) return () => { active = false; };
-
     loadGoogleIdentity()
       .then((googleIdentity) => {
         if (!active || !buttonRef.current) return;
@@ -60,69 +72,86 @@ export function GoogleSignInButton({
           cancel_on_tap_outside: true,
           itp_support: true,
           callback: async ({ credential }) => {
+            if (!active || verifyingRef.current) return;
             if (!credential) {
               setStatus('error');
               setError('Google did not return a sign-in credential.');
               return;
             }
+            verifyingRef.current = true;
             setStatus('verifying');
             setError('');
             try {
               const identity = await authenticateGoogle(credential);
               if (!active) return;
               clearGoogleAutoPromptSuppression();
-              callbackRef.current?.(identity);
+              if (completionRef.current) {
+                const session = await completionRef.current();
+                if (!active || !session) return;
+                await callbackRef.current?.(identity, session);
+              } else {
+                await callbackRef.current?.(identity);
+              }
+              if (!active) return;
+              verifyingRef.current = false;
               setStatus('ready');
-            } catch (requestError) {
+            } catch (failure) {
+              verifyingRef.current = false;
               if (!active) return;
               setStatus('error');
-              setError(requestError.message || 'Google sign-in could not be verified.');
+              setError(failure?.message || 'Google sign-in could not be verified.');
             }
           }
         });
         buttonRef.current.replaceChildren();
-        const calculatedWidth = typeof window !== 'undefined' && window.innerWidth < 420
-          ? Math.max(220, Math.min(window.innerWidth - 80, 280))
-          : 300;
+        const width = window.innerWidth < 420 ? Math.max(220, Math.min(window.innerWidth - 80, 280)) : 300;
         googleIdentity.renderButton(buttonRef.current, {
-          type: 'standard',
-          theme: 'outline',
-          size: 'large',
-          text: 'continue_with',
-          shape: 'rectangular',
-          width: calculatedWidth
+          type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', width
         });
         if (enableOneTap && !promptSuppressed) googleIdentity.prompt?.();
         setStatus('ready');
       })
-      .catch((loadError) => {
+      .catch((failure) => {
         if (!active) return;
         setStatus('error');
-        setError(loadError.message);
+        setError(failure?.message || 'Google sign-in could not be loaded.');
       });
-
     return () => { active = false; };
-  }, [autoSelect, clientId, enableOneTap]);
+  }, [autoSelect, clientId, enableOneTap, requiredLogin]);
+
+  async function startCombinedGoogleSignIn() {
+    if (verifyingRef.current) return;
+    verifyingRef.current = true;
+    setStatus('verifying');
+    setError('');
+    try {
+      await startGoogleSignIn(getGoogleSignInReturnTo(destinationRef.current, workspaceSession?.session));
+    } catch (failure) {
+      verifyingRef.current = false;
+      setStatus('error');
+      setError(failure?.message || 'Google sign-in could not be opened. Please try again.');
+    }
+  }
 
   return (
     <Stack gap="xs" className="wt-google-sign-in">
-      <Box
-        ref={buttonRef}
-        className="wt-google-sign-in-button"
-        aria-label="Continue with Google"
-        style={status === 'loading' ? { display: 'none' } : undefined}
-      />
+      {requiredLogin ? <Text size="sm" maw={300}>Signing in includes read-only Google Drive file information for submitted PDFs and revisions Google still retains.</Text> : null}
+      {requiredLogin ? (
+        <button type="button" className="wt-google-oauth-button" disabled={status === 'verifying'} onClick={startCombinedGoogleSignIn}>
+          <img src="/assets/google-g.png" alt="" aria-hidden="true" />
+          <span>Continue with Google</span>
+        </button>
+      ) : (
+        <Box ref={buttonRef} className="wt-google-sign-in-button" aria-label="Continue with Google"
+          style={status === 'loading' ? { display: 'none' } : undefined} />
+      )}
       {status === 'loading' || status === 'verifying' ? (
         <Text size="sm" c="dimmed" role="status">
           <Loader size="xs" mr="xs" />
-          {status === 'verifying' ? 'Verifying Google account...' : 'Loading Google sign-in...'}
+          {status === 'verifying' ? requiredLogin ? 'Opening Google sign-in…' : 'Verifying Google account...' : 'Loading Google sign-in...'}
         </Text>
       ) : null}
-      {error ? (
-        <Alert color="red" variant="light" icon={<WarningCircle size={19} />} role="alert">
-          {error}
-        </Alert>
-      ) : null}
+      {error ? <Alert color="red" variant="light" icon={<WarningCircle size={19} />} role="alert">{error}</Alert> : null}
     </Stack>
   );
 }

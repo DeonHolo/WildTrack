@@ -1,7 +1,6 @@
 package com.capvault.backend.auth;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 
 import com.capvault.backend.config.WildTrackSessionProperties;
@@ -30,19 +29,22 @@ public class WildTrackSessionController {
     private final Clock clock;
     private final WildTrackSessionProperties properties;
     private final StaffAccessResolver staffAccessResolver;
+    private final DriveHistoryLoginPolicy driveHistoryLogin;
 
     WildTrackSessionController(
         GoogleIdentityService googleIdentityService,
         WildTrackSessionService sessionService,
         Clock clock,
         WildTrackSessionProperties properties,
-        StaffAccessResolver staffAccessResolver
+        StaffAccessResolver staffAccessResolver,
+        DriveHistoryLoginPolicy driveHistoryLogin
     ) {
         this.googleIdentityService = googleIdentityService;
         this.sessionService = sessionService;
         this.clock = clock;
         this.properties = properties;
         this.staffAccessResolver = staffAccessResolver;
+        this.driveHistoryLogin = driveHistoryLogin;
     }
 
     public record SessionExchangeRequest(@NotBlank String credential) {
@@ -53,10 +55,15 @@ public class WildTrackSessionController {
         String email,
         String name,
         Instant expiresAt,
-        java.util.List<String> roles
+        java.util.List<String> roles,
+        boolean driveHistoryRequired,
+        boolean driveHistoryConnected,
+        boolean driveHistoryConfigured,
+        String googleSubject
     ) {
-        static CurrentSessionResponse anonymous() {
-            return new CurrentSessionResponse(false, null, null, null, java.util.List.of());
+        static CurrentSessionResponse anonymous(DriveHistoryLoginPolicy.Status drive) {
+            return new CurrentSessionResponse(false, null, null, null, java.util.List.of(),
+                drive.required(), false, drive.configured(), null);
         }
     }
 
@@ -65,40 +72,36 @@ public class WildTrackSessionController {
         @Valid @RequestBody SessionExchangeRequest request,
         HttpServletResponse response
     ) {
+        if (driveHistoryLogin.required()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.CONFLICT,
+                "Use Google sign-in with Drive history permission to finish signing in.");
+        }
         GoogleIdentity identity = googleIdentityService.authenticate(request.credential());
         staffAccessResolver.onBindLogin(identity.subject(), identity.email());
-        Duration ttl = properties.ttl();
         WildTrackSession created = sessionService.create(identity);
-        Cookie cookie = new Cookie(SESSION_COOKIE, created.rawToken());
-        configureSessionCookie(cookie);
-        cookie.setMaxAge((int) ttl.toSeconds());
-        response.addCookie(cookie);
+        writeSessionCookie(response, created.rawToken(), properties);
         return ResponseEntity.ok(identity);
     }
 
     @GetMapping("/session")
     ResponseEntity<CurrentSessionResponse> current(HttpServletRequest request) {
-        Cookie[] cookies = request.getCookies();
-        if (cookies == null) {
-            return ResponseEntity.ok(CurrentSessionResponse.anonymous());
+        StoredWildTrackSession session = request.getAttribute(WildTrackSessionAuthenticationFilter.RESOLVED_SESSION_ATTRIBUTE)
+            instanceof StoredWildTrackSession resolved ? resolved : null;
+        if (session == null && request.getCookies() != null) {
+            for (Cookie cookie : request.getCookies()) {
+                if (!SESSION_COOKIE.equals(cookie.getName())) continue;
+                session = sessionService.resolve(cookie.getValue()).orElse(null);
+                break;
+            }
         }
-        for (Cookie cookie : cookies) {
-            if (!SESSION_COOKIE.equals(cookie.getName())) continue;
-            return sessionService.resolve(cookie.getValue())
-                .map(session -> {
-                    var roles = staffAccessResolver.activeRolesFor(session.googleSubject())
-                        .stream().map(Enum::name).toList();
-                    return ResponseEntity.ok(new CurrentSessionResponse(
-                        true,
-                        session.googleEmail(),
-                        null,
-                        session.expiresAt(),
-                        roles
-                    ));
-                })
-                .orElseGet(() -> ResponseEntity.ok(CurrentSessionResponse.anonymous()));
+        if (session == null) {
+            return ResponseEntity.ok(CurrentSessionResponse.anonymous(driveHistoryLogin.status(null)));
         }
-        return ResponseEntity.ok(CurrentSessionResponse.anonymous());
+        var drive = driveHistoryLogin.status(session.googleSubject());
+        var roles = staffAccessResolver.activeRolesFor(session.googleSubject()).stream().map(Enum::name).toList();
+        return ResponseEntity.ok(new CurrentSessionResponse(true, session.googleEmail(), null, session.expiresAt(), roles,
+            drive.required(), drive.connected(), drive.configured(), session.googleSubject()));
     }
 
     @PostMapping("/logout")
@@ -119,6 +122,18 @@ public class WildTrackSessionController {
     }
 
     private void configureSessionCookie(Cookie cookie) {
+        configureSessionCookie(cookie, properties);
+    }
+
+    public static void writeSessionCookie(HttpServletResponse response, String rawToken,
+                                         WildTrackSessionProperties properties) {
+        Cookie cookie = new Cookie(SESSION_COOKIE, rawToken);
+        configureSessionCookie(cookie, properties);
+        cookie.setMaxAge((int) properties.ttl().toSeconds());
+        response.addCookie(cookie);
+    }
+
+    private static void configureSessionCookie(Cookie cookie, WildTrackSessionProperties properties) {
         cookie.setHttpOnly(true);
         cookie.setPath("/");
         if (properties.secure()) {

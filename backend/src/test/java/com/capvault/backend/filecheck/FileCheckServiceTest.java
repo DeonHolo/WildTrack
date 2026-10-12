@@ -28,7 +28,7 @@ import com.capvault.backend.drive.GoogleDriveGateway;
 import com.capvault.backend.drive.GoogleDriveProperties;
 import com.capvault.backend.response.FormResponse;
 import com.capvault.backend.response.FormResponseRepository;
-import com.capvault.backend.template.DocumentTemplate;
+import com.capvault.backend.template.DocumentTemplateText;
 import com.capvault.backend.template.DocumentTemplateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -95,11 +95,11 @@ class FileCheckServiceTest {
             null
         ));
 
-        DocumentTemplate legacyTemplate = mock(DocumentTemplate.class);
-        DocumentTemplate otherTemplate = mock(DocumentTemplate.class);
-        when(templateService.find(workspaceId, deliverableKey)).thenReturn(legacyTemplate);
-        when(templateService.find(workspaceId, deliverableKey, otherFieldId)).thenReturn(otherTemplate);
-        when(templateService.find(workspaceId, deliverableKey, fieldId)).thenReturn(null);
+        DocumentTemplateText legacyTemplate = new DocumentTemplateText("Legacy template", "legacy-hash");
+        DocumentTemplateText otherTemplate = new DocumentTemplateText("Other field template", "other-hash");
+        when(templateService.findText(workspaceId, deliverableKey, null)).thenReturn(legacyTemplate);
+        when(templateService.findText(workspaceId, deliverableKey, otherFieldId)).thenReturn(otherTemplate);
+        when(templateService.findText(workspaceId, deliverableKey, fieldId)).thenReturn(null);
         when(repository.save(any(FileCheckReport.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         FileCheckService service = new FileCheckService(
@@ -134,8 +134,10 @@ class FileCheckServiceTest {
         assertThat(savedReport.getValue().getDriveLastModifyingUserDisplayName()).isEqualTo("Drive Editor");
         assertThat(new ObjectMapper().findAndRegisterModules().writeValueAsString(result))
             .doesNotContain("lastModifyingUserEmail", "lastModifyingUserDisplayName", "editor@example.com", "Drive Editor");
-        verify(templateService).find(workspaceId, deliverableKey, fieldId);
+        verify(templateService).findText(workspaceId, deliverableKey, fieldId);
+        verify(templateService, never()).findText(workspaceId, deliverableKey, null);
+        verify(templateService, never()).findText(workspaceId, deliverableKey, otherFieldId);
         verify(templateService, never()).find(workspaceId, deliverableKey);
-        verify(templateService, never()).find(workspaceId, deliverableKey, otherFieldId);
+        verify(templateService, never()).find(workspaceId, deliverableKey, fieldId);
     }
 }

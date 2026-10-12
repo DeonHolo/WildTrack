@@ -359,9 +359,9 @@ export function PublicSubmissionPage() {
     setFormError('');
   }
 
-  async function finishGoogleSignIn() {
+  async function finishGoogleSignIn(identity, verifiedSession) {
     const scope = privateScope.current;
-    const current = await refreshSession();
+    const current = verifiedSession || await refreshSession();
     if (!current?.authenticated) setFormError('Google sign-in completed, but the WildTrack session could not be opened.');
     else if (privateScope.current === scope) retryPrivateState();
   }

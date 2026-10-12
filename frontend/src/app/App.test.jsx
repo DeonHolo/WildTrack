@@ -63,7 +63,7 @@ vi.mock('../pages/AdviserViewPage.jsx', () => ({ AdviserViewPage: () => <h1>Team
 vi.mock('../pages/CommandCenterPage.jsx', () => ({ CommandCenterPage: () => <h1>Today&apos;s work page</h1> }));
 vi.mock('../pages/FormsPage.jsx', () => ({ FormsPage: () => <h1>Forms page</h1> }));
 vi.mock('../pages/PublicSubmissionPage.jsx', () => ({ PublicSubmissionPage: () => <h1>Public submission form</h1> }));
-vi.mock('../pages/RegisterPage.jsx', () => ({ RegisterPage: () => <h1>Student access page</h1> }));
+vi.mock('../pages/RegisterPage.jsx', () => ({ RegisterPage: () => <><h1>Student access page</h1>{workflow.sessionStatus === 'error' ? <div role="alert">{workflow.sessionError}</div> : null}</> }));
 vi.mock('../pages/ReviewPage.jsx', () => ({ ReviewPage: () => <h1>Review page</h1> }));
 vi.mock('../pages/StudentStatusPage.jsx', () => ({ StudentStatusPage: () => <h1>Student dashboard page</h1> }));
 vi.mock('../pages/TrackerPage.jsx', () => ({ TrackerPage: () => <h1>Tracker page</h1> }));
@@ -204,7 +204,7 @@ describe('role-specific application shells', () => {
     }
   });
 
-  it('shows a session load failure instead of treating backend unavailability as anonymous', () => {
+  it('shows a session load failure inline on the normal login instead of treating backend unavailability as anonymous', () => {
     const originalDev = import.meta.env.DEV;
     import.meta.env.DEV = false;
     workflow.session = { authenticated: false, roles: [] };
@@ -213,7 +213,8 @@ describe('role-specific application shells', () => {
     try {
       renderApp('/workspace');
       expect(screen.getByRole('alert')).toHaveTextContent('Session service is temporarily unavailable.');
-      expect(screen.queryByRole('heading', { name: 'Student access page' })).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Student access page' })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Workspace page' })).not.toBeInTheDocument();
     } finally {
       import.meta.env.DEV = originalDev;
       workflow.sessionStatus = 'ready';

@@ -6,7 +6,7 @@ import { disconnectDriveHistoryConsent, getDriveHistoryConsentStatus } from '../
 
 /** A compact account control; no persistent consent or success overlay follows navigation. */
 export function DriveHistoryAccountAccess() {
-  const { session } = useWorkspaceSession();
+  const { session, refreshSession } = useWorkspaceSession();
   const identity = session?.authenticated ? (session.googleSubject || session.email || '') : '';
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -31,6 +31,7 @@ export function DriveHistoryAccountAccess() {
     try {
       await disconnectDriveHistoryConsent();
       setConnected(false);
+      await refreshSession?.({ blockAppAccess: true });
     } catch (failure) {
       setError(failure.message || 'Drive history could not be disconnected.');
     } finally {
@@ -47,7 +48,8 @@ export function DriveHistoryAccountAccess() {
       </Menu.Target>
       <Menu.Dropdown>
         <Menu.Label>Drive history</Menu.Label>
-        <Text size="xs" px="sm" pb="xs">Read-only Google Drive metadata is connected to this account.</Text>
+        <Text size="xs" px="sm" pb="xs">Read-only Google Drive metadata is connected to this account for submitted PDFs and revisions Google retains.</Text>
+        {session.driveHistoryRequired ? <Text size="xs" px="sm" pb="xs">Disconnecting ends app access until you reconnect Drive history to finish signing in again.</Text> : null}
         <Menu.Item color="red" disabled={busy} onClick={disconnect}>Disconnect Drive history</Menu.Item>
         {error ? <Alert mx="xs" my="xs" color="red" role="alert">{error}</Alert> : null}
       </Menu.Dropdown>

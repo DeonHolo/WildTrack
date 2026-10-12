@@ -8,9 +8,11 @@ import {
   updateWorkspace as updateBackendWorkspace
 } from '../lib/api.js';
 import { browserStorageKeys } from '../lib/browserStorage.js';
+import { requiresDriveHistoryConsent } from '../lib/driveHistoryLogin.js';
 import { disableGoogleAutoSelect } from '../lib/googleIdentitySession.js';
 
 const WorkspaceSessionContext = createContext(null);
+const EMPTY_WORKSPACES = [];
 
 export function WorkspaceSessionProvider({ children }) {
   const [resourceCache] = useState(createWorkspaceResourceCache);
@@ -27,11 +29,12 @@ export function WorkspaceSessionProvider({ children }) {
   const sessionRequest = useRef(0);
   const catalogRequest = useRef(0);
   const sessionIdentity = useRef('');
+  const workspaceAccess = useRef(false);
 
   useLayoutEffect(() => {
-    if (session !== null) resourceCache.retainAccount(session?.authenticated
+    if (session !== null) resourceCache.retainAccount(session?.authenticated && !requiresDriveHistoryConsent(session)
       ? JSON.stringify([session.email, session.googleSubject, session.roles]) : '');
-  }, [resourceCache, session?.authenticated, session?.email, session?.googleSubject, JSON.stringify(session?.roles || [])]);
+  }, [resourceCache, session?.authenticated, session?.email, session?.googleSubject, JSON.stringify(session?.roles || []), session?.driveHistoryRequired, session?.driveHistoryConnected]);
 
   useEffect(() => {
     const invalidate = () => {
@@ -43,6 +46,7 @@ export function WorkspaceSessionProvider({ children }) {
   }, [resourceCache]);
 
   const refreshWorkspaceCatalog = useCallback(async () => {
+    if (!workspaceAccess.current) return [];
     const request = ++catalogRequest.current;
     setWorkspaceCatalogStatus('loading');
     setWorkspaceCatalogError('');
@@ -92,16 +96,21 @@ export function WorkspaceSessionProvider({ children }) {
     }
   }, [resourceCache]);
 
-  const refreshSession = useCallback(async () => {
+  const refreshSession = useCallback(async ({ blockAppAccess = false } = {}) => {
     const request = ++sessionRequest.current;
     catalogRequest.current += 1;
-    setSessionStatus('loading');
+    if (blockAppAccess || !workspaceAccess.current) {
+      workspaceAccess.current = false;
+      setSessionStatus('loading');
+    }
     setSessionError('');
     try {
       const current = await getCurrentSession();
       if (request !== sessionRequest.current) return null;
       const identity = current?.authenticated ? JSON.stringify([current.email, current.googleSubject, current.roles]) : '';
-      if (sessionIdentity.current && sessionIdentity.current !== identity) {
+      const allowed = current?.authenticated && !requiresDriveHistoryConsent(current);
+      resourceCache.retainAccount(allowed ? identity : '');
+      if (!allowed || sessionIdentity.current !== identity) {
         setAllWorkspaces([]);
         setWorkspaces([]);
         activeRef.current = '';
@@ -109,12 +118,14 @@ export function WorkspaceSessionProvider({ children }) {
         setSelectedWorkspaceId('');
       }
       sessionIdentity.current = identity;
+      workspaceAccess.current = Boolean(allowed);
+      const permissionIdentity = JSON.stringify([identity, current?.driveHistoryRequired, current?.driveHistoryConnected]);
       try {
-        if (localStorage.getItem('wildtrack.session-identity') !== identity) localStorage.setItem('wildtrack.session-identity', identity);
+        if (localStorage.getItem('wildtrack.session-identity') !== permissionIdentity) localStorage.setItem('wildtrack.session-identity', permissionIdentity);
       } catch { /* Optional storage. */ }
       setSession(current);
       setSessionStatus('ready');
-      if (current?.authenticated) await refreshWorkspaceCatalog();
+      if (allowed) await refreshWorkspaceCatalog();
       else {
         setAllWorkspaces([]);
         setWorkspaces([]);
@@ -123,9 +134,13 @@ export function WorkspaceSessionProvider({ children }) {
         setSelectedWorkspaceId('');
         setWorkspaceCatalogStatus('idle');
       }
+      if (request !== sessionRequest.current) return null;
       return current;
     } catch (error) {
       if (request !== sessionRequest.current) return null;
+      workspaceAccess.current = false;
+      sessionIdentity.current = '';
+      resourceCache.clear();
       const anonymous = { authenticated: false, roles: [] };
       setSession(anonymous);
       setAllWorkspaces([]);
@@ -138,7 +153,15 @@ export function WorkspaceSessionProvider({ children }) {
       setSessionError(error?.message || 'Session could not be loaded.');
       return anonymous;
     }
-  }, [refreshWorkspaceCatalog]);
+  }, [refreshWorkspaceCatalog, resourceCache]);
+
+  const completeGoogleSignIn = useCallback(async () => {
+    const current = await refreshSession({ blockAppAccess: true });
+    if (!current?.authenticated) throw new Error('Your WildTrack session could not be opened. Please retry Google sign-in.');
+    // Required deployments sign in through the combined server OAuth flow.
+    // A stale ID-token callback never opens access or starts a second consent.
+    return requiresDriveHistoryConsent(current) ? null : current;
+  }, [refreshSession]);
 
   useEffect(() => {
     refreshSession();
@@ -153,6 +176,7 @@ export function WorkspaceSessionProvider({ children }) {
       if (event.key === 'wildtrack.session-identity') {
         // Another tab changed account or permissions. Remove private content before reauthentication.
         resourceCache.clear();
+        workspaceAccess.current = false;
         sessionRequest.current += 1;
         catalogRequest.current += 1;
         setSession(null);
@@ -171,7 +195,27 @@ export function WorkspaceSessionProvider({ children }) {
     return () => window.removeEventListener('storage', onStorage);
   }, [resourceCache, refreshSession]);
 
+  useEffect(() => {
+    const requireDriveHistory = () => {
+      if (!workspaceAccess.current) return;
+      workspaceAccess.current = false;
+      resourceCache.clear();
+      sessionRequest.current += 1;
+      catalogRequest.current += 1;
+      setSession(null);
+      setAllWorkspaces([]);
+      setWorkspaces([]);
+      activeRef.current = '';
+      setActiveWorkspaceId('');
+      setSelectedWorkspaceId('');
+      refreshSession({ blockAppAccess: true });
+    };
+    window.addEventListener('wildtrack:drive-history-required', requireDriveHistory);
+    return () => window.removeEventListener('wildtrack:drive-history-required', requireDriveHistory);
+  }, [resourceCache, refreshSession]);
+
   const switchWorkspace = useCallback(async (workspaceIdOrPublicKey) => {
+    if (!workspaceAccess.current) return { ok: false, error: 'Complete Google sign-in before choosing a workspace.' };
     let available = workspaces;
     let target = findWorkspace(available, workspaceIdOrPublicKey);
     if (!target) {
@@ -187,6 +231,7 @@ export function WorkspaceSessionProvider({ children }) {
   }, [refreshWorkspaceCatalog, workspaces]);
 
   const createWorkspace = useCallback(async (payload) => {
+    if (!workspaceAccess.current) return { ok: false, error: 'Complete Google sign-in before creating a workspace.' };
     const sessionAtStart = sessionRequest.current;
     const workspaceAtStart = activeRef.current;
     const isCurrent = () => sessionRequest.current === sessionAtStart && activeRef.current === workspaceAtStart;
@@ -209,6 +254,7 @@ export function WorkspaceSessionProvider({ children }) {
   }, []);
 
   const refreshWorkspaceManagementCatalog = useCallback(async () => {
+    if (!workspaceAccess.current) return { ok: false, error: 'Complete Google sign-in before loading workspaces.' };
     const sessionAtStart = sessionRequest.current;
     try {
       const list = await getWorkspaces(true);
@@ -232,6 +278,7 @@ export function WorkspaceSessionProvider({ children }) {
   }, []);
 
   const updateWorkspace = useCallback(async (workspaceId, updates = {}) => {
+    if (!workspaceAccess.current) return { ok: false, error: 'Complete Google sign-in before updating a workspace.' };
     const sessionAtStart = sessionRequest.current;
     const existing = allWorkspaces.find((workspace) => workspace.id === workspaceId);
     if (!existing) return { ok: false, error: 'Workspace was not found.' };
@@ -276,6 +323,18 @@ export function WorkspaceSessionProvider({ children }) {
   }, [allWorkspaces]);
 
   const logoutSession = useCallback(async () => {
+    workspaceAccess.current = false;
+    setSession(current => ({
+      authenticated: false, roles: [],
+      driveHistoryRequired: current?.driveHistoryRequired === true,
+      driveHistoryConnected: false,
+      driveHistoryConfigured: current?.driveHistoryConfigured === true
+    }));
+    setSessionStatus('ready');
+    setAllWorkspaces([]);
+    setWorkspaces([]);
+    setActiveWorkspaceId('');
+    setSelectedWorkspaceId('');
     resourceCache.clear();
     sessionIdentity.current = '';
     sessionRequest.current += 1;
@@ -285,7 +344,12 @@ export function WorkspaceSessionProvider({ children }) {
       await logout();
     } finally {
       try { localStorage.setItem('wildtrack.session-identity', ''); } catch { /* Optional storage. */ }
-      setSession({ authenticated: false, roles: [] });
+      setSession(current => ({
+      authenticated: false, roles: [],
+      driveHistoryRequired: current?.driveHistoryRequired === true,
+      driveHistoryConnected: false,
+      driveHistoryConfigured: current?.driveHistoryConfigured === true
+    }));
       setSessionStatus('ready');
       setSessionError('');
       setAllWorkspaces([]);
@@ -297,24 +361,31 @@ export function WorkspaceSessionProvider({ children }) {
     }
   }, []);
 
-  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0] || null;
+  const canAccessWorkspace = sessionStatus === 'ready' && session?.authenticated && !requiresDriveHistoryConsent(session);
+  const visibleWorkspaces = canAccessWorkspace ? workspaces : EMPTY_WORKSPACES;
+  const visibleAllWorkspaces = canAccessWorkspace ? allWorkspaces : EMPTY_WORKSPACES;
+  const visibleWorkspaceId = canAccessWorkspace ? activeWorkspaceId : '';
+  const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === activeWorkspaceId) || visibleWorkspaces[0] || null;
   const value = useMemo(() => ({
     resourceCache,
     session,
     sessionStatus,
     sessionError,
-    account: session?.authenticated && session.email ? { email: session.email, name: session.name || '' } : null,
-    allWorkspaces,
-    archivedWorkspaces: allWorkspaces.filter((workspace) => workspace.active === false),
-    workspaces,
+    canAccessWorkspace: Boolean(canAccessWorkspace),
+    driveHistoryPending: requiresDriveHistoryConsent(session),
+    account: canAccessWorkspace && session.email ? { email: session.email, name: session.name || '' } : null,
+    allWorkspaces: visibleAllWorkspaces,
+    archivedWorkspaces: visibleAllWorkspaces.filter((workspace) => workspace.active === false),
+    workspaces: visibleWorkspaces,
     activeWorkspace,
-    activeWorkspaceId,
-    needsWorkspaceChoice: workspaces.length > 1 && selectedWorkspaceId !== activeWorkspaceId,
+    activeWorkspaceId: visibleWorkspaceId,
+    needsWorkspaceChoice: visibleWorkspaces.length > 1 && selectedWorkspaceId !== visibleWorkspaceId,
     workspaceCatalogStatus,
     workspaceCatalogError,
     refreshWorkspaceCatalog,
     refreshWorkspaceManagementCatalog,
     refreshSession,
+    completeGoogleSignIn,
     switchWorkspace,
     createWorkspace,
     updateWorkspace,
@@ -324,6 +395,11 @@ export function WorkspaceSessionProvider({ children }) {
     activeWorkspace,
     activeWorkspaceId,
     allWorkspaces,
+    canAccessWorkspace,
+    completeGoogleSignIn,
+    visibleAllWorkspaces,
+    visibleWorkspaces,
+    visibleWorkspaceId,
     createWorkspace,
     logoutSession,
     refreshSession,

@@ -1,5 +1,7 @@
 # Drive history setup - 11 October 2026
 
+> 12 October follow-up: Google blocked the submitter because the OAuth project was in Testing without that account on its test-user list. Required Drive consent is being integrated into sign-in behind an explicit rollout switch. See [Required Drive login](REQUIRED_DRIVE_LOGIN_2026-10-12.md) for the audience fix, access behavior, and production prerequisite. The live observations below are dated 11 October, not a successful current Google grant.
+
 The current user OAuth flow requests four scopes. OAuth is the authorization mechanism, not an additional scope. The Google Cloud `drive` filter hides the identity scopes.
 
 | Google Auth Platform Data Access scope | Purpose |
@@ -58,6 +60,8 @@ WILDTRACK_DRIVE_HISTORY_RETURN_ORIGIN=https://www.wildtrack.dev
 If **Audience** is **Testing**, the connecting account must be in Test users. Drive grants and refresh tokens in Testing expire after seven days. Production publishing and scope verification are separate requirements; selecting Production does not itself verify the restricted metadata scope.
 
 After saving the settings, reload live WildTrack. `NOT_CONFIGURED` is a server setup state; `NOT_CONNECTED` means the applicable submitter has no usable consent grant. The submitter who owns or can access the file's revisions can open their submission's **File history** in the student view and use **Connect Drive edit history**. The administrator review view does not show that student connection button. Ordinary Google sign-in alone does not grant Drive history permission.
+
+There is also an account-wide **Allow file history from Google Drive?** prompt with **Allow Drive history**. It was verified live for the signed-in administrator after configuration became available. Any authenticated account can see this optional prompt; allowing it does not automatically make a staff account an eligible submitter. Shared history uses grants belonging to active, identity-linked submitters of the exact same file. The connecting submitter must also have Google's permission to view that file's revisions.
 
 Metadata scope permits read-only metadata access; it does not grant file-content downloads or allow editing Drive files. Google revision coverage can omit old edits. WildTrack's own observations remain separate snapshots from its Document Checks.
 

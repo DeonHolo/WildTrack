@@ -24,6 +24,9 @@ public class WildTrackSessionAuthenticationFilter extends OncePerRequestFilter {
     /** Fixed diagnostic category for the security entry point. Never contains cookie contents or identity. */
     public static final String SESSION_STATE_ATTRIBUTE = WildTrackSessionAuthenticationFilter.class.getName() + ".sessionState";
 
+    /** Internal resolved identity for downstream authorization; never sent to the client. */
+    public static final String RESOLVED_SESSION_ATTRIBUTE = WildTrackSessionAuthenticationFilter.class.getName() + ".resolvedSession";
+
     private final WildTrackSessionService sessionService;
     private final StaffAccessResolver staffAccessResolver;
 
@@ -41,6 +44,7 @@ public class WildTrackSessionAuthenticationFilter extends OncePerRequestFilter {
         HttpServletResponse response,
         FilterChain filterChain
     ) throws ServletException, IOException {
+        request.removeAttribute(RESOLVED_SESSION_ATTRIBUTE);
         CookieSummary cookies = resolveToken(request);
         String token = cookies.token();
         request.setAttribute(SESSION_STATE_ATTRIBUTE, cookies.count() == 0 ? "missing_cookie"
@@ -49,6 +53,7 @@ public class WildTrackSessionAuthenticationFilter extends OncePerRequestFilter {
             Optional<StoredWildTrackSession> sessionOpt = sessionService.resolve(token);
             if (sessionOpt.isPresent()) {
                 StoredWildTrackSession session = sessionOpt.get();
+                request.setAttribute(RESOLVED_SESSION_ATTRIBUTE, session);
                 List<GrantedAuthority> authorities = new ArrayList<>();
                 authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
                 for (StaffRole role : staffAccessResolver.activeRolesFor(session.googleSubject())) {

@@ -68,7 +68,10 @@ class AiReviewBatchLifecycleTest {
             null, clock.instant().toString(), UUID.randomUUID(), retry);
     }
     private AiReviewService.View result(String state, String failure, boolean reused) {
-        return new AiReviewService.View(state, reused, "Saved status", null, null, clock.instant().toString(),
+        var report = "COMPLETED".equals(state)
+            ? new AiReviewProvider.Result("Saved review", List.of(), List.of(), List.of(), "Instructor review required.") : null;
+        return new AiReviewService.View(state, reused, "Saved status", report,
+            report == null ? null : clock.instant().toString(), clock.instant().toString(),
             false, failure == null ? null : UUID.randomUUID(), failure, "pdf", "source", null, null);
     }
     private AiReviewBatchService.View prepared() {
@@ -119,6 +122,62 @@ class AiReviewBatchLifecycleTest {
         verify(reviews).saved(workspace, first, "pdf", "admin");
         assertThat(restored.get(workspace, plan.id(), "admin").entries().get(0).phase()).isEqualTo("DONE");
     }
+
+    @Test void pollingAnInvalidAttemptDoesNotClaimThatASavedReviewWasReused() {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenReturn(result("RUNNING", null, false));
+        when(reviews.saved(workspace, first, "pdf", "admin")).thenReturn(result("UNCERTAIN", "INVALID_RESPONSE", true));
+        service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").entries().get(0).error()).isEmpty();
+        service.tick(); service.tick(); service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.state()).isEqualTo("COMPLETED");
+        assertThat(progress.completedDocuments()).isEqualTo(1);
+        assertThat(progress.reusedDocuments()).isZero();
+        assertThat(progress.entries().get(0).reused()).isFalse();
+        assertThat(progress.message()).contains("items needing attention").doesNotContain("Saved results are available");
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void pollingANewCompletedReviewPreservesItsOriginalClaim() {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenReturn(result("RUNNING", null, false));
+        when(reviews.saved(workspace, first, "pdf", "admin")).thenReturn(result("COMPLETED", null, true));
+        service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").entries().get(0).error()).isEmpty();
+        service.tick(); service.tick(); service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.entries().get(0).reused()).isFalse();
+        assertThat(progress.reusedDocuments()).isZero();
+        assertThat(progress.message()).contains("Saved results are available");
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void aVerifiedSavedReviewIsCountedOnceForIdenticalDocuments() {
+        when(reviews.reviewPlanned(eq(workspace), any(), eq("pdf"), eq("admin"), anyBoolean(), any(), anyBoolean(), anyString(), any()))
+            .thenReturn(result("COMPLETED", null, true));
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        service.tick(); service.tick(); service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.reusedDocuments()).isEqualTo(1);
+        assertThat(progress.message()).contains("Saved results are available");
+    }
+
+    @Test void aCompletedStatusWithoutAReportIsNotPresentedAsASavedResult() {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        var missing = new AiReviewService.View("COMPLETED", true, "Saved status", null, null,
+            clock.instant().toString(), false, null, null, "pdf", "source", null, null);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any())).thenReturn(missing);
+        service.tick(); service.tick(); service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.entries().get(0).resultStatus()).isEqualTo("FAILED");
+        assertThat(progress.entries().get(0).error()).contains("No saved AI Review");
+        assertThat(progress.reusedDocuments()).isZero();
+        assertThat(progress.message()).contains("items needing attention").doesNotContain("Saved results are available");
+    }
+
 
     @Test void pauseAndContinueNeverReplayTheFailedRequest() {
         when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin"))).thenAnswer(inv -> preview(inv.getArgument(1), inv.getArgument(1).toString(), "MISSING", null));

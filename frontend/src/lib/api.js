@@ -1,3 +1,4 @@
+import { getSafeDriveHistoryReturnTo } from './driveHistoryLogin.js';
 const API_BASE_URL = '/api';
 
 const SOURCE_TYPE_TO_API = {
@@ -11,13 +12,34 @@ const CSRF_HEADER = 'X-XSRF-TOKEN';
 export const AI_REVIEW_SIGN_IN_MESSAGE = 'An AI Review request returned HTTP 401. WildTrack will check whether your sign-in is still valid. The review may still be running; no second AI request was sent.';
 
 export class ApiError extends Error {
-  constructor(message, status = 0, sessionState = '') {
+  constructor(message, status = 0, sessionState = '', code = '') {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.sessionState = sessionState;
+    this.code = code;
   }
 }
+
+async function responseApiError(response, fallback = `Request failed with status ${response.status}`) {
+  let payload = null;
+  let message = fallback;
+  try {
+    if (typeof response.text === 'function') {
+      const text = await response.text();
+      if (text) {
+        try { payload = JSON.parse(text); } catch { message = text; }
+      }
+    } else payload = await response.json();
+  } catch { /* Keep the HTTP failure when the response body is unavailable. */ }
+  message = payload?.error || payload?.message || message;
+  const code = typeof payload?.code === 'string' ? payload.code : '';
+  if (response.status === 403 && code === 'DRIVE_HISTORY_REQUIRED') {
+    window.dispatchEvent(new Event('wildtrack:drive-history-required'));
+  }
+  return new ApiError(message, response.status, '', code);
+}
+
 
 export function getApiBaseUrl() {
   return API_BASE_URL;
@@ -59,10 +81,14 @@ export function getDriveHistoryConsentStatus() {
   return request('/drive-history/auth/status');
 }
 
-export function startDriveHistoryConsent() {
-  const query = new URLSearchParams(window.location.search);
-  query.delete('driveHistory');
-  const returnTo = `${window.location.pathname}${query.toString() ? `?${query}` : ''}`;
+export function startGoogleSignIn(destination) {
+  const returnTo = getSafeDriveHistoryReturnTo(destination, '/student');
+  window.location.assign(`${API_BASE_URL}/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`);
+}
+
+export function startDriveHistoryConsent(destination) {
+  const currentRoute = `${window.location.pathname}${window.location.search}`;
+  const returnTo = getSafeDriveHistoryReturnTo(destination || currentRoute, '/student');
   window.location.assign(`${API_BASE_URL}/drive-history/auth/start?returnTo=${encodeURIComponent(returnTo)}`);
 }
 
@@ -485,17 +511,7 @@ export async function request(path, options = {}) {
         'duplicate_cookie', 'duplicate_cookie_authenticated', 'authenticated', 'unclassified'].includes(state) ? state : '';
       throw new ApiError(AI_REVIEW_SIGN_IN_MESSAGE, 401, sessionState);
     }
-    let message = `Request failed with status ${response.status}`;
-    const text = await response.text().catch(() => '');
-    if (text) {
-      try {
-        const error = JSON.parse(text);
-        message = error.error || error.message || message;
-      } catch {
-        message = text;
-      }
-    }
-    throw new ApiError(message, response.status);
+    throw await responseApiError(response);
   }
 
   if (mutating) window.dispatchEvent(new Event('wildtrack:server-mutation'));
@@ -526,17 +542,7 @@ async function requestForm(path, options = {}) {
   });
 
   if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
-    const text = await response.text().catch(() => '');
-    if (text) {
-      try {
-        const error = JSON.parse(text);
-        message = error.error || error.message || message;
-      } catch {
-        message = text;
-      }
-    }
-    throw new ApiError(message, response.status);
+    throw await responseApiError(response);
   }
   if (mutating) window.dispatchEvent(new Event('wildtrack:server-mutation'));
   if (response.status === 204) return null;
@@ -587,12 +593,7 @@ export async function submitResponse(workspaceId, deliverableId, values, revisio
     return { conflict: true };
   }
   if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
-    try {
-      const error = await response.json();
-      message = error.error || error.message || message;
-    } catch {}
-    throw new ApiError(message, response.status);
+    throw await responseApiError(response);
   }
   window.dispatchEvent(new Event('wildtrack:server-mutation'));
   return response.json();
@@ -615,7 +616,7 @@ export async function saveDraft(workspaceId, deliverableId, values, revision) {
     body: JSON.stringify({ deliverableId, valuesJson: JSON.stringify(values), revision: revision ?? null })
   });
   if (response.status === 409) return { conflict: true };
-  if (!response.ok) throw new ApiError(`Draft could not be saved (${response.status})`, response.status);
+  if (!response.ok) throw await responseApiError(response, `Draft could not be saved (${response.status})`);
   return response.json();
 }
 

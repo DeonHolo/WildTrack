@@ -7,7 +7,7 @@ Start here when continuing WildTrack development. Read the **latest checkpoint**
 ## Workspace and completed work
 
 - Canonical checkout: `D:/SchoolStuff/College Stuff/3rd Year College BSIT/Second Semester/IT332 (Capstone)/CapVaultV2`. The older `goal3-initial-record-audit` worktree is not our development checkout.
-- Continue on `wildtrack-dev`. PR95 merged as `9081daa3c3999c2c746ee7c6f8e303dedada534b` and both production deployments succeeded. Verify current branch/status before editing; the follow-up advances this branch.
+- Continue on `wildtrack-dev`. PR96 merged as `233ec86099505c6bdf30e3789a2f59be65c5c993`; PR97 merged as `c15da2da4dab9efd7fb85d8f31c906cce135a45d`. Both have successful Heroku/Vercel production deployments. Post-deployment Markdown records are on this branch. Preserve the unrelated dirty coursework/study files.
 - PR92 fixed keyboard dismissal of overlapping review panels. PR93 fixed saved form question ordering. Both passed checks, were merged with authorization and deployed. Preserve their regressions.
 - The temporary Validation Study area was removed. Its evidence is retained; do not restore the area or restart the completed MVP study.
 - Shared AI Review readability, grouping and evidence presentation are implemented. Preserve the existing report lifecycle, dated historical results, role permissions and bounded provider requests. Docling/Instructor remain pilots, not deployed replacements.
@@ -18,11 +18,9 @@ Start here when continuing WildTrack development. Read the **latest checkpoint**
 
 The bounded backlog is [REFACTOR_SCOPE_2026-10-09.md](REFACTOR_SCOPE_2026-10-09.md). It is not a mandate to rewrite working features.
 
-1. Publish the 11 October follow-up after its checks pass. P3/P4 shipped in PR95; the follow-up removes duplicate history details and resolves restored-access queue alerts.
-2. Rerun the saved STD Document Check after deployment. Its existing 0/3 result is historical: the fixed parser finds all three main headings, with 11/12 legitimate template sections detected overall. Keep the real Test Results versus Execution Summary title difference.
-3. Complete the separate Drive revision OAuth configuration and test genuine eligible consent. Live still reports NOT_CONFIGURED; public PDF metadata/download already works. Inspect `DriveOAuthProperties.configured()` and `application.yml`; do not assume ordinary Google sign-in grants revision access.
-4. Reproduce any remaining specific Drive download failure using the safe stage/status diagnostics. A readable 58-page PDF and file sizes below 25 MiB do not identify the historical 503 cause.
-5. Preserve first-render progress caching in `useAiReviewBatch`. Tests must assert the panel while its latest server read is pending, account/workspace/role isolation, and clearing after authorization denial. An eventual wait-for restoration assertion misses flicker.
+1. Test genuine eligible Drive-history consent. Live now recognizes the server configuration and displays the optional Allow Drive history prompt, but the STD file has no eligible submitter grant yet. Four user OAuth scopes are required: openid, userinfo.email, userinfo.profile and drive.metadata.readonly. Optional Sheets writeback uses a separate service account. Do not regenerate a valid encryption key or assume any staff owner's grant qualifies as an active submitter grant; see [the setup guide](<old documents, templates/outputs/04-Software-Test-Document/DRIVE_HISTORY_SETUP_2026-10-11.md>).
+2. Reproduce any remaining specific Drive download failure using safe stage/status diagnostics. The fresh live 58-page STD check reads the PDF and detects 11/12 headings, including all three main sections. Keep the real Test Results versus Execution Summary title difference. This does not identify every historical 503 cause.
+3. Preserve first-render progress caching in `useAiReviewBatch`. Tests must assert the panel while its latest server read is pending, account/workspace/role isolation, and clearing after authorization denial. An eventual wait-for restoration assertion misses flicker.
 
 ## Coursework follow-up, separate from development
 

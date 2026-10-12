@@ -49,4 +49,16 @@ describe('account Drive history settings', () => {
     show();
     expect(getDriveHistoryConsentStatus).not.toHaveBeenCalled();
   });
+
+  it('explains required access loss before disconnect and refreshes the session to restore the login gate', async () => {
+    const refreshSession = vi.fn().mockResolvedValue(null);
+    useWorkspaceSession.mockReturnValue({ session: { authenticated: true, googleSubject: 'signed-in-account', driveHistoryRequired: true }, refreshSession });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Drive history settings' }));
+    expect(await screen.findByText(/Disconnecting ends app access until you reconnect/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Disconnect Drive history', hidden: true }));
+    await waitFor(() => expect(refreshSession).toHaveBeenCalledWith({ blockAppAccess: true }));
+    expect(disconnectDriveHistoryConsent).toHaveBeenCalledTimes(1);
+  });
+
 });

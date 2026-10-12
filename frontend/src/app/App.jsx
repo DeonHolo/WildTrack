@@ -19,10 +19,12 @@ import { TrackerPage } from '../pages/TrackerPage.jsx';
 import { WorkspacePage } from '../pages/WorkspacePage.jsx';
 import { TemplatePreviewPage } from '../pages/TemplatePreviewPage.jsx';
 import { DriveHistoryConsent } from '../components/auth/DriveHistoryConsent.jsx';
+import { DriveHistoryLoginGate } from '../components/auth/DriveHistoryLoginGate.jsx';
 
 export default function App() {
   return (
     <WorkspaceSessionProvider>
+      <DriveHistoryLoginGate>
       <Routes>
         <Route path="/w/:workspaceKey/submit/:slug" element={<PublicSubmissionPage />} />
         <Route path="/submit/:slug" element={<PublicSubmissionPage />} />
@@ -92,6 +94,7 @@ export default function App() {
       </Routes>
       <DriveHistoryConsent />
       <DevelopmentRolePreview enabled={import.meta.env.DEV} />
+      </DriveHistoryLoginGate>
     </WorkspaceSessionProvider>
   );
 }

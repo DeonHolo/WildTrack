@@ -69,6 +69,8 @@ class WildTrackSessionAuthenticationFilterTest {
             .containsExactlyInAnyOrder("ROLE_USER", "ROLE_ADVISER");
         assertThat(request.getAttribute(WildTrackSessionAuthenticationFilter.SESSION_STATE_ATTRIBUTE))
             .isEqualTo("authenticated");
+        assertThat(request.getAttribute(WildTrackSessionAuthenticationFilter.RESOLVED_SESSION_ATTRIBUTE))
+            .isSameAs(session);
         verify(chain).doFilter(request, response);
     }
 
