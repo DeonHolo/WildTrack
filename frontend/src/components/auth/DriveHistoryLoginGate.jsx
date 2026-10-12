@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { getGoogleSignInReturnTo, requiresDriveHistoryConsent } from '../../lib/driveHistoryLogin.js';
+import { isPublicInformationPath } from '../../lib/publicInformation.js';
 
 /** Private routes stay unmounted until identity and required Drive access are verified. */
 export function DriveHistoryLoginGate({ children }) {
@@ -12,8 +13,9 @@ export function DriveHistoryLoginGate({ children }) {
   const isSignInRoute = ['/login', '/register'].includes(location.pathname);
   const pending = requiresDriveHistoryConsent(session);
   const publicForm = /^\/(?:w\/[^/]+\/)?submit\/[^/]+\/?$/.test(location.pathname);
+  const publicInformation = isPublicInformationPath(location.pathname);
   const anonymousPrivateRoute = sessionStatus === 'ready' && session?.authenticated === false
-    && !publicForm && !isSignInRoute && (session.driveHistoryRequired === true || !import.meta.env.DEV);
+    && !publicForm && !publicInformation && !isSignInRoute && (session.driveHistoryRequired === true || !import.meta.env.DEV);
 
   useEffect(() => {
     const query = new URLSearchParams(location.search);
@@ -28,7 +30,7 @@ export function DriveHistoryLoginGate({ children }) {
     return <Navigate to={getGoogleSignInReturnTo(location.state?.from || loginCallback.get('returnTo'), session)} replace />;
   }
 
-  if ((pending || sessionStatus === 'error' || anonymousPrivateRoute) && !isSignInRoute) {
+  if ((pending || sessionStatus === 'error' || anonymousPrivateRoute) && !isSignInRoute && !publicInformation) {
     const from = getGoogleSignInReturnTo(location, session);
     const query = new URLSearchParams({ returnTo: from });
     const outcome = new URLSearchParams(location.search).get('driveHistory');
@@ -38,7 +40,7 @@ export function DriveHistoryLoginGate({ children }) {
   // Keep the ordinary login mounted while its optional credential verifies.
   if (isSignInRoute && (session !== null || sessionStatus === 'error')) return children;
   // Public form metadata can load while its submission controls wait for identity.
-  if (!publicForm && (session === null || sessionStatus === 'loading')) {
+  if (!publicForm && !publicInformation && (session === null || sessionStatus === 'loading')) {
     return <Container size="sm" py="xl"><Text role="status"><Loader size="xs" mr="xs" />Checking Google sign-in…</Text></Container>;
   }
   return children;

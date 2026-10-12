@@ -46,6 +46,9 @@ function show(path = '/student') {
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/w/:workspace/submit/:slug" element={<h1>Public submission form</h1>} />
             <Route path="/submit/:slug" element={<h1>Public submission form</h1>} />
+            <Route path="/about" element={<h1>Public information</h1>} />
+            <Route path="/privacy" element={<h1>Public information</h1>} />
+            <Route path="/terms" element={<h1>Public information</h1>} />
             <Route path="*" element={<PrivatePage />} />
           </Routes>
           <DriveHistoryConsent />
@@ -115,6 +118,26 @@ describe('required combined Google login and route isolation', () => {
     expect(await screen.findByRole('heading', { name: 'Welcome to WildTrack' })).toBeInTheDocument();
     expect(api.getWorkspaces).not.toHaveBeenCalled();
     expect(privateMount).not.toHaveBeenCalled();
+  });
+
+  it.each(['/about', '/privacy/', '/terms'])('keeps %s readable before identity resolves and when Drive permission is pending', async path => {
+    const session = deferred();
+    api.getCurrentSession.mockReturnValueOnce(session.promise);
+    show(path);
+    expect(screen.getByRole('heading', { name: 'Public information' })).toBeInTheDocument();
+    await act(async () => { session.resolve(pending); });
+    expect(screen.getByRole('heading', { name: 'Public information' })).toBeInTheDocument();
+    expect(privateMount).not.toHaveBeenCalled();
+    expect(api.getWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it.each(['/about', '/privacy', '/terms'])('keeps %s readable when Google session verification fails', async path => {
+    api.getCurrentSession.mockRejectedValue(new Error('Google is temporarily unavailable.'));
+    show(path);
+    await waitFor(() => expect(current.sessionStatus).toBe('error'));
+    expect(screen.getByRole('heading', { name: 'Public information' })).toBeInTheDocument();
+    expect(privateMount).not.toHaveBeenCalled();
+    expect(api.getWorkspaces).not.toHaveBeenCalled();
   });
 
   it('offers one direct combined OAuth button without a frontend client ID, ID-token call or One Tap', async () => {
