@@ -1,6 +1,7 @@
 import { Anchor, Button, Container, Divider, Group, Paper, Stack, Text, Title } from '@mantine/core';
 import { Link } from 'react-router-dom';
 import { PublicInformationLinks } from '../components/public/PublicInformationLinks.jsx';
+import { WildTrackBrand } from '../components/layout/WildTrackBrand.jsx';
 
 const contact = 'holodeon@gmail.com';
 const pages = {
@@ -45,7 +46,7 @@ export function PublicInformationPage({ page }) {
   return <Container component="main" size="md" py="xl">
     <Stack gap="xl">
       <Group justify="space-between" wrap="wrap">
-        <Anchor component={Link} to="/about" fw={800} size="xl">WildTrack</Anchor>
+        <WildTrackBrand to="/about" subtitle="Capstone information" />
         <Button component={Link} to="/login">Open WildTrack</Button>
       </Group>
       <Divider />

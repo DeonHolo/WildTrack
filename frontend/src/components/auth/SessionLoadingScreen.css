@@ -49,14 +49,12 @@
 }
 
 .wt-session-loading-mark {
-  display: grid;
-  place-items: center;
+  display: block;
+  position: relative;
+  z-index: 1;
   width: 64px;
   height: 64px;
-  border-radius: 19px;
-  background: var(--wt-gold);
-  color: var(--wt-maroon-deep);
-  box-shadow: 0 4px 12px rgb(76 15 35 / 8%);
+  object-fit: contain;
 }
 
 .wt-session-loading-brand {
