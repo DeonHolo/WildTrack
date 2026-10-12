@@ -19,7 +19,8 @@ for (const { role, path } of [
 }
 
 test('ordinary Google credential creates the session and opens the student workspace without Drive permission', async ({ page, context }) => {
-  const fixture = await installApiFixtures(page, { role: 'anonymous', connected: true });
+  // Preview role controls development routing; the auth routes below still start signed out.
+  const fixture = await installApiFixtures(page, { role: 'student', connected: true });
   let authenticated = false;
   const credentialPosts = [];
   await context.route('https://accounts.google.com/**', route => route.abort());
@@ -52,6 +53,7 @@ test('ordinary Google credential creates the session and opens the student works
   await expect(page).toHaveURL(/\/student$/);
   await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
   await page.waitForLoadState('networkidle');
+  await expect(page).toHaveURL(/\/student$/);
   expect(credentialPosts).toEqual([{ method: 'POST', body: { credential: 'browser-test-google-credential' } }]);
   expect(fixture.calls.filter(call => call.path.startsWith('/drive-history'))).toEqual([]);
   await expect(page.getByText(/Allow file history from Google Drive|Allow Drive history|Disconnect Drive history/)).toHaveCount(0);
