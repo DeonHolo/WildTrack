@@ -8,7 +8,6 @@ import {
   updateWorkspace as updateBackendWorkspace
 } from '../lib/api.js';
 import { browserStorageKeys } from '../lib/browserStorage.js';
-import { requiresDriveHistoryConsent } from '../lib/driveHistoryLogin.js';
 import { disableGoogleAutoSelect } from '../lib/googleIdentitySession.js';
 
 const WorkspaceSessionContext = createContext(null);
@@ -32,9 +31,9 @@ export function WorkspaceSessionProvider({ children }) {
   const workspaceAccess = useRef(false);
 
   useLayoutEffect(() => {
-    if (session !== null) resourceCache.retainAccount(session?.authenticated && !requiresDriveHistoryConsent(session)
+    if (session !== null) resourceCache.retainAccount(session?.authenticated
       ? JSON.stringify([session.email, session.googleSubject, session.roles]) : '');
-  }, [resourceCache, session?.authenticated, session?.email, session?.googleSubject, JSON.stringify(session?.roles || []), session?.driveHistoryRequired, session?.driveHistoryConnected]);
+  }, [resourceCache, session?.authenticated, session?.email, session?.googleSubject, JSON.stringify(session?.roles || [])]);
 
   useEffect(() => {
     const invalidate = () => {
@@ -108,7 +107,7 @@ export function WorkspaceSessionProvider({ children }) {
       const current = await getCurrentSession();
       if (request !== sessionRequest.current) return null;
       const identity = current?.authenticated ? JSON.stringify([current.email, current.googleSubject, current.roles]) : '';
-      const allowed = current?.authenticated && !requiresDriveHistoryConsent(current);
+      const allowed = current?.authenticated;
       resourceCache.retainAccount(allowed ? identity : '');
       if (!allowed || sessionIdentity.current !== identity) {
         setAllWorkspaces([]);
@@ -119,9 +118,8 @@ export function WorkspaceSessionProvider({ children }) {
       }
       sessionIdentity.current = identity;
       workspaceAccess.current = Boolean(allowed);
-      const permissionIdentity = JSON.stringify([identity, current?.driveHistoryRequired, current?.driveHistoryConnected]);
       try {
-        if (broadcastSession && localStorage.getItem('wildtrack.session-identity') !== permissionIdentity) localStorage.setItem('wildtrack.session-identity', permissionIdentity);
+        if (broadcastSession && localStorage.getItem('wildtrack.session-identity') !== identity) localStorage.setItem('wildtrack.session-identity', identity);
       } catch { /* Optional storage. */ }
       setSession(current);
       setSessionStatus('ready');
@@ -158,9 +156,7 @@ export function WorkspaceSessionProvider({ children }) {
   const completeGoogleSignIn = useCallback(async () => {
     const current = await refreshSession({ blockAppAccess: true });
     if (!current?.authenticated) throw new Error('Your WildTrack session could not be opened. Please retry Google sign-in.');
-    // Required deployments sign in through the combined server OAuth flow.
-    // A stale ID-token callback never opens access or starts a second consent.
-    return requiresDriveHistoryConsent(current) ? null : current;
+    return current;
   }, [refreshSession]);
 
   useEffect(() => {
@@ -196,24 +192,6 @@ export function WorkspaceSessionProvider({ children }) {
     return () => window.removeEventListener('storage', onStorage);
   }, [resourceCache, refreshSession]);
 
-  useEffect(() => {
-    const requireDriveHistory = () => {
-      if (!workspaceAccess.current) return;
-      workspaceAccess.current = false;
-      resourceCache.clear();
-      sessionRequest.current += 1;
-      catalogRequest.current += 1;
-      setSession(null);
-      setAllWorkspaces([]);
-      setWorkspaces([]);
-      activeRef.current = '';
-      setActiveWorkspaceId('');
-      setSelectedWorkspaceId('');
-      refreshSession({ blockAppAccess: true });
-    };
-    window.addEventListener('wildtrack:drive-history-required', requireDriveHistory);
-    return () => window.removeEventListener('wildtrack:drive-history-required', requireDriveHistory);
-  }, [resourceCache, refreshSession]);
 
   const switchWorkspace = useCallback(async (workspaceIdOrPublicKey) => {
     if (!workspaceAccess.current) return { ok: false, error: 'Complete Google sign-in before choosing a workspace.' };
@@ -325,12 +303,7 @@ export function WorkspaceSessionProvider({ children }) {
 
   const logoutSession = useCallback(async () => {
     workspaceAccess.current = false;
-    setSession(current => ({
-      authenticated: false, roles: [],
-      driveHistoryRequired: current?.driveHistoryRequired === true,
-      driveHistoryConnected: false,
-      driveHistoryConfigured: current?.driveHistoryConfigured === true
-    }));
+    setSession({ authenticated: false, roles: [] });
     setSessionStatus('ready');
     setAllWorkspaces([]);
     setWorkspaces([]);
@@ -345,12 +318,7 @@ export function WorkspaceSessionProvider({ children }) {
       await logout();
     } finally {
       try { localStorage.setItem('wildtrack.session-identity', ''); } catch { /* Optional storage. */ }
-      setSession(current => ({
-      authenticated: false, roles: [],
-      driveHistoryRequired: current?.driveHistoryRequired === true,
-      driveHistoryConnected: false,
-      driveHistoryConfigured: current?.driveHistoryConfigured === true
-    }));
+      setSession({ authenticated: false, roles: [] });
       setSessionStatus('ready');
       setSessionError('');
       setAllWorkspaces([]);
@@ -362,7 +330,7 @@ export function WorkspaceSessionProvider({ children }) {
     }
   }, []);
 
-  const canAccessWorkspace = sessionStatus === 'ready' && session?.authenticated && !requiresDriveHistoryConsent(session);
+  const canAccessWorkspace = sessionStatus === 'ready' && session?.authenticated;
   const visibleWorkspaces = canAccessWorkspace ? workspaces : EMPTY_WORKSPACES;
   const visibleAllWorkspaces = canAccessWorkspace ? allWorkspaces : EMPTY_WORKSPACES;
   const visibleWorkspaceId = canAccessWorkspace ? activeWorkspaceId : '';
@@ -373,7 +341,6 @@ export function WorkspaceSessionProvider({ children }) {
     sessionStatus,
     sessionError,
     canAccessWorkspace: Boolean(canAccessWorkspace),
-    driveHistoryPending: requiresDriveHistoryConsent(session),
     account: canAccessWorkspace && session.email ? { email: session.email, name: session.name || '' } : null,
     allWorkspaces: visibleAllWorkspaces,
     archivedWorkspaces: visibleAllWorkspaces.filter((workspace) => workspace.active === false),

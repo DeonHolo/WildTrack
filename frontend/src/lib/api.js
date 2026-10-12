@@ -1,4 +1,3 @@
-import { getSafeDriveHistoryReturnTo } from './driveHistoryLogin.js';
 const API_BASE_URL = '/api';
 
 const SOURCE_TYPE_TO_API = {
@@ -34,9 +33,6 @@ async function responseApiError(response, fallback = `Request failed with status
   } catch { /* Keep the HTTP failure when the response body is unavailable. */ }
   message = payload?.error || payload?.message || message;
   const code = typeof payload?.code === 'string' ? payload.code : '';
-  if (response.status === 403 && code === 'DRIVE_HISTORY_REQUIRED') {
-    window.dispatchEvent(new Event('wildtrack:drive-history-required'));
-  }
   return new ApiError(message, response.status, '', code);
 }
 
@@ -76,34 +72,6 @@ export async function getCurrentSession() {
   return request('/auth/session');
 }
 
-// Delegated Drive metadata is separate from Google ID-token sign-in.
-export function getDriveHistoryConsentStatus() {
-  return request('/drive-history/auth/status');
-}
-
-export function startGoogleSignIn(destination) {
-  const returnTo = getSafeDriveHistoryReturnTo(destination, '/student');
-  window.location.assign(`${API_BASE_URL}/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`);
-}
-
-export function startDriveHistoryConsent(destination) {
-  const currentRoute = `${window.location.pathname}${window.location.search}`;
-  const returnTo = getSafeDriveHistoryReturnTo(destination || currentRoute, '/student');
-  window.location.assign(`${API_BASE_URL}/drive-history/auth/start?returnTo=${encodeURIComponent(returnTo)}`);
-}
-
-export function disconnectDriveHistoryConsent() {
-  return request('/drive-history/auth/disconnect', { method: 'POST' });
-}
-
-export function getSubmittedFileHistory(workspaceId, responseId, fieldId, pageToken = '') {
-  if (!workspaceId || !responseId || !fieldId) {
-    throw new Error('Choose a submitted file to view its history.');
-  }
-  const query = new URLSearchParams({ workspaceId, responseId, fieldId });
-  if (pageToken) query.set('pageToken', pageToken);
-  return request(`/drive-history?${query.toString()}`);
-}
 
 export async function logout() {
   return request('/auth/logout', { method: 'POST' });

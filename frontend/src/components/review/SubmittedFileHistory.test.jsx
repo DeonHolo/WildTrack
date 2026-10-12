@@ -1,15 +1,12 @@
 import { MantineProvider } from '@mantine/core';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
 
-const getSubmittedFileHistory = vi.fn();
-const startDriveHistoryConsent = vi.fn();
-vi.mock('../../lib/api.js', () => ({
-  getSubmittedFileHistory: (...args) => getSubmittedFileHistory(...args),
-  startDriveHistoryConsent: (...args) => startDriveHistoryConsent(...args)
-}));
+const fetchMock = vi.fn();
+beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
+afterEach(() => { expect(fetchMock).not.toHaveBeenCalled(); vi.unstubAllGlobals(); });
 const target = { workspaceId: 'workspace-1', responseId: 'owned-response', fieldId: 'exact-pdf-field' };
 const observedHistory = { observations: [
   { changeType: 'FIRST_OBSERVED', firstObservedAt: '2026-09-01T09:00:00+08:00',
@@ -33,11 +30,6 @@ function renderHistory(props = {}) {
 }
 
 describe('SubmittedFileHistory recorded checks', () => {
-  beforeEach(() => {
-    getSubmittedFileHistory.mockReset().mockResolvedValue(legacyGoogleHistory);
-    startDriveHistoryConsent.mockReset();
-  });
-
   it('keeps saved checks newest first, their count and earlier checks', () => {
     renderHistory({ observedHistory });
     expect(screen.getByText('4 entries')).toBeVisible();
@@ -49,7 +41,6 @@ describe('SubmittedFileHistory recorded checks', () => {
     fireEvent.click(screen.getByText('Earlier checks (1)'));
     expect(earlier).toHaveAttribute('open');
     expect(screen.getByRole('list', { name: 'Earlier recorded file checks' })).toHaveTextContent('First recorded');
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 
   it('retains recorded identities and technical records for staff', () => {
@@ -81,15 +72,12 @@ describe('SubmittedFileHistory recorded checks', () => {
     expect(screen.queryByRole('region', { name: 'Google Drive revision metadata' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Google Drive edits|connection needs setup|Drive edit history unavailable|Legacy Google|legacy\.secret|opaque-backend-token/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Connect Drive|Refresh history|Next page|Previous page/ })).not.toBeInTheDocument();
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
-    expect(startDriveHistoryConsent).not.toHaveBeenCalled();
   });
 
   it.each(['staff', 'student'])('explains empty recorded history without Google setup for %s', audience => {
     renderHistory({ audience });
     expect(screen.getByText('No recorded checks yet. A completed Document Check records the file state here.')).toBeVisible();
     expect(screen.queryByText(/connection needs setup|authorize|permission|Google Drive edits/i)).not.toBeInTheDocument();
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 
   it('shows only the selected file’s supplied records when the target changes', () => {
@@ -102,6 +90,5 @@ describe('SubmittedFileHistory recorded checks', () => {
     expect(screen.getByRole('list', { name: 'Recorded file checks' })).toHaveTextContent('First recorded');
     expect(screen.queryByText('Content changed')).not.toBeInTheDocument();
     expect(screen.queryByText('Earlier checks (1)')).not.toBeInTheDocument();
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 });

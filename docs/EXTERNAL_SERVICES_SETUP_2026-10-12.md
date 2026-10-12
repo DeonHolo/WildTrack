@@ -4,7 +4,7 @@
 **Coverage:** External configuration, owner actions, troubleshooting and releases discussed on 11–12 October 2026. Release times below use UTC.  
 **Purpose:** Preserve the setup work performed outside the codebase for future deployment, maintenance and academic documentation.
 
-**Current scope correction (12 October 2026):** The owner clarified that WildTrack only needs to track changes **after submission**. Ordinary Google sign-in and WildTrack's existing checks/monitoring cover that requirement. Google's separate revision history is optional and its restricted-scope review is **not a rollout prerequisite for this requirement**. Keep `WILDTRACK_DRIVE_HISTORY_REQUIRED_FOR_LOGIN=false`. Sections 2 and 8 retain the earlier setup and review preparation as history; section 9 records the current plan.
+**Current scope correction (13 October 2026):** The owner only needs changes observed **after submission**. The remaining delegated Drive-permission feature is being retired entirely, including the account menu and dormant login/server paths. See the [retirement record](DRIVE_PERMISSION_RETIREMENT_2026-10-13.md) for current implementation and release status. Sections 2, 8 and 9 retain the earlier setup and staged cleanup as history; do not re-enable their superseded consent configuration.
 
 
 This record separates actions confirmed by the owner or screenshots, settings required by the application, and results checked on the live system. It does not reconstruct undocumented account creation, purchases or configuration changes. Credential values, database passwords, OAuth tokens and browser cookies are omitted.
@@ -257,7 +257,32 @@ WildTrack's backend processes restricted metadata, so Google's server-side secur
 The extra Google Data Access form in section 8 is preserved as an optional feature proposal, not an instruction to continue verification or turn on mandatory Drive login.
 
 
-## 10. Evidence and source pointers
+## 10. Vercel agent setup and deployment recovery — 12 October 2026
+
+The owner requested the [official Vercel agent setup guide](https://vercel.com/get-started.md). This setup uses the existing account and WildTrack project; it did not create a new project, change environment-variable values or upload the dirty local checkout.
+
+| Item | Verified state |
+| --- | --- |
+| Machine CLI | Vercel CLI **63.1.2**, available on PATH; Node.js **24.14.1** was already available. |
+| CLI account | Owner completed authentication; `vercel whoami` returned **`holodeon-4539`**. |
+| Guidance | **`vercel@openai-curated-remote` 0.54.1**, installed and enabled in Codex at user scope, available across projects. The installed plugin contains `commands/status.md`. No additional standalone skills pack was installed in this setup. |
+| MCP configuration | Shared **`https://mcp.vercel.com`** endpoint added as `vercel` in the user-wide Codex configuration, `C:\Users\Deon Holo\.codex\config.toml`. Existing entries were retained. |
+| MCP authorization | Owner completed OAuth; Codex reported successful login and its MCP list reports `vercel` enabled with OAuth authentication. This is separate from the CLI login. |
+| Authenticated MCP tool check | **Verified on 2026-10-12 after the owner restarted the PC**: `search_vercel_documentation` returned Vercel documentation and authenticated `list_teams` succeeded, returning an empty team list (count 0). This verifies the connection, not access to a particular team's projects. No automatic-approval rule for MCP mutations was added. |
+
+The generic plugin installer initially reported success, but Codex's native plugin list still showed the Vercel plugin as not installed. The bundled Codex executable's supported command, `plugin add vercel@openai-curated-remote`, completed installation; the native list then confirmed **installed, enabled**. The bundled executable was used because `codex` was not on PATH. Its command is `plugin add`, not `plugin install`.
+
+### Production recovery
+
+[PR #102](https://github.com/DeonHolo/WildTrack/pull/102) merged after its checks passed, with merge commit **`bac7d8bdadbdff47051b7222f188dea59a8c1db1`**. Heroku deployment **7015491528** succeeded at **13:42:11 UTC**. The first Vercel production attempt failed before any build, with **“Git information retrieval failed for this deployment.”** This was a provider/source-retrieval failure; no frontend build failure was reported.
+
+The existing failed deployment was retried with `vercel redeploy` targeting production. Deployment **`dpl_CBbLo2BeeArwkfwa1rJVmrUR24Xg`** became **Ready** and serves both `wildtrack.dev` and `www.wildtrack.dev`. GitHub's Vercel deployment record **7015486645**, associated with the same merge commit, reports success at **13:53:43 UTC**. No unrelated local files were deployed.
+
+Anonymous live checks confirmed both domains serve **`/assets/index-ei2f8yqq.js`**. The bundle contains recorded-check history and the revised notice, and no longer contains the Google revisions section, automatic consent heading or history-refresh control. Public information pages returned HTTP 200, backend liveness/readiness were **UP**, and the session response still reported **`driveHistoryRequired: false`**.
+
+Local verification passed **692 frontend tests**, **five focused browser fixture checks**, the build and document checks. These results and the anonymous live smoke check do not establish authenticated private-page interaction, live changed-PDF monitoring or Gemini provider success. The separate MCP connection checks subsequently succeeded after the PC restart; no team memberships were returned.
+
+## 11. Evidence and source pointers
 
 Conversation evidence is identified by attachment basename, not temporary local paths. Original screenshots remain conversation attachments; raw credential/cookie screenshots are deliberately not copied into the repository.
 
@@ -278,7 +303,7 @@ Source bindings for future maintenance:
 
 - [Backend environment-variable bindings](../backend/src/main/resources/application.yml).
 - [Production defaults](../backend/src/main/resources/application-production.yml).
-- [Drive OAuth configuration validation](../backend/src/main/java/com/capvault/backend/drivehistory/auth/DriveOAuthProperties.java).
+- [Historical Drive OAuth configuration validation](https://github.com/DeonHolo/WildTrack/blob/bac7d8bdadbdff47051b7222f188dea59a8c1db1/backend/src/main/java/com/capvault/backend/drivehistory/auth/DriveOAuthProperties.java) (retired; linked to the earlier release).
 - [Heroku startup command](../Procfile).
 - [Frontend Google client configuration](../frontend/src/components/auth/GoogleSignInButton.jsx).
 - [Same-origin API calls](../frontend/src/lib/api.js).

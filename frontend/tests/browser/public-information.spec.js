@@ -10,7 +10,7 @@ for (const width of [1440, 375]) {
       const path = new URL(route.request().url()).pathname;
       if (path === '/api/auth/session') {
         await session;
-        return route.fulfill({ json: { authenticated: false, roles: [], driveHistoryRequired: true, driveHistoryConfigured: true, driveHistoryConnected: false } });
+        return route.fulfill({ json: { authenticated: false, roles: [] } });
       }
       unexpected.push(path);
       return route.fulfill({ status: 501, json: { error: 'Unexpected request' } });
@@ -24,6 +24,7 @@ for (const width of [1440, 375]) {
     await expect(page).toHaveURL(/\/privacy$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Google API Services User Data Policy' })).toHaveAttribute('href', 'https://developers.google.com/terms/api-services-user-data-policy');
+    await expect(page.getByText(/drive\.metadata\.readonly|Disconnect Drive history|required Drive permission/i)).toHaveCount(0);
     await page.screenshot({ path: `test-results/public-privacy-${width}.png`, fullPage: true });
     await navigation.getByRole('link', { name: 'Terms', exact: true }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Terms of Use' })).toBeVisible();

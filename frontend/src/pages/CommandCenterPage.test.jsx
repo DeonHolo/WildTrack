@@ -27,7 +27,6 @@ const api = vi.hoisted(() => ({
   dismissWorkTask: vi.fn(),
   restoreWorkTask: vi.fn(),
   getAiReviewStatus: vi.fn(),
-  getSubmittedFileHistory: vi.fn(),
   getStudentAccountBindings: vi.fn(),
   disconnectStudentAccountBinding: vi.fn(),
   recoverStudentAccountBinding: vi.fn()
@@ -181,7 +180,6 @@ describe("today's work queues", () => {
     api.dismissWorkTask.mockReset().mockResolvedValue(undefined);
     api.restoreWorkTask.mockReset().mockResolvedValue(undefined);
     api.getAiReviewStatus.mockReset().mockResolvedValue({ configured: true });
-    api.getSubmittedFileHistory.mockReset().mockResolvedValue({ revisions: [], limitations: [] });
     workflow.acceptResponse.mockReset().mockResolvedValue({ reviewStatus: 'Accepted', acceptance: { acceptedAt: submittedAt } });
     workflow.revokeAcceptance.mockReset().mockResolvedValue({ reviewStatus: 'Pending', acceptance: null });
     workflow.runAiReview.mockReset().mockResolvedValue({ ok: true, review: { status: 'COMPLETED' } });
@@ -850,7 +848,6 @@ describe("today's work queues", () => {
     expect(records).toHaveTextContent('Recorded editor');
     expect(within(check).queryByText(/Google Drive edits|connection needs setup/)).not.toBeInTheDocument();
     expect(within(check).queryByRole('button', { name: /Refresh history|Connect Drive/ })).not.toBeInTheDocument();
-    expect(api.getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 
   it.each(['AUTO', 'OFF'])('opens recorded File history without a saved Document Check for policy %s', async documentCheckPolicy => {
@@ -875,7 +872,6 @@ describe("today's work queues", () => {
     expect(history).toHaveTextContent('Recorded monitor editor');
     expect(within(history).queryByRole('tab', { name: 'Check result' })).not.toBeInTheDocument();
     expect(within(history).queryByText(/Google Drive edits|connection needs setup/)).not.toBeInTheDocument();
-    expect(api.getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 
 

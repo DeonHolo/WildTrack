@@ -4,7 +4,7 @@ import { installApiFixtures } from './api-fixtures.js';
 function trackGoogleHistoryRequests(page) {
   const requests = [];
   page.on('request', request => {
-    if (new URL(request.url()).pathname === '/api/drive-history') requests.push(request.url());
+    if (new URL(request.url()).pathname.startsWith('/api/drive-history')) requests.push(request.url());
   });
   return requests;
 }

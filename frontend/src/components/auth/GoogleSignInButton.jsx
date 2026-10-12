@@ -1,11 +1,9 @@
 import { Alert, Box, Loader, Stack, Text } from '@mantine/core';
 import { WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
-import { authenticateGoogle, startGoogleSignIn } from '../../lib/api.js';
+import { authenticateGoogle } from '../../lib/api.js';
 import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
-import { getGoogleSignInReturnTo } from '../../lib/driveHistoryLogin.js';
 import { clearGoogleAutoPromptSuppression, isGoogleAutoPromptSuppressed } from '../../lib/googleIdentitySession.js';
-import './GoogleSignInButton.css';
 
 export { disableGoogleAutoSelect } from '../../lib/googleIdentitySession.js';
 
@@ -37,30 +35,21 @@ export function GoogleSignInButton({
   clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID,
   enableOneTap = false,
   autoSelect = false,
-  onAuthenticated,
-  returnTo
+  onAuthenticated
 }) {
   const buttonRef = useRef(null);
   const callbackRef = useRef(onAuthenticated);
   let workspaceSession = null;
   try { workspaceSession = useWorkspaceSession(); } catch { /* Standalone identity button. */ }
-  const requiredLogin = workspaceSession?.session?.driveHistoryRequired === true;
   const completionRef = useRef(workspaceSession?.completeGoogleSignIn);
-  const destinationRef = useRef(returnTo);
   const verifyingRef = useRef(false);
   completionRef.current = workspaceSession?.completeGoogleSignIn;
-  destinationRef.current = returnTo;
   callbackRef.current = onAuthenticated;
-  const [status, setStatus] = useState(requiredLogin ? 'ready' : clientId ? 'loading' : 'error');
-  const [error, setError] = useState(requiredLogin || clientId ? '' : 'Google sign-in is not configured on this machine.');
+  const [status, setStatus] = useState(clientId ? 'loading' : 'error');
+  const [error, setError] = useState(clientId ? '' : 'Google sign-in is not configured on this machine.');
 
   useEffect(() => {
     let active = true;
-    if (requiredLogin) {
-      setStatus('ready');
-      setError('');
-      return () => { active = false; };
-    }
     if (!clientId) return () => { active = false; };
     loadGoogleIdentity()
       .then((googleIdentity) => {
@@ -117,38 +106,16 @@ export function GoogleSignInButton({
         setError(failure?.message || 'Google sign-in could not be loaded.');
       });
     return () => { active = false; };
-  }, [autoSelect, clientId, enableOneTap, requiredLogin]);
-
-  async function startCombinedGoogleSignIn() {
-    if (verifyingRef.current) return;
-    verifyingRef.current = true;
-    setStatus('verifying');
-    setError('');
-    try {
-      await startGoogleSignIn(getGoogleSignInReturnTo(destinationRef.current, workspaceSession?.session));
-    } catch (failure) {
-      verifyingRef.current = false;
-      setStatus('error');
-      setError(failure?.message || 'Google sign-in could not be opened. Please try again.');
-    }
-  }
+  }, [autoSelect, clientId, enableOneTap]);
 
   return (
     <Stack gap="xs" className="wt-google-sign-in">
-      {requiredLogin ? <Text size="sm" maw={300}>Signing in includes read-only Google Drive file information for submitted PDFs and revisions Google still retains.</Text> : null}
-      {requiredLogin ? (
-        <button type="button" className="wt-google-oauth-button" disabled={status === 'verifying'} onClick={startCombinedGoogleSignIn}>
-          <img src="/assets/google-g.png" alt="" aria-hidden="true" />
-          <span>Continue with Google</span>
-        </button>
-      ) : (
-        <Box ref={buttonRef} className="wt-google-sign-in-button" aria-label="Continue with Google"
-          style={status === 'loading' ? { display: 'none' } : undefined} />
-      )}
+      <Box ref={buttonRef} className="wt-google-sign-in-button" aria-label="Continue with Google"
+        style={status === 'loading' ? { display: 'none' } : undefined} />
       {status === 'loading' || status === 'verifying' ? (
         <Text size="sm" c="dimmed" role="status">
           <Loader size="xs" mr="xs" />
-          {status === 'verifying' ? requiredLogin ? 'Opening Google sign-in…' : 'Verifying Google account...' : 'Loading Google sign-in...'}
+          {status === 'verifying' ? 'Verifying Google account...' : 'Loading Google sign-in...'}
         </Text>
       ) : null}
       {error ? <Alert color="red" variant="light" icon={<WarningCircle size={19} />} role="alert">{error}</Alert> : null}
