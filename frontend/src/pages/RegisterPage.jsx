@@ -7,6 +7,7 @@ import { GoogleSignInButton } from '../components/auth/GoogleSignInButton.jsx';
 import { FormArtwork } from '../components/public/FormArtwork.jsx';
 import { STUDENT_ARTWORK } from '../lib/studentArtwork.js';
 import { getGoogleSignInReturnTo } from '../lib/driveHistoryLogin.js';
+import { PublicInformationLinks } from '../components/public/PublicInformationLinks.jsx';
 
 export function RegisterPage() {
   const { session, sessionStatus, sessionError, refreshSession, logoutStudentAccount } = useWorkspaceSession();
@@ -77,6 +78,7 @@ export function RegisterPage() {
                 <LockSimple size={15} weight="bold" />
                 <span>WildTrack securely identifies submissions using Google Identity Services.</span>
               </div>
+              <PublicInformationLinks />
             </Stack>
           </Paper>
         </Stack>

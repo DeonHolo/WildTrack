@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { getDriveHistoryConsentStatus, startDriveHistoryConsent } from '../../lib/api.js';
 import { requiresDriveHistoryConsent } from '../../lib/driveHistoryLogin.js';
+import { isPublicInformationPath } from '../../lib/publicInformation.js';
 
 const DISMISS_PREFIX = 'wildtrack.drive-history-consent-dismissed:';
 const FAILURE_RESULTS = ['declined', 'unavailable', 'error'];
@@ -28,6 +29,7 @@ export function DriveHistoryConsent() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const required = requiresDriveHistoryConsent(session) || session?.driveHistoryRequired === true;
+  const publicInformation = isPublicInformationPath(location?.pathname ?? window.location.pathname);
 
   useEffect(() => {
     let active = true;
@@ -35,7 +37,7 @@ export function DriveHistoryConsent() {
     setError('');
     setOutcome('');
     setDismissed(false);
-    if (!identity || required) return () => { active = false; };
+    if (!identity || required || publicInformation) return () => { active = false; };
     const key = DISMISS_PREFIX + identity;
     const query = new URLSearchParams(location?.search ?? window.location.search);
     const result = query.get('driveHistory') || '';
@@ -53,9 +55,9 @@ export function DriveHistoryConsent() {
       .then(value => { if (active) setStatus(value); })
       .catch(() => { if (active) setStatus({ configured: false, connected: false }); });
     return () => { active = false; };
-  }, [identity, required]);
+  }, [identity, required, publicInformation]);
 
-  if (!identity || required || status?.required || !status || status.connected || dismissed
+  if (!identity || required || publicInformation || status?.required || !status || status.connected || dismissed
       || (!status.configured && !outcome)) return null;
 
   function skip() {

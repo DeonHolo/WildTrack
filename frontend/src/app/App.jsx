@@ -20,12 +20,16 @@ import { WorkspacePage } from '../pages/WorkspacePage.jsx';
 import { TemplatePreviewPage } from '../pages/TemplatePreviewPage.jsx';
 import { DriveHistoryConsent } from '../components/auth/DriveHistoryConsent.jsx';
 import { DriveHistoryLoginGate } from '../components/auth/DriveHistoryLoginGate.jsx';
+import { PublicInformationPage } from '../pages/PublicInformationPage.jsx';
 
 export default function App() {
   return (
     <WorkspaceSessionProvider>
       <DriveHistoryLoginGate>
       <Routes>
+        <Route path="/about" element={<PublicInformationPage page="about" />} />
+        <Route path="/privacy" element={<PublicInformationPage page="privacy" />} />
+        <Route path="/terms" element={<PublicInformationPage page="terms" />} />
         <Route path="/w/:workspaceKey/submit/:slug" element={<PublicSubmissionPage />} />
         <Route path="/submit/:slug" element={<PublicSubmissionPage />} />
         <Route path="/register" element={<StudentApplicationShell><RegisterPage /></StudentApplicationShell>} />

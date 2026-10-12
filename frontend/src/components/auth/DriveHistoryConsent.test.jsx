@@ -66,6 +66,14 @@ describe('post-login Drive history consent', () => {
     await waitFor(() => expect(startDriveHistoryConsent).toHaveBeenCalledTimes(1));
   });
 
+  it.each(['/about', '/privacy/', '/terms'])('does not request or prompt for Drive access on public information page %s', path => {
+    window.history.replaceState({}, '', path);
+    show();
+    expect(getDriveHistoryConsentStatus).not.toHaveBeenCalled();
+    expect(startDriveHistoryConsent).not.toHaveBeenCalled();
+    expect(screen.queryByRole('region', { name: 'Google Drive history access' })).not.toBeInTheDocument();
+  });
+
   it('has no optional prompt or skip action when Drive permission is required for login', () => {
     useWorkspaceSession.mockReturnValue({ session: { authenticated: true, googleSubject: 'student-subject', driveHistoryRequired: true, driveHistoryConnected: false } });
     show();
