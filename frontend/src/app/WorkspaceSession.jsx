@@ -96,7 +96,7 @@ export function WorkspaceSessionProvider({ children }) {
     }
   }, [resourceCache]);
 
-  const refreshSession = useCallback(async ({ blockAppAccess = false } = {}) => {
+  const refreshSession = useCallback(async ({ blockAppAccess = false, broadcastSession = true } = {}) => {
     const request = ++sessionRequest.current;
     catalogRequest.current += 1;
     if (blockAppAccess || !workspaceAccess.current) {
@@ -121,7 +121,7 @@ export function WorkspaceSessionProvider({ children }) {
       workspaceAccess.current = Boolean(allowed);
       const permissionIdentity = JSON.stringify([identity, current?.driveHistoryRequired, current?.driveHistoryConnected]);
       try {
-        if (localStorage.getItem('wildtrack.session-identity') !== permissionIdentity) localStorage.setItem('wildtrack.session-identity', permissionIdentity);
+        if (broadcastSession && localStorage.getItem('wildtrack.session-identity') !== permissionIdentity) localStorage.setItem('wildtrack.session-identity', permissionIdentity);
       } catch { /* Optional storage. */ }
       setSession(current);
       setSessionStatus('ready');
@@ -185,7 +185,8 @@ export function WorkspaceSessionProvider({ children }) {
         activeRef.current = '';
         setActiveWorkspaceId('');
         setSelectedWorkspaceId('');
-        refreshSession();
+        // Do not echo another tab's notification, including older identity formats.
+        refreshSession({ broadcastSession: false });
       } else if (event.key === 'wildtrack.resource-invalidation') {
         resourceCache.invalidate();
         window.dispatchEvent(new Event('wildtrack:refresh-resources'));
