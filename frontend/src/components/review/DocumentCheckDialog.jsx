@@ -3,10 +3,8 @@ import { useEffect, useState } from 'react';
 import { ArrowSquareOut, CheckCircle, Info, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
 import { Button, StatusIndicator } from '../ui.jsx';
 import { formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../../lib/workflow.js';
-import { ObservedFileHistory } from './ObservedFileHistory.jsx';
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
 import { DriveIdentityValue } from './DriveIdentityValue.jsx';
-import { getSubmittedFileHistory } from '../../lib/api.js';
 
 export function DocumentCheckDialog({
   response,
@@ -25,21 +23,6 @@ export function DocumentCheckDialog({
   allowRecheck = true
 }) {
   const [tab, setTab] = useState(initialTab);
-  const [sharedHistory, setSharedHistory] = useState(null);
-  const [historyRefresh, setHistoryRefresh] = useState(0);
-  const targetKey = historyTarget ? `${historyTarget.workspaceId}:${historyTarget.responseId}:${historyTarget.fieldId}` : '';
-  useEffect(() => {
-    if (!open || !historyTarget?.workspaceId || !historyTarget?.responseId || !historyTarget?.fieldId || !fileLink) {
-      setSharedHistory(null);
-      return undefined;
-    }
-    let active = true;
-    setSharedHistory({ key: targetKey, loading: true, data: null });
-    getSubmittedFileHistory(historyTarget.workspaceId, historyTarget.responseId, historyTarget.fieldId)
-      .then(data => { if (active) setSharedHistory({ key: targetKey, loading: false, data }); })
-      .catch(() => { if (active) setSharedHistory({ key: targetKey, loading: false, data: null }); });
-    return () => { active = false; };
-  }, [open, targetKey, fileLink, historyRefresh]);
   useEffect(() => {
     if (open) setTab(initialTab);
   }, [open, initialTab, response?.id, historyTarget?.fieldId]);
@@ -47,7 +30,7 @@ export function DocumentCheckDialog({
   const report = documentCheck || response.documentCheck;
   const studentView = audience === 'student';
   const showResult = !historyOnly;
-  const historyAvailable = Boolean(historyTarget && fileLink) || (!studentView && Boolean(observedHistory));
+  const historyAvailable = Boolean(historyTarget && fileLink) || Boolean(observedHistory);
   const effectiveResponse = documentCheck ? { ...response, documentCheck } : response;
   const metadata = report?.metadata;
   const document = report?.document;
@@ -62,16 +45,12 @@ export function DocumentCheckDialog({
   const overviewNeedsAttention = outdated || (substanceStatus
     ? substanceStatus !== 'Looks substantially filled'
     : Boolean(report?.redFlags?.length || report?.missingSections?.length));
-  const latestObservation = studentView ? null : observedHistory?.observations?.[0];
-  const sharedMetadata = sharedHistory?.key === targetKey && open ? sharedHistory?.data?.fileMetadata : null;
-  const ownerSource = sharedMetadata?.driveOwner || sharedMetadata?.driveOwnerStudent
-    ? sharedMetadata : latestObservation;
-  const editorSource = sharedMetadata?.lastModifiedBy || sharedMetadata?.lastModifiedByStudent
-    ? sharedMetadata : latestObservation;
-  const ownerDisplay = ownerSource === sharedMetadata ? sharedMetadata?.driveOwner : latestObservation?.driveOwner;
-  const editorDisplay = editorSource === sharedMetadata ? sharedMetadata?.lastModifiedBy : latestObservation?.modifiedBy;
-  const ownerStudent = ownerSource === sharedMetadata ? sharedMetadata?.driveOwnerStudent : latestObservation?.driveOwnerStudent;
-  const editorStudent = editorSource === sharedMetadata ? sharedMetadata?.lastModifiedByStudent : latestObservation?.modifiedByStudent;
+  const latestObservation = observedHistory?.observations?.[0];
+  const createdTime = metadata?.createdTime || latestObservation?.driveCreatedTime;
+  const ownerDisplay = latestObservation?.driveOwner;
+  const editorDisplay = latestObservation?.modifiedBy;
+  const ownerStudent = latestObservation?.driveOwnerStudent;
+  const editorStudent = latestObservation?.modifiedByStudent;
   const checkExplanation = studentView
     ? 'Document Check checks whether your PDF can be accessed and read and whether it appears substantially filled. It does not grade your work or decide whether it is accepted.'
     : 'Document Check verifies file access and readability, then screens whether the PDF appears substantially filled. Template structure is supporting evidence only. It does not grade the submission or replace staff review.';
@@ -143,15 +122,9 @@ export function DocumentCheckDialog({
                 neutral
               />
               <CheckFact label="Last modified (Drive)" value={metadata?.modifiedTime ? formatDateTime(metadata.modifiedTime) : 'Not available'} ready={Boolean(metadata?.modifiedTime)} neutral />
-              {sharedMetadata?.lastModifiedTime ? (
-                <CheckFact label="Latest Drive modified (Google metadata)" value={formatDateTime(sharedMetadata.lastModifiedTime)} ready neutral />
-              ) : null}
-              {studentView ? (
-                <CheckFact label="Created time" value={sharedMetadata?.createdTime ? formatDateTime(sharedMetadata.createdTime) : 'Unavailable'} ready={Boolean(sharedMetadata?.createdTime)} neutral />
-              ) : null}
+              <CheckFact label="Created time" value={createdTime ? formatDateTime(createdTime) : 'Unavailable'} ready={Boolean(createdTime)} neutral />
               {!studentView ? (
                 <>
-                  <CheckFact label="Created time" value={sharedMetadata?.createdTime || latestObservation?.driveCreatedTime ? formatDateTime(sharedMetadata?.createdTime || latestObservation?.driveCreatedTime) : 'Unavailable'} ready={Boolean(sharedMetadata?.createdTime || latestObservation?.driveCreatedTime)} neutral />
                   <CheckFact label="Drive owner" wide neutral
                     value={<DriveIdentityValue registeredStudent={ownerStudent} providerValue={ownerDisplay} />} />
                   <CheckFact label="Last modified by" wide neutral
@@ -218,23 +191,7 @@ export function DocumentCheckDialog({
         {historyAvailable ? (
           <Tabs.Panel value="history" pt="md">
             <div className="document-check-history-panel">
-              {(tab === 'history' || historyOnly) && historyTarget && fileLink ? (
-                <SubmittedFileHistory
-                  key={`${historyTarget.workspaceId}:${historyTarget.responseId}:${historyTarget.fieldId}:${historyRefresh}`}
-                  workspaceId={historyTarget.workspaceId}
-                  responseId={historyTarget.responseId}
-                  fieldId={historyTarget.fieldId}
-                  observedHistory={observedHistory}
-                  audience={audience}
-                  initialHistory={sharedHistory?.key === targetKey ? sharedHistory?.data : null}
-                  initialLoading={Boolean(open && (!sharedHistory || sharedHistory.key !== targetKey || sharedHistory.loading))}
-                  onRefresh={() => {
-                    setSharedHistory({ key: targetKey, loading: true, data: null });
-                    setHistoryRefresh(value => value + 1);
-                  }}
-                  refreshing={Boolean(sharedHistory?.loading)}
-                />
-              ) : !studentView ? <ObservedFileHistory history={observedHistory} /> : null}
+              <SubmittedFileHistory observedHistory={observedHistory} audience={audience} />
             </div>
           </Tabs.Panel>
         ) : null}

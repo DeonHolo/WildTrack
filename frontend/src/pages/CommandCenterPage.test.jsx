@@ -823,9 +823,16 @@ describe("today's work queues", () => {
     expect(within(drawer).getByRole('button', { name: 'Archived' })).toBeDisabled();
   });
 
-  it('opens the saved Document Check and scoped file history from the response drawer', async () => {
+  it('opens the saved Document Check and recorded history for the selected PDF from the response drawer', async () => {
     workflow.activeWorkspaceId = 'ws-files';
-    workflow.state = makeState([checkedResponse('review-001')]);
+    workflow.state = makeState([checkedResponse('review-001', {
+      observedFileHistoryByField: { documentPdf: { observations: [
+        { changeType: 'CONTENT_CHANGED', firstObservedAt: '2026-04-20T09:00:00+08:00',
+          driveOwner: 'Recorded owner', modifiedBy: 'Recorded editor' },
+        { changeType: 'FIRST_OBSERVED', firstObservedAt: submittedAt }
+      ] } },
+      observedFileHistory: { observations: [{ changeType: 'SOURCE_CHANGED', driveOwner: 'Wrong legacy owner' }] }
+    })]);
     workflow.state.deliverables[0].fields[0].type = 'drive';
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Review Student review-001 response' }));
@@ -833,23 +840,44 @@ describe("today's work queues", () => {
     fireEvent.click(within(drawer).getByRole('button', { name: 'View Document Check' }));
     const check = await screen.findByRole('dialog', { name: /Document Check/ });
     expect(check).toHaveTextContent('Readable PDF with sections requiring a staff decision.');
-    await waitFor(() => expect(api.getSubmittedFileHistory).toHaveBeenCalledWith('ws-files', 'review-001', 'documentPdf'));
+    expect(check).toHaveTextContent('Recorded owner');
+    expect(check).not.toHaveTextContent('Wrong legacy owner');
+    fireEvent.click(within(check).getByRole('tab', { name: 'File history' }));
+    expect(within(check).getByText('2 entries')).toBeVisible();
+    const records = within(check).getByRole('list', { name: 'Recorded file checks' });
+    expect(records).toHaveTextContent('Content changed');
+    expect(records).toHaveTextContent('First recorded');
+    expect(records).toHaveTextContent('Recorded editor');
+    expect(within(check).queryByText(/Google Drive edits|connection needs setup/)).not.toBeInTheDocument();
+    expect(within(check).queryByRole('button', { name: /Refresh history|Connect Drive/ })).not.toBeInTheDocument();
+    expect(api.getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 
-  it('opens File history when Document Check has not been run', async () => {
+  it.each(['AUTO', 'OFF'])('opens recorded File history without a saved Document Check for policy %s', async documentCheckPolicy => {
     workflow.activeWorkspaceId = 'ws-history';
-    workflow.state = makeState([response('unchecked-001')]);
+    workflow.state = makeState([response('unchecked-001', {
+      observedFileHistoryByField: { documentPdf: { observations: [
+        { changeType: 'METADATA_CHANGED', firstObservedAt: submittedAt, modifiedBy: 'Recorded monitor editor' }
+      ] } }
+    })]);
     workflow.state.deliverables[0].fields[0].type = 'drive';
+    workflow.state.deliverables[0].fields[0].documentCheckPolicy = documentCheckPolicy;
     workflow.state.fileEvents = [{ id: 'history-event', fileId: 'history-file', kind: 'METADATA_CHANGED',
       observedAt: submittedAt, responseIds: ['unchecked-001'], teamCodes: ['TEAM-1'] }];
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Review affected response for Drive metadata changed' }));
     const drawer = await screen.findByRole('dialog', { name: 'Review Student unchecked-001' });
+    expect(within(drawer).queryByRole('button', { name: 'View Document Check' })).not.toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole('button', { name: 'File history' }));
     const history = await screen.findByRole('dialog', { name: /File history/ });
-    expect(history).toBeInTheDocument();
-    await waitFor(() => expect(api.getSubmittedFileHistory).toHaveBeenCalledWith('ws-history', 'unchecked-001', 'documentPdf'));
+    expect(within(history).getByText('1 entry')).toBeVisible();
+    expect(within(history).getByRole('list', { name: 'Recorded file checks' })).toHaveTextContent('File details changed');
+    expect(history).toHaveTextContent('Recorded monitor editor');
+    expect(within(history).queryByRole('tab', { name: 'Check result' })).not.toBeInTheDocument();
+    expect(within(history).queryByText(/Google Drive edits|connection needs setup/)).not.toBeInTheDocument();
+    expect(api.getSubmittedFileHistory).not.toHaveBeenCalled();
   });
+
 
   it('starts an authorized AI Review from the drawer and shows running state', async () => {
     workflow.activeWorkspaceId = 'ws-ai';

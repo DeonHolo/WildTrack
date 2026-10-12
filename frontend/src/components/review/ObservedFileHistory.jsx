@@ -2,8 +2,9 @@ import { historyDate, newestHistoryEntries, observationTime } from '../../lib/fi
 import { DriveIdentityValue } from './DriveIdentityValue.jsx';
 import './FileHistory.css';
 
-export function ObservedFileHistory({ history }) {
+export function ObservedFileHistory({ history, audience = 'staff' }) {
   if (!history) return null;
+  const studentView = audience === 'student';
   const observations = newestHistoryEntries(history.observations, observationTime);
   return (
     <section className="file-history-section" data-testid="observed-file-history" aria-label="WildTrack observations">
@@ -12,18 +13,18 @@ export function ObservedFileHistory({ history }) {
       </div>
       {observations.length ? <ol className="file-history-timeline" aria-label="Recorded file checks">
         {observations.slice(0, 3).map((observation, index) => (
-          <RecordedCheck key={observationKey(observation, index)} observation={observation} />
+          <RecordedCheck key={observationKey(observation, index)} observation={observation} studentView={studentView} />
         ))}
       </ol> : <p className="file-history-empty">No recorded checks yet. A completed Document Check records the file state here.</p>}
       {observations.length > 3 ? <details className="file-history-technical">
         <summary>Earlier checks ({observations.length - 3})</summary>
         <ol className="file-history-timeline" aria-label="Earlier recorded file checks">
           {observations.slice(3).map((observation, index) => (
-            <RecordedCheck key={observationKey(observation, index + 3)} observation={observation} />
+            <RecordedCheck key={observationKey(observation, index + 3)} observation={observation} studentView={studentView} />
           ))}
         </ol>
       </details> : null}
-      {observations.length ? <details className="file-history-technical">
+      {observations.length && !studentView ? <details className="file-history-technical">
         <summary>Technical record details</summary>
         <p className="file-history-caption">These identifiers distinguish recorded file contents; they are not downloadable copies.</p>
         {observations.map((observation, index) => <div className="file-history-record" key={observationKey(observation, index)}>
@@ -45,16 +46,16 @@ export function ObservedFileHistory({ history }) {
   );
 }
 
-function RecordedCheck({ observation }) {
+function RecordedCheck({ observation, studentView = false }) {
   return <li className="file-history-entry">
     <div className="file-history-entry-heading">
       <h4>{changeLabel(observation.changeType)}</h4>
       <span className="file-history-date">Checked {historyDate(observationTime(observation))}</span>
     </div>
-    <div className="file-history-editor"><span>Modified by</span>
+    {!studentView ? <div className="file-history-editor"><span>Modified by</span>
       <DriveIdentityValue registeredStudent={observation.modifiedByStudent}
         providerValue={observation.modifiedBy || observation.modifiedByEmail} />
-    </div>
+    </div> : null}
     {observation.driveModifiedTime ? <p className="file-history-caption">Drive edit: {historyDate(observation.driveModifiedTime)}</p> : null}
   </li>;
 }

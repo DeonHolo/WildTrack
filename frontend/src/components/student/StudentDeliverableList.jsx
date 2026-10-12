@@ -299,6 +299,8 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
         onClose={() => setActiveCheck(null)}
         response={activeCheck?.response || null}
         documentCheck={activeCheck?.documentCheck || null}
+        observedHistory={activeCheck?.response?.observedFileHistoryByField?.[activeCheck?.fieldId]
+          || activeCheck?.response?.observedFileHistory || null}
         fileLink={activeCheck?.fileLink || ''}
         initialTab={activeCheck?.initialTab || 'result'}
         historyOnly={Boolean(activeCheck?.historyOnly)}
