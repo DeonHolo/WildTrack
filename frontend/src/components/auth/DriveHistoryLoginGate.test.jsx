@@ -45,6 +45,7 @@ function show(path = '/student') {
             <Route path="/login" element={<RegisterPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/w/:workspace/submit/:slug" element={<h1>Public submission form</h1>} />
+            <Route path="/submit/:slug" element={<h1>Public submission form</h1>} />
             <Route path="*" element={<PrivatePage />} />
           </Routes>
           <DriveHistoryConsent />
@@ -101,6 +102,19 @@ describe('required combined Google login and route isolation', () => {
     expect(api.getWorkspaces).not.toHaveBeenCalled();
     expect(screen.getByTestId('location')).toHaveTextContent('/login?returnTo=');
     expect(screen.queryByRole('button', { name: 'Skip for now' })).not.toBeInTheDocument();
+  });
+
+  it.each(['/w/section-a/submit/srs', '/submit/srs'])('reveals public form metadata before identity resolves and then enforces required permission on %s', async path => {
+    const session = deferred();
+    api.getCurrentSession.mockReturnValueOnce(session.promise);
+    show(path);
+    expect(screen.getByRole('heading', { name: 'Public submission form' })).toBeInTheDocument();
+    expect(api.getWorkspaces).not.toHaveBeenCalled();
+    expect(privateMount).not.toHaveBeenCalled();
+    await act(async () => { session.resolve(pending); });
+    expect(await screen.findByRole('heading', { name: 'Welcome to WildTrack' })).toBeInTheDocument();
+    expect(api.getWorkspaces).not.toHaveBeenCalled();
+    expect(privateMount).not.toHaveBeenCalled();
   });
 
   it('offers one direct combined OAuth button without a frontend client ID, ID-token call or One Tap', async () => {

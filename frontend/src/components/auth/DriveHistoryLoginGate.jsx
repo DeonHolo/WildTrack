@@ -37,7 +37,8 @@ export function DriveHistoryLoginGate({ children }) {
   }
   // Keep the ordinary login mounted while its optional credential verifies.
   if (isSignInRoute && (session !== null || sessionStatus === 'error')) return children;
-  if (session === null || sessionStatus === 'loading') {
+  // Public form metadata can load while its submission controls wait for identity.
+  if (!publicForm && (session === null || sessionStatus === 'loading')) {
     return <Container size="sm" py="xl"><Text role="status"><Loader size="xs" mr="xs" />Checking Google sign-in…</Text></Container>;
   }
   return children;

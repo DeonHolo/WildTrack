@@ -36,7 +36,9 @@ Do not turn on a mandatory login requirement for the live cohort until an eligib
 
 ## Verification record
 
-Implementation is complete locally. All 680 frontend tests in 60 files passed, the production build passed, and 52 focused backend tests across 14 classes passed. Backend review found no blocking issue. The tests cover the combined anonymous callback, scope and token validation, callback replay, grant-before-session ordering, permission loss, safe destinations, private-route/cache isolation, and optional-mode compatibility. Migration `V35__google_drive_login_states.sql` stores the separate short-lived login state.
+Implementation is complete locally. Initial verification passed all 680 frontend tests in 60 files, the production build, and 52 focused backend tests across 14 classes. Backend review found no blocking issue. The tests cover the combined anonymous callback, scope and token validation, callback replay, grant-before-session ordering, permission loss, safe destinations, private-route/cache isolation, and optional-mode compatibility. Migration `V35__google_drive_login_states.sql` stores the separate short-lived login state.
+
+The first GitHub browser run exposed a public-form hydration regression: the global gate waited for identity before revealing public metadata. The corrected loader preserves immediate form display while response fields and private routes wait for verified identity. All 19 final gate regression tests and 35 local Playwright fixture tests passed, including delayed desktop/mobile hydration and signed-out field isolation. These browser fixtures do not prove live Google authorization.
 
 The embedded HTTP CSRF regression required the Windows Java socket workaround `-Djava.net.preferIPv4Stack=true -Djdk.net.unixdomain.tmpdir=C:/Windows/Temp`; it passed with that setting. Provider authorization is not proven by these local tests. No Google consent, configuration write, live Gemini review, or deployment was performed for this request. The STD DOCX, PDF, and evidence ZIP remain frozen; this Markdown file is the change record.
 
