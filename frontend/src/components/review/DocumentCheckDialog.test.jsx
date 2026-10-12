@@ -1,15 +1,12 @@
 import { MantineProvider } from '@mantine/core';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
 import { DocumentCheckDialog, documentCheckStatus } from './DocumentCheckDialog.jsx';
 
-const getSubmittedFileHistory = vi.fn();
-const startDriveHistoryConsent = vi.fn();
-vi.mock('../../lib/api.js', () => ({
-  getSubmittedFileHistory: (...args) => getSubmittedFileHistory(...args),
-  startDriveHistoryConsent: (...args) => startDriveHistoryConsent(...args)
-}));
+const fetchMock = vi.fn();
+beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
+afterEach(() => { expect(fetchMock).not.toHaveBeenCalled(); vi.unstubAllGlobals(); });
 
 const fileLink = 'https://drive.google.com/file/d/this-submitted-pdf/view';
 const target = { workspaceId: 'workspace-it', responseId: 'response-1', fieldId: 'pdf-field-1' };
@@ -24,9 +21,6 @@ const response = {
     document: { readable: true, pageCount: 10 }
   }
 };
-// A removed provider response must never enrich either tab.
-const sharedHistory = { status: 'AVAILABLE', revisions: [{ id: 'legacy-revision', modifiedBy: 'Legacy Google Editor' }],
-  fileMetadata: { driveOwner: 'Legacy Google Owner', createdTime: '2020-01-01T00:00:00Z' } };
 const observedHistory = { observations: [{
   changeType: 'CONTENT_CHANGED',
   firstObservedAt: '2026-09-19T11:00:00+08:00',
@@ -49,11 +43,6 @@ function identityFact(dialog, label) {
 }
 
 describe('DocumentCheck saved metadata and recorded history', () => {
-  beforeEach(() => {
-    getSubmittedFileHistory.mockReset().mockResolvedValue(sharedHistory);
-    startDriveHistoryConsent.mockReset();
-  });
-
   it('keeps the explanation in a keyboard-accessible title tooltip', async () => {
     show({ documentCheck: { ...response.documentCheck, metadata: {
       ...response.documentCheck.metadata, modifiedTime: '2026-09-18T10:00:00+08:00'
@@ -92,8 +81,6 @@ describe('DocumentCheck saved metadata and recorded history', () => {
     expect(within(dialog).queryByRole('button', { name: /Connect Drive|Refresh history/ })).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('tab', { name: 'Check result' }));
     expect(identityFact(dialog, 'Drive owner')).toHaveTextContent('Recorded Owner');
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
-    expect(startDriveHistoryConsent).not.toHaveBeenCalled();
   });
 
   it('renders verified student matches as staff-only names and full email rows', () => {
@@ -143,7 +130,6 @@ describe('DocumentCheck saved metadata and recorded history', () => {
     expect(within(dialog).getByText('Created time').parentElement).not.toHaveTextContent('Unavailable');
     expect(within(dialog).getByText('Last modified (Drive)').parentElement).not.toHaveTextContent('Not available');
     expect(within(dialog).queryByText('Latest Drive modified (Google metadata)')).not.toBeInTheDocument();
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 
   it('shows student checks and dates without disclosing any stored owner/editor identities', () => {
@@ -161,7 +147,6 @@ describe('DocumentCheck saved metadata and recorded history', () => {
     expect(within(dialog).getByRole('list', { name: 'Recorded file checks' })).toHaveTextContent('Content changed');
     expect(within(dialog).queryByText('Technical record details')).not.toBeInTheDocument();
     expect(dialog.innerHTML).not.toMatch(/owner\.secret|editor\.secret|student\.owner|student\.editor|Recorded Owner|Recorded Editor|PRIVATE OWNER|PRIVATE EDITOR|Legacy Google/);
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 
   it.each([false, true])('opens saved file history directly with historyOnly=%s and no Drive request', historyOnly => {
@@ -170,7 +155,6 @@ describe('DocumentCheck saved metadata and recorded history', () => {
     expect(within(dialog).getByRole('list', { name: 'Recorded file checks' })).toHaveTextContent('Content changed');
     expect(within(dialog).queryByRole('button', { name: 'Refresh history' })).not.toBeInTheDocument();
     if (historyOnly) expect(within(dialog).queryByRole('tab', { name: 'Check result' })).not.toBeInTheDocument();
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 
   it('shows an empty check history without a Google configuration or consent message', () => {
@@ -178,7 +162,6 @@ describe('DocumentCheck saved metadata and recorded history', () => {
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('No recorded checks yet. A completed Document Check records the file state here.')).toBeVisible();
     expect(within(dialog).queryByText(/Google Drive edits|connection needs setup|authorize|permission/i)).not.toBeInTheDocument();
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 
   it('replaces stored facts when the selected response changes', () => {
@@ -192,18 +175,15 @@ describe('DocumentCheck saved metadata and recorded history', () => {
     expect(identityFact(dialog, 'Drive owner')).toHaveTextContent('Correct Owner');
     expect(identityFact(dialog, 'Last modified by')).toHaveTextContent('Correct Editor');
     expect(dialog.textContent).not.toMatch(/Recorded Owner|Recorded Editor/);
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 
   it('does not request Google history when closed', () => {
     show({ open: false });
-    expect(getSubmittedFileHistory).not.toHaveBeenCalled();
   });
 });
 
 
 describe('DocumentCheck submission substance', () => {
-  beforeEach(() => { getSubmittedFileHistory.mockReset().mockResolvedValue(sharedHistory); });
 
   function report(state, reason, extras = {}) {
     return {
@@ -287,7 +267,6 @@ describe('DocumentCheck submission substance', () => {
 });
 
 describe('DocumentCheck saved-source freshness', () => {
-  beforeEach(() => { getSubmittedFileHistory.mockReset().mockResolvedValue(sharedHistory); });
   const changedResponse = { ...response, updatedAt: '2026-10-10T08:00:00+08:00',
     documentCheck: { ...response.documentCheck, sourceUrl: fileLink,
       summary: 'The PDF was readable when checked.' } };

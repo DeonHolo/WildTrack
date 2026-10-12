@@ -18,13 +18,13 @@ import { StudentStatusPage } from '../pages/StudentStatusPage.jsx';
 import { TrackerPage } from '../pages/TrackerPage.jsx';
 import { WorkspacePage } from '../pages/WorkspacePage.jsx';
 import { TemplatePreviewPage } from '../pages/TemplatePreviewPage.jsx';
-import { DriveHistoryLoginGate } from '../components/auth/DriveHistoryLoginGate.jsx';
+import { GoogleSignInGate } from '../components/auth/GoogleSignInGate.jsx';
 import { PublicInformationPage } from '../pages/PublicInformationPage.jsx';
 
 export default function App() {
   return (
     <WorkspaceSessionProvider>
-      <DriveHistoryLoginGate>
+      <GoogleSignInGate>
       <Routes>
         <Route path="/about" element={<PublicInformationPage page="about" />} />
         <Route path="/privacy" element={<PublicInformationPage page="privacy" />} />
@@ -96,7 +96,7 @@ export default function App() {
         <Route path="*" element={<RoleHomeRedirect />} />
       </Routes>
       <DevelopmentRolePreview enabled={import.meta.env.DEV} />
-      </DriveHistoryLoginGate>
+      </GoogleSignInGate>
     </WorkspaceSessionProvider>
   );
 }

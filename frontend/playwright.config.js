@@ -19,6 +19,8 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm run dev -- --port 4173',
+    // Browser journeys provide a synthetic GIS SDK; no real Google credential is used.
+    env: { VITE_GOOGLE_CLIENT_ID: 'browser-fixture-google-client-id' },
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: true,
     stdout: 'ignore',

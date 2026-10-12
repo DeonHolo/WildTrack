@@ -1,36 +1,21 @@
 import { Alert, Button, Container, Paper, Stack, Text, Title } from '@mantine/core';
 import { LockSimple, WarningCircle } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { GoogleSignInButton } from '../components/auth/GoogleSignInButton.jsx';
 import { FormArtwork } from '../components/public/FormArtwork.jsx';
 import { STUDENT_ARTWORK } from '../lib/studentArtwork.js';
-import { getGoogleSignInReturnTo } from '../lib/driveHistoryLogin.js';
+import { getGoogleSignInReturnTo } from '../lib/googleSignIn.js';
 import { PublicInformationLinks } from '../components/public/PublicInformationLinks.jsx';
 
 export function RegisterPage() {
-  const { session, sessionStatus, sessionError, refreshSession, logoutStudentAccount } = useWorkspaceSession();
+  const { sessionStatus, sessionError, refreshSession } = useWorkspaceSession();
   const navigate = useNavigate();
   const location = useLocation();
   const [error, setError] = useState('');
-  const [callbackResult, setCallbackResult] = useState(() => new URLSearchParams(location.search).get('driveHistory') || '');
   const returnTo = location.state?.from || new URLSearchParams(location.search).get('returnTo');
-  const callbackError = callbackResult === 'declined'
-    ? 'Google sign-in was canceled or the required permission was not granted. You can try again.'
-    : callbackResult === 'unavailable'
-      ? 'Google sign-in is temporarily unavailable. Please try again later.'
-      : callbackResult === 'error' ? 'Google sign-in could not be completed. Please try again.' : '';
-  const shownError = error || sessionError || callbackError;
-
-  useEffect(() => {
-    const query = new URLSearchParams(location.search);
-    const outcome = query.get('driveHistory');
-    if (!outcome) return;
-    setCallbackResult(outcome);
-    query.delete('driveHistory');
-    navigate({ pathname: location.pathname, search: query.toString() ? `?${query}` : '' }, { replace: true, state: location.state });
-  }, [location.pathname, location.search, location.state, navigate]);
+  const shownError = error || sessionError;
 
   async function finishGoogleSignIn(identity, verifiedSession) {
     setError('');
@@ -61,18 +46,13 @@ export function RegisterPage() {
               </div>
               <div className="wt-google-access-action">
                 {sessionStatus === 'error' ? <Button onClick={() => refreshSession()}>Retry sign-in check</Button> : (
-                  <GoogleSignInButton enableOneTap={!callbackError} autoSelect={!callbackError} returnTo={returnTo} onAuthenticated={finishGoogleSignIn} />
+                  <GoogleSignInButton enableOneTap autoSelect onAuthenticated={finishGoogleSignIn} />
                 )}
               </div>
               {shownError ? (
                 <Alert className="wt-google-access-error" color="red" variant="light" icon={<WarningCircle size={19} />} role="alert">
                   {shownError}
                 </Alert>
-              ) : null}
-              {session?.authenticated && session?.driveHistoryRequired && !session?.driveHistoryConnected ? (
-                <Button variant="subtle" onClick={async () => {
-                  try { await logoutStudentAccount(); } catch (failure) { setError(failure?.message || 'Sign-out could not be completed.'); }
-                }}>Cancel sign-in</Button>
               ) : null}
               <div className="wt-login-footer-note">
                 <LockSimple size={15} weight="bold" />

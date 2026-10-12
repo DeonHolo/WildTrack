@@ -5,9 +5,9 @@ const SESSION_KEY = 'wildtrack.session-identity';
 const SESSION_DELAY_MS = 80;
 const OBSERVATION_MS = 1600;
 
-// A real same-origin second tab emulates the pre-PR98 session publisher. It
-// refreshes on remote storage events, then publishes the original raw identity.
-async function openLegacyPublisher(context, session) {
+// A real same-origin second tab emulates both historical identity formats.
+// It refreshes on remote storage events, then republishes its legacy identity.
+async function openLegacyPublisher(context, session, wrapped) {
   const legacy = await context.newPage();
   let requests = 0;
   await legacy.route('**/api/**', async route => {
@@ -22,7 +22,7 @@ async function openLegacyPublisher(context, session) {
     body: '<!doctype html><html><head><title>Legacy session fixture</title></head><body>Legacy session fixture</body></html>'
   }));
   await legacy.goto('/__tests__/legacy-session-publisher');
-  await legacy.evaluate(key => {
+  await legacy.evaluate(([key, wrapped]) => {
     let active = false;
     window.legacySessionWrites = 0;
     window.legacySessionEvents = 0;
@@ -30,8 +30,9 @@ async function openLegacyPublisher(context, session) {
       const response = await fetch('/api/auth/session', { credentials: 'include' });
       const current = await response.json();
       if (!active) return;
-      const identity = current.authenticated
+      const rawIdentity = current.authenticated
         ? JSON.stringify([current.email, current.googleSubject, current.roles]) : '';
+      const identity = wrapped ? JSON.stringify([rawIdentity, true, current.authenticated]) : rawIdentity;
       if (localStorage.getItem(key) !== identity) {
         window.legacySessionWrites += 1;
         localStorage.setItem(key, identity);
@@ -48,7 +49,7 @@ async function openLegacyPublisher(context, session) {
       active = false;
       window.removeEventListener('storage', onStorage);
     };
-  }, SESSION_KEY);
+  }, [SESSION_KEY, wrapped]);
   return { page: legacy, requests: () => requests };
 }
 
@@ -69,9 +70,9 @@ async function watchSessionGate(page) {
 }
 
 for (const scenario of [
-  { name: 'anonymous login with optional Drive access', role: 'anonymous', path: '/login', authenticated: false, required: false },
-  { name: 'anonymous login with required Drive access', role: 'anonymous', path: '/login', authenticated: false, required: true },
-  { name: 'authenticated private Forms page', role: 'admin', path: '/forms', authenticated: true, required: true }
+  { name: 'anonymous login with raw legacy identity', role: 'anonymous', path: '/login', authenticated: false, wrapped: false },
+  { name: 'anonymous login with wrapped legacy identity', role: 'anonymous', path: '/login', authenticated: false, wrapped: true },
+  { name: 'authenticated Forms page with wrapped legacy identity', role: 'admin', path: '/forms', authenticated: true, wrapped: true }
 ]) {
   test('legacy tab notifications settle without repeated gate flicker on ' + scenario.name, async ({ page, context }, testInfo) => {
     const fixture = await installApiFixtures(page, {
@@ -82,10 +83,7 @@ for (const scenario of [
       email: scenario.authenticated ? 'student.browser-test@gmail.com' : null,
       name: scenario.authenticated ? 'Browser Test Student' : null,
       googleSubject: scenario.authenticated ? 'browser-test-google-subject' : null,
-      roles: scenario.authenticated ? ['ADMIN'] : [],
-      driveHistoryRequired: scenario.required,
-      driveHistoryConfigured: true,
-      driveHistoryConnected: scenario.authenticated
+      roles: scenario.authenticated ? ['ADMIN'] : []
     };
     let sessionRequests = 0;
     await page.route('**/api/auth/session', async route => {
@@ -94,9 +92,6 @@ for (const scenario of [
       await new Promise(resolve => setTimeout(resolve, SESSION_DELAY_MS));
       return route.fulfill({ json: session });
     });
-    await page.route('**/api/drive-history/auth/status', route => route.fulfill({
-      json: { required: scenario.required, configured: true, connected: scenario.authenticated }
-    }));
     // All session/account behavior is synthetic. No Google authorization or
     // identity SDK endpoint is contacted, and no sign-in button is clicked.
     await context.route('https://accounts.google.com/**', route => route.abort());
@@ -109,7 +104,7 @@ for (const scenario of [
     await page.waitForLoadState('networkidle');
     const beforeLegacyPublish = sessionRequests;
     await watchSessionGate(page);
-    const legacy = await openLegacyPublisher(context, session);
+    const legacy = await openLegacyPublisher(context, session, scenario.wrapped);
 
     await legacy.page.evaluate(() => window.startLegacySessionPublisher());
     // A bounded observation interval detects a self-sustaining cross-tab echo,

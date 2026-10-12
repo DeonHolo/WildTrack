@@ -17,8 +17,6 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import com.capvault.backend.auth.WildTrackSessionAuthenticationFilter;
 import com.capvault.backend.auth.WildTrackSessionService;
-import com.capvault.backend.auth.DriveHistoryLoginGateFilter;
-import com.capvault.backend.auth.DriveHistoryLoginPolicy;
 import com.capvault.backend.staff.StaffAccessResolver;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -43,15 +41,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class SecurityConfig {
 
     private static final String SIGN_IN_PATH = "/api/auth/google/session";
-    private static final String CODE_SIGN_IN_PATH = "/api/auth/google/start";
     private static final Map<String, Window> SIGN_IN_WINDOWS = new ConcurrentHashMap<>();
 
     @Bean
     SecurityFilterChain securityFilterChain(
         HttpSecurity http,
         WildTrackSessionService sessionService,
-        StaffAccessResolver staffAccessResolver,
-        DriveHistoryLoginPolicy driveHistoryLoginPolicy
+        StaffAccessResolver staffAccessResolver
     ) throws Exception {
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
         csrfHandler.setCsrfRequestAttributeName(null);
@@ -72,7 +68,6 @@ public class SecurityConfig {
                 .requestMatchers(request -> request.getDispatcherType() == DispatcherType.ERROR
                     && "/error".equals(request.getServletPath())).permitAll()
                 .requestMatchers("/api/health/live", "/api/health/ready", "/api/auth/session", SIGN_IN_PATH, "/api/public/forms/**").permitAll()
-                .requestMatchers(HttpMethod.GET, CODE_SIGN_IN_PATH, "/api/drive-history/auth/callback").permitAll()
                 .requestMatchers("/api/file-checks/**").hasAnyRole("ADMIN", "ADVISER")
                 .requestMatchers(HttpMethod.POST,
                     "/api/workspaces",
@@ -110,7 +105,6 @@ public class SecurityConfig {
             .addFilterBefore(signInThrottle(SIGN_IN_WINDOWS), CsrfFilter.class)
             .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
             .addFilterBefore(sessionFilter, UsernamePasswordAuthenticationFilter.class)
-            .addFilterAfter(new DriveHistoryLoginGateFilter(driveHistoryLoginPolicy), WildTrackSessionAuthenticationFilter.class)
             .build();
     }
 
@@ -157,8 +151,7 @@ public class SecurityConfig {
                 HttpServletRequest http = (HttpServletRequest) request;
                 HttpServletResponse httpResponse = (HttpServletResponse) response;
                 boolean signInExchange = SIGN_IN_PATH.equals(http.getRequestURI()) && "POST".equalsIgnoreCase(http.getMethod());
-                boolean codeSignInStart = CODE_SIGN_IN_PATH.equals(http.getRequestURI()) && "GET".equalsIgnoreCase(http.getMethod());
-                if (!signInExchange && !codeSignInStart) {
+                if (!signInExchange) {
                     chain.doFilter(request, response);
                     return;
                 }

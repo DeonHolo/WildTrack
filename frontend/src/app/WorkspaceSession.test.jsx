@@ -48,7 +48,7 @@ describe('WorkspaceSession', () => {
   });
 
   it.each([false, true])('does not echo an older tab identity notification when authenticated=%s', async authenticated => {
-    const session = { authenticated, email: authenticated ? 'server@student.test' : undefined, roles: [], driveHistoryRequired: false, driveHistoryConnected: false };
+    const session = { authenticated, email: authenticated ? 'server@student.test' : undefined, roles: [] };
     api.getCurrentSession.mockResolvedValue(session);
     const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
     const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
@@ -66,15 +66,30 @@ describe('WorkspaceSession', () => {
     expect(localStorage.getItem('wildtrack.session-identity')).toBe(identity);
   });
 
-  it('still broadcasts a directly verified account and permission change', async () => {
+  it('does not echo a wrapped identity from an older permission-enabled tab', async () => {
     const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
     const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
     await waitFor(() => expect(result.current.sessionStatus).toBe('ready'));
-    const changed = { authenticated: true, email: 'other@student.test', googleSubject: 'other-subject', roles: [], driveHistoryRequired: true, driveHistoryConnected: true };
+    const identity = JSON.stringify(['server@student.test', null, []]);
+    const legacyNotification = JSON.stringify([identity, true, false]);
+    localStorage.setItem('wildtrack.session-identity', legacyNotification);
+    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: 'wildtrack.session-identity', newValue: legacyNotification })); });
+    await waitFor(() => expect(api.getCurrentSession).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.sessionStatus).toBe('ready'));
+    expect(result.current.account?.email).toBe('server@student.test');
+    expect(localStorage.getItem('wildtrack.session-identity')).toBe(legacyNotification);
+  });
+
+
+  it('still broadcasts a directly verified account and role change', async () => {
+    const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
+    const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
+    await waitFor(() => expect(result.current.sessionStatus).toBe('ready'));
+    const changed = { authenticated: true, email: 'other@student.test', googleSubject: 'other-subject', roles: ['ADVISER'] };
     api.getCurrentSession.mockResolvedValueOnce(changed);
     await act(async () => { await result.current.refreshSession(); });
     const identity = JSON.stringify([changed.email, changed.googleSubject, changed.roles]);
-    expect(localStorage.getItem('wildtrack.session-identity')).toBe(JSON.stringify([identity, true, true]));
+    expect(localStorage.getItem('wildtrack.session-identity')).toBe(identity);
     expect(result.current.account?.email).toBe(changed.email);
   });
 

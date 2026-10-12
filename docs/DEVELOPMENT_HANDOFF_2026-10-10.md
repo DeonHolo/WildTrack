@@ -1,6 +1,6 @@
 # Development handoff — 10 October 2026
 
-Refreshed 11 October. Current follow-up: [Forms, review and File History record](<old documents, templates/outputs/04-Software-Test-Document/UI_REVIEW_FOLLOWUP_2026-10-11.md>).
+Refreshed 13 October. Delegated Drive-history consent is retired; use the [retirement record](DRIVE_PERMISSION_RETIREMENT_2026-10-13.md) for implementation and release status. The [Forms, review and File History record](<old documents, templates/outputs/04-Software-Test-Document/UI_REVIEW_FOLLOWUP_2026-10-11.md>) retains the earlier checkpoint.
 
 Start here when continuing WildTrack development. Read the **latest checkpoint** in [PROGRESS.md](capstone-2-build/PROGRESS.md); older checkpoints are history and their unfinished counts are superseded.
 
@@ -18,7 +18,7 @@ Start here when continuing WildTrack development. Read the **latest checkpoint**
 
 The bounded backlog is [REFACTOR_SCOPE_2026-10-09.md](REFACTOR_SCOPE_2026-10-09.md). It is not a mandate to rewrite working features.
 
-1. Test genuine eligible Drive-history consent. Live now recognizes the server configuration and displays the optional Allow Drive history prompt, but the STD file has no eligible submitter grant yet. Four user OAuth scopes are required: openid, userinfo.email, userinfo.profile and drive.metadata.readonly. Optional Sheets writeback uses a separate service account. Do not regenerate a valid encryption key or assume any staff owner's grant qualifies as an active submitter grant; see [the setup guide](<old documents, templates/outputs/04-Software-Test-Document/DRIVE_HISTORY_SETUP_2026-10-11.md>).
+1. Verify ordinary Google sign-in and WildTrack's recorded PDF checks. The owner rejected additional Drive-history consent for the post-submission tracking requirement; do not restore that prompt, menu or restricted-scope login. Optional Sheets writeback continues to use a separate service account. Earlier [Drive setup guidance](<old documents, templates/outputs/04-Software-Test-Document/DRIVE_HISTORY_SETUP_2026-10-11.md>) is historical.
 2. Reproduce any remaining specific Drive download failure using safe stage/status diagnostics. The fresh live 58-page STD check reads the PDF and detects 11/12 headings, including all three main sections. Keep the real Test Results versus Execution Summary title difference. This does not identify every historical 503 cause.
 3. Preserve first-render progress caching in `useAiReviewBatch`. Tests must assert the panel while its latest server read is pending, account/workspace/role isolation, and clearing after authorization denial. An eventual wait-for restoration assertion misses flicker.
 
