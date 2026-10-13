@@ -25,9 +25,9 @@ Evidence: `frontend/src/lib/recordedTime.js`; `frontend/src/lib/workflow.js#arti
 
 ## Loading and template presentation
 
-- Universal copy: **Loading WildTrack…**. Keep the WildTrack logo still inside maroon and gold rings rotating in opposite directions. Use CSS transforms with the existing continuous 1.2-second linear cadence. Reduced-motion mode stops both rings. Desktop and mobile keep the loader centered.
+- Universal copy: **Loading…**, with the WildTrack logo still inside maroon and gold rings rotating in opposite directions. Remove the redundant brand line and “Getting things ready” heading. Use CSS transforms with the existing continuous 1.2-second linear cadence. Reduced-motion mode stops both rings. Desktop and mobile keep the loader centered.
 - Adapt the SVG rotation pattern from [Loading UI Ring](https://www.loading-ui.com/docs/components/ring); retain the [MIT notice](../frontend/src/components/auth/loading-ui.LICENSE). No new runtime dependency or extra Google permission flow was introduced.
-- Add **View template findings** to Document Check only when the current workspace contains an uploaded template for that artifact or its deliverable fallback. The link opens its existing template-preview page.
+- Add **Open official template** beside the Official template structure heading in Document Check, only when the workspace contains an uploaded template for that artifact or its deliverable fallback. The link opens its existing template-preview page.
 - List detected template headings once. Keep only undetected expectations in a separate list when they differ. This avoids rendering the same expected/detected list twice.
 
 Evidence: `frontend/src/components/auth/SessionLoadingScreen.jsx`; `frontend/src/lib/templatePreview.js`; `frontend/src/pages/TemplatePreviewPage.jsx`.
@@ -51,6 +51,28 @@ The user's 14 October screenshot of the preceding 24-hour window showed **360.9 
 
 Local verification: 699 frontend tests, 50 browser checks and 131 focused backend tests passed; frontend production build passed. The API rollout fallback has a further focused regression check. Browser checks use synthetic authenticated API fixtures and include Singapore-time conversion, a saved outdated AI report, template presence/absence, individual/bulk deletion and reload, later change events, aligned actions, mobile loading and reduced motion. Backend tests cover migrated storage, subject/workspace isolation, idempotent deletion, cache reuse verification, and monitoring.
 
-Production verification is recorded separately after release. No live Gemini request, manual Document Check, monitor-setting mutation, or deletion of the user's actual notifications was used for this task.
+Production verification receipts follow below. No live Gemini request, manual Document Check, monitor-setting mutation, or deletion of the user's actual notifications was used for this task.
 
 Confidence: confirmed for the recorded experiment and passing local checks. Freshness depends on the most recent saved Document Check; it cannot detect an edit before monitoring or an explicit check observes it. Revalidate this record if scheduling, timestamp storage, template matching, notification identity or AI cache/link semantics change.
+
+## PR #111 production receipt
+
+[PR #111](https://github.com/DeonHolo/WildTrack/pull/111) merged to main at **14 October 2026, 3:31 AM Singapore time**, commit `2c2bb0f0569dbb816c1abd87ceec4be7b09fa3d1`. GitHub passed **700 frontend tests and 50 browser checks**. Vercel deployment `dpl_GYnogYhivihNHsKjU1Db2Fvk5v65` was READY for that commit; Heroku deployment `7048107736` reported success.
+
+Signed-in Chrome verification confirmed Newest activity by default and Priority last, personal deletion endpoint HTTP 200, both delete confirmations, the saved AI report's outdated warning, corrected local detection/edit dates, the completed-batch dismiss control, and a single template-heading list. Deletion confirmations were cancelled. The earlier change warning stayed dismissed while the later change stayed Open. Console checks reported no errors. The loader's new copy and reduced-motion styles were present in delivered assets.
+
+The Vercel MCP deployment read returned scope-level 403. The mapped Vercel CLI API fallback with the already-authorized CLI login and explicit project/team succeeded; no new authorization was needed.
+
+## Follow-up corrections requested after PR #111
+
+- **Action clipping:** the aligned 72px Dismiss / 64px Restore columns still cut off text because Mantine's horizontal padding reduced the label area. Production measured Dismiss at 42px available versus 45px required. The previous browser check inspected only the primary label. Secondary columns now use intrinsic content width; the regression checks every action label after fonts load at 1920, 1440, 1280, 1181, 1024 and 375 pixels. The primary label can wrap at narrower table widths.
+- **Loader wording:** show just the logo/rings and **Loading…**, following the restrained [Atlassian spinner example](https://atlassian.design/components/spinner/examples). Remove the repeated WildTrack text and vague preparatory heading. Keep the sign-in refresh bypass and update the existing cross-tab status-text assertions; no minimum loading delay is added.
+- **Acknowledgement:** staff can choose **Acknowledge change** in Document Check, then confirm. The notice hides only after a successful server save. It is personal to the staff account and workspace and keyed by response, artifact, file/content identity and first detection time. An unchanged recheck retains the acknowledgement; a later change, including restored identical contents, creates a distinct notice. File History, submission acceptance and AI freshness stay unchanged. Today's Work notifications remain separate.
+- **Storage decision:** reuse the existing personal dismissal store with a `document-change:` namespace. The listing retains tombstones, so deletion cannot accidentally revive an acknowledged notice. Exclude these acknowledgement keys from Today's Work bulk notification deletion. This avoids a new schema migration for UI notice state.
+- **Template action:** rename to **Open official template**, align it in the section heading row with wrapping for narrow screens, and retain the no-upload/no-button rule.
+- **History disclosure:** rename Earlier checks to **Older file records**, and explain that the three newest records are shown above. All remaining records are retained in the expandable section; repeated unchanged checks remain grouped.
+
+Evidence: `frontend/src/components/review/DocumentChangeNotice.jsx`; `frontend/src/lib/documentChangeAcknowledgement.js`; `frontend/src/pages/CommandCenterPage.jsx#deletableKeys`; `frontend/src/components/review/ObservedFileHistory.jsx`; `frontend/src/styles/wildtrack.css`; `frontend/tests/browser/review-history-followup.spec.js`.
+
+Focused correction verification: **93 frontend tests, 11 browser checks and the frontend production build passed**. Browser fixtures cover acknowledgement cancellation, failed save, successful save and reload, a subsequent same-checksum change, retained AI freshness warning and all action labels. Actual live acknowledgement writes remain untested to preserve the user's records.
+

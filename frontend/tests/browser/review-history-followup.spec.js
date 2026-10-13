@@ -27,7 +27,10 @@ test('shows local detection times, changed content and an outdated saved AI revi
   const dialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Updated PDF.pdf' }) });
   await expect(dialog.getByText('Document Check completed Oct 14, 2026, 12:20 AM')).toBeVisible();
   await expect(dialog.getByText('PDF content changed', { exact: true })).toBeVisible();
-  await expect(dialog.getByRole('link', { name: 'View template findings' })).toHaveAttribute('href', `/templates/template-one/preview?workspaceId=${workspace}`);
+  await expect(dialog.getByRole('link', { name: 'Open official template' })).toHaveAttribute('href', `/templates/template-one/preview?workspaceId=${workspace}`);
+  const heading = await dialog.getByRole('heading', { name: 'Official template structure' }).boundingBox();
+  const templateLink = await dialog.getByRole('link', { name: 'Open official template' }).boundingBox();
+  expect(Math.abs(heading.y + heading.height / 2 - templateLink.y - templateLink.height / 2)).toBeLessThan(2);
   await dialog.getByRole('tab', { name: 'File history' }).click();
   await expect(dialog.getByText('Detected Oct 14, 2026, 12:20 AM', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Drive edit: Oct 14, 2026, 12:07 AM', { exact: true })).toBeVisible();
@@ -41,6 +44,56 @@ test('shows local detection times, changed content and an outdated saved AI revi
   fixture.assertRequestsHandled();
 });
 
+test('acknowledges one file change after confirmation, persists it, and warns for a later change', async ({ page }) => {
+  let currentHistory = history;
+  const fixture = await installApiFixtures(page, { role: 'admin', submitted: true,
+    monitoring: payload => ({ ...monitoring(payload), observedFileHistoryByField: { 'response-1': { [field]: currentHistory } } }) });
+  const openCheck = async () => {
+    await page.getByRole('button', { name: /Review DELA CRUZ/ }).click();
+    await page.getByRole('button', { name: 'View Document Check', exact: true }).click();
+  };
+  await page.goto('/review');
+  await openCheck();
+  await page.getByRole('button', { name: 'Acknowledge change', exact: true }).click();
+  let confirmation = page.getByRole('dialog', { name: 'Acknowledge this PDF change?' });
+  await expect(confirmation).toContainText('This does not accept the submission or refresh AI Review');
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(fixture.calls.filter(call => call.method === 'POST')).toHaveLength(0);
+
+  await page.route('**/api/work-task-dismissals', route => route.fulfill({ status: 503, json: { message: 'Unavailable' } }), { times: 1 });
+  await page.getByRole('button', { name: 'Acknowledge change', exact: true }).click();
+  await confirmation.getByRole('button', { name: 'Acknowledge change', exact: true }).click();
+  await expect(confirmation.getByRole('alert')).toContainText('could not be saved');
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByText('PDF content changed', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Acknowledge change', exact: true }).click();
+  await confirmation.getByRole('button', { name: 'Acknowledge change', exact: true }).click();
+  await expect(page.getByText('PDF content changed', { exact: true })).toHaveCount(0);
+  const writes = fixture.calls.filter(call => call.path === '/work-task-dismissals' && call.method === 'POST');
+  expect(writes).toHaveLength(1);
+  await page.reload();
+  await openCheck();
+  await expect(page.getByText('PDF content changed', { exact: true })).toHaveCount(0);
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Dismissed (0)', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Delete all dismissed notifications' })).toBeDisabled();
+  await page.goto('/review');
+  await openCheck();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'View AI Review', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('AI Review may be outdated');
+
+  currentHistory = { observations: [{ ...history.observations[0], firstObservedAt: '2026-10-14T02:20:00',
+    lastObservedAt: '2026-10-14T02:20:00', driveModifiedTime: '2026-10-14T02:04:00Z' }, ...history.observations] };
+  await page.reload();
+  await openCheck();
+  await expect(page.getByText('PDF content changed', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Acknowledge change', exact: true })).toBeEnabled();
+  expect(fixture.calls.filter(call => call.method === 'POST' && /ai-reviews|file-checks/.test(call.path))).toEqual([]);
+  fixture.assertRequestsHandled();
+});
+
+
 test('hides template findings without an uploaded template and keeps finished batch dismissal after reload', async ({ page }) => {
   const fixture = await installApiFixtures(page, { role: 'admin', submitted: true, monitoring });
   const batch = { id: 'finished-batch', state: 'COMPLETED', version: 1, entries: [], completedDocuments: 1,
@@ -53,7 +106,7 @@ test('hides template findings without an uploaded template and keeps finished ba
   await expect(page.getByText('AI Review batch finished', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: /Review DELA CRUZ/ }).click();
   await page.getByRole('button', { name: 'View Document Check', exact: true }).click();
-  await expect(page.getByRole('link', { name: 'View template findings' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Open official template' })).toHaveCount(0);
   fixture.assertRequestsHandled();
 });
 
@@ -66,7 +119,8 @@ for (const width of [1440, 375]) {
     await page.route('**/api/auth/session', async route => { await pending; await route.fallback(); });
     await page.goto('/forms', { waitUntil: 'domcontentloaded' });
     const loader = page.getByRole('main', { name: 'Loading WildTrack' });
-    await expect(loader.getByRole('status')).toHaveText('Loading WildTrack…');
+    await expect(loader.getByRole('status')).toHaveText('Loading…');
+    await expect(loader).toHaveText('Loading…');
     const ring = page.locator('.wt-session-loading-spinner');
     const box = await ring.boundingBox();
     expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(2);
@@ -89,16 +143,24 @@ test('confirms deletion, retains a deleted notification after reload, and opens 
   await page.goto('/');
   await expect(page.getByRole('combobox', { name: 'Sort by' })).toHaveValue('newest');
   expect(await page.getByRole('combobox', { name: 'Sort by' }).locator('option').allTextContents()).toEqual(['Newest activity', 'Oldest activity', 'Priority']);
-  const actionGroups = await page.locator('.wt-command-row-actions').evaluateAll(groups => groups.map(group => [...group.querySelectorAll('button')].map(button => {
-    const box = button.getBoundingClientRect(); return { x: box.x, width: box.width };
-  })));
-  expect(actionGroups.length).toBeGreaterThan(1);
-  for (const actions of actionGroups) expect(actions[1].x).toBeCloseTo(actionGroups[0][1].x, 0);
+  const checkActions = async () => {
+    await page.evaluate(() => document.fonts.ready);
+    for (const width of [1920, 1440, 1280, 1181, 1024, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      const clipped = await page.locator('.wt-command-row-actions .mantine-Button-label').evaluateAll(labels =>
+        labels.filter(label => label.scrollWidth > label.clientWidth + 1)
+          .map(label => ({ text: label.textContent, width: label.clientWidth, needed: label.scrollWidth })));
+      expect(clipped, `Action labels at ${width}px`).toEqual([]);
+      const positions = await page.locator('.wt-command-row-actions > :nth-child(2)').evaluateAll(buttons =>
+        buttons.map(button => button.getBoundingClientRect().x));
+      for (const x of positions) expect(x).toBeCloseTo(positions[0], 0);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+  };
+  await checkActions();
   await page.getByRole('button', { name: /^Dismiss PDF content changed:/ }).click();
   await page.getByRole('tab', { name: /^Dismissed/ }).click();
-  await page.setViewportSize({ width: 375, height: 900 });
-  expect(await page.locator('.wt-command-row-actions > :first-child .mantine-Button-label').evaluateAll(labels =>
-    labels.every(label => label.scrollWidth <= label.clientWidth + 1))).toBe(true);
+  await checkActions();
   await page.getByRole('button', { name: /^Delete dismissed PDF content changed:/ }).click();
   await page.getByRole('dialog', { name: 'Delete this dismissed notification?' }).getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(fixture.calls.filter(call => call.path.endsWith('/deleted') && call.method === 'POST')).toHaveLength(0);

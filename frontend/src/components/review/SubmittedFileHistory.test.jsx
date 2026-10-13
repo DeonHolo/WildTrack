@@ -36,11 +36,11 @@ describe('SubmittedFileHistory recorded checks', () => {
     const checks = screen.getByRole('list', { name: 'Recorded file checks' });
     expect(within(checks).getAllByRole('heading').map(heading => heading.textContent))
       .toEqual(['Content changed', 'Submitted file changed', 'File details changed']);
-    const earlier = screen.getByText('Earlier checks (1)').closest('details');
+    const earlier = screen.getByText('Older file records (1)').closest('details');
     expect(earlier).not.toHaveAttribute('open');
-    fireEvent.click(screen.getByText('Earlier checks (1)'));
+    fireEvent.click(screen.getByText('Older file records (1)'));
     expect(earlier).toHaveAttribute('open');
-    expect(screen.getByRole('list', { name: 'Earlier recorded file checks' })).toHaveTextContent('First recorded');
+    expect(screen.getByRole('list', { name: 'Older file records' })).toHaveTextContent('First recorded');
   });
 
   it('retains recorded identities and technical records for staff', () => {
@@ -59,8 +59,8 @@ describe('SubmittedFileHistory recorded checks', () => {
     const { container } = renderHistory({ audience: 'student', observedHistory });
     expect(screen.getByRole('list', { name: 'Recorded file checks' })).toHaveTextContent('Content changed');
     expect(screen.getByText('4 entries')).toBeVisible();
-    fireEvent.click(screen.getByText('Earlier checks (1)'));
-    expect(screen.getByRole('list', { name: 'Earlier recorded file checks' })).toHaveTextContent('First recorded');
+    fireEvent.click(screen.getByText('Older file records (1)'));
+    expect(screen.getByRole('list', { name: 'Older file records' })).toHaveTextContent('First recorded');
     expect(container.innerHTML).not.toMatch(/owner\.secret|editor\.secret|observed\.secret|student\.owner|student\.editor|Recorded Owner|Recorded Editor|PRIVATE OWNER|PRIVATE EDITOR/);
     expect(screen.queryByText('Technical record details')).not.toBeInTheDocument();
     expect(screen.queryByText('Modified by')).not.toBeInTheDocument();
@@ -89,6 +89,6 @@ describe('SubmittedFileHistory recorded checks', () => {
     expect(screen.getByText('1 entry')).toBeVisible();
     expect(screen.getByRole('list', { name: 'Recorded file checks' })).toHaveTextContent('First recorded');
     expect(screen.queryByText('Content changed')).not.toBeInTheDocument();
-    expect(screen.queryByText('Earlier checks (1)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Older file records (1)')).not.toBeInTheDocument();
   });
 });

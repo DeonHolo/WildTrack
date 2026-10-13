@@ -3654,10 +3654,10 @@
 
 /* Five-column queue: the primary action and Dismiss/Restore share the final cell. */
 .wt-command-status-tabs { padding: 12px 20px 0; }
-.wt-command-row-actions { display: grid; grid-template-columns: minmax(0, 1fr) 72px; align-items: center; gap: 4px; }
+.wt-command-row-actions { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: center; gap: 4px; }
 .wt-command-row-actions > :first-child { width: 100%; height: auto; min-height: 30px; padding-block: 6px; }
-.wt-command-row-actions > :first-child .mantine-Button-label { white-space: normal; text-align: center; }
-.wt-command-row-actions.is-dismissed { grid-template-columns: minmax(0, 1fr) 64px 28px; }
+.wt-command-table .wt-command-row-actions > :first-child .mantine-Button-label { white-space: normal; text-align: center; }
+.wt-command-row-actions.is-dismissed { grid-template-columns: minmax(0, 1fr) max-content 28px; }
 .wt-command-table { width: 100%; min-width: 720px; table-layout: fixed; }
 .wt-command-table th:nth-child(1) { width: 12%; }
 .wt-command-table th:nth-child(2) { width: 32%; }
@@ -3673,6 +3673,8 @@
   width: auto;
 }
 .wt-command-table td:last-child .mantine-Button-label { white-space: nowrap; }
+.document-check-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.document-check-section .document-check-section-heading h3 { margin: 0; }
 .wt-command-item-copy strong,
 .wt-command-item-copy p { white-space: normal; overflow-wrap: anywhere; }
 .wt-command-toolbar { flex-wrap: wrap; }

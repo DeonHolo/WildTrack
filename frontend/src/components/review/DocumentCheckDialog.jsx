@@ -5,6 +5,7 @@ import { Button, StatusIndicator } from '../ui.jsx';
 import { formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../../lib/workflow.js';
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
 import { DriveIdentityValue } from './DriveIdentityValue.jsx';
+import { DocumentChangeNotice } from './DocumentChangeNotice.jsx';
 import { historyDate, newestHistoryEntries, observationTime } from '../../lib/fileHistoryPresentation.js';
 
 export function DocumentCheckDialog({
@@ -99,11 +100,7 @@ export function DocumentCheckDialog({
 
         {showResult ? <Tabs.Panel value="result" pt={studentView ? 0 : 'md'}>
           {!outdated && latestObservation?.changeType === 'CONTENT_CHANGED' ? (
-            <Alert color="orange" title="PDF content changed" mb="md">
-              Document Check detected changed PDF content on {historyDate(latestObservation.firstObservedAt)}.
-              {latestObservation.driveModifiedTime ? ` Drive edit: ${historyDate(latestObservation.driveModifiedTime)}.` : ''}
-              {' '}The check result below is for the updated file. Open File history to compare the recorded changes.
-            </Alert>
+            <DocumentChangeNotice observation={latestObservation} target={historyTarget} allowAcknowledge={!studentView} />
           ) : null}
           <div className={'document-check-overview ' + (overviewNeedsAttention ? 'attention' : '')}>
             {successful && !overviewNeedsAttention ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
@@ -144,9 +141,11 @@ export function DocumentCheckDialog({
             </section>
 
             <section className="document-check-section">
-              <h3>Official template structure</h3>
-              {templateFindingsUrl ? <Button component="a" href={templateFindingsUrl} target="_blank" rel="noopener noreferrer"
-                variant="secondary" icon={ArrowSquareOut}>View template findings</Button> : null}
+              <div className="document-check-section-heading">
+                <h3>Official template structure</h3>
+                {templateFindingsUrl ? <Button component="a" href={templateFindingsUrl} target="_blank" rel="noopener noreferrer"
+                  variant="secondary" icon={ArrowSquareOut}>Open official template</Button> : null}
+              </div>
               {comparison?.available ? (
               <>
                 <div className="document-check-template-summary">
