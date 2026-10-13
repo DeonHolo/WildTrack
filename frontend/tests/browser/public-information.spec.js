@@ -17,7 +17,7 @@ for (const width of [1440, 375]) {
     });
     await page.goto('/about', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { level: 1, name: 'About WildTrack' })).toBeVisible();
-    await expect(page.getByText('Loading WildTrack…', { exact: true })).toBeHidden();
+    await expect(page.getByText('Loading…', { exact: true })).toBeHidden();
     await page.screenshot({ path: `test-results/public-about-${width}.png`, fullPage: true });
     const navigation = page.getByRole('navigation', { name: 'WildTrack information' });
     await navigation.getByRole('link', { name: 'Privacy', exact: true }).click();

@@ -18,8 +18,9 @@ export function ObservedFileHistory({ history, audience = 'staff' }) {
         ))}
       </ol> : <p className="file-history-empty">No recorded checks yet. A completed Document Check records the file state here.</p>}
       {observations.length > 3 ? <details className="file-history-technical">
-        <summary>Earlier checks ({observations.length - 3})</summary>
-        <ol className="file-history-timeline" aria-label="Earlier recorded file checks">
+        <summary>Older file records ({observations.length - 3})</summary>
+        <p className="file-history-caption">The three newest records are shown above. These older file records are kept here.</p>
+        <ol className="file-history-timeline" aria-label="Older file records">
           {observations.slice(3).map((observation, index) => (
             <RecordedCheck key={observationKey(observation, index + 3)} observation={observation} studentView={studentView} />
           ))}

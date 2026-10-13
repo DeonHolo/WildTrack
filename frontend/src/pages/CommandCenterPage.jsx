@@ -25,6 +25,7 @@ import { archiveAttempts as archiveServerAttempts } from '../lib/archiveClient.j
 import { deleteDismissedWorkTasks, getDeletedWorkTasks, dismissWorkTask, getAiReviewStatus, getFileMonitorEvents, getIdentityConflicts,
   getWorkTaskDismissals, restoreWorkTask } from '../lib/api.js';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
+import { DOCUMENT_CHANGE_ACK_PREFIX } from '../lib/documentChangeAcknowledgement.js';
 import { AiReviewDialog } from '../components/review/AiReviewDialog.jsx';
 import { AiReviewReportDialog } from '../components/review/AiReviewReportDialog.jsx';
 import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
@@ -136,7 +137,7 @@ export function CommandCenterPage() {
     [allTasks, resolvedTaskIds, dismissed]
   );
   const dismissedTasks = allTasks.filter((task) => dismissed.has(task.id));
-  const deletableKeys = [...dismissed].filter(key => !deleted.has(key));
+  const deletableKeys = [...dismissed].filter(key => !deleted.has(key) && !key.startsWith(DOCUMENT_CHANGE_ACK_PREFIX));
   const displayedTasks = taskTab === 'dismissed' ? dismissedTasks : openTasks;
   // A bulk action applies to the selected *section*, not just the current search
   // result or first page. All work intentionally covers every category.

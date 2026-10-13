@@ -39,10 +39,10 @@ describe('recorded file checks', () => {
     expect(recent[0]).toHaveTextContent('Editor 8');
     expect(recent[2]).toHaveTextContent('Editor 6');
     expect(screen.getByText('Editor 1')).not.toBeVisible();
-    fireEvent.click(screen.getByText('Earlier checks (5)'));
-    expect(within(screen.getByRole('list', { name: 'Earlier recorded file checks' })).getAllByRole('listitem')).toHaveLength(5);
+    fireEvent.click(screen.getByText('Older file records (5)'));
+    expect(within(screen.getByRole('list', { name: 'Older file records' })).getAllByRole('listitem')).toHaveLength(5);
     expect(screen.getByText('Editor 1')).toBeVisible();
-    fireEvent.click(screen.getByText('Earlier checks (5)'));
+    fireEvent.click(screen.getByText('Older file records (5)'));
     expect(screen.getByText('Editor 1')).not.toBeVisible();
     fireEvent.click(screen.getByText('Technical record details'));
     expect(screen.getByText('sha256:record-1')).toBeVisible();

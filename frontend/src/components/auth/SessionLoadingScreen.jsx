@@ -13,9 +13,7 @@ export function SessionLoadingScreen() {
           </svg>
           <WildTrackMark className="wt-session-loading-mark" size={64} />
         </div>
-        <p className="wt-session-loading-brand">WildTrack</p>
-        <h1>Getting things ready</h1>
-        <p className="wt-session-loading-status" role="status">Loading WildTrack…</p>
+        <p className="wt-session-loading-status" role="status">Loading…</p>
       </div>
     </main>
   );

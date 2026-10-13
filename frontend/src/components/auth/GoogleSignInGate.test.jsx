@@ -88,7 +88,7 @@ describe('Google sign-in and route isolation', () => {
     const session = deferred();
     api.getCurrentSession.mockReturnValueOnce(session.promise);
     show('/review?workspaceId=workspace-a');
-    expect(screen.getByRole('status')).toHaveTextContent('Loading WildTrack');
+    expect(screen.getByRole('status')).toHaveTextContent('Loading…');
     expect(privateMount).not.toHaveBeenCalled();
     expect(api.getWorkspaces).not.toHaveBeenCalled();
     await act(async () => { session.resolve(signedIn); });
@@ -155,7 +155,7 @@ describe('Google sign-in and route isolation', () => {
     });
     await waitFor(() => expect(api.getCurrentSession).toHaveBeenCalledTimes(2));
     expect(screen.getByRole('heading', { name: 'Sign in with Google' })).toBeInTheDocument();
-    expect(screen.queryByText('Loading WildTrack…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
     expect(api.authenticateGoogle).toHaveBeenCalledWith('signed-google-credential');
     expect(screen.queryByText(/Drive history|read-only Google Drive/)).not.toBeInTheDocument();
     await act(async () => { check.resolve(signedIn); await signingIn; });

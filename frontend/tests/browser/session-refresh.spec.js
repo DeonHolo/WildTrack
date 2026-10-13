@@ -59,7 +59,7 @@ async function watchSessionGate(page) {
     window.sessionGateLoadingEntries = 0;
     const observe = () => {
       const loading = Array.from(document.querySelectorAll('[role="status"]'))
-        .some(element => element.textContent.trim() === 'Loading WildTrack…');
+        .some(element => element.textContent.trim() === 'Loading…');
       if (loading && !previouslyLoading) window.sessionGateLoadingEntries += 1;
       previouslyLoading = loading;
     };
@@ -144,7 +144,7 @@ for (const scenario of [
       'One external notification may recheck access once, but must not repeatedly replace the page')
       .toBeLessThanOrEqual(1);
     await expect(content).toBeVisible();
-    await expect(page.getByText('Loading WildTrack…', { exact: true })).toBeHidden();
+    await expect(page.getByText('Loading…', { exact: true })).toBeHidden();
     await expect(page).toHaveURL(new RegExp(scenario.path + '$'));
   });
 }
