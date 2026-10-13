@@ -88,7 +88,7 @@ it('shows a saved zero-issue report with two verified SRS checks and a clear app
   expect(within(dialog).getByText('Section 1.3: The system is for students and advisers.')).not.toBeVisible();
   fireEvent.click(within(dialog).getByText('Observed checks (2)'));
   expect(dialog).toHaveTextContent('Section 1.3: The system is for students and advisers.');
-  expect(dialog).toHaveTextContent('Reference: Identify intended users of the system.');
+  expect(dialog).toHaveTextContent('Reference: Deliverable requirements · Identify intended users of the system.');
   expect(dialog).toHaveTextContent('FR-01: A student submits the PDF link for review.');
   expect(dialog).toHaveTextContent('This is advisory feedback');
   expect(dialog).not.toHaveTextContent('General overview from provider.');
