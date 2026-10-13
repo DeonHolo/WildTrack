@@ -114,7 +114,11 @@ class GeminiAiReviewProviderTest {
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.missingRequiredSections.items.properties.source.enum.length()").value(2))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(5))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.minItems").doesNotExist())
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.required.length()").value(4))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf.length()").value(2))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].required.length()").value(4))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].properties.source.enum[0]").value("DOCUMENT"))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].properties.requirement.enum[0]").value(""))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[1].properties.source.enum.length()").value(2))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.length()").value(5))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.length()").value(4))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.location").doesNotExist())
@@ -136,7 +140,7 @@ class GeminiAiReviewProviderTest {
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
         assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v5", "thinking-minimal", "output-8192",
-            "schema-structured-review-v4-compact");
+            "schema-structured-review-v5-source-pairs-compact");
         server.verify();
     }
 
@@ -370,18 +374,63 @@ class GeminiAiReviewProviderTest {
         server.verify();
     }
 
+    @Test void oneUnusablePositiveCheckDoesNotDiscardIndependentVerifiedEvidence() throws Exception {
+        String scope = "The system supports account registration and role-specific access.";
+        String submission = "The student can submit a PDF for adviser feedback.";
+        var invalid = Map.of("aspect", "Invalid obligation", "source", "DOCUMENT",
+            "documentEvidence", scope, "requirement", "Invented mandatory certification");
+        var scopeCheck = Map.of("aspect", "Account access is described", "source", "DOCUMENT",
+            "documentEvidence", scope, "requirement", "");
+        var submissionCheck = Map.of("aspect", "PDF submission is described", "source", "DOCUMENT",
+            "documentEvidence", submission, "requirement", "");
+        String report = json.writeValueAsString(Map.of("summary", "All obligations approved", "findings", List.of(),
+            "missingRequiredSections", List.of(), "suggestedAction", "Approve mandatory certification",
+            "verifiedChecks", List.of(invalid, scopeCheck, submissionCheck)));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+
+        var raw = provider.review(input());
+        assertThat(raw.verifiedChecks().get(0).requirement()).isEqualTo("Invented mandatory certification");
+        var grounded = AiReviewService.postprocessForBenchmark(raw, "SRS", "", "", scope + "\n" + submission);
+
+        assertThat(grounded.verifiedChecks()).hasSize(2).allSatisfy(check -> assertThat(check.requirement()).isEmpty());
+        assertThat(grounded.verifiedChecks()).extracting(AiReviewProvider.VerifiedCheck::documentEvidence)
+            .containsExactly(scope, submission);
+        assertThat(grounded.outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS);
+        assertThat(grounded.summary()).doesNotContain("approved", "certification");
+        assertThat(grounded.suggestedAction()).doesNotContain("certification");
+        server.verify();
+    }
+
+    @Test void invalidSourceRequirementPairsCannotBecomePositiveEvidence() throws Exception {
+        String evidence = "The system supports account registration and role-specific access.";
+        var invalidDocument = Map.of("aspect", "Invented obligation", "source", "DOCUMENT",
+            "documentEvidence", evidence, "requirement", "Invented mandatory certification");
+        var unquotedAuthority = Map.of("aspect", "Unquoted obligation", "source", "OFFICIAL_TEMPLATE",
+            "documentEvidence", evidence, "requirement", "");
+        for (var check : List.of(invalidDocument, unquotedAuthority)) {
+            String report = json.writeValueAsString(Map.of("summary", "Approved", "findings", List.of(),
+                "missingRequiredSections", List.of(), "suggestedAction", "Approve", "verifiedChecks", List.of(check)));
+            server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+        }
+        for (int attempt = 0; attempt < 2; attempt++) {
+            var grounded = AiReviewService.postprocessForBenchmark(provider.review(input()), "SRS", "", "", evidence);
+            assertThat(grounded.verifiedChecks()).isEmpty();
+            assertThat(grounded.outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        }
+        server.verify();
+    }
+
     @Test void rejectsMalformedVerifiedChecksWithoutInventingPositiveEvidence() throws Exception {
         var valid = Map.of("aspect", "Section 2.1 describes scope", "source", "DOCUMENT",
             "documentEvidence", "The system supports account registration.", "requirement", "");
         var noQuote = Map.of("aspect", "Section 2.1 describes scope", "source", "DOCUMENT",
             "documentEvidence", "", "requirement", "");
-        var missingAuthority = Map.of("aspect", "Section 3.2 lists functional requirements",
-            "source", "OFFICIAL_TEMPLATE", "documentEvidence", "FR-01: The student can submit a PDF.",
-            "requirement", "");
-        var inventedAuthority = Map.of("aspect", "Section 2.1 describes scope", "source", "DOCUMENT",
-            "documentEvidence", "The system supports account registration.", "requirement", "Include functional requirements");
+        var nonStringRequirement = Map.of("aspect", "Section 3.2 lists functional requirements",
+            "source", "OFFICIAL_TEMPLATE", "documentEvidence", "FR-01: The student can submit a PDF.", "requirement", 42);
+        var invalidSource = Map.of("aspect", "Section 2.1 describes scope", "source", "UNKNOWN",
+            "documentEvidence", "The system supports account registration.", "requirement", "");
         for (Object checks : List.of("not an array", java.util.Collections.nCopies(6, valid),
-                List.of(noQuote), List.of(missingAuthority), List.of(inventedAuthority))) {
+                List.of(noQuote), List.of(nonStringRequirement), List.of(invalidSource))) {
             String report = json.writeValueAsString(Map.of("summary", "Narrow observations only.",
                 "findings", List.of(), "missingRequiredSections", List.of(),
                 "suggestedAction", "Check other sections independently.", "verifiedChecks", checks));

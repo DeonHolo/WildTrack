@@ -97,3 +97,46 @@ Local evidence:
 
 Whether the named-section defect caused the four rejections in the earlier live STD remains unverified.
 The next hosted attempt must establish the accepted evidence or the newly reported rejection reasons.
+
+## Second hosted attempt: confirmed source/requirement mismatch
+
+PR #107 merged at `2026-10-13T13:58:18Z` as `6d79a94b36f94ee7884eb0c392cc4ee49da7d368`.
+Vercel's production deployment was `READY`; Heroku deployment `7040493686` succeeded at
+`2026-10-13T13:59:35Z` (release `v136`). The live page correctly made the earlier report historical under
+the new review fingerprint.
+
+One document was selected in the signed-in Chrome browser. Batch `bbbe6397-826d-4b7c-8dbf-dda2a4a35fea`
+sent one start request. Its provider attempt failed at `2026-10-13T14:03:32.612Z` with:
+
+```text
+Gemini AI review failure: stage=response_validation code=INVALID_RESPONSE detail=document_check_has_requirement
+AI review failure: stage=provider code=INVALID_RESPONSE exception=Failure
+```
+
+The saved-result endpoint returned `UNCERTAIN`, `failureCode: INVALID_RESPONSE`, and no current report.
+The earlier report remained available with its original generation time. No automatic retry was sent.
+
+This failure occurred before grounding: at least one provider check had source `DOCUMENT` with a nonempty
+requirement. The compact schema allowed that combination, although the prompt prohibited it. The parser
+rejected the entire response instead of letting grounding discard that unsafe check individually. This cause
+is confirmed for this attempt; it does not establish why the four checks in the earlier attempt were rejected.
+
+## Source-pair correction
+
+- Use two compact schema alternatives: document observations have source `DOCUMENT` and an empty requirement;
+  authority checks use `DELIVERABLE_REQUIREMENTS` or `OFFICIAL_TEMPLATE` and quote the supplied authority.
+- Preserve bounded, typed source/requirement pairs when parsing. Grounding still rejects contradictory pairs,
+  absent authority quotes and unverified PDF evidence individually. Do not erase the supplied requirement,
+  change the source, or turn an invalid check into accepted evidence.
+- Continue rejecting malformed arrays, unknown sources, wrong field types, missing evidence and excessive output.
+- Advance the provider fingerprint to `structured-review-v5-source-pairs-compact`. Preserve the model,
+  generation settings, explicit empty-array behavior, saved-report compatibility and no-automatic-retry policy.
+
+The [Gemini generation API reference](https://ai.google.dev/api/generate-content#v1beta.GenerationConfig)
+lists `anyOf`, `enum`, `properties` and `required` among the supported JSON Schema properties. The schema
+remains limited to the existing five report fields and at most five positive checks.
+
+Local verification passed 199 backend tests across seven suites. Regression coverage exercises the HTTP
+response parser followed by grounding: valid independent observations survive an unusable check, and an
+invalid source/requirement pair alone cannot produce a positive result. The new schema and both semantic
+regressions reproduced failures before this correction. The backend package build passed. Hosted acceptance is still pending.
