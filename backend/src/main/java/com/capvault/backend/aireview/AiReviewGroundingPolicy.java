@@ -476,6 +476,32 @@ final class AiReviewGroundingPolicy {
         boolean inBody(int index) { return toc < 0 || index < toc || index > tocEnd; }
     }
 
+    static List<String> positiveEvidencePassages(String pdfText) {
+        var region = layout(pdfText, true);
+        if (!region.reliableBody()) return List.of();
+        var candidates = new ArrayList<String>();
+        var seen = new HashSet<String>();
+        int start = region.toc() < 0 ? 0 : region.tocEnd() + 1;
+        for (int i = start; i < region.lines().size(); i++) {
+            String line = region.lines().get(i);
+            if (NUMBERED_HEADING.matcher(line).matches() || TOC_LEADER.matcher(line).matches()
+                    || containsExplicitPlaceholder(line)) continue;
+            String excerpt = line;
+            if (excerpt.length() > 320) {
+                excerpt = excerpt.substring(0, 320);
+                int wordEnd = excerpt.lastIndexOf(' ');
+                if (wordEnd >= 0) excerpt = excerpt.substring(0, wordEnd);
+            }
+            String normalized = normalize(excerpt);
+            if (excerpt.length() >= 60 && normalized.split(" ").length >= 8 && seen.add(normalized))
+                candidates.add(excerpt);
+        }
+        if (candidates.size() <= 6) return List.copyOf(candidates);
+        var selected = new ArrayList<String>();
+        for (int i = 0; i < 6; i++) selected.add(candidates.get(i * (candidates.size() - 1) / 5));
+        return List.copyOf(selected);
+    }
+
     static boolean hasReliableBodyBoundary(String pdfText) {
         return pdfText != null && !pdfText.isBlank() && layout(pdfText, true).reliableBody();
     }
