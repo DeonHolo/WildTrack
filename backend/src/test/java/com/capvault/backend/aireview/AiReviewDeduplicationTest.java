@@ -373,6 +373,39 @@ class AiReviewDeduplicationTest {
         verify(provider, times(2)).review(any());
     }
 
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void groundingDiagnosticsExplainDiscardedChecksWithoutLoggingPdfOrProviderText(CapturedOutput output) {
+        String privateBody = "Private project records signed-in team submissions and adviser feedback.";
+        String inventedQuote = "Private invented PDF passage with secret-token.";
+        String inventedRequirement = "Private unprovided requirement with secret-token.";
+        when(pdf.inspect(any())).thenReturn(new PdfInspection(true, false, 4, privateBody.length(), privateBody, ""));
+        var checks = List.of(
+            new AiReviewProvider.VerifiedCheck("Team submissions are described", AiReviewProvider.FindingSource.DOCUMENT,
+                inventedQuote, ""),
+            new AiReviewProvider.VerifiedCheck("Adviser feedback is described", AiReviewProvider.FindingSource.DOCUMENT,
+                inventedQuote + " Another invented sentence.", ""),
+            new AiReviewProvider.VerifiedCheck("All sections are complete", AiReviewProvider.FindingSource.DOCUMENT,
+                privateBody, ""),
+            new AiReviewProvider.VerifiedCheck("Team identity is stated", AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS,
+                privateBody, inventedRequirement));
+        when(provider.review(any())).thenReturn(new AiReviewProvider.Result("Private provider summary", List.of(),
+            List.of(), List.of(), "Private provider action", checks));
+
+        var saved = run(first);
+
+        assertThat(saved.status()).isEqualTo("COMPLETED");
+        assertThat(saved.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        assertThat(saved.report().verifiedChecks()).isEmpty();
+        assertThat(output.getAll()).contains("proposedChecks=4 verifiedChecks=0",
+                "BLANKET_CLAIM=1", "DOCUMENT_QUOTE_NOT_FOUND=2", "AUTHORITY_QUOTE_NOT_FOUND=1")
+            .doesNotContain(privateBody, inventedQuote, inventedRequirement, "secret-token",
+                "Private provider summary", "Private provider action", "file-first@example.com",
+                "https://drive.google.com/file/d/file-first");
+        assertThat(run(first).reused()).isTrue();
+        verify(provider, times(1)).review(any());
+    }
+
     @Test void aNoIssuesReviewCanBeInformativeWhenMultipleIndependentPdfObservationsAreVerified() {
         when(pdf.inspect(any())).thenReturn(new PdfInspection(true, false, 84, 1000, """
             Software Requirements Specification

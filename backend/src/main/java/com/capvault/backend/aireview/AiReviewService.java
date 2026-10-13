@@ -41,8 +41,8 @@ import org.springframework.web.server.ResponseStatusException;
 public class AiReviewService {
     private static final Logger LOG = LoggerFactory.getLogger(AiReviewService.class);
     // Post-validation behavior is part of the persisted review cache fingerprint.
-    // Do not reuse pre-TOC-fix reports whose false missing-index claim survived grounding.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v17";
+    // Do not reuse reports generated before the named body-section evidence correction.
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v18";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -333,13 +333,14 @@ public class AiReviewService {
                         var raw = provider.review(new AiReviewProvider.Input(key + ":" + claim.job().token(), bytes, inspection.extractedText(),
                             SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template()));
                         stage = "grounding";
-                        var result = groundAndValidate(raw, context, inspection.extractedText(), inspection.pages());
-                        // Counts only: never log PDF text, provider output, identities, URLs or credentials.
+                        var rejectedChecks = new java.util.EnumMap<CheckRejection, Integer>(CheckRejection.class);
+                        var result = groundAndValidate(raw, context, inspection.extractedText(), inspection.pages(), rejectedChecks);
+                        // Fixed labels and counts only; never log PDF text, provider output or credentials.
                         LOG.info("AI review grounded: outcome={} proposedFindings={} acceptedFindings={} "
-                            + "proposedSections={} acceptedSections={} proposedChecks={} verifiedChecks={} verificationNotes={}",
+                            + "proposedSections={} acceptedSections={} proposedChecks={} verifiedChecks={} verificationNotes={} rejectedChecks={}",
                             result.outcome(), raw.findings().size(), result.findings().size(),
                             raw.missingRequiredSections().size(), result.missingRequiredSections().size(),
-                            raw.verifiedChecks().size(), result.verifiedChecks().size(), result.verificationNotes().size());
+                            raw.verifiedChecks().size(), result.verifiedChecks().size(), result.verificationNotes().size(), rejectedChecks);
                         // Every valid result is saved; only a substantive result replaces report history.
                         stage = "persistence";
                         store.complete(claim.job(), json.writeValueAsString(result),
@@ -656,6 +657,11 @@ public class AiReviewService {
 
     private static AiReviewProvider.Result groundAndValidate(AiReviewProvider.Result result, Context context,
             String documentText, List<PdfInspection.PageText> pages) {
+        return groundAndValidate(result, context, documentText, pages, new java.util.EnumMap<>(CheckRejection.class));
+    }
+
+    private static AiReviewProvider.Result groundAndValidate(AiReviewProvider.Result result, Context context,
+            String documentText, List<PdfInspection.PageText> pages, Map<CheckRejection, Integer> rejectedChecks) {
         if (result == null || result.summary() == null || result.summary().isBlank() || result.summary().length() > 20000
                 || result.suggestedAction() == null || result.suggestedAction().length() > 10000
                 || result.findings() == null || result.findings().size() > 50
@@ -775,8 +781,14 @@ public class AiReviewService {
         // rephrasings of the cover title do not establish an informative review.
         var seenEvidence = new java.util.HashSet<String>();
         var verifiedChecks = result.verifiedChecks().stream()
-            .filter(check -> validateVerifiedCheck(check, context, documentText))
-            .filter(check -> seenEvidence.add(normalizeAuthorityText(check.documentEvidence())))
+            .filter(check -> {
+                var rejection = verifiedCheckRejection(check, context, documentText);
+                if (rejection == null && !seenEvidence.add(normalizeAuthorityText(check.documentEvidence())))
+                    rejection = CheckRejection.DUPLICATE_EVIDENCE;
+                if (rejection == null) return true;
+                rejectedChecks.merge(rejection, 1, Integer::sum);
+                return false;
+            })
             .map(check -> new AiReviewProvider.VerifiedCheck(check.aspect(), check.source(),
                 check.documentEvidence(), check.requirement(),
                 validatedLocation(check.location(), check.documentEvidence(), documentText, pages)))
@@ -806,41 +818,50 @@ public class AiReviewService {
             action, verifiedChecks, verificationNotes, outcome);
     }
 
-    private static boolean validateVerifiedCheck(AiReviewProvider.VerifiedCheck check,
+    private enum CheckRejection {
+        MALFORMED_CHECK, BLANKET_CLAIM, TEMPLATE_SAMPLE_IDENTITY, INSUFFICIENT_DOCUMENT_QUOTE,
+        DOCUMENT_QUOTE_NOT_FOUND, PLACEHOLDER_EVIDENCE, BODY_SECTION_MISMATCH,
+        DOCUMENT_HAS_REQUIREMENT, AUTHORITY_QUOTE_NOT_FOUND, DUPLICATE_EVIDENCE
+    }
+
+    private static CheckRejection verifiedCheckRejection(AiReviewProvider.VerifiedCheck check,
             Context context, String documentText) {
         if (check == null || check.source() == null || invalidText(check.aspect(), 200)
                 || invalidText(check.documentEvidence(), 1000) || check.requirement() == null
-                || check.requirement().length() > 2000) return false;
+                || check.requirement().length() > 2000) return CheckRejection.MALFORMED_CHECK;
         String aspect = normalizeAuthorityText(check.aspect());
         if (aspect.matches("(?s).*(?:all|every|everything|entire|whole|fully|completely|perfectly)\\s+"
-                + ".*(?:compliant|correct|valid|complete|pass|satisf|meet|fulfill|verif).*")) return false;
+                + ".*(?:compliant|correct|valid|complete|pass|satisf|meet|fulfill|verif).*")) return CheckRejection.BLANKET_CLAIM;
         if (check.source() == AiReviewProvider.FindingSource.DOCUMENT
                 && AiReviewGroundingPolicy.sampleNameConfusion(
-                    check.aspect() + " " + check.documentEvidence(), documentText, context.template())) return false;
+                    check.aspect() + " " + check.documentEvidence(), documentText, context.template())) return CheckRejection.TEMPLATE_SAMPLE_IDENTITY;
         if (check.source() == AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE
                 && AiReviewGroundingPolicy.unsupportedTemplateSampleIdentityClaim(
                     check.aspect() + " " + check.documentEvidence(), check.requirement(),
-                    documentText, context.template())) return false;
+                    documentText, context.template())) return CheckRejection.TEMPLATE_SAMPLE_IDENTITY;
         String excerpt = normalizeAuthorityText(check.documentEvidence());
-        if (excerpt.length() < 15 || excerpt.split(" ").length < 3
-                || !containsNormalized(documentText, check.documentEvidence())) return false;
-        if (AiReviewGroundingPolicy.containsExplicitPlaceholder(check.documentEvidence())) return false;
+        if (excerpt.length() < 15 || excerpt.split(" ").length < 3) return CheckRejection.INSUFFICIENT_DOCUMENT_QUOTE;
+        if (!containsNormalized(documentText, check.documentEvidence())) return CheckRejection.DOCUMENT_QUOTE_NOT_FOUND;
+        if (AiReviewGroundingPolicy.containsExplicitPlaceholder(check.documentEvidence())) return CheckRejection.PLACEHOLDER_EVIDENCE;
         String normalizedRequirement = normalizeAuthorityText(check.requirement());
-        if ((aspect.contains("body section") || normalizedRequirement.contains("body section"))) {
-            String topic = bodySectionTopic(check.aspect());
-            if (topic == null) topic = bodySectionTopic(check.requirement());
+        if (aspect.contains("body section") || aspect.contains("body subsection")
+                || normalizedRequirement.contains("body section") || normalizedRequirement.contains("body subsection")) {
+            String topic = verifiedCheckBodySectionTopic(check.aspect(), documentText);
+            if (topic == null) topic = verifiedCheckBodySectionTopic(check.requirement(), documentText);
             if (topic != null) {
                 if (!AiReviewGroundingPolicy.bodySectionContainsEvidence(
-                        documentText, topic, check.documentEvidence())) return false;
+                        documentText, topic, check.documentEvidence())) return CheckRejection.BODY_SECTION_MISMATCH;
             } else {
                 String firstLine = check.documentEvidence().lines().map(String::trim)
                     .filter(line -> !line.isBlank()).findFirst().orElse("");
-                if (!AiReviewGroundingPolicy.containsBodySectionContent(documentText, firstLine)) return false;
+                if (!AiReviewGroundingPolicy.containsBodySectionContent(documentText, firstLine)) return CheckRejection.BODY_SECTION_MISMATCH;
             }
         }
-        if (check.source() == AiReviewProvider.FindingSource.DOCUMENT) return check.requirement().isBlank();
+        if (check.source() == AiReviewProvider.FindingSource.DOCUMENT)
+            return check.requirement().isBlank() ? null : CheckRejection.DOCUMENT_HAS_REQUIREMENT;
         return !check.requirement().isBlank()
-            && containsNormalized(authorityText(check.source(), context), check.requirement());
+            && containsNormalized(authorityText(check.source(), context), check.requirement())
+                ? null : CheckRejection.AUTHORITY_QUOTE_NOT_FOUND;
     }
 
     private static boolean validateFinding(AiReviewProvider.Finding finding, Context context) {
@@ -958,6 +979,20 @@ public class AiReviewService {
             .replaceAll("\\b(?:body|section|subsection|chapter)\\b", " ")
             .replaceFirst("\\s+(?:controls?|requirements?)$", "")
             .trim().replaceAll("\\s+", " ");
+    }
+
+    private static String verifiedCheckBodySectionTopic(String text, String documentText) {
+        if (text == null || text.isBlank()) return null;
+        var marker = java.util.regex.Pattern.compile("(?i)\\bbody (?:sub)?section\\b").matcher(text);
+        if (!marker.find()) return null;
+        String followingTopic = bodySectionTopic(text);
+        String precedingTopic = text.substring(0, marker.start()).trim().replaceFirst("(?i)^the\\s+", "");
+        // A named heading before the marker is the scope of the claim, not the prose after it.
+        // Still require the exact evidence to belong to that body section below.
+        if (!precedingTopic.isBlank() && precedingTopic.length() <= 80 && precedingTopic.split("\\s+").length <= 8
+                && (followingTopic == null || AiReviewGroundingPolicy.containsBodyHeading(documentText, precedingTopic)))
+            return precedingTopic;
+        return followingTopic;
     }
 
     private static String bodySectionTopic(String text) {
