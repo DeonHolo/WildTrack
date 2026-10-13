@@ -26,6 +26,7 @@ class AiReviewStoreLifecycleTest {
         jdbc.execute("CREATE TABLE form_responses(id UUID PRIMARY KEY)");
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__deduplicated_ai_reviews.sql"),
             new ClassPathResource("db/migration/V33__ai_review_attempt_history.sql")).execute(ds);
+        jdbc.execute("ALTER TABLE ai_review_response_links ADD COLUMN source_verified_at TIMESTAMP WITH TIME ZONE");
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", workspace);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", deliverable);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(ds), Clock.systemUTC());
@@ -42,6 +43,24 @@ class AiReviewStoreLifecycleTest {
         assertThat(saved.latestAttemptReportJson()).contains("inconclusive");
         assertThat(saved.completedAt()).isNotNull();
         assertThat(saved.latestAttemptCompletedAt()).isNotNull();
+    }
+
+    @Test void verifyingARestoredDocumentKeepsTheGenerationDateAndPersistsANewVerificationTime() {
+        UUID response = UUID.randomUUID();
+        jdbc.update("INSERT INTO form_responses VALUES (?)", response);
+        var originalTime = java.time.Instant.parse("2026-10-13T14:55:20Z");
+        var verifiedTime = java.time.Instant.parse("2026-10-13T16:30:00Z");
+        var manager = new DataSourceTransactionManager(jdbc.getDataSource());
+        var original = new AiReviewStore(jdbc, manager, Clock.fixed(originalTime, java.time.ZoneOffset.UTC));
+        var job = original.claim("restored", workspace, deliverable, "team", "pdf", "ctx", null).job();
+        original.complete(job, "saved review");
+        original.link(response, 0, "restored");
+        var later = new AiReviewStore(jdbc, manager, Clock.fixed(verifiedTime, java.time.ZoneOffset.UTC));
+        later.link(response, 0, "restored");
+        var saved = later.linkedFor(java.util.List.of(response)).get(response);
+        assertThat(saved.job().completedAt()).isEqualTo(originalTime);
+        assertThat(saved.sourceVerifiedAt()).isEqualTo(verifiedTime);
+        assertThat(later.sourceVerifiedAt(response, "legacy", "restored", true)).isEqualTo(verifiedTime);
     }
 
     @Test void aPreparedRerunCannotReplaceANewerCompletedAttempt() {

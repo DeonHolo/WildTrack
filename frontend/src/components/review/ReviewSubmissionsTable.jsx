@@ -135,6 +135,7 @@ function aggregateAiStatus(response, deliverable) {
   if (statuses.includes('Retry required')) return 'Retry required';
   if (statuses.includes('Reviewing')) return 'Reviewing';
   if (statuses.includes('Inconclusive')) return 'Inconclusive';
+  if (statuses.includes('Outdated')) return 'Outdated';
   if (statuses.every((status) => status === 'Reviewed')) return 'Reviewed';
   return 'Not reviewed';
 }

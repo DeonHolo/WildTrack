@@ -40,6 +40,7 @@ import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { AiReviewReport } from '../components/review/AiReviewReport.jsx';
 import { AiReviewReportDialog } from '../components/review/AiReviewReportDialog.jsx';
+import { artifactTemplatePreviewUrl } from '../lib/templatePreview.js';
 import { StatusIndicator } from '../components/ui.jsx';
 import { APPLICATION_ROLES, useApplicationRole } from '../hooks/useApplicationRole.js';
 import { getStoredPreviewAdviser, setStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
@@ -58,6 +59,8 @@ import {
 } from '../lib/reviewDeskClient.js';
 import {
   artifactAiReview,
+  artifactAiReviewChange,
+  artifactAiReportForDisplay,
   artifactAiReviewStatus,
   artifactDocumentCheck,
   artifactDocumentCheckStatus,
@@ -155,7 +158,7 @@ export function AdviserViewPage() {
       && aiReviewDialogField.id === 'documentPdf'
       && isAiReportCurrent(aiReviewDialogResponse)
   );
-  const aiReviewDialogReport = aiReviewDialogReview?.report
+  const aiReviewDialogReport = artifactAiReportForDisplay(aiReviewDialogResponse, aiReviewDialogField)
     || (aiReviewDialogLegacyCurrent ? aiReviewDialogResponse.aiReport : null);
 
   useEffect(() => {
@@ -594,6 +597,7 @@ export function AdviserViewPage() {
           fileCheckStatus: checkDialogReport.status
         } : checkDialogResponse}
         observedHistory={checkDialogHistory}
+        templateFindingsUrl={artifactTemplatePreviewUrl(state.templates, activeWorkspaceId, checkDialogDeliverable, checkDialogField)}
         initialTab={checkDialogTarget?.initialTab || 'result'}
         historyOnly={checkDialogTarget?.initialTab === 'history' && !checkDialogReport}
         historyTarget={activeWorkspaceId && checkDialogResponse?.id && checkDialogFieldKey ? {
@@ -612,6 +616,7 @@ export function AdviserViewPage() {
         onClose={() => setAiReviewDialogTarget(null)}
         report={aiReviewDialogReport}
         review={aiReviewDialogReview}
+        documentChange={artifactAiReviewChange(aiReviewDialogResponse, aiReviewDialogField)}
         fieldLabel={aiReviewDialogField?.label || 'PDF'}
         deliverableTitle={aiReviewDialogDeliverable?.title}
       />
@@ -815,7 +820,7 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpe
   const artifactReview = aiEnabled ? artifactAiReview(response, field) : null;
   const artifactReviewCurrent = aiEnabled && isArtifactAiReviewCurrent(response, field);
   const legacyReviewCurrent = aiEnabled && !field.definitionId && !artifactReview && isAiReportCurrent(response);
-  const aiReport = artifactReviewCurrent ? artifactReview?.report : legacyReviewCurrent ? response.aiReport : null;
+  const aiReport = artifactAiReportForDisplay(response, field) || (legacyReviewCurrent ? response.aiReport : null);
   const aiReportForDisplay = aiReport || artifactReview?.previousReport || artifactReview?.lastSubstantiveReport || null;
   const aiStatus = legacyReviewCurrent
     ? aiReviewStatus(response)
@@ -870,6 +875,7 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpe
                   <Text size="xs" fw={750}>AI Review</Text>
                   <StatusIndicator status={aiStatus} />
                 </Group>
+                {artifactAiReviewChange(response, field) ? <Text size="sm" c="orange.8">AI Review may be outdated. The PDF has changed since the content for this review was checked.</Text> : null}
                 {!aiReportForDisplay ? <Text size="xs" c="dimmed">No current AI Review is available. AI Review is initiated by Sir/Admin.</Text> : null}
               </Stack>
             ) : null}

@@ -11,6 +11,7 @@ export function ObservedFileHistory({ history, audience = 'staff' }) {
       <div className="file-history-section-heading">
         {observations.length ? <span className="file-history-count">{observations.length} {observations.length === 1 ? 'entry' : 'entries'}</span> : null}
       </div>
+      <p className="file-history-caption">Drive edit is when the file was modified. Detected is when Document Check first recorded that change. All times are shown in your local timezone.</p>
       {observations.length ? <ol className="file-history-timeline" aria-label="Recorded file checks">
         {observations.slice(0, 3).map((observation, index) => (
           <RecordedCheck key={observationKey(observation, index)} observation={observation} studentView={studentView} />
@@ -28,10 +29,10 @@ export function ObservedFileHistory({ history, audience = 'staff' }) {
         <summary>Technical record details</summary>
         <p className="file-history-caption">These identifiers distinguish recorded file contents; they are not downloadable copies.</p>
         {observations.map((observation, index) => <div className="file-history-record" key={observationKey(observation, index)}>
-          <h4>{changeLabel(observation.changeType)} · {historyDate(observationTime(observation))}</h4>
+          <h4>{changeLabel(observation.changeType)} · {historyDate(observation.firstObservedAt)}</h4>
           <dl>
-            <dt>First recorded</dt><dd>{historyDate(observation.firstObservedAt)}</dd>
-            <dt>Last recorded</dt><dd>{historyDate(observation.lastObservedAt || observation.firstObservedAt)}</dd>
+            <dt>First detected</dt><dd>{historyDate(observation.firstObservedAt)}</dd>
+            <dt>Last checked</dt><dd>{historyDate(observation.lastObservedAt || observation.firstObservedAt)}</dd>
             <dt>Drive edit time</dt><dd>{historyDate(observation.driveModifiedTime)}</dd>
             <dt>Content identifier</dt><dd className="file-history-identifier">{observation.contentIdentifier || 'Unavailable'}</dd>
             <dt>Metadata source</dt><dd>{observation.editorMetadataSource || 'Google Drive File metadata'}</dd>
@@ -50,13 +51,15 @@ function RecordedCheck({ observation, studentView = false }) {
   return <li className="file-history-entry">
     <div className="file-history-entry-heading">
       <h4>{changeLabel(observation.changeType)}</h4>
-      <span className="file-history-date">Checked {historyDate(observationTime(observation))}</span>
+      <span className="file-history-date">Detected {historyDate(observation.firstObservedAt)}</span>
     </div>
     {!studentView ? <div className="file-history-editor"><span>Modified by</span>
       <DriveIdentityValue registeredStudent={observation.modifiedByStudent}
         providerValue={observation.modifiedBy || observation.modifiedByEmail} />
     </div> : null}
     {observation.driveModifiedTime ? <p className="file-history-caption">Drive edit: {historyDate(observation.driveModifiedTime)}</p> : null}
+    {observation.lastObservedAt && observation.lastObservedAt !== observation.firstObservedAt
+      ? <p className="file-history-caption">Last checked: {historyDate(observation.lastObservedAt)} · same recorded file state</p> : null}
   </li>;
 }
 

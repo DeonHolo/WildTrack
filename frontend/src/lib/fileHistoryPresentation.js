@@ -1,14 +1,12 @@
 import { formatDateTime } from './workflow.js';
+import { recordedTimestamp } from './recordedTime.js';
 
 export function historyDate(value) {
-  return historyTimestamp(value) == null ? 'Unavailable' : formatDateTime(value);
+  const timestamp = historyTimestamp(value);
+  return timestamp == null ? 'Unavailable' : formatDateTime(new Date(timestamp));
 }
 
-export function historyTimestamp(value) {
-  if (value == null || value === '') return null;
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : null;
-}
+export const historyTimestamp = recordedTimestamp;
 
 export function newestHistoryEntries(entries, dateOf) {
   return (Array.isArray(entries) ? entries : [])

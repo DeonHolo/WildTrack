@@ -5,10 +5,15 @@ import { useWorkspaceSession } from './WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 
 const emptyBatch = () => null;
+function savedDismissal(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
 
 export function useAiReviewBatch(workspaceId, onFinished) {
   const { session } = useWorkspaceSession();
   const accountKey = session?.authenticated ? JSON.stringify([session.email, session.googleSubject, session.roles]) : '';
+  const dismissalKey = `wildtrack.ai-batch-dismissal:${JSON.stringify([accountKey, workspaceId])}`;
+  const [dismissal, setDismissal] = useState(() => ({ key: dismissalKey, token: savedDismissal(dismissalKey) }));
   // Keep the last verified display across route mounts. The shared cache scopes it to
   // account/roles/workspace and revalidates with GET; cached progress never starts AI.
   const { data: batch, setData: setBatch, error: readError } = useWorkspaceResource(
@@ -94,5 +99,14 @@ export function useAiReviewBatch(workspaceId, onFinished) {
       }).catch(() => {});
     }
   }
-  return { batch, opened, busy, error: error || readError, prepare, start, resume, cancel, open: () => setOpened(true), running: batch?.state === 'RUNNING' };
+  const completedToken = batch?.state === 'COMPLETED' ? JSON.stringify([batch.id, batch.version]) : null;
+  const dismissedToken = dismissal.key === dismissalKey ? dismissal.token : savedDismissal(dismissalKey);
+  const panelDismissed = Boolean(completedToken && completedToken === dismissedToken);
+  function dismiss() {
+    if (!completedToken || busy) return;
+    try { localStorage.setItem(dismissalKey, completedToken); } catch { /* Still dismiss for this page visit. */ }
+    setDismissal({ key: dismissalKey, token: completedToken });
+  }
+  return { batch, opened, busy, error: error || readError, prepare, start, resume, cancel, dismiss, panelDismissed,
+    open: () => setOpened(true), running: batch?.state === 'RUNNING' };
 }

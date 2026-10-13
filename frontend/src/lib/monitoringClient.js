@@ -1,4 +1,4 @@
-import { getStaffMonitoring } from './api.js';
+import { getStaffMonitoring, getTemplates } from './api.js';
 import {
   applyFileCheck,
   applyFieldChecks,
@@ -11,6 +11,7 @@ import {
   mapProjects,
   mapResponse,
   mapStudents,
+  mapTemplates,
   mapTrackerColumns
 } from './backendDomain.js';
 
@@ -19,7 +20,7 @@ export function emptyMonitoringState() {
 }
 
 export async function loadMonitoringState(workspaceId) {
-  const payload = await getStaffMonitoring(workspaceId, true);
+  const [payload, templates] = await Promise.all([getStaffMonitoring(workspaceId, true), getTemplates(workspaceId)]);
   if ((payload.responses || []).some(raw => !Object.hasOwn(payload.reviewStates || {}, raw.id))) {
     throw new Error('Review status is not available. Reload after the server update finishes.');
   }
@@ -49,6 +50,7 @@ export async function loadMonitoringState(workspaceId) {
     projectMetadata: mapProjects(payload.projects || []),
     trackerColumns: mapTrackerColumns(payload.trackerColumns || []),
     deliverables,
+    templates: mapTemplates(templates || []),
     attempts: attempts.map(response => ({
       ...response,
       archiveStatus: (payload.archivedResponseIds || []).includes(response.id) ? 'Archived' : 'Not Archived'

@@ -19,6 +19,7 @@ it('restores current archived status in review, monitoring and archive after rel
       },
       allTeams: true
     };
+    else if (path === '/api/templates') body = [];
     else if (path === '/api/archive') body = [{ attemptId: 'current' }, { attemptId: 'edited' }];
     else if (path.endsWith('/review-state')) body = { acceptance: { sourceResponseUpdatedAt: updatedAt }, feedback: [] };
     else if (path.startsWith('/api/file-checks/')) return new Response('{}', { status: 404 });

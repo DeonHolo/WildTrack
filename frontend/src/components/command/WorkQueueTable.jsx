@@ -5,6 +5,7 @@ import {
   FileMagnifyingGlass,
   IdentificationBadge,
   SealWarning,
+  Trash,
   Table as TableIcon,
   WarningCircle
 } from '@phosphor-icons/react';
@@ -23,10 +24,10 @@ const TYPE_ICONS = {
 };
 
 export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchive, onDecideConflict,
-  onReview, onDismiss, onRestore, dismissed = false }) {
+  onReview, onDismiss, onRestore, onDelete, deleting = false, dismissed = false }) {
   return (
     <div className="wt-command-table-wrap">
-      <Table.ScrollContainer minWidth={720} type="native">
+      <Table.ScrollContainer minWidth={dismissed ? 960 : 860} type="native">
         <Table aria-label="Today's work queue" className="wt-command-table" verticalSpacing={0} horizontalSpacing={0}>
           <Table.Thead>
             <Table.Tr>
@@ -63,7 +64,7 @@ export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchi
                     ? formatDateTime(new Date(activityTimestamp))
                     : task.category === 'workspace' && task.type === 'Import warning' ? 'Current import' : 'Not recorded'}</Text></Table.Td>
                   <Table.Td>
-                    <div className="wt-command-row-actions">
+                    <div className={'wt-command-row-actions' + (dismissed ? ' is-dismissed' : '')}>
                     {task.action === 'check' ? (
                       <Button
                         variant="default"
@@ -107,10 +108,16 @@ export function WorkQueueTable({ tasks, runningIds = new Set(), onCheck, onArchi
                       </Button>
                     )}
                     <Button variant="subtle" color={dismissed ? 'wildtrackMaroon' : 'gray'} size="xs"
+                      disabled={deleting}
                       loading={runningIds.has(task.id)} onClick={() => dismissed ? onRestore(task) : onDismiss(task)}
                       aria-label={(dismissed ? 'Restore ' : 'Dismiss ') + task.type + ': ' + task.title}>
                       {dismissed ? 'Restore' : 'Dismiss'}
                     </Button>
+                    {dismissed ? <Button variant="subtle" color="red" size="xs" px={4} disabled={deleting}
+                      onClick={() => onDelete?.(task)} title="Delete dismissed notification"
+                      aria-label={'Delete dismissed ' + task.type + ': ' + task.title}>
+                      <Trash size={17} aria-hidden="true" />
+                    </Button> : null}
                     </div>
                   </Table.Td>
                 </Table.Tr>

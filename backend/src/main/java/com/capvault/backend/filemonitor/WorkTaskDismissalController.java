@@ -6,10 +6,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -32,6 +34,7 @@ public class WorkTaskDismissalController {
         this.security = security;
     }
     public record Action(UUID workspaceId, String taskKey) { }
+    public record Deletion(UUID workspaceId, List<String> taskKeys) { }
 
     private String subject(HttpServletRequest http) {
         var session = security.requireSession(http);
@@ -56,7 +59,7 @@ public class WorkTaskDismissalController {
     public void dismiss(@RequestBody Action action, HttpServletRequest http) {
         String user = subject(http);
         validate(action);
-        db.update("DELETE FROM work_task_dismissals WHERE workspace_id=? AND google_subject=? AND task_key=?",
+        db.update("DELETE FROM work_task_dismissals WHERE workspace_id=? AND google_subject=? AND task_key=? AND deleted_at IS NULL",
             action.workspaceId(), user, action.taskKey());
         try {
             db.update("""
@@ -72,8 +75,38 @@ public class WorkTaskDismissalController {
     public void restore(@RequestParam UUID workspaceId, @RequestParam String taskKey, HttpServletRequest http) {
         String user = subject(http);
         validate(new Action(workspaceId, taskKey));
-        db.update("DELETE FROM work_task_dismissals WHERE workspace_id=? AND google_subject=? AND task_key=?",
+        db.update("DELETE FROM work_task_dismissals WHERE workspace_id=? AND google_subject=? AND task_key=? AND deleted_at IS NULL",
             workspaceId, user, taskKey);
+    }
+
+    @GetMapping("/deleted")
+    public List<String> deleted(@RequestParam UUID workspaceId, HttpServletRequest http) {
+        String user = subject(http);
+        return db.query("""
+            SELECT task_key FROM work_task_dismissals
+            WHERE workspace_id=? AND google_subject=? AND deleted_at IS NOT NULL
+            """, (rs, n) -> rs.getString(1), workspaceId, user);
+    }
+
+    @PostMapping("/deleted")
+    @Transactional
+    public List<String> delete(@RequestBody Deletion action, HttpServletRequest http) {
+        String user = subject(http);
+        if (action == null || action.taskKeys() == null || action.taskKeys().isEmpty() || action.taskKeys().size() > 2000) {
+            throw new IllegalArgumentException("Choose dismissed notifications to delete.");
+        }
+        action.taskKeys().forEach(key -> validate(new Action(action.workspaceId(), key)));
+        var parameters = Map.of("workspace", action.workspaceId(), "user", user,
+            "keys", action.taskKeys().stream().distinct().toList(), "now", Timestamp.from(Instant.now()));
+        var named = new NamedParameterJdbcTemplate(db);
+        named.update("""
+            UPDATE work_task_dismissals SET deleted_at=COALESCE(deleted_at, :now)
+            WHERE workspace_id=:workspace AND google_subject=:user AND task_key IN (:keys)
+            """, parameters);
+        return named.query("""
+            SELECT task_key FROM work_task_dismissals
+            WHERE workspace_id=:workspace AND google_subject=:user AND task_key IN (:keys) AND deleted_at IS NOT NULL
+            """, parameters, (rs, n) -> rs.getString(1));
     }
 
     private void validate(Action action) {

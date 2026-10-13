@@ -11,11 +11,19 @@ const previousReport = {
   missingRequiredSections: []
 };
 
-function show(review, report = null) {
+function show(review, report = null, documentChange = null) {
   render(<MantineProvider theme={wildTrackTheme} forceColorScheme="light">
-    <AiReviewReportDialog opened onClose={vi.fn()} review={review} report={report} deliverableTitle="Software Requirements Specification" fieldLabel="SRS PDF" />
+    <AiReviewReportDialog opened onClose={vi.fn()} review={review} report={report} documentChange={documentChange} deliverableTitle="Software Requirements Specification" fieldLabel="SRS PDF" />
   </MantineProvider>);
 }
+
+it('warns above a saved report after Document Check detects changed content', async () => {
+  show({ status: 'COMPLETED', generatedAt: '2026-10-13T14:55:20Z' }, previousReport, { changeType: 'CONTENT_CHANGED' });
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByRole('alert')).toHaveTextContent('AI Review may be outdated');
+  expect(dialog).toHaveTextContent('Automatic Document Check does not run AI Review');
+  expect(dialog).toHaveTextContent('Title page names Software Project Management Plan');
+});
 
 it('labels a preserved previous report historical after an inconclusive rerun, never implying latest success', async () => {
   show({ status: 'UNCERTAIN', failureCode: 'FINDINGS_FILTERED', previousReport,

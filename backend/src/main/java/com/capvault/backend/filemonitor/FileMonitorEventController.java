@@ -49,7 +49,7 @@ public class FileMonitorEventController {
     public FileMonitorEventController(JdbcTemplate db, FormResponseRepository responses,
             DeliverableFieldRepository deliverableFields,
             StudentAssociationSecurity security, StaffManagementService staff, ObjectMapper json) {
-        this(db, responses, deliverableFields, security, staff, json, ZoneId.systemDefault());
+        this(db, responses, deliverableFields, security, staff, json, java.time.ZoneOffset.UTC);
     }
 
     FileMonitorEventController(JdbcTemplate db, FormResponseRepository responses,

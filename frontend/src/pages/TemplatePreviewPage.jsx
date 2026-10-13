@@ -28,13 +28,14 @@ export function TemplatePreviewPage() {
         <Paper withBorder p="md">
           <Stack gap="md">
             <Title order={2} size="h3">Template headings</Title>
-            <Text size="sm">{data.expectedHeadings.length} expected body sections · {data.detectedHeadings.length} detected in this template</Text>
-            <section aria-label="Expected body sections"><Text fw={600}>Expected by Document Check</Text>
-              <HeadingList headings={data.expectedHeadings} empty="No required body sections were identified." />
-            </section>
-            <details><summary>Headings detected in the template</summary>
+            <Text size="sm">{data.detectedHeadings.length} of {data.expectedHeadings.length} expected body sections detected in this template</Text>
+            <section aria-label="Template body sections"><Text fw={600}>Detected body sections</Text>
               <HeadingList headings={data.detectedHeadings} empty="No matching headings were detected in the template body." />
-            </details>
+            </section>
+            {data.expectedHeadings.some(heading => !data.detectedHeadings.includes(heading)) ? <section aria-label="Template sections not detected">
+              <Text fw={600}>Expected sections not detected</Text>
+              <HeadingList headings={data.expectedHeadings.filter(heading => !data.detectedHeadings.includes(heading))} />
+            </section> : null}
           </Stack>
         </Paper>
         <Paper withBorder p="lg">

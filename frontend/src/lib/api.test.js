@@ -1,8 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, decideIdentityConflict, describeSnapshotFailures, getAiReviewStatus, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getDocumentTemplatePreviewUrl, getDocumentTemplateStructure, getMyResponse, getSavedAiReview, logout, requestAiReview, saveBackendDeliverable, submitResponse } from './api.js';
+import { ApiError, decideIdentityConflict, describeSnapshotFailures, getAiReviewStatus, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getDeletedWorkTasks, getDocumentTemplatePreviewUrl, getDocumentTemplateStructure, getMyResponse, getSavedAiReview, logout, requestAiReview, saveBackendDeliverable, submitResponse } from './api.js';
 import { fetchCurrentSession, logoutSession } from './session.js';
 
 describe('production API delivery', () => {
+  it('keeps the queue readable during a staggered endpoint rollout without masking authorization failures', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('{}', { status: 404 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 403 }));
+    await expect(getDeletedWorkTasks('workspace-a')).resolves.toEqual([]);
+    await expect(getDeletedWorkTasks('workspace-a')).rejects.toMatchObject({ status: 403 });
+    expect(fetchMock).toHaveBeenCalledWith('/api/work-task-dismissals/deleted?workspaceId=workspace-a', expect.any(Object));
+    fetchMock.mockRestore();
+  });
   it('reads template structure through its scoped GET contract and uses a preview route for Open', async () => {
     const structure = { expectedHeadings: ['Introduction'], detectedHeadings: ['Introduction'], extractedText: 'Introduction' };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(structure), {

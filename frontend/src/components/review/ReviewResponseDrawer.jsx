@@ -22,6 +22,8 @@ import {
 import { compactMissingSections } from './DocumentCheckDialog.jsx';
 import {
   artifactAiReview,
+  artifactAiReviewChange,
+  artifactAiReportForDisplay,
   artifactAiReviewStatus,
   artifactDocumentCheck,
   artifactDocumentCheckStatus,
@@ -158,7 +160,8 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
   const aiState = artifactAiReview(response, field);
   const aiCurrent = isArtifactAiReviewCurrent(response, field);
   const aiStatus = artifactAiReviewStatus(response, field);
-  const aiReport = aiCurrent ? aiState?.report : null;
+  const aiReport = artifactAiReportForDisplay(response, field);
+  const documentChange = artifactAiReviewChange(response, field);
   const previousAiReport = !aiCurrent && aiState?.previousReport && aiState?.sourceUrl === value
     ? aiState.previousReport : null;
   const inconclusiveAttempt = aiState?.status === 'UNCERTAIN'
@@ -224,6 +227,7 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
             {field.aiReviewEnabled ? (
               <Stack gap={3}>
                 <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={reviewing ? 'Reviewing' : aiStatus} /></Group>
+                {documentChange ? <Text size="sm" c="orange.8">AI Review may be outdated. The PDF has changed since the content for this review was checked.</Text> : null}
                 {inconclusiveAttempt ? (
                   <Text size="sm" c="orange.8">Latest AI Review inconclusive.{' '}
                     {aiState?.message || (aiState?.failureCode === 'INSUFFICIENT_REVIEW_EVIDENCE'
@@ -238,7 +242,7 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
                 {reviewing && aiReport ? (
                   <Text size="xs" c="dimmed">A new review is running. The previous report remains available until the new result is saved.</Text>
                 ) : null}
-                {aiReport ? (
+                {aiReport && !documentChange ? (
                   <Text size="sm" c="dimmed" lineClamp={3}>{aiReport.summary}</Text>
                 ) : <Text size="xs" c="dimmed">{aiState?.message || 'No current AI Review is available for this PDF.'}</Text>}
               </Stack>

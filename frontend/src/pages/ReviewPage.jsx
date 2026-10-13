@@ -34,6 +34,7 @@ import { ReviewDeliverablesTable } from '../components/review/ReviewDeliverables
 import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
 import { ReviewSubmissionsTable } from '../components/review/ReviewSubmissionsTable.jsx';
 import { buildDeliverableReviewSummaries, filterReviewResponses, REVIEW_FILTERS } from '../lib/review.js';
+import { artifactTemplatePreviewUrl } from '../lib/templatePreview.js';
 import {
   acceptResponse,
   applyArtifactAiReview,
@@ -50,6 +51,8 @@ import {
 import {
   aiReviewableSubmissionFields,
   artifactAiReview,
+  artifactAiReviewChange,
+  artifactAiReportForDisplay,
   artifactAiReviewStatus,
   deliverableUsesDocumentCheck,
   findStudent,
@@ -209,9 +212,7 @@ export function ReviewPage() {
   const aiReportDialogReview = aiReportDialogField
     ? artifactAiReview(aiReportDialogResponse, aiReportDialogField)
     : null;
-  const aiReportDialogReport = aiReportDialogField && isArtifactAiReviewCurrent(aiReportDialogResponse, aiReportDialogField)
-    ? aiReportDialogReview?.report || null
-    : null;
+  const aiReportDialogReport = artifactAiReportForDisplay(aiReportDialogResponse, aiReportDialogField);
   const documentCheckEnabled = deliverableUsesDocumentCheck(selectedDeliverable);
   const uncheckedDocumentTargets = useMemo(() => documentCheckEnabled
     ? documentTargetsForResponses(selectedSummary?.responses || [], [selectedDeliverable], { onlyUnchecked: true })
@@ -775,6 +776,7 @@ export function ReviewPage() {
           <Button variant="subtle" onClick={() => setOverviewOpen(value => !value)} aria-expanded={overviewOpen}>{overviewOpen ? 'Hide overview' : 'Deliverable overview'}</Button></Group>
       </Group></Paper>
       <AiReviewBatchPanel batch={aiBatch.batch} error={aiBatch.error} busy={aiBatch.busy}
+        dismissed={aiBatch.panelDismissed} onDismiss={aiBatch.dismiss}
         onResume={aiBatch.resume} onChoose={aiBatch.open} onRefresh={reload}
         onPrepare={() => requestAiReview(allAiTargets, false, {}, true)} />
       <Modal opened={aiBatch.opened} onClose={aiBatch.cancel} title="AI review submissions" centered size="lg">
@@ -1079,6 +1081,7 @@ export function ReviewPage() {
         open={Boolean(checkDialogResponse)}
         response={checkDialogResponse && checkDialogReport ? { ...checkDialogResponse, documentCheck: checkDialogReport, fileCheckStatus: checkDialogReport.status } : checkDialogResponse}
         observedHistory={checkDialogHistory}
+        templateFindingsUrl={artifactTemplatePreviewUrl(state.templates, activeWorkspaceId, checkDialogDeliverable, checkDialogField)}
         initialTab={checkDialogTarget?.initialTab || 'result'}
         historyOnly={checkDialogTarget?.initialTab === 'history' && !checkDialogReport}
         historyTarget={activeWorkspaceId && checkDialogResponse?.id && checkDialogFieldKey ? {
@@ -1096,6 +1099,7 @@ export function ReviewPage() {
         opened={Boolean(aiReportDialogReport || aiReportDialogReview?.previousReport)}
         report={aiReportDialogReport}
         review={aiReportDialogReview}
+        documentChange={artifactAiReviewChange(aiReportDialogResponse, aiReportDialogField)}
         fieldLabel={aiReportDialogField?.label}
         deliverableTitle={aiReportDialogDeliverable?.title}
         onClose={() => setAiReportDialogTarget(null)}

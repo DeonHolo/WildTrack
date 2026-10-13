@@ -150,7 +150,7 @@ public class FileCheckService {
         String action = fileAccess
             ? "Check the submitted file's access, then try Document Check again."
             : "Try Document Check again later.";
-        return persist(workspaceId, request, blocked(request, LocalDateTime.now(),
+        return persist(workspaceId, request, blocked(request, LocalDateTime.now(java.time.ZoneOffset.UTC),
             summary,
             flag, action, null));
     }
@@ -171,7 +171,7 @@ public class FileCheckService {
     }
 
     private FileCheckResponse checkInternal(UUID workspaceId, FileCheckRequest request, CapturedPdf captured) {
-        LocalDateTime checkedAt = LocalDateTime.now();
+        LocalDateTime checkedAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
         FieldAssociation association = request.fieldId() == null ? null : validateFieldAssociation(workspaceId, request);
         if (!driveGateway.isConfigured()) {
             return persist(workspaceId, request, unavailable(request, checkedAt));

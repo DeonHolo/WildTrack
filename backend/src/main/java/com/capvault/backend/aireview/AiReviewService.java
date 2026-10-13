@@ -114,12 +114,24 @@ public class AiReviewService {
                        String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode,
                        String fieldId, String sourceUrl, AiReviewProvider.Result previousReport,
                        String previousGeneratedAt, AiReviewProvider.Result lastSubstantiveReport,
-                       String lastSubstantiveGeneratedAt) {
+                       String lastSubstantiveGeneratedAt, String sourceVerifiedAt) {
+        public View(String status, boolean reused, String message, AiReviewProvider.Result report,
+                String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode,
+                String fieldId, String sourceUrl, AiReviewProvider.Result previousReport, String previousGeneratedAt,
+                AiReviewProvider.Result lastSubstantiveReport, String lastSubstantiveGeneratedAt) {
+            this(status, reused, message, report, generatedAt, sourceResponseUpdatedAt, sourceVerified, retryToken,
+                failureCode, fieldId, sourceUrl, previousReport, previousGeneratedAt, lastSubstantiveReport, lastSubstantiveGeneratedAt, null);
+        }
         public View(String status, boolean reused, String message, AiReviewProvider.Result report,
                 String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode,
                 String fieldId, String sourceUrl, AiReviewProvider.Result previousReport, String previousGeneratedAt) {
             this(status, reused, message, report, generatedAt, sourceResponseUpdatedAt, sourceVerified, retryToken,
                 failureCode, fieldId, sourceUrl, previousReport, previousGeneratedAt, null, null);
+        }
+        View withSourceVerifiedAt(java.time.Instant value) {
+            return new View(status, reused, message, report, generatedAt, sourceResponseUpdatedAt, sourceVerified,
+                retryToken, failureCode, fieldId, sourceUrl, previousReport, previousGeneratedAt,
+                lastSubstantiveReport, lastSubstantiveGeneratedAt, instantText(value));
         }
     }
     private record Context(String hash, String title, String instructions, String template) { }
@@ -367,7 +379,8 @@ public class AiReviewService {
         }
         try { assertCurrent(response, target, context, subject); }
         catch (RuntimeException changed) { unlink(target, response, sourceValueHash, key); throw changed; }
-        return view(store.find(key).orElseThrow(), response, target, !claim.acquired(), true);
+        return view(store.find(key).orElseThrow(), response, target, !claim.acquired(), true)
+            .withSourceVerifiedAt(store.sourceVerifiedAt(response.getId(), target.fieldId(), key, target.legacyStore()));
     }
 
     /** Only Drive reads before the job claim can guarantee no Gemini request was started. */
@@ -409,9 +422,10 @@ public class AiReviewService {
         }
         if (linked.isEmpty() || !sameScope(linked.get(), response))
             return emptyFor(target, "NOT_REVIEWED", "No saved review matches this artifact and current team scope.");
-        return linked.get().contextHash().equals(context.hash())
+        return (linked.get().contextHash().equals(context.hash())
             ? view(linked.get(), response, target, true, false)
-            : outdated(linked.get(), response, target);
+            : outdated(linked.get(), response, target))
+            .withSourceVerifiedAt(store.sourceVerifiedAt(responseId, target.fieldId(), linked.get().key(), target.legacyStore()));
     }
 
     /** Only pass responses already scoped by the monitoring controller's staff authorization. No provider calls. */
@@ -425,7 +439,8 @@ public class AiReviewService {
                 var target = target(response, null);
                 var current = context(response, target);
                 result.put(response.getId(), current.hash().equals(link.job().contextHash())
-                    ? view(link.job(), response, target, true, false) : outdated(link.job(), response, target));
+                    ? view(link.job(), response, target, true, false).withSourceVerifiedAt(link.sourceVerifiedAt())
+                    : outdated(link.job(), response, target).withSourceVerifiedAt(link.sourceVerifiedAt()));
             } catch (IllegalArgumentException changedDeliverable) { /* A removed/non-PDF deliverable has no current AI report. */ }
         }
         return result;
@@ -448,8 +463,8 @@ public class AiReviewService {
                     boolean currentContext = context.hash().equals(entry.getValue().job().contextHash());
                     result.computeIfAbsent(response.getId(), ignored -> new java.util.LinkedHashMap<>())
                         .put(target.fieldId(), currentContext
-                            ? view(entry.getValue().job(), response, target, true, false)
-                            : outdated(entry.getValue().job(), response, target));
+                            ? view(entry.getValue().job(), response, target, true, false).withSourceVerifiedAt(entry.getValue().sourceVerifiedAt())
+                            : outdated(entry.getValue().job(), response, target).withSourceVerifiedAt(entry.getValue().sourceVerifiedAt()));
                 } catch (IllegalArgumentException changedField) { /* Retired/non-reviewable fields have no current result. */ }
             }
             if (result.containsKey(response.getId())) continue;
@@ -461,7 +476,8 @@ public class AiReviewService {
                 Context context = context(response, target);
                 result.computeIfAbsent(response.getId(), ignored -> new java.util.LinkedHashMap<>())
                     .put(target.fieldId(), context.hash().equals(old.job().contextHash())
-                        ? view(old.job(), response, target, true, false) : outdated(old.job(), response, target));
+                        ? view(old.job(), response, target, true, false).withSourceVerifiedAt(old.sourceVerifiedAt())
+                        : outdated(old.job(), response, target).withSourceVerifiedAt(old.sourceVerifiedAt()));
             } catch (IllegalArgumentException ignored) { }
         }
         return result;

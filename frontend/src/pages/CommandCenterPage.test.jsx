@@ -24,6 +24,8 @@ const api = vi.hoisted(() => ({
   getIdentityConflicts: vi.fn(),
   getFileMonitorEvents: vi.fn(),
   getWorkTaskDismissals: vi.fn(),
+  getDeletedWorkTasks: vi.fn().mockResolvedValue([]),
+  deleteDismissedWorkTasks: vi.fn(),
   dismissWorkTask: vi.fn(),
   restoreWorkTask: vi.fn(),
   getAiReviewStatus: vi.fn(),
@@ -395,7 +397,7 @@ describe("today's work queues", () => {
     expect(screen.getByText('No review work')).toBeInTheDocument();
   });
 
-  it('defaults to Priority and orders all task types using their existing activity timestamps', () => {
+  it('defaults to Newest activity and retains explicit Priority sorting below both activity options', () => {
     const activity = day => `2026-10-${String(day).padStart(2, '0')}T08:00:00Z`;
     workflow.state = makeState([
       response('document-001', { updatedAt: '', submittedAt: activity(1) }),
@@ -418,9 +420,10 @@ describe("today's work queues", () => {
     renderPage();
 
     const sort = screen.getByRole('combobox', { name: 'Sort by' });
-    expect(sort).toHaveValue('priority');
+    expect(sort).toHaveValue('newest');
     expect(within(sort).getAllByRole('option').map(option => option.textContent))
-      .toEqual(['Priority', 'Newest activity', 'Oldest activity']);
+      .toEqual(['Newest activity', 'Oldest activity', 'Priority']);
+    fireEvent.change(sort, { target: { value: 'priority' } });
     expect(workQueueTitles()).toEqual([
       'Account owner has unresolved Google account claims',
       'Student identity-002 used an identity already associated with another response',

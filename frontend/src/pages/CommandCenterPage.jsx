@@ -22,7 +22,7 @@ import { WorkQueueTable } from '../components/command/WorkQueueTable.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { archiveAttempts as archiveServerAttempts } from '../lib/archiveClient.js';
-import { dismissWorkTask, getAiReviewStatus, getFileMonitorEvents, getIdentityConflicts,
+import { deleteDismissedWorkTasks, getDeletedWorkTasks, dismissWorkTask, getAiReviewStatus, getFileMonitorEvents, getIdentityConflicts,
   getWorkTaskDismissals, restoreWorkTask } from '../lib/api.js';
 import { DocumentCheckDialog } from '../components/review/DocumentCheckDialog.jsx';
 import { AiReviewDialog } from '../components/review/AiReviewDialog.jsx';
@@ -30,6 +30,7 @@ import { AiReviewReportDialog } from '../components/review/AiReviewReportDialog.
 import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
 import { emptyMonitoringState, loadMonitoringState } from '../lib/monitoringClient.js';
 import { sortWorkQueue, WORK_QUEUE_SORT_OPTIONS } from '../lib/workQueueSorting.js';
+import { artifactTemplatePreviewUrl } from '../lib/templatePreview.js';
 import {
   applyDocumentCheck,
   applyArtifactAiReview,
@@ -43,6 +44,8 @@ import {
 import {
   artifactDocumentCheckStatus,
   artifactAiReview,
+  artifactAiReviewChange,
+  artifactAiReportForDisplay,
   artifactAiReviewStatus,
   isArtifactAiReviewCurrent,
   deliverableUsesDocumentCheck,
@@ -62,14 +65,14 @@ const QUEUE_FILTERS = [
   { value: 'archive', label: 'Archive' }
 ];
 
-function emptyWorkQueue() { return { ...emptyMonitoringState(), openConflicts: [], fileEvents: [], dismissedKeys: [] }; }
+function emptyWorkQueue() { return { ...emptyMonitoringState(), openConflicts: [], fileEvents: [], dismissedKeys: [], deletedKeys: [] }; }
 async function loadWorkQueue(workspaceId) {
-  const [monitoring, conflicts, fileEvents, dismissedKeys] = await Promise.all([
+  const [monitoring, conflicts, fileEvents, dismissedKeys, deletedKeys] = await Promise.all([
     loadMonitoringState(workspaceId), getIdentityConflicts(workspaceId),
-    getFileMonitorEvents(workspaceId), getWorkTaskDismissals(workspaceId)
+    getFileMonitorEvents(workspaceId), getWorkTaskDismissals(workspaceId), getDeletedWorkTasks(workspaceId)
   ]);
   return { ...monitoring, openConflicts: (conflicts || []).filter(item => item.status === 'OPEN'),
-    fileEvents: fileEvents || [], dismissedKeys: dismissedKeys || [] };
+    fileEvents: fileEvents || [], dismissedKeys: dismissedKeys || [], deletedKeys: deletedKeys || [] };
 }
 
 export function CommandCenterPage() {
@@ -87,13 +90,14 @@ export function CommandCenterPage() {
   const [aiRunning, setAiRunning] = useState(new Set());
   const [checkError, setCheckError] = useState('');
   const [query, setQuery] = useState('');
-  const [sortMode, setSortMode] = useState('priority');
+  const [sortMode, setSortMode] = useState('newest');
   const [page, setPage] = useState(1);
   const [runningIds, setRunningIds] = useState(new Set());
   const [checkingFields, setCheckingFields] = useState(new Set());
   const pendingChecks = useRef(new Set());
   const fileEventRefresh = useRef(0);
   const [bulkDismissProgress, setBulkDismissProgress] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [resolvedTaskIds, setResolvedTaskIds] = useState(new Set());
   const [batchProgress, setBatchProgress] = useState(null);
   const openConflicts = state.openConflicts || [];
@@ -108,6 +112,7 @@ export function CommandCenterPage() {
     pendingChecks.current = new Set();
     fileEventRefresh.current += 1;
     setBulkDismissProgress(null);
+    setDeleting(false);
     setResolvedTaskIds(new Set());
     setBatchProgress(null);
     setTaskTab('open');
@@ -123,13 +128,15 @@ export function CommandCenterPage() {
   // A local-only update disappears on navigation while the cached queue still
   // contains the old keys, briefly resurrecting dismissed work on return.
   const dismissed = useMemo(() => new Set(state.dismissedKeys ?? []), [state.dismissedKeys]);
-  const allTasks = useMemo(() => buildWorkQueue(state, openConflicts, dismissed),
-    [state, openConflicts, dismissed]);
+  const deleted = useMemo(() => new Set(state.deletedKeys ?? []), [state.deletedKeys]);
+  const allTasks = useMemo(() => buildWorkQueue(state, openConflicts, dismissed, deleted).filter(task => !deleted.has(task.id)),
+    [state, openConflicts, dismissed, deleted]);
   const openTasks = useMemo(
     () => allTasks.filter((task) => !resolvedTaskIds.has(task.id) && !dismissed.has(task.id)),
     [allTasks, resolvedTaskIds, dismissed]
   );
   const dismissedTasks = allTasks.filter((task) => dismissed.has(task.id));
+  const deletableKeys = [...dismissed].filter(key => !deleted.has(key));
   const displayedTasks = taskTab === 'dismissed' ? dismissedTasks : openTasks;
   // A bulk action applies to the selected *section*, not just the current search
   // result or first page. All work intentionally covers every category.
@@ -173,7 +180,7 @@ export function CommandCenterPage() {
   const aiField = state.deliverables.find(item => item.id === aiResponse?.deliverableId)?.fields?.find(field =>
     (field.definitionId || field.id) === aiDialogTarget?.fieldId);
   const aiReview = aiField ? artifactAiReview(aiResponse, aiField) : null;
-  const aiReport = aiField && isArtifactAiReviewCurrent(aiResponse, aiField) ? aiReview?.report : null;
+  const aiReport = artifactAiReportForDisplay(aiResponse, aiField);
 
   function chooseFilter(value) {
     setFilter(value);
@@ -181,7 +188,7 @@ export function CommandCenterPage() {
   }
 
   async function changeDismissal(task, shouldDismiss) {
-    if (!isCurrentScope() || bulkDismissProgress) return;
+    if (!isCurrentScope() || bulkDismissProgress || deleting) return;
     setRunningIds(current => withId(current, task.id));
     try {
       if (shouldDismiss) await dismissWorkTask(workspaceId, task.id);
@@ -202,7 +209,7 @@ export function CommandCenterPage() {
   }
 
   async function changeSectionDismissal() {
-    if (!isCurrentScope() || bulkDismissProgress || !sectionTasks.length) return;
+    if (!isCurrentScope() || bulkDismissProgress || deleting || !sectionTasks.length) return;
     const shouldDismiss = taskTab === 'open';
     const targets = [...sectionTasks];
     const selectedWorkspace = workspaceId;
@@ -241,6 +248,34 @@ export function CommandCenterPage() {
         message: failed ? `${targets.length - failed} updated; ${failed} failed. Retry the remaining items.`
           : `${targets.length} notification${targets.length === 1 ? '' : 's'} updated.` });
     }
+  }
+
+  function confirmDeleteDismissed(task = null) {
+    const keys = task ? [task.id] : [...deletableKeys];
+    if (!keys.length || taskTab !== 'dismissed' || deleting || bulkDismissProgress) return;
+    const currentScope = isCurrentScope;
+    const selectedWorkspace = workspaceId;
+    modals.openConfirmModal({
+      title: task ? 'Delete this dismissed notification?' : 'Delete all dismissed notifications?',
+      children: <Text size="sm">These notifications will be removed from your dismissed list and cannot be restored there.
+        {!task ? ' This clears all your dismissed notifications in this workspace, including earlier alerts, regardless of the current search or filter.' : ''}
+        {' '}Submissions, reviews, file history, and other users&apos; notifications stay intact. New PDF changes will still create new notifications.</Text>,
+      labels: { confirm: task ? 'Delete notification' : 'Delete all', cancel: 'Cancel' },
+      confirmProps: { color: 'red' }, centered: true,
+      onConfirm: async () => {
+        if (!currentScope()) return;
+        setDeleting(true);
+        try {
+          const removed = await deleteDismissedWorkTasks(selectedWorkspace, keys);
+          if (!currentScope()) return;
+          setState(current => ({ ...current, deletedKeys: [...new Set([...(current.deletedKeys || []), ...removed])] }));
+          notifications.show({ color: removed.length === keys.length ? 'green' : 'orange', title: 'Dismissed notifications deleted',
+            message: `${removed.length} of ${keys.length} removed.` });
+        } catch (failure) {
+          if (currentScope()) notifications.show({ color: 'red', title: 'Delete failed', message: failure?.message || 'The notifications could not be deleted.' });
+        } finally { if (currentScope()) setDeleting(false); }
+      }
+    });
   }
 
   function openResponse(task) {
@@ -626,11 +661,16 @@ export function CommandCenterPage() {
           <Text size="sm" fw={700} c="dimmed" className="wt-nowrap wt-tabular">
             Showing {firstRow}-{lastRow} of {visibleTasks.length}
           </Text>
-          <Button size="xs" variant="default" disabled={!sectionTasks.length || Boolean(bulkDismissProgress)}
+          <Button size="xs" variant="default" disabled={!sectionTasks.length || Boolean(bulkDismissProgress) || deleting}
             loading={Boolean(bulkDismissProgress)} onClick={changeSectionDismissal}
             aria-label={`${taskTab === 'dismissed' ? 'Restore' : 'Dismiss'} all ${filter === 'all' ? 'work' : QUEUE_FILTERS.find(item => item.value === filter)?.label || filter} notifications`}>
             {taskTab === 'dismissed' ? 'Restore all' : 'Dismiss all'} ({sectionTasks.length})
           </Button>
+          {taskTab === 'dismissed' ? <Button size="xs" variant="light" color="red"
+            disabled={!deletableKeys.length || Boolean(bulkDismissProgress)} loading={deleting}
+            onClick={() => confirmDeleteDismissed()} aria-label="Delete all dismissed notifications">
+            Delete all
+          </Button> : null}
         </div>
 
         {bulkDismissProgress ? <Text role="status" size="sm" ml="md" mb="xs">
@@ -663,6 +703,7 @@ export function CommandCenterPage() {
         {visibleTasks.length ? (
           <>
             <WorkQueueTable
+              onDelete={confirmDeleteDismissed} deleting={deleting}
               tasks={pageTasks}
               runningIds={runningIds}
               onCheck={checkDocument}
@@ -712,6 +753,7 @@ export function CommandCenterPage() {
       <DocumentCheckDialog open={Boolean(checkResponse && checkField)}
         response={checkResponse && checkReport ? { ...checkResponse, documentCheck: checkReport, fileCheckStatus: checkReport.status } : checkResponse}
         observedHistory={checkResponse?.observedFileHistoryByField?.[checkFieldId] || checkResponse?.observedFileHistory || null}
+        templateFindingsUrl={artifactTemplatePreviewUrl(state.templates, workspaceId, checkDeliverable, checkField)}
         initialTab={checkDialogTarget?.initialTab || 'result'}
         historyOnly={checkDialogTarget?.initialTab === 'history' && !checkReport}
         historyTarget={workspaceId && checkResponse?.id && checkFieldId ? { workspaceId, responseId: checkResponse.id,
@@ -720,13 +762,14 @@ export function CommandCenterPage() {
         rechecking={Boolean(checkResponse && checkingFields.has(checkResponse.id + ':' + checkFieldId))}
         error={checkError} onClose={() => { setCheckDialogTarget(null); setCheckError(''); }} onRecheck={recheckFromDialog} />
       <AiReviewReportDialog opened={Boolean(aiReport || aiReview?.previousReport)} report={aiReport} review={aiReview}
+        documentChange={artifactAiReviewChange(aiResponse, aiField)}
         fieldLabel={aiField?.label} deliverableTitle={state.deliverables.find(item => item.id === aiResponse?.deliverableId)?.title}
         onClose={() => setAiDialogTarget(null)} />
     </Stack>
   );
 }
 
-function buildWorkQueue(state, openConflicts = [], dismissedKeys = new Set()) {
+function buildWorkQueue(state, openConflicts = [], dismissedKeys = new Set(), deletedKeys = new Set()) {
   const tasks = [];
   const attempts = state.attempts || [];
   const byResponse = new Map(attempts.map(response => [response.id, response]));
@@ -744,7 +787,7 @@ function buildWorkQueue(state, openConflicts = [], dismissedKeys = new Set()) {
     // changes still need review; restoration itself is not an unfinished task.
     events.sort((a, b) => dateValue(b.observedAt) - dateValue(a.observedAt));
     const restoredAt = Math.max(0, ...events.filter(event => event.kind === 'ACCESS_RESTORED').map(event => dateValue(event.observedAt)));
-    const actionable = events.filter(event => !event.resolved && event.kind !== 'ACCESS_RESTORED'
+    const actionable = events.filter(event => !deletedKeys.has(fileEventTaskId(event)) && !event.resolved && event.kind !== 'ACCESS_RESTORED'
       && !(['ACCESS_UNAVAILABLE', 'DOWNLOAD_UNAVAILABLE'].includes(event.kind) && dateValue(event.observedAt) < restoredAt));
     if (!actionable.length) continue;
     const significantEvents = actionable.filter(event => isSignificantFileEvent(event.kind));
