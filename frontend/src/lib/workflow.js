@@ -672,7 +672,7 @@ function parseDisplayDate(value) {
 
 export function statusTone(status) {
   const key = String(status).toLowerCase();
-  if (key === 'retry required') return 'warning';
+  if (key === 'retry required' || key === 'inconclusive') return 'warning';
   if (key === 'reviewing') return 'info';
   if (/^\d+\s+days?\s+late$/.test(key)) return 'warning';
   if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'looks substantially filled', 'connected', 'imported', 'published', 'submitted', 'file accessible'].includes(key)) return 'success';

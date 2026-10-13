@@ -117,6 +117,7 @@ describe('Document Check submission-substance status tones', () => {
   it('renders the positive and inconclusive conclusions with meaningful tones', () => {
     expect(statusTone('Looks substantially filled')).toBe('success');
     expect(statusTone('Could not determine')).toBe('warning');
+    expect(statusTone('Inconclusive')).toBe('warning');
   });
 });
 
