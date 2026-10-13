@@ -334,6 +334,12 @@ public class AiReviewService {
                             SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template()));
                         stage = "grounding";
                         var result = groundAndValidate(raw, context, inspection.extractedText(), inspection.pages());
+                        // Counts only: never log PDF text, provider output, identities, URLs or credentials.
+                        LOG.info("AI review grounded: outcome={} proposedFindings={} acceptedFindings={} "
+                            + "proposedSections={} acceptedSections={} proposedChecks={} verifiedChecks={} verificationNotes={}",
+                            result.outcome(), raw.findings().size(), result.findings().size(),
+                            raw.missingRequiredSections().size(), result.missingRequiredSections().size(),
+                            raw.verifiedChecks().size(), result.verifiedChecks().size(), result.verificationNotes().size());
                         // Every valid result is saved; only a substantive result replaces report history.
                         stage = "persistence";
                         store.complete(claim.job(), json.writeValueAsString(result),
@@ -785,10 +791,16 @@ public class AiReviewService {
                 ? AiReviewProvider.ReviewOutcome.INCONCLUSIVE
                 : AiReviewProvider.ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS;
         String summary = outcome == AiReviewProvider.ReviewOutcome.INCONCLUSIVE
-            ? "AI Review is inconclusive. Unresolved verification or limited grounded evidence requires review of the original PDF."
+            ? !verificationNotes.isEmpty()
+                ? "AI Review is inconclusive. Unresolved verification requires review of the original PDF."
+                : verifiedChecks.isEmpty()
+                    ? "AI Review is inconclusive. No source-backed findings or verified checks were recorded."
+                    : "AI Review is inconclusive. Only one independent source-backed check was recorded; more checked evidence is needed."
             : groundedSummary(groundedFindings, groundedMissing, groundedLimitations, verifiedChecks);
         String action = outcome == AiReviewProvider.ReviewOutcome.INCONCLUSIVE
-            ? "Verify the cited areas in the original PDF before deciding whether a revision is needed."
+            ? verificationNotes.isEmpty() && verifiedChecks.isEmpty()
+                ? "Review the original PDF directly; this attempt supplied no checked evidence."
+                : "Verify the cited areas in the original PDF before deciding whether a revision is needed."
             : groundedSuggestedAction(groundedFindings, groundedMissing, groundedLimitations, verifiedChecks);
         return new AiReviewProvider.Result(summary, groundedFindings, groundedMissing, groundedLimitations,
             action, verifiedChecks, verificationNotes, outcome);

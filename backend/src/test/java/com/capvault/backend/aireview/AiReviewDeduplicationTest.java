@@ -351,7 +351,7 @@ class AiReviewDeduplicationTest {
         verify(provider, times(2)).review(any());
     }
 
-    @Test void aProviderResponseWithNoStructuredFindingsIsNotSavedAsACompletedReview() {
+    @Test void aProviderResponseWithNoCheckedEvidenceIsSavedAsInconclusiveWithoutAutomaticRetry() {
         when(provider.review(any())).thenReturn(new AiReviewProvider.Result("Looks fine", List.of(),
             List.of(), List.of(), "No changes needed"));
 
@@ -359,6 +359,9 @@ class AiReviewDeduplicationTest {
         assertThat(inconclusive.status()).isEqualTo("COMPLETED");
         assertThat(inconclusive.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
         assertThat(inconclusive.report().verificationNotes()).isNotNull();
+        assertThat(inconclusive.report().verifiedChecks()).isEmpty();
+        assertThat(inconclusive.report().summary()).contains("No source-backed findings or verified checks");
+        assertThat(inconclusive.report().suggestedAction()).contains("no checked evidence").doesNotContain("cited areas");
         assertThat(service.saved(workspace, second.getId(), "admin").status()).isEqualTo("NOT_REVIEWED");
         assertThat(run(first).status()).isEqualTo("COMPLETED");
         verify(provider, times(1)).review(any());
@@ -430,6 +433,8 @@ class AiReviewDeduplicationTest {
         var uncertain = run(first);
         assertThat(uncertain.status()).isEqualTo("COMPLETED");
         assertThat(uncertain.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        assertThat(uncertain.report().verifiedChecks()).hasSize(1);
+        assertThat(uncertain.report().summary()).contains("Only one independent source-backed check");
     }
 
     @Test void aGroundingFilterThatRemovesAllProposedFindingsReportsInconclusiveRatherThanSuccess() {

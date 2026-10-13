@@ -41,7 +41,7 @@ class GeminiAiReviewProviderTest {
             "content", Map.of("parts", List.of(Map.of("text", report)))))));
     }
     private String validResponse() throws Exception {
-        return response("{\"summary\":\"Requirements need clearer acceptance criteria.\",\"findings\":[{\"issue\":\"Requirement R1 has no measurable threshold.\",\"source\":\"DELIVERABLE_REQUIREMENTS\",\"evidence\":\"Section 3, requirement R1\",\"requirement\":\"Include functional requirements\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Ask the team to clarify R1.\"}", "STOP");
+        return response("{\"summary\":\"Requirements need clearer acceptance criteria.\",\"findings\":[{\"issue\":\"Requirement R1 has no measurable threshold.\",\"source\":\"DELIVERABLE_REQUIREMENTS\",\"evidence\":\"Section 3, requirement R1\",\"requirement\":\"Include functional requirements\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Ask the team to clarify R1.\",\"verifiedChecks\":[]}", "STOP");
     }
 
     @Test void parsesExtendedRecordedNotesWithTheCompactWireSchema() throws Exception {
@@ -51,7 +51,7 @@ class GeminiAiReviewProviderTest {
                 "source", "DOCUMENT", "evidence", "Artifact label", "requirement", "");
             String report = json.writeValueAsString(Map.of("summary", "Manual verification is needed.",
                 "findings", List.of(), "missingRequiredSections", List.of(), "suggestedAction", "",
-                "verificationNotes", java.util.Collections.nCopies(count, note)));
+                "verifiedChecks", List.of(), "verificationNotes", java.util.Collections.nCopies(count, note)));
             server.expect(requestTo(GENERATE))
                 .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verificationNotes").doesNotExist())
                 .andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
@@ -65,7 +65,7 @@ class GeminiAiReviewProviderTest {
             "evidence", "Artifact label", "requirement", "");
         String report = json.writeValueAsString(Map.of("summary", "Manual verification is needed.",
             "findings", List.of(), "missingRequiredSections", List.of(), "suggestedAction", "",
-            "verificationNotes", java.util.Collections.nCopies(51, note)));
+            "verifiedChecks", List.of(), "verificationNotes", java.util.Collections.nCopies(51, note)));
         server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
         assertThatThrownBy(() -> provider.review(input())).isInstanceOf(GeminiAiReviewProvider.Failure.class);
         server.verify();
@@ -108,10 +108,12 @@ class GeminiAiReviewProviderTest {
             .andExpect(jsonPath("$.generationConfig.thinkingConfig.thinkingBudget").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.maxOutputTokens").value(8192))
             .andExpect(jsonPath("$.generationConfig.responseMimeType").value("application/json"))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required.length()").value(4))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required.length()").value(5))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required").value(org.hamcrest.Matchers.hasItem("verifiedChecks")))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.source.enum.length()").value(3))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.missingRequiredSections.items.properties.source.enum.length()").value(2))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(5))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.minItems").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.required.length()").value(4))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.length()").value(5))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.length()").value(4))
@@ -124,6 +126,7 @@ class GeminiAiReviewProviderTest {
             .andExpect(content().string(org.hamcrest.Matchers.containsString("sample project names")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("internal contradictions")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("concrete missing item")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("Always include the verifiedChecks array.")))
             .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("DO NOT SEND THIS DUPLICATE TEXT"))))
             .andRespond(withSuccess(validResponse(), MediaType.APPLICATION_JSON));
         var result = provider.review(input());
@@ -132,12 +135,13 @@ class GeminiAiReviewProviderTest {
         assertThat(result.missingRequiredSections()).isEmpty();
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
-        assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v5", "thinking-minimal", "output-8192");
+        assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v5", "thinking-minimal", "output-8192",
+            "schema-structured-review-v4-compact");
         server.verify();
     }
 
     @Test void parsesOptionalFindingGuidanceLocationsAndVerificationNotes() throws Exception {
-        String report = "{\"summary\":\"A grounded issue was found.\",\"findings\":[{\"issue\":\"R1 is unclear.\",\"source\":\"DELIVERABLE_REQUIREMENTS\",\"evidence\":\"Page 4: R1 text\",\"requirement\":\"Include functional requirements\",\"title\":\"Clarify R1\",\"nextAction\":\"Add a measurable threshold.\",\"location\":{\"page\":4,\"section\":\"Functional requirements\"}}],\"missingRequiredSections\":[],\"suggestedAction\":\"Review R1.\",\"verificationNotes\":[{\"issue\":\"The heading location needs confirmation.\",\"source\":\"DOCUMENT\",\"evidence\":\"Page 4: R1 text\",\"requirement\":\"\",\"title\":\"Verify in PDF\",\"nextAction\":\"Open the original PDF.\",\"location\":{\"page\":4}}]}";
+        String report = "{\"summary\":\"A grounded issue was found.\",\"findings\":[{\"issue\":\"R1 is unclear.\",\"source\":\"DELIVERABLE_REQUIREMENTS\",\"evidence\":\"Page 4: R1 text\",\"requirement\":\"Include functional requirements\",\"title\":\"Clarify R1\",\"nextAction\":\"Add a measurable threshold.\",\"location\":{\"page\":4,\"section\":\"Functional requirements\"}}],\"missingRequiredSections\":[],\"suggestedAction\":\"Review R1.\",\"verifiedChecks\":[],\"verificationNotes\":[{\"issue\":\"The heading location needs confirmation.\",\"source\":\"DOCUMENT\",\"evidence\":\"Page 4: R1 text\",\"requirement\":\"\",\"title\":\"Verify in PDF\",\"nextAction\":\"Open the original PDF.\",\"location\":{\"page\":4}}]}";
         server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
         var result = provider.review(input());
         assertThat(result.findings().get(0).title()).isEqualTo("Clarify R1");
@@ -163,7 +167,7 @@ class GeminiAiReviewProviderTest {
     @Test void noTemplateIsExplicitInputStateAndProducesDeterministicReviewLimit() throws Exception {
         var noTemplate = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), "duplicate",
             "Instructor review only", "Refactored SPMP", "", "");
-        String report = response("{\"summary\":\"The PDF identifies itself as an Individual Problem Exploration report rather than the requested Refactored SPMP.\",\"findings\":[{\"issue\":\"The submitted PDF identifies itself as Individual Problem Exploration.\",\"source\":\"DOCUMENT\",\"evidence\":\"Page 1: Part A: Individual Problem Exploration\",\"requirement\":\"\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Verify that the correct Refactored SPMP file was submitted.\"}", "STOP");
+        String report = response("{\"summary\":\"The PDF identifies itself as an Individual Problem Exploration report rather than the requested Refactored SPMP.\",\"findings\":[{\"issue\":\"The submitted PDF identifies itself as Individual Problem Exploration.\",\"source\":\"DOCUMENT\",\"evidence\":\"Page 1: Part A: Individual Problem Exploration\",\"requirement\":\"\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Verify that the correct Refactored SPMP file was submitted.\",\"verifiedChecks\":[]}", "STOP");
         server.expect(requestTo(GENERATE))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("hasOfficialTemplate")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("false")))
@@ -314,9 +318,35 @@ class GeminiAiReviewProviderTest {
         assertThat(restored.verifiedChecks()).isEmpty();
     }
 
+    @Test void rejectsMissingVerifiedChecksInFreshGenerationWithoutRetry() throws Exception {
+        String report = json.writeValueAsString(Map.of("summary", "Available evidence is insufficient.",
+            "findings", List.of(), "missingRequiredSections", List.of(), "suggestedAction", "Inspect the PDF manually."));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> provider.review(input()))
+            .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                assertThat(failure.code).isEqualTo("INVALID_RESPONSE");
+                assertThat(failure.detail).isEqualTo("missing_verifiedChecks_array");
+            });
+        server.verify();
+    }
+
+    @Test void acceptsExplicitlyEmptyVerifiedChecksWhenNoEvidenceIsAvailable() throws Exception {
+        String report = json.writeValueAsString(Map.of("summary", "Available evidence is insufficient.",
+            "findings", List.of(), "missingRequiredSections", List.of(), "suggestedAction", "Inspect the PDF manually.",
+            "verifiedChecks", List.of()));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+
+        var result = provider.review(input());
+        assertThat(result.findings()).isEmpty();
+        assertThat(result.missingRequiredSections()).isEmpty();
+        assertThat(result.verifiedChecks()).isEmpty();
+        server.verify();
+    }
+
     @Test void parsesNarrowPositiveChecksWithDocumentAndAuthorityEvidence() throws Exception {
         var documentCheck = Map.of("aspect", "Section 2.1 describes the project scope", "source", "DOCUMENT",
-            "documentEvidence", "The system supports account registration and role-specific access.");
+            "documentEvidence", "The system supports account registration and role-specific access.", "requirement", "");
         var authorityCheck = Map.of("aspect", "Section 3.2 identifies functional requirements",
             "source", "DELIVERABLE_REQUIREMENTS", "documentEvidence", "FR-01: The student can submit a PDF.",
             "requirement", "Include functional requirements");
@@ -376,7 +406,7 @@ class GeminiAiReviewProviderTest {
                 "source", "OFFICIAL_TEMPLATE", "requirement", "Template " + i + ": " + "t".repeat(1_700)));
         }
         String report = json.writeValueAsString(Map.of("summary", "Review summary", "findings", findings,
-            "missingRequiredSections", missing, "suggestedAction", "Review cited passages."));
+            "missingRequiredSections", missing, "suggestedAction", "Review cited passages.", "verifiedChecks", List.of()));
         assertThat(report.length()).isGreaterThan(30_000).isLessThanOrEqualTo(100_000);
         server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
 
@@ -388,7 +418,7 @@ class GeminiAiReviewProviderTest {
     }
 
     @Test void jsonLargerThanBoundIsRejectedEvenIfItsStructureIsOtherwiseValid() throws Exception {
-        String report = "{\"summary\":\"Valid summary\",\"findings\":[],\"missingRequiredSections\":[],\"suggestedAction\":\"Valid action\"}";
+        String report = "{\"summary\":\"Valid summary\",\"findings\":[],\"missingRequiredSections\":[],\"suggestedAction\":\"Valid action\",\"verifiedChecks\":[]}";
         String oversized = report + " ".repeat(100_001);
         server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(oversized, "STOP"), MediaType.APPLICATION_JSON));
 
@@ -401,8 +431,8 @@ class GeminiAiReviewProviderTest {
     }
 
     @Test void documentOnlyFindingMayOmitInapplicableRequirementButAuthorityClaimMustQuoteIt() throws Exception {
-        String documentOnly = "{\"summary\":\"Document identifies a different deliverable.\",\"findings\":[{\"issue\":\"Different deliverable identity.\",\"source\":\"DOCUMENT\",\"evidence\":\"Page 1: Individual Exploration\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Verify submitted file.\"}";
-        String unquotedAuthority = "{\"summary\":\"A section is missing.\",\"findings\":[{\"issue\":\"A requirement is unmet.\",\"source\":\"OFFICIAL_TEMPLATE\",\"evidence\":\"Page 2\",\"requirement\":null}],\"missingRequiredSections\":[],\"suggestedAction\":\"Review the source.\"}";
+        String documentOnly = "{\"summary\":\"Document identifies a different deliverable.\",\"findings\":[{\"issue\":\"Different deliverable identity.\",\"source\":\"DOCUMENT\",\"evidence\":\"Page 1: Individual Exploration\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Verify submitted file.\",\"verifiedChecks\":[]}";
+        String unquotedAuthority = "{\"summary\":\"A section is missing.\",\"findings\":[{\"issue\":\"A requirement is unmet.\",\"source\":\"OFFICIAL_TEMPLATE\",\"evidence\":\"Page 2\",\"requirement\":null}],\"missingRequiredSections\":[],\"suggestedAction\":\"Review the source.\",\"verifiedChecks\":[]}";
         server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(documentOnly, "STOP"), MediaType.APPLICATION_JSON));
         server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(unquotedAuthority, "STOP"), MediaType.APPLICATION_JSON));
         assertThat(provider.review(input()).findings().get(0).requirement()).isEmpty();

@@ -196,6 +196,71 @@ test('admin review opens in the staff shell without page-level clipping', async 
   await expectNoPageOverflow(page);
 });
 
+test('saved inconclusive AI review survives opening and reload without starting another review', async ({ page }) => {
+  page.apiFixture = await installApiFixtures(page, { role: 'admin', connected: true, submitted: true });
+  const timestamp = '2026-04-17T09:00:00Z';
+  const sourceUrl = 'https://drive.google.com/file/d/browser-inconclusive-pdf/view';
+  const reportLimit = 'The saved review could not establish sufficient evidence for the test procedures.';
+  const aiWrites = [];
+  let monitoringReads = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.startsWith('/api/ai-reviews') && request.method() !== 'GET') {
+      aiWrites.push(`${request.method()} ${new URL(request.url()).pathname}`);
+    }
+  });
+  await page.route('**/api/monitoring**', async (route) => {
+    expect(route.request().method()).toBe('GET');
+    expect(new URL(route.request().url()).searchParams.get('includeReviews')).toBe('true');
+    monitoringReads += 1;
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        students: [{ id: 'student-a', studentNumber: 'STUDENT-A', studentName: 'Example Student', teamCode: 'TEAM-A' }],
+        projects: [], trackerColumns: [], trackerRows: [],
+        deliverables: [{
+          id: 'deliverable-srs', slug: 'browser-std', title: 'Software Test Document', trackerColumnKey: 'STD',
+          dueAt: '2026-04-18T23:59:00', status: 'PUBLISHED', pdfRequired: true,
+          fields: [{
+            id: 'field-document-pdf', fieldKey: 'documentPdf', label: 'STD PDF', fieldType: 'DRIVE_PDF',
+            required: true, displayOrder: 0, documentCheckPolicy: 'MANUAL', aiReviewEnabled: true, active: true
+          }]
+        }],
+        responses: [{
+          id: 'response-1', deliverableId: 'deliverable-srs', studentNumber: 'STUDENT-A',
+          studentName: 'Example Student', teamCode: 'TEAM-A', submittedAt: timestamp, updatedAt: timestamp,
+          valuesJson: JSON.stringify({ documentPdf: sourceUrl })
+        }],
+        reviewStates: { 'response-1': { feedback: [], acceptance: null } },
+        fileChecks: {}, teamCodes: ['TEAM-A'], allTeams: true,
+        aiReviewsByField: { 'response-1': { 'field-document-pdf': {
+          status: 'COMPLETED', fieldId: 'field-document-pdf', sourceUrl,
+          sourceResponseUpdatedAt: timestamp, generatedAt: '2026-04-17T10:00:00Z', sourceVerified: true,
+          report: { outcome: 'INCONCLUSIVE', findings: [], missingRequiredSections: [], limitations: [reportLimit] }
+        } } }
+      })
+    });
+  });
+
+  for (const navigation of ['open', 'reload']) {
+    const previousReads = monitoringReads;
+    if (navigation === 'open') await page.goto('/review');
+    else await page.reload();
+    const status = page.getByRole('table', { name: 'STD submissions' }).getByRole('cell', { name: 'Inconclusive', exact: true });
+    await expect(status).toBeVisible();
+    await expect(status.locator('.wt-status-indicator')).toHaveAttribute('data-tone', 'warning');
+    expect(monitoringReads).toBeGreaterThan(previousReads);
+    await page.getByRole('button', { name: 'Review Example Student response' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Review Example Student', exact: true });
+    await expect(drawer.getByText('Inconclusive', { exact: true })).toBeVisible();
+    await drawer.getByRole('button', { name: 'View AI Review', exact: true }).click();
+    const savedReport = page.getByRole('dialog', { name: /^AI Review:/ });
+    await expect(savedReport.locator('.wt-ai-review-outcome').getByText('Inconclusive', { exact: true })).toBeVisible();
+    await savedReport.getByText('Coverage and limits', { exact: true }).click();
+    await expect(savedReport.getByText(reportLimit, { exact: true })).toBeVisible();
+    expect(aiWrites).toEqual([]);
+  }
+});
+
 test('compact statuses remain readable in narrow staff tables', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 912 });
   await openAs(page, 'admin', '/forms');
