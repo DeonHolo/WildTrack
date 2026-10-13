@@ -244,8 +244,7 @@ function CheckRow({ check }) {
   return (
     <article className="wt-ai-review-row">
       <Text fw={700} size="sm">{check.aspect}</Text>
-      <Text size="sm" className="wt-ai-review-reference">{CHECK_SOURCE_LABELS[check.source] || 'Submitted document'}</Text>
-      <Evidence finding={{ evidence: check.documentEvidence, requirement: check.requirement, location: check.location }} />
+      <Evidence finding={{ evidence: check.documentEvidence, source: check.source, requirement: check.requirement, location: check.location }} />
     </article>
   );
 }
