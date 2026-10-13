@@ -75,4 +75,3 @@ The Vercel MCP deployment read returned scope-level 403. The mapped Vercel CLI A
 Evidence: `frontend/src/components/review/DocumentChangeNotice.jsx`; `frontend/src/lib/documentChangeAcknowledgement.js`; `frontend/src/pages/CommandCenterPage.jsx#deletableKeys`; `frontend/src/components/review/ObservedFileHistory.jsx`; `frontend/src/styles/wildtrack.css`; `frontend/tests/browser/review-history-followup.spec.js`.
 
 Focused correction verification: **93 frontend tests, 11 browser checks and the frontend production build passed**. Browser fixtures cover acknowledgement cancellation, failed save, successful save and reload, a subsequent same-checksum change, retained AI freshness warning and all action labels. Actual live acknowledgement writes remain untested to preserve the user's records.
-
