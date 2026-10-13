@@ -85,6 +85,7 @@ class AiReviewDeduplicationTest {
                 PRIMARY KEY(response_id, field_id)
             )
             """);
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V37__ai_review_source_verification_time.sql")).execute(datasource);
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", workspace);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", deliverableId);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(datasource), Clock.systemUTC());

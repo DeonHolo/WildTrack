@@ -1,3 +1,5 @@
+import { recordedIsoTime } from './recordedTime.js';
+
 import { mapDeliverable } from './submissionClient.js';
 
 export function mapProjects(items = []) {
@@ -192,6 +194,7 @@ export function applyFileCheck(response, report) {
     fileCheckError: '',
     documentCheck: {
       ...report,
+      checkedAt: recordedIsoTime(report.checkedAt),
       type: 'Document Check',
       status: report.status === 'UNAVAILABLE' ? 'Unavailable' : 'Current',
       reportId: report.id
@@ -272,6 +275,7 @@ function normalizeFileCheck(report) {
   if (!report) return null;
   return {
     ...report,
+    checkedAt: recordedIsoTime(report.checkedAt),
     type: 'Document Check',
     status: report.status === 'UNAVAILABLE' ? 'Unavailable' : report.status === 'BLOCKED' ? 'Current' : 'Current',
     reportId: report.id

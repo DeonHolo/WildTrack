@@ -1,3 +1,4 @@
+import { recordedTimestamp } from './recordedTime.js';
 
 export const DRIVE_CHECK_UNAVAILABLE_MESSAGE = 'This submitted file has not been checked yet.';
 const HISTORICAL_PLACEHOLDER_SUMMARIES = new Set([
@@ -555,6 +556,7 @@ export function artifactAiReview(response, field) {
 export function isArtifactAiReviewCurrent(response, field) {
   const review = artifactAiReview(response, field);
   if (!review || review.status !== 'COMPLETED' || !review.report) return false;
+  if (artifactAiReviewChange(response, field)) return false;
   const currentUrl = String(response?.values?.[field?.id] || '').trim();
   if (review.sourceUrl) return String(review.sourceUrl).trim() === currentUrl;
   return isAiReportCurrent({ ...response, aiReviewState: review, aiReport: {
@@ -565,6 +567,39 @@ export function isArtifactAiReviewCurrent(response, field) {
   }});
 }
 
+export function artifactObservedFileHistory(response, field) {
+  const histories = response?.observedFileHistoryByField || {};
+  return histories[field?.definitionId || field?.id]
+    || (!field?.definitionId && field?.id === 'documentPdf' ? histories[`${response?.deliverableId}:legacy`] : null)
+    || (!Object.keys(histories).length ? response?.observedFileHistory : null)
+    || null;
+}
+
+export function artifactAiReviewChange(response, field) {
+  const review = artifactAiReview(response, field);
+  const reviewedAt = recordedTimestamp(review?.sourceVerifiedAt) ?? recordedTimestamp(review?.report ? review.generatedAt
+    : review?.previousGeneratedAt || review?.lastSubstantiveGeneratedAt);
+  if (reviewedAt == null) return null;
+  const changes = artifactObservedFileHistory(response, field)?.observations || [];
+  // Rechecking identical contents updates lastObservedAt, not the time of a
+  // change. Prefer Drive's actual edit time so a new review made before the
+  // monitor catches up is not incorrectly marked outdated.
+  return changes.filter(item => ['CONTENT_CHANGED', 'SOURCE_CHANGED'].includes(item.changeType))
+    .map(item => ({ ...item, changedAt: recordedTimestamp(item.driveModifiedTime) ?? recordedTimestamp(item.firstObservedAt) }))
+    .filter(item => item.changedAt != null && item.changedAt > reviewedAt)
+    .sort((a, b) => b.changedAt - a.changedAt)[0] || null;
+}
+
+export function artifactAiReportForDisplay(response, field) {
+  const review = artifactAiReview(response, field);
+  if (isArtifactAiReviewCurrent(response, field)) return review.report;
+  if (!artifactAiReviewChange(response, field) || review?.status !== 'COMPLETED') return null;
+  const sameSource = review.sourceUrl
+    ? review.sourceUrl === String(response?.values?.[field?.id] || '').trim()
+    : review.sourceResponseUpdatedAt === (response?.updatedAt || response?.submittedAt);
+  return sameSource ? review.report || null : null;
+}
+
 export function artifactAiReviewStatus(response, field) {
   if (!field?.aiReviewEnabled) return 'Not applicable';
   const review = artifactAiReview(response, field);
@@ -573,6 +608,7 @@ export function artifactAiReviewStatus(response, field) {
   }
   if (review?.status === 'UNCERTAIN') return 'Retry required';
   if (review?.status === 'RUNNING') return 'Reviewing';
+  if (artifactAiReviewChange(response, field)) return 'Outdated';
   return 'Not reviewed';
 }
 

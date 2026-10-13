@@ -163,12 +163,12 @@ public class AiReviewStore {
     public void link(UUID responseId, long revision, String key) {
         try {
             tx.executeWithoutResult(status -> jdbc.update(
-                "INSERT INTO ai_review_response_links(response_id, source_revision, cache_key) VALUES (?, ?, ?)", responseId, revision, key));
+                "INSERT INTO ai_review_response_links(response_id, source_revision, cache_key, source_verified_at) VALUES (?, ?, ?, ?)", responseId, revision, key, Timestamp.from(clock.instant())));
         } catch (DuplicateKeyException duplicate) {
             tx.executeWithoutResult(status -> jdbc.update("""
-                UPDATE ai_review_response_links SET source_revision = ?, cache_key = ?
+                UPDATE ai_review_response_links SET source_revision = ?, cache_key = ?, source_verified_at = ?
                 WHERE response_id = ? AND source_revision <= ?
-                """, revision, key, responseId, revision));
+                """, revision, key, Timestamp.from(clock.instant()), responseId, revision));
         }
     }
 
@@ -183,20 +183,23 @@ public class AiReviewStore {
             responseId, revision, key));
     }
 
-    public record Link(long revision, Job job) { }
+    public record Link(long revision, Job job, Instant sourceVerifiedAt) {
+        public Link(long revision, Job job) { this(revision, job, null); }
+    }
     public Map<UUID, Link> linkedFor(List<UUID> ids) {
         Map<UUID, Link> result = new HashMap<>();
         for (int offset = 0; offset < ids.size(); offset += 500) {
             var batch = ids.subList(offset, Math.min(offset + 500, ids.size()));
             String placeholders = String.join(",", java.util.Collections.nCopies(batch.size(), "?"));
-            jdbc.query("SELECT l.response_id, l.source_revision, j.* FROM ai_review_response_links l JOIN ai_review_jobs j ON j.cache_key = l.cache_key WHERE l.response_id IN (" + placeholders + ")", rs -> {
+            jdbc.query("SELECT l.response_id, l.source_revision, l.source_verified_at, j.* FROM ai_review_response_links l JOIN ai_review_jobs j ON j.cache_key = l.cache_key WHERE l.response_id IN (" + placeholders + ")", rs -> {
                 Job job = new Job(rs.getString("cache_key"), rs.getString("context_sha256"), rs.getString("state"),
                     rs.getObject("claim_token", UUID.class), rs.getTimestamp("started_at").toInstant(),
                     rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant(),
                     rs.getString("report_json"), rs.getString("failure_code"),
                     rs.getString("latest_attempt_report_json"), rs.getTimestamp("latest_attempt_completed_at") == null ? null : rs.getTimestamp("latest_attempt_completed_at").toInstant(),
                     rs.getObject("workspace_id", UUID.class), rs.getObject("deliverable_id", UUID.class), rs.getString("team_code"));
-                result.put(rs.getObject("response_id", UUID.class), new Link(rs.getLong("source_revision"), job));
+                result.put(rs.getObject("response_id", UUID.class), new Link(rs.getLong("source_revision"), job,
+                    rs.getTimestamp("source_verified_at") == null ? null : rs.getTimestamp("source_verified_at").toInstant()));
             }, batch.toArray());
         }
         return result;
@@ -205,14 +208,14 @@ public class AiReviewStore {
     public void linkField(UUID responseId, String fieldId, String sourceValueHash, String key) {
         try {
             tx.executeWithoutResult(status -> jdbc.update("""
-                INSERT INTO ai_review_field_links(response_id, field_id, source_value_sha256, cache_key)
-                VALUES (?, ?, ?, ?)
-                """, responseId, fieldId, sourceValueHash, key));
+                INSERT INTO ai_review_field_links(response_id, field_id, source_value_sha256, cache_key, source_verified_at)
+                VALUES (?, ?, ?, ?, ?)
+                """, responseId, fieldId, sourceValueHash, key, Timestamp.from(clock.instant())));
         } catch (DuplicateKeyException duplicate) {
             tx.executeWithoutResult(status -> jdbc.update("""
-                UPDATE ai_review_field_links SET source_value_sha256 = ?, cache_key = ?
+                UPDATE ai_review_field_links SET source_value_sha256 = ?, cache_key = ?, source_verified_at = ?
                 WHERE response_id = ? AND field_id = ?
-                """, sourceValueHash, key, responseId, fieldId));
+                """, sourceValueHash, key, Timestamp.from(clock.instant()), responseId, fieldId));
         }
     }
 
@@ -231,7 +234,9 @@ public class AiReviewStore {
             """, responseId, fieldId, sourceValueHash, key));
     }
 
-    public record FieldLink(String sourceValueHash, Job job) { }
+    public record FieldLink(String sourceValueHash, Job job, Instant sourceVerifiedAt) {
+        public FieldLink(String sourceValueHash, Job job) { this(sourceValueHash, job, null); }
+    }
 
     public Map<UUID, Map<String, FieldLink>> linkedFieldsFor(List<UUID> ids) {
         Map<UUID, Map<String, FieldLink>> result = new HashMap<>();
@@ -240,7 +245,7 @@ public class AiReviewStore {
             if (batch.isEmpty()) continue;
             String placeholders = String.join(",", java.util.Collections.nCopies(batch.size(), "?"));
             jdbc.query("""
-                SELECT l.response_id, l.field_id, l.source_value_sha256, j.*
+                SELECT l.response_id, l.field_id, l.source_value_sha256, l.source_verified_at, j.*
                 FROM ai_review_field_links l JOIN ai_review_jobs j ON j.cache_key = l.cache_key
                 WHERE l.response_id IN (""" + placeholders + ")", rs -> {
                 Job job = new Job(rs.getString("cache_key"), rs.getString("context_sha256"), rs.getString("state"),
@@ -250,7 +255,8 @@ public class AiReviewStore {
                     rs.getString("latest_attempt_report_json"), rs.getTimestamp("latest_attempt_completed_at") == null ? null : rs.getTimestamp("latest_attempt_completed_at").toInstant(),
                     rs.getObject("workspace_id", UUID.class), rs.getObject("deliverable_id", UUID.class), rs.getString("team_code"));
                 result.computeIfAbsent(rs.getObject("response_id", UUID.class), ignored -> new HashMap<>())
-                    .put(rs.getString("field_id"), new FieldLink(rs.getString("source_value_sha256"), job));
+                    .put(rs.getString("field_id"), new FieldLink(rs.getString("source_value_sha256"), job,
+                        rs.getTimestamp("source_verified_at") == null ? null : rs.getTimestamp("source_verified_at").toInstant()));
             }, batch.toArray());
         }
         return result;
@@ -259,5 +265,17 @@ public class AiReviewStore {
     public String displayState(Job job) {
         return job.state().equals("RUNNING") && job.startedAt().isBefore(clock.instant().minus(ABANDONED_AFTER))
             ? "UNCERTAIN" : job.state();
+    }
+
+    public Instant sourceVerifiedAt(UUID responseId, String fieldId, String key, boolean legacy) {
+        List<Instant> times = legacy ? List.of() : jdbc.query("""
+            SELECT source_verified_at FROM ai_review_field_links
+            WHERE response_id=? AND field_id=? AND cache_key=?
+            """, (rs, n) -> rs.getTimestamp(1) == null ? null : rs.getTimestamp(1).toInstant(), responseId, fieldId, key);
+        if (times.isEmpty() && (legacy || fieldId.endsWith(":legacy"))) {
+            times = jdbc.query("SELECT source_verified_at FROM ai_review_response_links WHERE response_id=? AND cache_key=?",
+                (rs, n) -> rs.getTimestamp(1) == null ? null : rs.getTimestamp(1).toInstant(), responseId, key);
+        }
+        return times.isEmpty() ? null : times.get(0);
     }
 }

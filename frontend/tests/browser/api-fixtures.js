@@ -9,7 +9,8 @@ export async function installApiFixtures(page, {
   documentCheckPolicy = 'AUTO',
   program = 'IT',
   formStatus = 'PUBLISHED',
-  templates = []
+  templates = [],
+  monitoring = payload => payload
 } = {}) {
   const workspace = {
     id: program === 'IT' ? '11111111-1111-1111-1111-111111111111' : '22222222-2222-2222-2222-222222222222',
@@ -53,6 +54,7 @@ export async function installApiFixtures(page, {
   let draft = null;
   let deliverableRevision = 0;
   const dismissedTaskKeys = new Set();
+  const deletedTaskKeys = new Set();
   let fileMonitorSettings = {
     enabled: false,
     configured: true,
@@ -123,6 +125,14 @@ export async function installApiFixtures(page, {
       expect(['admin', 'adviser']).toContain(role);
       expect(url.searchParams.get('workspaceId')).toBe(workspace.id);
       return reply([...dismissedTaskKeys]);
+    }
+    if (path === '/work-task-dismissals/deleted' && method === 'GET') return reply([...deletedTaskKeys]);
+    if (path === '/work-task-dismissals/deleted' && method === 'POST') {
+      const body = request.postDataJSON();
+      expect(body.workspaceId).toBe(workspace.id);
+      const keys = body.taskKeys.filter(key => dismissedTaskKeys.has(key));
+      keys.forEach(key => deletedTaskKeys.add(key));
+      return reply(keys);
     }
     if (path === '/work-task-dismissals' && method === 'POST') {
       expect(['admin', 'adviser']).toContain(role);
@@ -289,7 +299,7 @@ export async function installApiFixtures(page, {
       deliverables, responses, reviewStates: {}, fileChecks: {},
       fileChecksByField: checkedPdf && response ? { [response.id]: { 'field-document-pdf': checkedReport } } : {}
     });
-    if (path === '/monitoring' && method === 'GET') return reply({ students: [student], projects, trackerColumns: columns, trackerRows: rows, deliverables, responses, reviewStates: Object.fromEntries(responses.map(item => [item.id, { feedback: [], acceptance: null }])), fileChecks: {}, teamCodes: [student.teamCode], allTeams: role === 'admin' });
+    if (path === '/monitoring' && method === 'GET') return reply(monitoring({ students: [student], projects, trackerColumns: columns, trackerRows: rows, deliverables, responses, reviewStates: Object.fromEntries(responses.map(item => [item.id, { feedback: [], acceptance: null }])), fileChecks: {}, teamCodes: [student.teamCode], allTeams: role === 'admin' }));
     const collections = { '/students': [student], '/projects': projects, '/tracker/columns': columns, '/tracker/rows': rows, '/deliverables': deliverables, '/templates': templates, '/workspace/responses/my-team': responses,
       '/workspace/students/identity-conflicts': [], '/workspace/staff': [],
       '/workspace/sources': ['TEAM_FORMATION', 'TRACKER', 'PROJECT_MONITOR'].map((sourceType) => ({ sourceType, status: 'IMPORTED', displayName: sourceType, sheetUrl: 'https://docs.google.com/spreadsheets/d/browser-sheet/edit' })) };

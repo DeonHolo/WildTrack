@@ -43,6 +43,13 @@ function identityFact(dialog, label) {
 }
 
 describe('DocumentCheck saved metadata and recorded history', () => {
+  it('shows template findings only when a scoped uploaded template exists', () => {
+    const view = show();
+    expect(screen.queryByRole('link', { name: 'View template findings' })).not.toBeInTheDocument();
+    view.unmount();
+    show({ templateFindingsUrl: '/templates/template-one/preview?workspaceId=workspace-it' });
+    expect(screen.getByRole('link', { name: 'View template findings' })).toHaveAttribute('href', '/templates/template-one/preview?workspaceId=workspace-it');
+  });
   it('keeps the explanation in a keyboard-accessible title tooltip', async () => {
     show({ documentCheck: { ...response.documentCheck, metadata: {
       ...response.documentCheck.metadata, modifiedTime: '2026-09-18T10:00:00+08:00'

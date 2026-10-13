@@ -379,6 +379,18 @@ export function getWorkTaskDismissals(workspaceId) {
   return request(withWorkspace('/work-task-dismissals', workspaceId));
 }
 
+export function getDeletedWorkTasks(workspaceId) {
+  return request(withWorkspace('/work-task-dismissals/deleted', workspaceId)).catch(error => {
+    // Vercel can finish its rollout before the Heroku endpoint is available.
+    if (error.status === 404) return [];
+    throw error;
+  });
+}
+
+export function deleteDismissedWorkTasks(workspaceId, taskKeys) {
+  return request('/work-task-dismissals/deleted', { method: 'POST', body: { workspaceId, taskKeys } });
+}
+
 export function dismissWorkTask(workspaceId, taskKey) {
   return request('/work-task-dismissals', {
     method: 'POST', body: { workspaceId, taskKey }

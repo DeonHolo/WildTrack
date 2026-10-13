@@ -252,7 +252,8 @@ class FileMonitorEventResolutionTest {
             json, new FileCheckProperties(100, .85, .15));
         assertThat(checks.check(workspace, new FileCheckRequest(first.getId().toString(), fieldId, "SRS", url, first.getUpdatedAt().toString())).status())
             .isEqualTo("COMPLETED");
-        assertThat(controller(ZoneId.systemDefault()).events(workspace, http).get(0).resolved()).isTrue();
+        assertThat(new FileMonitorEventController(db, responses, fields, security, staff, json)
+            .events(workspace, http).get(0).resolved()).isTrue();
         verify(drive, times(1)).getMetadata(any());
         verify(drive, times(1)).download(any());
     }

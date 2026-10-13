@@ -1,7 +1,7 @@
 export const WORK_QUEUE_SORT_OPTIONS = [
-  { value: 'priority', label: 'Priority' },
   { value: 'newest', label: 'Newest activity' },
-  { value: 'oldest', label: 'Oldest activity' }
+  { value: 'oldest', label: 'Oldest activity' },
+  { value: 'priority', label: 'Priority' }
 ];
 
 export function workQueueTimestamp(value) {
@@ -11,7 +11,8 @@ export function workQueueTimestamp(value) {
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-export function sortWorkQueue(tasks, mode = 'priority') {
+export function sortWorkQueue(tasks, mode = 'newest') {
+  if (!WORK_QUEUE_SORT_OPTIONS.some(option => option.value === mode)) mode = 'newest';
   const chronological = mode === 'newest' || mode === 'oldest';
   return tasks.map((task, index) => ({ task, index, timestamp: workQueueTimestamp(task.updatedAt) }))
     .sort((a, b) => {

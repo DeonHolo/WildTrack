@@ -24,6 +24,46 @@ describe('server-owned AI batch lifecycle', () => {
   });
   afterEach(() => vi.useRealTimers());
 
+  it('keeps a finished notice dismissed across navigation and shows the next completion', async () => {
+    api.latest.mockResolvedValue(plan('finished', 'COMPLETED'));
+    const first = renderHook(() => useAiReviewBatch('workspace'));
+    await waitFor(() => expect(first.result.current.batch?.state).toBe('COMPLETED'));
+    act(() => first.result.current.dismiss());
+    expect(first.result.current.panelDismissed).toBe(true);
+    first.unmount();
+    const second = renderHook(() => useAiReviewBatch('workspace'));
+    expect(second.result.current.panelDismissed).toBe(true);
+    second.unmount();
+    api.latest.mockResolvedValue({ ...plan('finished', 'COMPLETED'), version: 2 });
+    const next = renderHook(() => useAiReviewBatch('workspace'));
+    await waitFor(() => expect(next.result.current.batch?.version).toBe(2));
+    expect(next.result.current.panelDismissed).toBe(false);
+    expect(api.start).not.toHaveBeenCalled();
+    expect(api.cancel).not.toHaveBeenCalled();
+  });
+
+  it('cannot dismiss an active batch and isolates dismissals by workspace and account', async () => {
+    api.latest.mockResolvedValue(plan('same-id', 'RUNNING'));
+    const running = renderHook(() => useAiReviewBatch('one'));
+    await waitFor(() => expect(running.result.current.running).toBe(true));
+    act(() => running.result.current.dismiss());
+    expect(running.result.current.panelDismissed).toBe(false);
+    running.unmount();
+    api.latest.mockResolvedValue(plan('same-id', 'COMPLETED'));
+    const first = renderHook(() => useAiReviewBatch('one'));
+    await waitFor(() => expect(first.result.current.batch?.state).toBe('COMPLETED'));
+    act(() => first.result.current.dismiss());
+    first.unmount();
+    const other = renderHook(() => useAiReviewBatch('two'));
+    await waitFor(() => expect(other.result.current.batch?.state).toBe('COMPLETED'));
+    expect(other.result.current.panelDismissed).toBe(false);
+    other.unmount();
+    workspace.session = { ...workspace.session, email: 'other@school.edu' };
+    const account = renderHook(() => useAiReviewBatch('one'));
+    await waitFor(() => expect(account.result.current.batch?.state).toBe('COMPLETED'));
+    expect(account.result.current.panelDismissed).toBe(false);
+  });
+
   it('prepares without a start request and sends generation consent only on explicit confirmation', async () => {
     api.prepare.mockResolvedValue(plan('batch')); api.start.mockResolvedValue(plan('batch', 'RUNNING'));
     const { result } = renderHook(() => useAiReviewBatch('workspace'));

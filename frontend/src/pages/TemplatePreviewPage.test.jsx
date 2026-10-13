@@ -38,16 +38,22 @@ describe('official template browser preview', () => {
     api.structure.mockReset().mockResolvedValue(template);
   });
 
-  it('loads the link workspace and renders text plus expected and detected headings without opening the original', async () => {
+  it('shows one list and no missing-section panel when all template headings are detected', async () => {
+    api.structure.mockResolvedValue({ ...template, detectedHeadings: template.expectedHeadings });
+    render(tree());
+    await screen.findByRole('heading', { name: 'STD TEMPLATE.docx' });
+    expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(template.expectedHeadings);
+    expect(screen.queryByRole('region', { name: 'Template sections not detected' })).not.toBeInTheDocument();
+  });
+
+  it('lists each detected heading once and keeps missing expectations separate', async () => {
     render(tree());
     expect(await screen.findByRole('heading', { name: 'STD TEMPLATE.docx' })).toBeInTheDocument();
     expect(api.structure).toHaveBeenCalledWith('workspace-link', 'template-std');
-    expect(screen.getByText('3 expected body sections · 2 detected in this template')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Expected body sections' })).getAllByRole('listitem'))
-      .toHaveLength(3);
-    const detected = screen.getByText('Headings detected in the template').closest('details');
-    expect(detected).not.toHaveAttribute('open');
-    expect(within(detected).getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.getByText('2 of 3 expected body sections detected in this template')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Template body sections' })).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(screen.getByRole('region', { name: 'Template sections not detected' })).getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Introduction', 'Test Plan', 'Test Cases']);
     expect(screen.getByText(/<script>untrusted template text<\/script>/)).toBeInTheDocument();
     expect(document.querySelector('script')).toBeNull();
     expect(screen.getByRole('link', { name: 'Original file' })).toHaveAttribute('target', '_blank');

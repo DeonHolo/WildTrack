@@ -18,34 +18,38 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 108px;
-  height: 108px;
+  width: 120px;
+  height: 120px;
   margin: 0 auto 26px;
 }
 
-.wt-session-loading-track,
-.wt-session-loading-orbit {
+.wt-session-loading-rings {
   position: absolute;
   inset: 0;
-  border: 2px solid var(--wt-border);
-  border-radius: 50%;
+  width: 100%;
+  height: 100%;
 }
 
-.wt-session-loading-orbit {
-  border-color: var(--wt-maroon) var(--wt-maroon) transparent transparent;
-  /* Match the existing Mantine circle loader's continuous 1.2s cadence. */
+.wt-session-loading-track {
+  stroke: var(--wt-border);
+  stroke-width: 1.5;
+}
+
+.wt-session-loading-ring {
+  stroke: var(--wt-maroon);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 64 36;
+  transform-origin: center;
+  /* Loading UI Ring's linear SVG rotation; retain our continuous 1.2s cadence. */
   animation: wt-session-loading-orbit 1.2s linear infinite;
 }
 
-.wt-session-loading-orbit > span {
-  position: absolute;
-  top: -5px;
-  left: calc(50% - 4px);
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--wt-gold);
-  box-shadow: 0 0 0 3px var(--wt-bg);
+.wt-session-loading-ring--inner {
+  stroke: var(--wt-gold);
+  stroke-width: 2;
+  stroke-dasharray: 18 82;
+  animation-direction: reverse;
 }
 
 .wt-session-loading-mark {
@@ -85,7 +89,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wt-session-loading-orbit {
+  .wt-session-loading-ring {
     animation: none;
     transform: rotate(-35deg);
   }

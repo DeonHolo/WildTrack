@@ -15,7 +15,7 @@ describe('work queue sorting', () => {
   ];
 
   it('keeps identity, document, review, workspace, and archive priority with newest first within each type', () => {
-    expect(ids(tasks)).toEqual([
+    expect(ids(tasks, 'priority')).toEqual([
       'identity', 'document-new', 'document-old', 'review', 'workspace', 'archive'
     ]);
     expect(ids(tasks, 'unsupported')).toEqual(ids(tasks));

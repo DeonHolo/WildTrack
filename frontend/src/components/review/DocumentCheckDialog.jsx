@@ -5,6 +5,7 @@ import { Button, StatusIndicator } from '../ui.jsx';
 import { formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../../lib/workflow.js';
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
 import { DriveIdentityValue } from './DriveIdentityValue.jsx';
+import { historyDate, newestHistoryEntries, observationTime } from '../../lib/fileHistoryPresentation.js';
 
 export function DocumentCheckDialog({
   response,
@@ -13,6 +14,7 @@ export function DocumentCheckDialog({
   historyTarget = null,
   initialTab = 'result',
   historyOnly = false,
+  templateFindingsUrl = '',
   fileLink,
   open,
   onClose,
@@ -45,7 +47,7 @@ export function DocumentCheckDialog({
   const overviewNeedsAttention = outdated || (substanceStatus
     ? substanceStatus !== 'Looks substantially filled'
     : Boolean(report?.redFlags?.length || report?.missingSections?.length));
-  const latestObservation = observedHistory?.observations?.[0];
+  const latestObservation = newestHistoryEntries(observedHistory?.observations, observationTime)[0];
   const createdTime = metadata?.createdTime || latestObservation?.driveCreatedTime;
   const ownerDisplay = latestObservation?.driveOwner;
   const editorDisplay = latestObservation?.modifiedBy;
@@ -68,7 +70,7 @@ export function DocumentCheckDialog({
         ) : null}
       </div>
       <h2>{metadata?.name || 'Submitted PDF'}</h2>
-      {!historyOnly ? <p>{report?.checkedAt ? `Checked ${formatDateTime(report.checkedAt)}` : 'This document has not been checked yet.'}</p> : null}
+      {!historyOnly ? <p>{report?.checkedAt ? `Document Check completed ${historyDate(report.checkedAt)}` : 'This document has not been checked yet.'}</p> : null}
     </div>
   );
 
@@ -96,6 +98,13 @@ export function DocumentCheckDialog({
         ) : null}
 
         {showResult ? <Tabs.Panel value="result" pt={studentView ? 0 : 'md'}>
+          {!outdated && latestObservation?.changeType === 'CONTENT_CHANGED' ? (
+            <Alert color="orange" title="PDF content changed" mb="md">
+              Document Check detected changed PDF content on {historyDate(latestObservation.firstObservedAt)}.
+              {latestObservation.driveModifiedTime ? ` Drive edit: ${historyDate(latestObservation.driveModifiedTime)}.` : ''}
+              {' '}The check result below is for the updated file. Open File history to compare the recorded changes.
+            </Alert>
+          ) : null}
           <div className={'document-check-overview ' + (overviewNeedsAttention ? 'attention' : '')}>
             {successful && !overviewNeedsAttention ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
             <div>
@@ -136,6 +145,8 @@ export function DocumentCheckDialog({
 
             <section className="document-check-section">
               <h3>Official template structure</h3>
+              {templateFindingsUrl ? <Button component="a" href={templateFindingsUrl} target="_blank" rel="noopener noreferrer"
+                variant="secondary" icon={ArrowSquareOut}>View template findings</Button> : null}
               {comparison?.available ? (
               <>
                 <div className="document-check-template-summary">
