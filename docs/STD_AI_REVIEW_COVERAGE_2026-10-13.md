@@ -140,3 +140,48 @@ Local verification passed 199 backend tests across seven suites. Regression cove
 response parser followed by grounding: valid independent observations survive an unusable check, and an
 invalid source/requirement pair alone cannot produce a positive result. The new schema and both semantic
 regressions reproduced failures before this correction. The backend package build passed. Hosted acceptance is still pending.
+
+## Third hosted attempt: exact citation mismatch confirmed
+
+PR #108 merged at `2026-10-13T14:20:41Z` as `4c1e6fa01ce0902a9635f8055f999f00f3e509c1`.
+Vercel's production deployment was `READY`; Heroku deployment `7041035007` succeeded at
+`2026-10-13T14:21:55Z`.
+
+A fresh single-document attempt completed and saved an `INCONCLUSIVE` report at
+`2026-10-13T14:24:23.016838Z`. Its failure code was empty: the source-pair parser failure was resolved.
+The application diagnostic at `2026-10-13T14:24:23.014Z` established the remaining rejection reason:
+
+```text
+AI review grounded: outcome=INCONCLUSIVE proposedFindings=0 acceptedFindings=0 proposedSections=0 acceptedSections=0 proposedChecks=4 verifiedChecks=0 verificationNotes=0 rejectedChecks={DOCUMENT_QUOTE_NOT_FOUND=4}
+```
+
+All four proposed passages failed exact normalized matching against the application's extracted PDF text.
+The log does not retain the passages, so it does not establish whether the mismatch arose from paraphrasing,
+visual reading order, formatting, or another difference. Do not weaken evidence matching to force a positive result.
+
+## Exact citation references
+
+`AiReviewGroundingPolicy#positiveEvidencePassages` selects at most six distinct source lines of at most 320
+characters, spread through the extracted body. The existing reliable-body boundary excludes cover and
+table-of-contents material when a contents section exists. Numbered headings, explicit placeholders, sparse
+lines and normalized duplicates are excluded. Long lines are clipped at an existing word boundary.
+
+The full PDF is still supplied once for findings and requirements. Only the bounded reference passages are
+also supplied as data. Positive-check citation strings are constrained to those exact passages in the generation
+schema; authority pairing and subsequent server-side evidence validation still apply. If no eligible references
+exist, the schema allows no positive checks. Selecting an excerpt does not itself establish a checked observation
+or academic correctness. Absence of findings remains limited to cited areas, with the independent-check threshold
+and no-automatic-retry policy unchanged.
+
+The provider fingerprint advances to `structured-review-v6-source-passages-compact`. No model or generation
+settings change, and no external-service configuration or user permission flow is added.
+
+Verification:
+
+- 204 backend tests across eight maintained suites passed, including a response-contract-to-grounding regression
+  for an exact citation containing a PDF line-break hyphen, bounded/distributed excerpts, exclusions and duplicates.
+- A separate offline probe of the local `WildTrack_STD.pdf` export found 58 pages, six reference passages and five
+  accepted supplied citations. No provider was called. That export's 158,725 extracted characters differ from
+  the older hosted Document Check's 158,570; byte identity with the hosted file was not established.
+- The probe and count/hash receipt are retained privately under `.scratch/std-coverage-20261013/` and are not
+  committed as test fixtures. Hosted Gemini acceptance is still pending.

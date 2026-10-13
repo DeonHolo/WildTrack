@@ -112,7 +112,7 @@ class GeminiAiReviewProviderTest {
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required").value(org.hamcrest.Matchers.hasItem("verifiedChecks")))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.source.enum.length()").value(3))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.missingRequiredSections.items.properties.source.enum.length()").value(2))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(5))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(0))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.minItems").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf.length()").value(2))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].required.length()").value(4))
@@ -140,7 +140,7 @@ class GeminiAiReviewProviderTest {
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
         assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v5", "thinking-minimal", "output-8192",
-            "schema-structured-review-v5-source-pairs-compact");
+            "schema-structured-review-v6-source-passages-compact");
         server.verify();
     }
 
@@ -371,6 +371,34 @@ class GeminiAiReviewProviderTest {
         assertThat(result.verifiedChecks().get(1).requirement()).isEqualTo("Include functional requirements");
         assertThat(result.verifiedChecks().get(1).documentEvidence())
             .isEqualTo("FR-01: The student can submit a PDF.");
+        server.verify();
+    }
+
+    @Test void exactExtractedPassagesConstrainCitationsAndSurviveStrictGrounding() throws Exception {
+        String scope = "The application checks the submitted PDF against configured sub-";
+        String continuation = "mission rules and preserves the response that staff use to give feedback.";
+        String feedback = "The feedback view separates recorded issues from an instructor's final academic decision.";
+        String document = "1. Scope\n" + scope + "\n" + continuation + "\n2. Feedback\n" + feedback;
+        var request = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), document,
+            "Instructor review only", "SRS", "", "");
+        var checks = List.of(Map.of("aspect", "PDF screening is described", "source", "DOCUMENT",
+                "documentEvidence", scope, "requirement", ""),
+            Map.of("aspect", "Academic decisions are distinguished from recorded issues", "source", "DOCUMENT",
+                "documentEvidence", feedback, "requirement", ""));
+        String report = json.writeValueAsString(Map.of("summary", "Observed passages", "findings", List.of(),
+            "missingRequiredSections", List.of(), "suggestedAction", "Review", "verifiedChecks", checks));
+        server.expect(requestTo(GENERATE))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(3))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].properties.documentEvidence.enum[0]").value(scope))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[1].properties.documentEvidence.enum[2]").value(feedback))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("positiveEvidencePassages")))
+            .andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+
+        var grounded = AiReviewService.postprocessForBenchmark(provider.review(request), "SRS", "", "", document);
+
+        assertThat(grounded.verifiedChecks()).extracting(AiReviewProvider.VerifiedCheck::documentEvidence)
+            .containsExactly(scope, feedback);
+        assertThat(grounded.outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS);
         server.verify();
     }
 
