@@ -15,10 +15,19 @@ it('renders useful evidence and references inline with the specific action', () 
   expect(screen.getByText('Missing constraints detail')).toBeInTheDocument();
   expect(screen.getByText('Add the offline requirement.')).toBeInTheDocument();
   expect(screen.getByText('Section 2.4 passage')).toBeInTheDocument();
-  expect(screen.getByText('PDF excerpt')).toBeInTheDocument();
+  expect(screen.getByRole('blockquote', { name: 'Evidence excerpt' })).toHaveTextContent('Section 2.4 passage');
+  expect(screen.queryByText('PDF excerpt')).not.toBeInTheDocument();
   expect(screen.getByText('Reference: 2.4 Constraints')).toBeInTheDocument();
   expect(screen.queryByText('View evidence')).not.toBeInTheDocument();
   expect(screen.getByText(/page 4/)).toBeInTheDocument();
+});
+
+it('keeps long passages as accessible quotes without repeated excerpt labels', () => {
+  show({ findings: [{ issue: 'Long evidence', evidence: 'A '.repeat(240), requirement: 'A '.repeat(100) }] });
+  expect(screen.getAllByRole('blockquote', { name: 'Evidence excerpt' })).toHaveLength(1);
+  expect(screen.getByText('A '.repeat(100), { exact: false })).toBeInTheDocument();
+  expect(screen.queryByText(/PDF excerpt/i)).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'View full passage' }).length).toBeGreaterThanOrEqual(1);
 });
 
 it('keeps verification notes separate and prevents a green result with two checks', () => {

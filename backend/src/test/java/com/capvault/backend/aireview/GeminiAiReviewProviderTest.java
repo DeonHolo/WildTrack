@@ -81,9 +81,84 @@ class GeminiAiReviewProviderTest {
         assertThatThrownBy(() -> provider.review(input()))
             .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
                 assertThat(failure.code).isEqualTo("REQUEST_SCHEMA_REJECTED");
-                assertThat(failure.detail).isEqualTo("response_schema");
+                assertThat(failure.detail).isEqualTo("SCHEMA_TOO_COMPLEX");
                 assertThat(failure).hasNoCause();
                 assertThat(failure.toString()).doesNotContain(privateText);
+                assertThat(failure.diagnostic).isNotNull();
+                assertThat(failure.diagnostic.reasonCode()).isEqualTo("SCHEMA_TOO_COMPLEX");
+                assertThat(failure.diagnostic.explanation()).contains("supported schema complexity limits");
+                assertThat(failure.diagnostic.parameterFields()).contains("responseJsonSchema");
+                assertThat(failure.diagnostic.explanation()).doesNotContain(privateText);
+            });
+        server.verify();
+    }
+
+    @Test void schemaFieldAloneDoesNotClaimComplexity() throws Exception {
+        String privateEcho = "schema property \"prompt phrase\" api-key https://private.example/x";
+        server.expect(requestTo(GENERATE)).andRespond(withStatus(HttpStatus.BAD_REQUEST)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(json.writeValueAsString(Map.of("error", Map.of("message", privateEcho,
+                "details", List.of(Map.of("fieldViolations",
+                    List.of(Map.of("field", "generationConfig.responseJsonSchema.properties.items.type",
+                        "description", privateEcho)))))))));
+        assertThatThrownBy(() -> provider.review(input()))
+            .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                assertThat(failure.code).isEqualTo("REQUEST_SCHEMA_REJECTED");
+                assertThat(failure.diagnostic.reasonCode()).isEqualTo("REQUEST_SCHEMA_REJECTED");
+                assertThat(failure.diagnostic.explanation()).contains("did not establish a more specific")
+                    .doesNotContain("prompt phrase", "api-key", "private.example");
+            });
+        server.verify();
+    }
+
+    @Test void maxOutputTokenFieldAloneDoesNotClaimAnUpperLimit() throws Exception {
+        String privateEcho = "unsupported negative option \"prompt phrase\" api-key https://private.example/x";
+        server.expect(requestTo(GENERATE)).andRespond(withStatus(HttpStatus.BAD_REQUEST)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(json.writeValueAsString(Map.of("error", Map.of("message", privateEcho,
+                "details", List.of(Map.of("fieldViolations",
+                    List.of(Map.of("field", "generationConfig.maxOutputTokens", "description", privateEcho)))))))));
+        assertThatThrownBy(() -> provider.review(input()))
+            .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                assertThat(failure.code).isEqualTo("REQUEST_PARAMETER_REJECTED");
+                assertThat(failure.diagnostic.reasonCode()).isEqualTo("REQUEST_PARAMETER_REJECTED");
+                assertThat(failure.diagnostic.explanation()).contains("did not establish a numeric upper-limit cause")
+                    .doesNotContain("prompt phrase", "api-key", "private.example");
+            });
+        server.verify();
+    }
+
+    @Test void lowerBoundAndRangeTextDoNotBecomeUpperLimitClaims() throws Exception {
+        for (String message : List.of("maxOutputTokens must be at least 1",
+                "maxOutputTokens must be between 1 and 65536")) {
+            setup();
+            server.expect(requestTo(GENERATE)).andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(json.writeValueAsString(Map.of("error", Map.of("message", message)))));
+            assertThatThrownBy(() -> provider.review(input()))
+                .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                    assertThat(failure.code).isEqualTo("REQUEST_PARAMETER_REJECTED");
+                    assertThat(failure.diagnostic.reasonCode()).isEqualTo("REQUEST_PARAMETER_REJECTED");
+                    assertThat(failure.diagnostic.explanation()).contains("did not establish a numeric upper-limit cause")
+                        .doesNotContain("allowed limit of");
+                });
+            server.verify();
+        }
+    }
+
+    @Test void knownTokenLimitRetainsOnlyTheSafeLimitAndAllowlistedField() throws Exception {
+        String secretEcho = "AIzaFAKE secret@example.com https://private.example/doc \"prompt excerpt\"";
+        server.expect(requestTo(GENERATE)).andRespond(withStatus(HttpStatus.BAD_REQUEST)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(json.writeValueAsString(Map.of("error", Map.of("message",
+                "maxOutputTokens must be <= 2048; " + secretEcho)))));
+        assertThatThrownBy(() -> provider.review(input()))
+            .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                assertThat(failure.code).isEqualTo("REQUEST_PARAMETER_REJECTED");
+                assertThat(failure.diagnostic.reasonCode()).isEqualTo("OUTPUT_TOKEN_LIMIT_EXCEEDED");
+                assertThat(failure.diagnostic.parameterFields()).contains("generationConfig.maxOutputTokens");
+                assertThat(failure.diagnostic.explanation()).contains("2048")
+                    .doesNotContain("AIza", "secret@example.com", "private.example", "prompt excerpt");
             });
         server.verify();
     }
@@ -127,6 +202,11 @@ class GeminiAiReviewProviderTest {
                     assertThat(failure.detail).isEqualTo(example.get(2));
                     assertThat(failure).hasNoCause();
                     assertThat(failure.toString()).doesNotContain(privateText);
+                    assertThat(failure.diagnostic).isNotNull();
+                    assertThat(failure.diagnostic.explanation()).doesNotContain(privateText);
+                    if ("thinking_config".equals(example.get(2))) {
+                        assertThat(failure.diagnostic.parameterFields()).contains("generationConfig.thinkingConfig");
+                    }
                 });
             server.verify();
         }

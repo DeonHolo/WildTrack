@@ -25,7 +25,8 @@ class AiReviewStoreLifecycleTest {
         jdbc.execute("CREATE TABLE academic_deliverables(id UUID PRIMARY KEY)");
         jdbc.execute("CREATE TABLE form_responses(id UUID PRIMARY KEY)");
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__deduplicated_ai_reviews.sql"),
-            new ClassPathResource("db/migration/V33__ai_review_attempt_history.sql")).execute(ds);
+            new ClassPathResource("db/migration/V33__ai_review_attempt_history.sql"),
+            new ClassPathResource("db/migration/V39__durable_ai_review_failure_diagnostics.sql")).execute(ds);
         jdbc.execute("ALTER TABLE ai_review_response_links ADD COLUMN source_verified_at TIMESTAMP WITH TIME ZONE");
         jdbc.execute("""
             CREATE TABLE ai_review_field_links(
@@ -36,6 +37,20 @@ class AiReviewStoreLifecycleTest {
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", workspace);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", deliverable);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(ds), Clock.systemUTC());
+    }
+
+    @Test void failureDiagnosticPersistsForUncertainAndClearsOnAcquiredRetryAndCompletion() {
+        var failed = store.claim("diagnostic", workspace, deliverable, "team", "pdf", "ctx", null).job();
+        store.uncertain(failed, "REQUEST_PARAMETER_REJECTED", "{\"reasonCode\":\"REQUEST_PARAMETER_REJECTED\"}");
+        assertThat(store.find("diagnostic").orElseThrow().failureDiagnosticJson())
+            .contains("REQUEST_PARAMETER_REJECTED");
+
+        var retry = store.claim("diagnostic", workspace, deliverable, "team", "pdf", "ctx", failed.token()).job();
+        assertThat(retry.failureDiagnosticJson()).isNull();
+        store.complete(retry, "{\"summary\":\"completed\"}");
+        var completed = store.find("diagnostic").orElseThrow();
+        assertThat(completed.failureDiagnosticJson()).isNull();
+        assertThat(completed.failureCode()).isNull();
     }
 
     @Test void inconclusiveAttemptIsLatestWithoutReplacingLastSubstantiveReport() {

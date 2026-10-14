@@ -1,6 +1,8 @@
 package com.capvault.backend.drive;
 
 import java.time.OffsetDateTime;
+import com.capvault.backend.filecheck.DriveFailureDetails;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -60,10 +62,10 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
             );
         } catch (RestClientResponseException exception) {
             logFailure("metadata", started, exception);
-            throw translate(exception);
+            throw translate(exception, "metadata", started);
         } catch (RestClientException exception) {
             logFailure("metadata", started, exception);
-            throw unavailable(GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE);
+            throw unavailable(GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE, "metadata", started, exception);
         }
     }
 
@@ -77,18 +79,24 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
                 .retrieve()
                 .body(byte[].class);
             if (bytes == null || bytes.length == 0) {
-                throw new GoogleDriveUnavailableException("The submitted Drive file is empty or could not be downloaded.");
+                String reason = "The submitted Drive file is empty or could not be downloaded.";
+                throw new GoogleDriveUnavailableException(reason, null, GoogleDriveUnavailableException.Kind.UNKNOWN,
+                    new DriveFailureDetails("download", "INTEGRITY", "EMPTY_FILE", null, reason, null,
+                        elapsedMs(started), null, bytes == null ? null : 0L));
             }
             if (bytes.length > properties.maximumFileSizeBytes()) {
-                throw new IllegalArgumentException("The submitted PDF exceeds the 25 MB file-check limit.");
+                String reason = "The submitted PDF exceeds the 25 MB file-check limit.";
+                throw new GoogleDriveUnavailableException(reason, null, GoogleDriveUnavailableException.Kind.UNKNOWN,
+                    new DriveFailureDetails("download", "INTEGRITY", "FILE_TOO_LARGE", null, reason, null,
+                        elapsedMs(started), (long) properties.maximumFileSizeBytes(), (long) bytes.length));
             }
             return bytes;
         } catch (RestClientResponseException exception) {
             logFailure("download", started, exception);
-            throw translate(exception);
+            throw translate(exception, "download", started);
         } catch (RestClientException exception) {
             logFailure("download", started, exception);
-            throw unavailable(GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE);
+            throw unavailable(GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE, "download", started, exception);
         }
     }
 
@@ -164,11 +172,31 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
     }
 
 
-    private static GoogleDriveUnavailableException translate(RestClientResponseException exception) {
+    private static GoogleDriveUnavailableException translate(RestClientResponseException exception, String stage, long started) {
         int status = exception.getStatusCode().value();
         Set<String> reasons = upstreamReasons(exception.getResponseBodyAsString());
         GoogleDriveUnavailableException.Kind kind = classify(status, reasons);
-        return unavailable(kind);
+        String code = status == 404 ? "NOT_FOUND" : switch (kind) {
+            case FILE_ACCESS -> "ACCESS_DENIED";
+            case CONFIGURATION -> "CONFIGURATION_ERROR";
+            case RATE_LIMIT -> "RATE_LIMIT";
+            case PROVIDER_UNAVAILABLE -> "PROVIDER_ERROR";
+            case UNKNOWN -> "UPSTREAM_ERROR";
+        };
+        String reason = status == 404 ? "Google Drive could not find or access the submitted file." : switch (kind) {
+            case FILE_ACCESS -> "Google Drive denied access to the submitted file.";
+            case CONFIGURATION -> "Google Drive API configuration could not authorize this request.";
+            case RATE_LIMIT -> "Google Drive temporarily rate limited this request.";
+            case PROVIDER_UNAVAILABLE -> "Google Drive did not complete the request.";
+            case UNKNOWN -> "Google Drive returned an unrecognized response.";
+        };
+        DriveFailureDetails details = new DriveFailureDetails(stage, "HTTP", code, status, reason,
+            exception.getClass().getSimpleName(), elapsedMs(started), null, null);
+        return new GoogleDriveUnavailableException(reason, exception, kind, details);
+    }
+
+    private static long elapsedMs(long started) {
+        return (System.nanoTime() - started) / 1_000_000;
     }
 
     private static GoogleDriveUnavailableException.Kind classify(int status, Set<String> reasons) {
@@ -189,14 +217,49 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
     }
 
     private static GoogleDriveUnavailableException unavailable(GoogleDriveUnavailableException.Kind kind) {
-        String message = switch (kind) {
-            case FILE_ACCESS -> "The submitted Drive file is inaccessible to the Document Check service.";
-            case CONFIGURATION -> "Google Drive API configuration is invalid or unavailable for Document Check.";
-            case RATE_LIMIT -> "Google Drive is temporarily rate limited. Try Document Check again later.";
-            case PROVIDER_UNAVAILABLE -> "Google Drive could not be reached for Document Check.";
-            case UNKNOWN -> "Google Drive returned an unrecognized error for Document Check.";
+        return unavailable(kind, "unknown", 0L, null);
+    }
+
+    private static GoogleDriveUnavailableException unavailable(
+        GoogleDriveUnavailableException.Kind kind, String stage, long started, Throwable cause
+    ) {
+        GoogleDriveUnavailableException.Kind effective = kind == null
+            ? GoogleDriveUnavailableException.Kind.UNKNOWN : kind;
+        String code = transportCode(cause, effective);
+        String reason = switch (code) {
+            case "TIMEOUT" -> "The Google Drive request timed out.";
+            case "DNS_FAILURE" -> "The Google Drive host could not be resolved.";
+            case "CONNECTION_FAILURE" -> "The Google Drive connection could not be established.";
+            case "TLS_FAILURE" -> "The Google Drive connection could not be secured.";
+            case "ACCESS_DENIED" -> "The submitted Drive file is inaccessible to the Document Check service.";
+            case "CONFIGURATION_ERROR" -> "Google Drive API configuration is invalid or unavailable for Document Check.";
+            case "RATE_LIMIT" -> "Google Drive is temporarily rate limited. Try Document Check again later.";
+            case "PROVIDER_ERROR" -> "Google Drive could not be reached for Document Check.";
+            default -> "Google Drive returned an unrecognized error for Document Check.";
         };
-        return new GoogleDriveUnavailableException(message, kind);
+        DriveFailureDetails details = new DriveFailureDetails(stage, "TRANSPORT", code, null, reason,
+            cause == null ? null : cause.getClass().getSimpleName(),
+            started == 0L ? null : elapsedMs(started), null, null);
+        return new GoogleDriveUnavailableException(reason, cause, effective, details);
+    }
+
+    private static String transportCode(Throwable cause, GoogleDriveUnavailableException.Kind kind) {
+        if (cause == null) return switch (kind) {
+            case FILE_ACCESS -> "ACCESS_DENIED";
+            case CONFIGURATION -> "CONFIGURATION_ERROR";
+            case RATE_LIMIT -> "RATE_LIMIT";
+            case PROVIDER_UNAVAILABLE -> "PROVIDER_ERROR";
+            default -> "TRANSPORT_ERROR";
+        };
+        Throwable current = cause;
+        for (int depth = 0; current != null && depth < 8; depth++, current = current.getCause()) {
+            String name = current.getClass().getName().toLowerCase(Locale.ROOT);
+            if (name.contains("timeout")) return "TIMEOUT";
+            if (name.contains("unknownhost") || name.contains("dns")) return "DNS_FAILURE";
+            if (name.contains("ssl") || name.contains("tls")) return "TLS_FAILURE";
+            if (name.contains("connect")) return "CONNECTION_FAILURE";
+        }
+        return "TRANSPORT_ERROR";
     }
 
     private static Set<String> upstreamReasons(String body) {

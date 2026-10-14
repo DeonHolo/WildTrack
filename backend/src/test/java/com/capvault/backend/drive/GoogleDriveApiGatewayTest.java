@@ -26,7 +26,14 @@ class GoogleDriveApiGatewayTest {
         });
         var gateway = new GoogleDriveApiGateway(new GoogleDriveProperties(true, "private-api-key", 25_000_000), builder.build());
         assertThatThrownBy(() -> gateway.download(new DriveFileReference("private-file-id", null)))
-            .isInstanceOf(GoogleDriveUnavailableException.class);
+            .isInstanceOfSatisfying(GoogleDriveUnavailableException.class, failure -> {
+                assertThat(failure.failureDetails()).satisfies(details -> {
+                    assertThat(details.stage()).isEqualTo("download");
+                    assertThat(details.category()).isEqualTo("TRANSPORT");
+                    assertThat(details.code()).isEqualTo("TIMEOUT");
+                    assertThat(details.reason()).doesNotContain("private-api-key", "private-file-id");
+                });
+            });
         assertThat(output.getOut()).contains("stage=download", "kind=TRANSPORT", "causeType=SocketTimeoutException")
             .doesNotContain("private-api-key", "private-file-id", "https://www.googleapis.com");
         server.verify();
@@ -143,7 +150,17 @@ class GoogleDriveApiGatewayTest {
 
         assertThatThrownBy(() -> gateway.getMetadata(new DriveFileReference("file-failure", null)))
             .isInstanceOfSatisfying(GoogleDriveUnavailableException.class,
-                exception -> assertThat(exception.kind()).isEqualTo(expected));
+                exception -> {
+                    assertThat(exception.kind()).isEqualTo(expected);
+                    assertThat(exception.failureDetails()).isNotNull();
+                    assertThat(exception.failureDetails().upstreamStatus()).isEqualTo(status);
+                    assertThat(exception.failureDetails().reason()).doesNotContain("file-failure", "test-key");
+                    if (status == 404) {
+                        assertThat(exception.failureDetails().code()).isEqualTo("NOT_FOUND");
+                        assertThat(exception.failureDetails().reason())
+                            .isEqualTo("Google Drive could not find or access the submitted file.");
+                    }
+                });
         server.verify();
     }
 }

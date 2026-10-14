@@ -114,13 +114,14 @@ public class AiReviewService {
                        String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode,
                        String fieldId, String sourceUrl, AiReviewProvider.Result previousReport,
                        String previousGeneratedAt, AiReviewProvider.Result lastSubstantiveReport,
-                       String lastSubstantiveGeneratedAt, String sourceVerifiedAt) {
+                       String lastSubstantiveGeneratedAt, String sourceVerifiedAt,
+                       AiReviewProvider.FailureDiagnostic failureDiagnostics) {
         public View(String status, boolean reused, String message, AiReviewProvider.Result report,
                 String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode,
                 String fieldId, String sourceUrl, AiReviewProvider.Result previousReport, String previousGeneratedAt,
                 AiReviewProvider.Result lastSubstantiveReport, String lastSubstantiveGeneratedAt) {
             this(status, reused, message, report, generatedAt, sourceResponseUpdatedAt, sourceVerified, retryToken,
-                failureCode, fieldId, sourceUrl, previousReport, previousGeneratedAt, lastSubstantiveReport, lastSubstantiveGeneratedAt, null);
+                failureCode, fieldId, sourceUrl, previousReport, previousGeneratedAt, lastSubstantiveReport, lastSubstantiveGeneratedAt, null, null);
         }
         public View(String status, boolean reused, String message, AiReviewProvider.Result report,
                 String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode,
@@ -131,7 +132,7 @@ public class AiReviewService {
         View withSourceVerifiedAt(java.time.Instant value) {
             return new View(status, reused, message, report, generatedAt, sourceResponseUpdatedAt, sourceVerified,
                 retryToken, failureCode, fieldId, sourceUrl, previousReport, previousGeneratedAt,
-                lastSubstantiveReport, lastSubstantiveGeneratedAt, instantText(value));
+                lastSubstantiveReport, lastSubstantiveGeneratedAt, instantText(value), failureDiagnostics);
         }
     }
     private record Context(String hash, String title, String instructions, String template) { }
@@ -371,7 +372,15 @@ public class AiReviewService {
                         if (failure instanceof ResponseStatusException || failure instanceof AccessDeniedException)
                             unlink(target, response, sourceValueHash, key);
                         // A timeout/crash can occur after billing. Never retry automatically.
-                        store.uncertain(claim.job(), failureCode);
+                        String diagnosticJson = null;
+                        if (failure instanceof GeminiAiReviewProvider.Failure gemini && gemini.diagnostic != null) {
+                            var safe = safeFailureDiagnostic(gemini.diagnostic);
+                            if (safe != null) {
+                                try { diagnosticJson = json.writeValueAsString(safe); }
+                                catch (Exception ignored) { diagnosticJson = null; }
+                            }
+                        }
+                        store.uncertain(claim.job(), failureCode, diagnosticJson);
                     }
                 });
             } catch (RejectedExecutionException full) {
@@ -608,6 +617,13 @@ public class AiReviewService {
                 }
             }
         } catch (Exception corrupt) { throw new IllegalStateException("Saved AI review could not be read."); }
+        AiReviewProvider.FailureDiagnostic failureDiagnostics = null;
+        if ("UNCERTAIN".equals(state) && job.failureDiagnosticJson() != null) {
+            try {
+                failureDiagnostics = safeFailureDiagnostic(json.readValue(job.failureDiagnosticJson(),
+                    AiReviewProvider.FailureDiagnostic.class));
+            } catch (Exception ignored) { failureDiagnostics = null; }
+        }
         String message = switch (state) {
             case "COMPLETED" -> reused ? "Reused the saved review for this identical team document." : "AI review completed. Instructor review is still required.";
             case "RUNNING" -> "This document is already being reviewed. No additional AI request was sent.";
@@ -616,7 +632,8 @@ public class AiReviewService {
         return new View(state, reused, message, report, state.equals("COMPLETED") ? reportDate : null,
             response.getUpdatedAt().toString(), verified, state.equals("UNCERTAIN") ? job.token() : null,
             state.equals("UNCERTAIN") ? job.failureCode() : null, target.fieldId(), target.sourceUrl(),
-            previousReport, previousReport == null ? null : reportDate, lastSubstantive, substantiveDate);
+            previousReport, previousReport == null ? null : reportDate, lastSubstantive, substantiveDate,
+            null, failureDiagnostics);
     }
 
     private View outdated(AiReviewStore.Job job, FormResponse response, ReviewTarget target) {
@@ -1104,6 +1121,39 @@ public class AiReviewService {
 
     private static InvalidReviewResult invalidReview() {
         return new InvalidReviewResult();
+    }
+
+    private static AiReviewProvider.FailureDiagnostic safeFailureDiagnostic(
+            AiReviewProvider.FailureDiagnostic diagnostic) {
+        if (diagnostic == null || !"gemini".equals(diagnostic.provider())) return null;
+        var stages = List.of("prepare", "file_upload", "file_processing", "generation", "response_validation");
+        if (diagnostic.stage() != null && !stages.contains(diagnostic.stage())) return null;
+        String code = diagnostic.reasonCode();
+        if (!List.of("NOT_CONFIGURED", "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE", "RATE_LIMITED",
+                "API_KEY_REJECTED", "MODEL_UNAVAILABLE", "PROVIDER_OUTCOME_UNKNOWN", "PROVIDER_TIMEOUT",
+                "PROVIDER_CONNECTION_FAILED", "INVALID_RESPONSE", "FILE_PROCESSING_FAILED", "CONTENT_BLOCKED",
+                "OUTPUT_TRUNCATED", "REQUEST_SCHEMA_REJECTED", "REQUEST_PARAMETER_REJECTED",
+                "REQUEST_DOCUMENT_REJECTED", "REQUEST_REJECTED", "NO_GROUNDED_FINDINGS", "FINDINGS_FILTERED",
+                "INSUFFICIENT_REVIEW_EVIDENCE", "SCHEMA_TOO_COMPLEX", "INVALID_ARGUMENT",
+                "FAILED_PRECONDITION", "OUTPUT_TOKEN_LIMIT_EXCEEDED", "THINKING_CONFIG_REJECTED").contains(code)) return null;
+        String providerStatus = diagnostic.providerStatus();
+        if (providerStatus != null && !List.of("INVALID_ARGUMENT", "FAILED_PRECONDITION", "PERMISSION_DENIED",
+                "UNAUTHENTICATED", "RESOURCE_EXHAUSTED", "NOT_FOUND", "INTERNAL", "UNAVAILABLE",
+                "DEADLINE_EXCEEDED").contains(providerStatus)) providerStatus = null;
+        var allowedFields = List.of("responseJsonSchema", "generationConfig", "generationConfig.thinkingConfig",
+                "generationConfig.maxOutputTokens", "contents.parts", "contents.parts.inlineData",
+                "contents.parts.fileData", "safetySettings", "tools", "systemInstruction");
+        var fields = diagnostic.parameterFields() == null ? List.<String>of()
+            : diagnostic.parameterFields().stream().filter(allowedFields::contains).distinct().limit(8).toList();
+        String requestId = diagnostic.requestId() != null
+                && diagnostic.requestId().matches("[A-Za-z0-9._:-]{1,128}") ? diagnostic.requestId() : null;
+        String explanation = diagnostic.explanation();
+        if (explanation == null || explanation.length() > 300
+                || !explanation.matches("[A-Za-z0-9 .,;:'() -]+")) explanation = "The provider request failed.";
+        Long elapsed = diagnostic.elapsedMs();
+        if (elapsed != null && (elapsed < 0 || elapsed > 600_000)) elapsed = null;
+        return new AiReviewProvider.FailureDiagnostic("gemini", diagnostic.stage(), diagnostic.httpStatus(),
+            providerStatus, code, fields, explanation, requestId, GeminiAiReviewProvider.MODEL, elapsed);
     }
 
     private static String diagnosticFailureCode(String code) {

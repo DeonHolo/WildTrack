@@ -36,6 +36,7 @@ import {
 import { StatusIndicator } from '../ui.jsx';
 import { ResponseTimingSummary } from '../ResponseTimingSummary.jsx';
 import { submissionArtifactFields } from '../../lib/submissionArtifacts.js';
+import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
 
 export function ReviewResponseDrawer({
   opened,
@@ -218,6 +219,8 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
             {report ? (
               <Stack gap={3}>
                 <Text size="sm">{report.summary || 'Document Check completed.'}</Text>
+                {(report.resultStatus || report.status) === 'BLOCKED' && String(report.sourceUrl || '').trim() === value
+                  ? <ProviderFailureDetails service="Google Drive" diagnostic={report.failureDetails} /> : null}
                 {report.redFlags?.length ? <Group gap="xs">{report.redFlags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}</Group> : null}
                 {missingPreview ? <Text size="xs" c="dimmed">Template headings not detected: {missingPreview}</Text> : null}
               </Stack>
@@ -225,6 +228,8 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
             {field.aiReviewEnabled ? (
               <Stack gap={3}>
                 <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={reviewing ? 'Reviewing' : aiStatus} /></Group>
+                {aiState?.status === 'UNCERTAIN' && String(aiState.sourceUrl || '').trim() === value
+                  ? <ProviderFailureDetails diagnostic={aiState.failureDiagnostics} failureCode={aiState.failureCode} /> : null}
                 {documentChange ? <Text size="sm" c="orange.8">AI Review may be outdated. The PDF has changed since the content for this review was checked.</Text> : null}
                 {inconclusiveAttempt ? (
                   <Text size="sm" c="orange.8">Latest AI Review inconclusive.{' '}

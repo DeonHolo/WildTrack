@@ -189,7 +189,12 @@ class FileCheckCapturedPdfAuditTest {
 
         when(drive.download(ref)).thenReturn(bytes);
         assertThatThrownBy(() -> service.capture(ref, metadata("shared-pdf", bytes.length, "incorrect-md5")))
-            .isInstanceOf(GoogleDriveUnavailableException.class).hasMessageContaining("changed during download");
+            .isInstanceOfSatisfying(GoogleDriveUnavailableException.class, failure -> {
+                assertThat(failure).hasMessageContaining("changed during download");
+                assertThat(failure.failureDetails().category()).isEqualTo("INTEGRITY");
+                assertThat(failure.failureDetails().code()).isEqualTo("CHECKSUM_MISMATCH");
+                assertThat(failure.failureDetails().actualBytes()).isEqualTo((long) bytes.length);
+            });
         assertThatThrownBy(() -> service.capture(ref, metadata("shared-pdf", bytes.length + 1, null)))
             .isInstanceOf(GoogleDriveUnavailableException.class).hasMessageContaining("did not match");
         assertThatThrownBy(() -> service.capture(ref, metadata("shared-pdf", 1, null)))

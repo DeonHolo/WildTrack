@@ -85,7 +85,8 @@ test('opens the saved successful result and quoted PDF evidence without another 
   await ai.getByText('Checks with supporting excerpts (2)').click();
   await expect(ai.getByText(/PDF excerpts quote the extracted document text/)).toBeVisible();
   await expect(ai.locator('blockquote').first()).toHaveText('Scope: students and advisers.');
-  await expect(ai.getByText('PDF excerpt', { exact: true })).toHaveCount(2);
+  await expect(ai.getByText('PDF excerpt', { exact: true })).toHaveCount(0);
+  await expect(ai.locator('blockquote')).toHaveCount(2);
   expect(calls).toEqual([]);
   fixture.assertRequestsHandled();
 });

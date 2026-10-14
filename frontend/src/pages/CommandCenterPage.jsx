@@ -44,6 +44,7 @@ import {
 } from '../lib/reviewDeskClient.js';
 import {
   artifactDocumentCheckStatus,
+  artifactObservedFileHistory,
   artifactAiReview,
   artifactAiReviewChange,
   artifactAiReportForDisplay,
@@ -55,6 +56,8 @@ import {
   isArtifactDocumentCheckCurrent,
   reviewableSubmissionFields
 } from '../lib/workflow.js';
+
+import { canonicalDriveFileId } from '../lib/driveLinks.js';
 
 const PAGE_SIZE = 50;
 const QUEUE_FILTERS = [
@@ -396,11 +399,13 @@ export function CommandCenterPage() {
     if (!isCurrentScope()) return;
     setRunningIds((current) => withoutId(current, task.response.id));
     if (result?.ok) {
-      setResolvedTaskIds((current) => withId(current, task.id));
+      if (task.type !== 'Submitted link changed') setResolvedTaskIds((current) => withId(current, task.id));
       notifications.show({
         color: 'green',
         title: 'Document Check complete',
-        message: task.studentName + "'s " + task.deliverableCode + ' left the unchecked queue.'
+        message: task.type === 'Submitted link changed'
+          ? 'The updated PDF was checked. Review the response or dismiss the link-change notice.'
+          : task.studentName + "'s " + task.deliverableCode + ' left the unchecked queue.'
       });
     } else {
       notifications.show({
@@ -455,7 +460,8 @@ export function CommandCenterPage() {
     ))).map((task) => task.response.id));
     setResolvedTaskIds((current) => {
       const next = new Set(current);
-      tasks.filter((task) => successfulAttemptIds.has(task.response.id)).forEach((task) => next.add(task.id));
+      tasks.filter((task) => task.type !== 'Submitted link changed' && successfulAttemptIds.has(task.response.id))
+        .forEach((task) => next.add(task.id));
       return next;
     });
     setBatchProgress({
@@ -895,7 +901,22 @@ function buildWorkQueue(state, openConflicts = [], dismissedKeys = new Set(), de
     const reviewFields = reviewableSubmissionFields(deliverable)
       .filter((field) => String(response.values?.[field.id] || '').trim());
     const pendingFields = reviewFields.filter((field) => !isArtifactDocumentCheckCurrent(response, field));
-    if (deliverableUsesDocumentCheck(deliverable) && pendingFields.length) {
+    const changedNoticeFields = reviewFields.filter((field) => Boolean(linkChangeEvidence(response, field)));
+    changedNoticeFields.forEach((field) => {
+      const evidence = linkChangeEvidence(response, field);
+      const ready = isArtifactDocumentCheckCurrent(response, field) && hasSuccessfulCurrentCheck(response, field);
+      tasks.push({
+        id: linkChangeTaskId(response, field, evidence), category: 'document', type: 'Submitted link changed',
+        title: studentName + ' | ' + deliverableCode,
+        detail: linkChangeDescription(response, field), studentName, teamCode, deliverableCode,
+        updatedAt: evidence.firstObservedAt || updatedAt, response, pendingFields: ready ? [] : [field],
+        action: ready ? 'review' : 'check', actionLabel: ready ? 'Review response' : 'Document Check',
+        actionAriaLabel: ready ? 'Review ' + studentName + ' response after submitted link changed'
+          : 'Run Document Check for ' + studentName + ' changed submitted PDF artifact'
+      });
+    });
+    const genericPendingFields = pendingFields.filter((field) => !changedNoticeFields.includes(field));
+    if (deliverableUsesDocumentCheck(deliverable) && genericPendingFields.length) {
       const checkedCount = reviewFields.length - pendingFields.length;
       const attentionCount = reviewFields.filter((field) => artifactDocumentCheckStatus(response, field) === 'Needs attention').length;
       tasks.push({
@@ -903,20 +924,21 @@ function buildWorkQueue(state, openConflicts = [], dismissedKeys = new Set(), de
         category: 'document',
         type: 'Document Check',
         title: studentName + ' | ' + deliverableCode,
-        detail: `${reviewFields.length} PDF artifact${reviewFields.length === 1 ? '' : 's'} · ${checkedCount} checked · ${pendingFields.length} need checking${attentionCount ? ` · ${attentionCount} need attention` : ''}`,
+        detail: `${reviewFields.length} PDF artifact${reviewFields.length === 1 ? '' : 's'} · ${checkedCount} checked · ${genericPendingFields.length} need checking${attentionCount ? ` · ${attentionCount} need attention` : ''}`,
         studentName,
         teamCode,
         deliverableCode,
         updatedAt,
         response,
-        pendingFields,
+        pendingFields: genericPendingFields,
         action: 'check',
-        actionLabel: pendingFields.length === 1 ? 'Check document' : `Check ${pendingFields.length} PDFs`,
+        actionLabel: genericPendingFields.length === 1 ? 'Check document' : `Check ${genericPendingFields.length} PDFs`,
         actionAriaLabel: 'Check ' + studentName + ' reviewable PDF artifacts'
       });
       return;
     }
 
+    if (changedNoticeFields.length) return;
     tasks.push({
       id: 'review:' + response.id,
       category: 'review',
@@ -1000,6 +1022,48 @@ function isSignificantFileEvent(kind) {
 
 function fileEventTaskId(event) {
   return `file:${event.fileId}:${event.id}`;
+}
+
+function linkChangeEvidence(response, field) {
+  const currentUrl = String(response.values?.[field.id] || '').trim();
+  const currentFileId = canonicalDriveFileId(currentUrl);
+  if (!currentFileId) return null;
+  const observations = [...(artifactObservedFileHistory(response, field)?.observations || [])]
+    .sort((a, b) => dateValue(b.firstObservedAt) - dateValue(a.firstObservedAt));
+  const observedId = observation => observation?.fileId || canonicalDriveFileId(observation?.sourceUrl);
+  // A source-change notice survives subsequent checks of the same file.
+  if (observedId(observations[0]) === currentFileId) {
+    const index = observations.findIndex(item => item.changeType === 'SOURCE_CHANGED' && observedId(item) === currentFileId);
+    if (index >= 0) {
+      const previous = observations.slice(index + 1).find(item => observedId(item) && observedId(item) !== currentFileId);
+      if (previous && observations[index].firstObservedAt) return { previousFileId: observedId(previous), currentFileId,
+        firstObservedAt: observations[index].firstObservedAt };
+    }
+  }
+  // Only persisted source events have a stable identity for dismissal and restore.
+  return null;
+}
+
+function linkChangeTaskId(response, field, evidence) {
+  const fieldKey = field.definitionId || field.id;
+  return `link-change:${response.id}:${fieldKey}:${evidence.currentFileId}:${evidence.firstObservedAt || 'unknown'}`;
+}
+
+function hasSuccessfulCurrentCheck(response, field) {
+  const fieldKey = field.definitionId || field.id;
+  const report = response.artifactChecks?.[fieldKey]
+    || response.artifactChecks?.[field.id]
+    || (!field.definitionId ? response.documentCheck : null);
+  if (!report || (report.resultStatus || report.status) === 'BLOCKED' || report.status === 'Unavailable' || report.status === 'UNAVAILABLE') return false;
+  const currentUrl = String(response.values?.[field.id] || '').trim();
+  if (String(report.sourceUrl || '').trim() !== currentUrl) return false;
+  return Boolean(report.document?.readable || report.status === 'COMPLETED');
+}
+
+function linkChangeDescription(response, field) {
+  const evidence = linkChangeEvidence(response, field);
+  if (!evidence) return '';
+  return `Submitted link changed for ${field.label || 'PDF artifact'}. Previous Drive file: ${evidence.previousFileId}. Current Drive file: ${evidence.currentFileId}.`;
 }
 
 function normalizeImportSource(value) {

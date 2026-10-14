@@ -1,5 +1,6 @@
 import { Alert, Modal, Stack, Text } from '@mantine/core';
 import { AiReviewReport } from './AiReviewReport.jsx';
+import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
 import { formatDateTime } from '../../lib/workflow.js';
 
 export function AiReviewReportDialog({ opened, onClose, report, review, documentChange = null, deliverableTitle = 'Submission' }) {
@@ -37,6 +38,8 @@ export function AiReviewReportDialog({ opened, onClose, report, review, document
             {' '}The report below is from an earlier saved run. It is not a result of the latest attempt.
           </Alert>
         ) : null}
+        {review?.status === 'UNCERTAIN'
+          ? <ProviderFailureDetails diagnostic={review.failureDiagnostics} failureCode={review.failureCode} /> : null}
         {previous ? (
           <Text size="sm" fw={700}>Previously saved AI Review{(review?.previousGeneratedAt || review?.lastSubstantiveGeneratedAt)
             ? ` · ${formatDateTime(review.previousGeneratedAt || review.lastSubstantiveGeneratedAt)}` : ' · date unavailable'}</Text>

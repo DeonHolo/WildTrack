@@ -342,6 +342,21 @@ describe('deliverable-first submission review', () => {
     expect(workflow.runAiReviews).not.toHaveBeenCalled();
   }
 
+  it('sorts submissions by latest activity by default and supports oldest activity without a priority option', async () => {
+    renderPage();
+    const table = screen.getByRole('table', { name: 'SRS submissions' });
+    const names = () => within(table).getAllByRole('row').slice(1).map((row) => within(row).getByRole('button', { name: /Review .* response/ }).textContent);
+    expect(names()[0]).toContain('Taghoy, Ron Luigi F.');
+
+    const sort = screen.getByRole('textbox', { name: 'Sort by' });
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    fireEvent.click(sort);
+    fireEvent.click(await screen.findByRole('option', { name: 'Oldest activity' }));
+    expect(names()[0]).toContain('Pacio, Muriel D.');
+
+    expect(screen.queryByRole('option', { name: 'Priority' })).not.toBeInTheDocument();
+  });
+
   it('opens a freshly saved batch review even when its preparation snapshot was FAILED', async () => {
     const fresh = structuredClone(workflow.state);
     fresh.attempts.find(item => item.id === 'response-ron-srs').aiReviewState.report = {
