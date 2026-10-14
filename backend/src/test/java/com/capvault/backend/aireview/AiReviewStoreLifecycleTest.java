@@ -27,6 +27,12 @@ class AiReviewStoreLifecycleTest {
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__deduplicated_ai_reviews.sql"),
             new ClassPathResource("db/migration/V33__ai_review_attempt_history.sql")).execute(ds);
         jdbc.execute("ALTER TABLE ai_review_response_links ADD COLUMN source_verified_at TIMESTAMP WITH TIME ZONE");
+        jdbc.execute("""
+            CREATE TABLE ai_review_field_links(
+                response_id UUID NOT NULL REFERENCES form_responses(id), field_id VARCHAR(80) NOT NULL,
+                source_value_sha256 VARCHAR(64) NOT NULL, cache_key VARCHAR(64) NOT NULL REFERENCES ai_review_jobs(cache_key),
+                source_verified_at TIMESTAMP WITH TIME ZONE, PRIMARY KEY(response_id, field_id))
+            """);
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", workspace);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", deliverable);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(ds), Clock.systemUTC());
@@ -61,6 +67,92 @@ class AiReviewStoreLifecycleTest {
         assertThat(saved.job().completedAt()).isEqualTo(originalTime);
         assertThat(saved.sourceVerifiedAt()).isEqualTo(verifiedTime);
         assertThat(later.sourceVerifiedAt(response, "legacy", "restored", true)).isEqualTo(verifiedTime);
+    }
+
+    private AiReviewStore at(String time) {
+        return new AiReviewStore(jdbc, new DataSourceTransactionManager(jdbc.getDataSource()),
+            Clock.fixed(java.time.Instant.parse(time), java.time.ZoneOffset.UTC));
+    }
+
+    private UUID newResponse() {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO form_responses VALUES (?)", id);
+        return id;
+    }
+
+    private void linkBoth(AiReviewStore storage, UUID response, String key) {
+        storage.link(response, 0, key);
+        storage.linkField(response, "pdf-field", "source", key);
+    }
+
+    private void assertReceipt(AiReviewStore storage, UUID response, String key, String expected) {
+        var receipt = expected == null ? null : java.time.Instant.parse(expected);
+        assertThat(storage.sourceVerifiedAt(response, "legacy", key, true)).isEqualTo(receipt);
+        assertThat(storage.sourceVerifiedAt(response, "pdf-field", key, false)).isEqualTo(receipt);
+    }
+
+    @Test void runningAndFailedRerunsPreserveTheOldReportVerificationReceipt() {
+        UUID response = newResponse();
+        var original = at("2026-10-13T14:55:20Z");
+        var job = original.claim("failed", workspace, deliverable, "team", "pdf", "ctx", null).job();
+        original.complete(job, "old report");
+        linkBoth(original, response, "failed");
+        var later = at("2026-10-13T20:44:13Z");
+        var rerun = later.claim("failed", workspace, deliverable, "team", "pdf", "ctx", null, true).job();
+        linkBoth(later, response, "failed");
+        assertReceipt(later, response, "failed", "2026-10-13T14:55:20Z");
+        later.uncertain(rerun, "REQUEST_REJECTED");
+        assertReceipt(later, response, "failed", "2026-10-13T14:55:20Z");
+        assertThat(later.find("failed").orElseThrow().reportJson()).isEqualTo("old report");
+    }
+
+    @Test void failureAfterSuccessfulReuseRetainsTheLegitimateReuseReceipt() {
+        UUID response = newResponse();
+        var original = at("2026-10-13T14:55:20Z");
+        var job = original.claim("reused", workspace, deliverable, "team", "pdf", "ctx", null).job();
+        original.complete(job, "old report");
+        var reuse = at("2026-10-13T19:00:00Z");
+        linkBoth(reuse, response, "reused");
+        var later = at("2026-10-13T20:44:13Z");
+        var rerun = later.claim("reused", workspace, deliverable, "team", "pdf", "ctx", null, true).job();
+        linkBoth(later, response, "reused");
+        later.uncertain(rerun, "QUEUE_FULL");
+        assertReceipt(later, response, "reused", "2026-10-13T19:00:00Z");
+    }
+
+    @Test void completionUsesCapturedInputTimeAndAStaleCompletionCannotAdvanceIt() {
+        UUID response = newResponse();
+        var start = at("2026-10-13T20:00:00Z");
+        var job = start.claim("completed", workspace, deliverable, "team", "pdf", "ctx", null).job();
+        linkBoth(start, response, "completed");
+        assertReceipt(start, response, "completed", null);
+        var completed = at("2026-10-13T20:10:00Z");
+        completed.complete(job, "saved report", true, java.time.Instant.parse("2026-10-13T19:59:59Z"));
+        assertReceipt(completed, response, "completed", "2026-10-13T19:59:59Z");
+        var rerun = completed.claim("completed", workspace, deliverable, "team", "pdf", "ctx", null, true).job();
+        completed.complete(job, "stale worker", true, java.time.Instant.parse("2026-10-13T20:20:00Z"));
+        assertReceipt(completed, response, "completed", "2026-10-13T19:59:59Z");
+        assertThat(completed.find("completed").orElseThrow().token()).isEqualTo(rerun.token());
+        assertThat(completed.find("completed").orElseThrow().state()).isEqualTo("RUNNING");
+    }
+
+    @Test void migrationRepairsAmbiguousFailedReceiptsWithoutErasingCompletedReceipts() {
+        UUID failedResponse = newResponse(), completedResponse = newResponse();
+        var original = at("2026-10-13T14:55:20Z");
+        var failed = original.claim("broken-receipt", workspace, deliverable, "team", "pdf", "ctx", null).job();
+        original.complete(failed, "saved report");
+        linkBoth(original, failedResponse, "broken-receipt");
+        var good = original.claim("good-receipt", workspace, deliverable, "team", "pdf", "ctx", null).job();
+        original.complete(good, "saved report");
+        linkBoth(original, completedResponse, "good-receipt");
+        var rerun = original.claim("broken-receipt", workspace, deliverable, "team", "pdf", "ctx", null, true).job();
+        original.uncertain(rerun, "REQUEST_REJECTED");
+        jdbc.update("UPDATE ai_review_field_links SET source_verified_at = ? WHERE cache_key = ?",
+            java.sql.Timestamp.from(java.time.Instant.parse("2026-10-13T20:44:13Z")), "broken-receipt");
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V38__repair_failed_ai_review_verification.sql"))
+            .execute(jdbc.getDataSource());
+        assertReceipt(original, failedResponse, "broken-receipt", null);
+        assertReceipt(original, completedResponse, "good-receipt", "2026-10-13T14:55:20Z");
     }
 
     @Test void aPreparedRerunCannotReplaceANewerCompletedAttempt() {

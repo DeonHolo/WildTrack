@@ -6,6 +6,10 @@ import { DocumentCheckDialog, documentCheckStatus } from './DocumentCheckDialog.
 vi.mock('../../lib/api.js', async importOriginal => ({ ...(await importOriginal()),
   getWorkTaskDismissals: vi.fn().mockResolvedValue([]), dismissWorkTask: vi.fn().mockResolvedValue(null) }));
 
+vi.mock('../../app/WorkspaceSession.jsx', () => ({
+  useWorkspaceSession: () => ({ session: { authenticated: true, email: 'admin@example.test', roles: ['ADMIN'] } })
+}));
+
 const fetchMock = vi.fn();
 beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { expect(fetchMock).not.toHaveBeenCalled(); vi.unstubAllGlobals(); });

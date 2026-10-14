@@ -89,7 +89,7 @@ export default function App() {
           </RoleBoundary>
         )} />
         <Route path="/templates/:templateId/preview" element={(
-          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN]}>
+          <RoleBoundary allow={[APPLICATION_ROLES.ADMIN, APPLICATION_ROLES.ADVISER]}>
             <TemplatePreviewPage />
           </RoleBoundary>
         )} />

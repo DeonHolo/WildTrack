@@ -11,7 +11,8 @@ const emptyTemplate = () => null;
 export function TemplatePreviewPage() {
   const { templateId } = useParams();
   const [query] = useSearchParams();
-  const { activeWorkspaceId } = useWorkspaceSession();
+  const { activeWorkspaceId, session } = useWorkspaceSession();
+  const adviserOnly = session?.roles?.includes('ADVISER') && !session.roles.includes('ADMIN');
   const workspaceId = query.get('workspaceId') || activeWorkspaceId;
   const load = useCallback(id => getDocumentTemplateStructure(id, templateId), [templateId]);
   const { data, status, error, reload } = useWorkspaceResource(workspaceId, load, emptyTemplate);
@@ -21,7 +22,7 @@ export function TemplatePreviewPage() {
         <Title order={1}>{data?.originalFilename || data?.displayName || 'Template preview'}</Title>
         {data?.displayName && data.displayName !== data.originalFilename ? <Text size="sm">{data.displayName}</Text> : null}
       </div>
-      <Anchor href="/workspace">Back to workspace</Anchor>
+      <Anchor href={adviserOnly ? '/adviser' : '/workspace'}>{adviserOnly ? 'Back to my teams' : 'Back to workspace'}</Anchor>
     </Group>
     <ResourceBoundary status={status} error={error} onRetry={reload}>
       {data ? <>

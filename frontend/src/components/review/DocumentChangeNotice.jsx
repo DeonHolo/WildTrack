@@ -1,77 +1,78 @@
 import { Alert, Group, Modal } from '@mantine/core';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../ui.jsx';
 import { dismissWorkTask, getWorkTaskDismissals } from '../../lib/api.js';
 import { documentChangeAcknowledgementKey } from '../../lib/documentChangeAcknowledgement.js';
 import { historyDate } from '../../lib/fileHistoryPresentation.js';
+import { useWorkspaceResource } from '../../hooks/useWorkspaceResource.js';
+import { useWorkspaceScope } from '../../hooks/useWorkspaceScope.js';
+
+const emptyAcknowledgements = () => [];
 
 export function DocumentChangeNotice({ observation, target, allowAcknowledge = true }) {
   const taskKey = allowAcknowledge ? documentChangeAcknowledgementKey(target, observation) : '';
   const workspaceId = target?.workspaceId;
-  const scope = `${workspaceId || ''}/${taskKey}`;
-  const currentScope = useRef(scope);
-  currentScope.current = scope;
-  const [receipt, setReceipt] = useState({ scope, acknowledged: false, loading: Boolean(taskKey) });
-  const [confirming, setConfirming] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    let active = true;
-    currentScope.current = scope;
-    setConfirming(false);
-    setSaving(false);
-    setError('');
-    setReceipt({ scope, acknowledged: false, loading: Boolean(taskKey) });
-    if (taskKey) getWorkTaskDismissals(workspaceId).then(keys => {
-      if (active) setReceipt({ scope, acknowledged: keys.includes(taskKey), loading: false });
-    }).catch(() => {
-      if (active) {
-        setReceipt({ scope, acknowledged: false, loading: false });
-        setError('Your acknowledgement could not be loaded. You can try acknowledging again.');
-      }
-    });
-    return () => { active = false; currentScope.current = null; };
-  }, [scope, workspaceId, taskKey]);
+  const load = useCallback(id => getWorkTaskDismissals(id), []);
+  const { data: keys, setData, status, error: loadError, reload } = useWorkspaceResource(
+    taskKey ? workspaceId : null, load, emptyAcknowledgements, 'document-change-acknowledgements');
+  const workspaceCurrent = useWorkspaceScope(workspaceId);
+  const scope = useMemo(() => ({}), [workspaceCurrent, taskKey]);
+  const activeScope = useRef(null);
+  useLayoutEffect(() => {
+    activeScope.current = scope;
+    return () => { activeScope.current = null; };
+  }, [scope]);
+  const initialFlow = useMemo(() => ({ scope, confirming: false, saving: false, error: '' }), [scope]);
+  const [flow, setFlow] = useState(initialFlow);
+  const current = flow.scope === scope ? flow : initialFlow;
+  useEffect(() => { setFlow(initialFlow); }, [initialFlow]);
 
   async function acknowledge() {
-    if (!taskKey || saving || currentScope.current !== scope) return;
-    setSaving(true);
-    setError('');
+    const isCurrent = () => workspaceCurrent() && activeScope.current === scope;
+    if (!taskKey || status !== 'ready' || current.saving || !isCurrent()) return;
+    setFlow({ scope, confirming: true, saving: true, error: '' });
     try {
       await dismissWorkTask(workspaceId, taskKey);
-      if (currentScope.current !== scope) return;
-      setReceipt({ scope, acknowledged: true, loading: false });
-      setConfirming(false);
+      if (!isCurrent()) return;
+      // Invalidate reads started before this successful save, and cache the receipt
+      // so reopening the dialog can render the acknowledged state immediately.
+      setData(previous => previous.includes(taskKey) ? previous : [...previous, taskKey]);
+      setFlow(initialFlow);
     } catch {
-      if (currentScope.current === scope) setError('The acknowledgement could not be saved. The notice is still active. Try again.');
-    } finally {
-      if (currentScope.current === scope) setSaving(false);
+      if (isCurrent()) setFlow({ scope, confirming: true, saving: false,
+        error: 'The acknowledgement could not be saved. The notice is still active. Try again.' });
     }
   }
 
-  if (receipt.scope === scope && receipt.acknowledged) return null;
+  // Unknown is not unacknowledged: never paint an attention notice before its
+  // account/workspace-scoped receipt is known, including the first render.
+  if (taskKey && status !== 'ready') {
+    return status === 'error' ? <Alert color="orange" title="Change acknowledgement unavailable" mb="md">
+      File History records a PDF change, but your acknowledgement status could not be loaded.
+      <Group mt="sm"><Button variant="secondary" onClick={() => reload()}>Try again</Button></Group>
+    </Alert> : null;
+  }
+  if (taskKey && keys.includes(taskKey)) return null;
   return <>
     <Alert color="orange" title="PDF content changed" mb="md">
       Document Check detected changed PDF content on {historyDate(observation.firstObservedAt)}.
       {observation.driveModifiedTime ? ` Drive edit: ${historyDate(observation.driveModifiedTime)}.` : ''}
       {' '}The check result below is for the updated file. Open File history to compare the recorded changes.
       {taskKey ? <Group mt="sm">
-        <Button variant="secondary" disabled={receipt.scope !== scope || receipt.loading}
-          onClick={() => setConfirming(true)}>Acknowledge change</Button>
+        <Button variant="secondary" onClick={() => setFlow({ ...initialFlow, confirming: true })}>Acknowledge change</Button>
       </Group> : null}
-      {error && !confirming ? <p role="alert">{error}</p> : null}
+      {loadError ? <p role="alert">Your acknowledgement status could not be refreshed. Try again.</p> : null}
     </Alert>
-    <Modal opened={confirming} onClose={() => setConfirming(false)} title="Acknowledge this PDF change?"
-      centered transitionProps={{ duration: 0 }} closeOnEscape={!saving} closeOnClickOutside={!saving}
-      withCloseButton={!saving} closeButtonProps={{ 'aria-label': 'Close acknowledgement confirmation' }}>
+    <Modal opened={current.confirming} onClose={() => setFlow(initialFlow)} title="Acknowledge this PDF change?"
+      centered transitionProps={{ duration: 0 }} closeOnEscape={!current.saving} closeOnClickOutside={!current.saving}
+      withCloseButton={!current.saving} closeButtonProps={{ 'aria-label': 'Close acknowledgement confirmation' }}>
       <p>You acknowledge that the submitted PDF has changed. This hides this notice for your account.</p>
       <p>File History stays available. This does not accept the submission or refresh AI Review.
         Another content change will show a new notice.</p>
-      {error ? <Alert color="red" role="alert">{error}</Alert> : null}
+      {current.error ? <Alert color="red" role="alert">{current.error}</Alert> : null}
       <Group justify="flex-end" mt="lg">
-        <Button variant="secondary" disabled={saving} onClick={() => setConfirming(false)}>Cancel</Button>
-        <Button loading={saving} onClick={acknowledge}>Acknowledge change</Button>
+        <Button variant="secondary" disabled={current.saving} onClick={() => setFlow(initialFlow)}>Cancel</Button>
+        <Button loading={current.saving} onClick={acknowledge}>Acknowledge change</Button>
       </Group>
     </Modal>
   </>;

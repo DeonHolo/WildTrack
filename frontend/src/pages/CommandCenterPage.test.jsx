@@ -38,9 +38,11 @@ vi.mock('../app/WorkspaceSession.jsx', () => ({
   useWorkspaceSession: () => ({ activeWorkspaceId: workflow.activeWorkspaceId, session: workflow.session })
 }));
 
-vi.mock('../hooks/useWorkspaceResource.js', async () => {
+vi.mock('../hooks/useWorkspaceResource.js', async (importOriginal) => {
+  const actual = await importOriginal();
   const { useEffect, useReducer } = await import('react');
   return { useWorkspaceResource: (_id, _load, _empty, key) => {
+    if (key === 'document-change-acknowledgements') return actual.useWorkspaceResource(_id, _load, _empty, key);
     const [, renderAgain] = useReducer(value => value + 1, 0);
     useEffect(() => {
       if (!workflow.loadFromServer || !_id || key !== 'work-queue') return;
