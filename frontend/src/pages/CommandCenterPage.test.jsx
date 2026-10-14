@@ -869,7 +869,11 @@ describe("today's work queues", () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Review affected response for Drive metadata changed' }));
     const drawer = await screen.findByRole('dialog', { name: 'Review Student unchecked-001' });
-    expect(within(drawer).queryByRole('button', { name: 'View Document Check' })).not.toBeInTheDocument();
+    if (documentCheckPolicy === 'OFF') {
+      expect(within(drawer).queryByRole('button', { name: 'View Document Check' })).not.toBeInTheDocument();
+    } else {
+      expect(within(drawer).getByRole('button', { name: 'View Document Check' })).toBeDisabled();
+    }
     fireEvent.click(within(drawer).getByRole('button', { name: 'File history' }));
     const history = await screen.findByRole('dialog', { name: /File history/ });
     expect(within(history).getByText('1 entry')).toBeVisible();
@@ -947,7 +951,7 @@ describe("today's work queues", () => {
     const confirmation = await screen.findByRole('dialog', { name: 'Rerun AI Review?' });
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Rerun review' }));
     await waitFor(() => expect(within(drawer).getByText("Gemini's quota or rate limit was reached.")).toBeInTheDocument());
-    expect(within(drawer).queryByRole('button', { name: 'View AI Review' })).not.toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: 'View AI Review' })).toBeDisabled();
     expect(within(drawer).getByRole('button', { name: 'Retry AI review' })).toBeInTheDocument();
     expect(workflow.runAiReview).toHaveBeenCalledTimes(1);
   });
