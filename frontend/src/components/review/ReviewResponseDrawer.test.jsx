@@ -54,7 +54,7 @@ describe('ReviewResponseDrawer submission artifacts', () => {
     expect(screen.getByText('Framework PDF')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'File history' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Check Drive API access' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Check document' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run Document Check' })).not.toBeInTheDocument();
     expect(screen.queryByText('Student Number')).not.toBeInTheDocument();
     expect(screen.queryByText('Student Name')).not.toBeInTheDocument();
     expect(screen.queryByText('Team Code')).not.toBeInTheDocument();
@@ -94,7 +94,7 @@ describe('ReviewResponseDrawer submission artifacts', () => {
       </MantineProvider>
     );
 
-    expect(await screen.findByRole('button', { name: 'Check document' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Run Document Check' })).toBeInTheDocument();
     expect(screen.queryByText('WildTrack observed file history')).not.toBeInTheDocument();
     expect(screen.queryByText(/Older Google Drive revision history is unavailable/i)).not.toBeInTheDocument();
   });

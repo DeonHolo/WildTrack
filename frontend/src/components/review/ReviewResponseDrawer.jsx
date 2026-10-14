@@ -166,10 +166,11 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
     ? aiState.previousReport : null;
   const inconclusiveAttempt = aiState?.status === 'UNCERTAIN'
     && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED', 'INSUFFICIENT_REVIEW_EVIDENCE'].includes(aiState.failureCode);
+  const checkCurrent = isArtifactDocumentCheckCurrent(response, field);
   const missingPreview = report?.submissionSubstance ? '' : compactMissingSections(report?.missingSections, 4);
 
   return (
-    <Paper withBorder p="md" radius="md">
+    <Paper withBorder p="md" radius="md" role="group" aria-label={`${field.label} artifact`}>
       <Stack gap="sm">
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <div>
@@ -192,31 +193,28 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
 
         {reviewablePdf ? (
           <>
-            <Group gap="xs" wrap="wrap" className="wt-review-artifact-actions">
-              <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<MagnifyingGlass size={15} />}
-                loading={!isArtifactDocumentCheckCurrent(response, field) && checking} disabled={!value} onClick={onDocumentCheck}>
-                {isArtifactDocumentCheckCurrent(response, field) ? 'View Document Check' : report ? 'Rerun Document Check' : field.documentCheckPolicy === 'MANUAL' ? 'Check document' : 'Check again'}
+            <div className="wt-review-artifact-actions" role="group" aria-label="Document and AI Review actions">
+              <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<MagnifyingGlass size={15} aria-hidden="true" />}
+                disabled={!checkCurrent || !value} onClick={onDocumentCheck}>
+                View Document Check
               </Button>
-              {isArtifactDocumentCheckCurrent(response, field) && onRerunDocumentCheck ? (
-                <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<ArrowCounterClockwise size={15} aria-hidden="true" />}
-                  loading={checking} disabled={!value} onClick={onRerunDocumentCheck}>
-                  Rerun Document Check
-                </Button>
-              ) : null}
-              {aiReport || previousAiReport ? (
-                <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<Eye size={15} aria-hidden="true" />}
-                  onClick={onViewAiReview}>
-                  {previousAiReport ? 'View previous AI Review' : 'View AI Review'}
-                </Button>
-              ) : null}
-              {field.aiReviewEnabled ? (
-                <Button variant="light" color="wildtrackGold" size="xs" leftSection={<Sparkle size={15} />}
-                  loading={reviewing} disabled={reviewing || aiStatus === 'Reviewing' || !isArtifactDocumentCheckCurrent(response, field)} onClick={onAiReview}>
-                  {reviewing || aiStatus === 'Reviewing' ? 'AI Review running'
-                    : aiStatus === 'Retry required' ? 'Retry AI review' : aiCurrent ? 'Rerun AI Review' : 'Run AI Review'}
-                </Button>
-              ) : null}
-            </Group>
+              <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<Eye size={15} aria-hidden="true" />}
+                disabled={!aiReport && !previousAiReport} onClick={onViewAiReview}>
+                {previousAiReport ? 'View previous AI Review' : 'View AI Review'}
+              </Button>
+              <Button variant="light" color="wildtrackMaroon" size="xs" leftSection={<ArrowCounterClockwise size={15} aria-hidden="true" />}
+                loading={checking} disabled={!value || checking || (checkCurrent && !onRerunDocumentCheck)}
+                onClick={onRerunDocumentCheck || onDocumentCheck}>
+                {report ? 'Rerun Document Check' : 'Run Document Check'}
+              </Button>
+              <Button variant="light" color="wildtrackGold" size="xs" leftSection={<Sparkle size={15} aria-hidden="true" />}
+                loading={reviewing} disabled={!field.aiReviewEnabled || reviewing || aiStatus === 'Reviewing' || !checkCurrent}
+                onClick={onAiReview}>
+                {reviewing || aiStatus === 'Reviewing' ? 'AI Review running'
+                  : aiStatus === 'Retry required' ? 'Retry AI review'
+                    : aiCurrent || aiReport || previousAiReport ? 'Rerun AI Review' : 'Run AI Review'}
+              </Button>
+            </div>
             {report ? (
               <Stack gap={3}>
                 <Text size="sm">{report.summary || 'Document Check completed.'}</Text>

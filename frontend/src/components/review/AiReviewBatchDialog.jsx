@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Alert, Button, Checkbox, Group, Progress, Radio, Stack, Text } from '@mantine/core';
-import { aiBatchGroups, aiBatchSelection } from '../../lib/aiReviewBatch.js';
+import { aiBatchUpdatedDocuments, aiBatchSelection } from '../../lib/aiReviewBatch.js';
 import { formatDateTime } from '../../lib/workflow.js';
 import { AiReviewBatchFailures } from './AiReviewBatchFailures.jsx';
 
@@ -10,7 +10,7 @@ export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
   const [retryAcknowledged, setRetryAcknowledged] = useState(false);
   const ready = plan?.state === 'READY';
   const counts = aiBatchSelection(plan, mode, includeOutdated);
-  const updated = aiBatchGroups(plan?.entries, 'ALL').filter(group => group.some(e => e.preview.outdated));
+  const updated = aiBatchUpdatedDocuments(plan?.entries);
   const unverified = (plan?.entries || []).filter(entry => entry.phase === 'UNVERIFIED');
   return <Stack gap="md">
     {error ? <Alert color="red" role="alert">{error}</Alert> : null}
@@ -20,7 +20,7 @@ export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
       <Progress mt="sm" value={plan?.totalPdfs ? plan.preparedPdfs / plan.totalPdfs * 100 : 0} animated />
     </div> : <>
       <div aria-live="polite">
-        <Text fw={700} size="lg">{counts.unique} unique {counts.unique === 1 ? 'document' : 'documents'} to review</Text>
+        <Text fw={700} size="lg">{counts.unique} unique {counts.unique === 1 ? 'review' : 'reviews'} to run</Text>
         <Text size="sm">{plan.totalPdfs} total PDF submissions · {counts.artifacts} submissions in this selection</Text>
       </div>
       <Radio.Group label="Which documents should AI Review check?" value={mode} onChange={setMode}>
@@ -33,13 +33,21 @@ export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
       </Radio.Group>
       {updated.length ? <Alert color="orange" title="Saved reviews no longer match the current files or requirements">
         <Checkbox checked={includeOutdated} onChange={e => setIncludeOutdated(e.currentTarget.checked)}
-          label={`Include these updated documents (${updated.length})`} />
-        <details className="wt-ai-batch-details"><summary>See updated documents</summary>
-          {updated.map(group => <div key={group[0].preview.key}>
-            <Text size="sm" fw={600}>{group[0].preview.deliverableTitle} — {group[0].preview.studentName}</Text>
-            <Text size="sm">Saved review: {formatDateTime(group[0].preview.generatedAt)} · Drive edit: {formatDateTime(group[0].preview.modifiedAt)}</Text>
-            {group.some(e => e.newerHistory) ? <Text size="sm">Document Check also recorded a file update after the saved AI Review.</Text> : null}
-          </div>)}
+          label={`Include updated PDFs (${updated.length})`} />
+        <Text size="sm" mt="xs">One entry per PDF, using its latest file record. Requirements changes can also make a saved review outdated.</Text>
+        <details className="wt-ai-batch-details"><summary>See affected PDFs</summary>
+          <Stack gap="sm" mt="sm">
+            {updated.map(document => <div key={document.key}>
+              <Text size="sm" fw={600}>
+                {[document.latest.preview.deliverableTitle, document.latest.preview.artifactLabel].filter(Boolean).join(' · ')} — {document.latest.preview.studentName}
+              </Text>
+              <Text size="sm">Saved review: {formatDateTime(document.latest.preview.generatedAt)} · Drive edit: {formatDateTime(document.latest.preview.modifiedAt)}</Text>
+              {document.latest.checkedAt ? <Text size="sm">Latest Document Check: {formatDateTime(document.latest.checkedAt)}</Text> : null}
+              {document.reviewKeys.size > 1 ? <Text size="sm">{document.reviewKeys.size} separate artifact or requirements reviews use this PDF.</Text> : null}
+              {document.entries.length > 1 ? <Text size="sm">{document.entries.length} PDF submissions refer to this file.</Text> : null}
+              {document.entries.some(e => e.newerHistory) ? <Text size="sm">Document Check also recorded a file update after the saved AI Review.</Text> : null}
+            </div>)}
+          </Stack>
         </details>
       </Alert> : null}
       {unverified.length ? <Alert color="orange" title="Some PDFs could not be verified">

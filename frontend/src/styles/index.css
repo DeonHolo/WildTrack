@@ -3222,6 +3222,15 @@ textarea:not(.mantine-Input-input):focus {
 .wt-ai-review-report summary:focus-visible,
 .wt-ai-review-earlier > summary:focus-visible { outline: 2px solid var(--maroon, #65152e); outline-offset: 4px; }
 .wt-ai-review-passage { white-space: pre-wrap; }
+.wt-ai-review-quote {
+  margin: 6px 0 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--wt-border);
+  background: rgba(108, 19, 46, 0.035);
+  overflow-wrap: anywhere;
+}
+.wt-ai-review-quote::before { content: "“"; }
+.wt-ai-review-quote::after { content: "”"; }
 @media (max-width: 640px) {
   .wt-ai-review-dialog-body { padding: 18px; }
 }

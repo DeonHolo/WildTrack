@@ -8,12 +8,13 @@ import { wildTrackTheme } from '../app/theme.js';
 import { ReviewPage } from './ReviewPage.jsx';
 import { getIdentityConflicts, getLatestAiReviewBatch, getAiReviewBatch, prepareAiReviewBatch, startAiReviewBatch, resumeAiReviewBatch } from '../lib/api.js';
 import { applyReviewState } from '../lib/backendDomain.js';
-import { useReducer } from 'react';
+import { useCallback, useReducer } from 'react';
 
 const workflow = vi.hoisted(() => ({
   state: null,
   workspaceId: 'workspace-it',
   session: { authenticated: true, email: 'admin@school.edu' },
+  reload: vi.fn(),
   runDocumentCheck: vi.fn(),
   runDocumentChecks: vi.fn(),
   getAiReviewStatus: vi.fn(),
@@ -36,7 +37,13 @@ vi.mock('../hooks/useWorkspaceResource.js', async (importOriginal) => {
   return { useWorkspaceResource: (...args) => {
     if (args[3] === 'ai-review-batch') return actual.useWorkspaceResource(...args);
     const [, rerender] = useReducer((value) => value + 1, 0);
+    const reload = useCallback(async () => {
+      const fresh = await workflow.reload();
+      if (fresh) { workflow.state = fresh; rerender(); }
+      return fresh;
+    }, [rerender]);
     return {
+    reload,
     data: workflow.state,
     setData: (next) => {
       workflow.state = typeof next === 'function' ? next(workflow.state) : next;
@@ -296,6 +303,7 @@ describe('deliverable-first submission review', () => {
     workflow.state = createState();
     getIdentityConflicts.mockReset().mockResolvedValue([]);
     Object.values(workflow).forEach((value) => value?.mockReset?.());
+    workflow.reload.mockImplementation(async () => workflow.state);
     workflow.runDocumentCheck.mockResolvedValue({ ok: true });
     workflow.runDocumentChecks.mockImplementation(async (ids, { onProgress } = {}) => {
       onProgress?.({ completed: ids.length, total: ids.length });
@@ -313,6 +321,146 @@ describe('deliverable-first submission review', () => {
         sourceResponseUpdatedAt: workflow.state.attempts.find((attempt) => attempt.id === id).updatedAt
       }
     }));
+  });
+
+
+  function completedBatch(entries) {
+    return { id: 'completed-current', state: 'COMPLETED', version: 11, entries,
+      totalPdfs: entries.length, selectedDocuments: entries.length, uniqueDocuments: entries.length,
+      completedDocuments: entries.length, pendingDocuments: 0, message: 'Saved results are available.' };
+  }
+
+  function savedEntry(responseId = 'response-ron-srs', fieldId = null, sourceUrl = 'https://drive.google.com/file/d/ron-srs/view') {
+    return { target: { responseId, fieldId }, preview: { category: 'FAILED', key: `${responseId}:${fieldId}`, sourceUrl },
+      identity: { sourceUrl }, phase: 'DONE', resultStatus: 'COMPLETED', error: '' };
+  }
+
+  function expectNoAiRequests() {
+    expect(prepareAiReviewBatch).not.toHaveBeenCalled();
+    expect(startAiReviewBatch).not.toHaveBeenCalled();
+    expect(resumeAiReviewBatch).not.toHaveBeenCalled();
+    expect(workflow.runAiReviews).not.toHaveBeenCalled();
+  }
+
+  it('opens a freshly saved batch review even when its preparation snapshot was FAILED', async () => {
+    const fresh = structuredClone(workflow.state);
+    fresh.attempts.find(item => item.id === 'response-ron-srs').aiReviewState.report = {
+      findings: [{ issue: 'New saved review result', source: 'DOCUMENT', evidence: 'Exact extracted PDF text.' }]
+    };
+    workflow.reload.mockResolvedValue(fresh);
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([savedEntry()]));
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Check saved reviews' }));
+    const report = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
+    expect(report).toHaveTextContent('New saved review result');
+    expect(report).not.toHaveTextContent('Artifact:');
+    expect(report.querySelector('blockquote')).toHaveTextContent('Exact extracted PDF text.');
+    expectNoAiRequests();
+  });
+
+  it('lets staff choose exact saved artifacts and return to the chooser', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    workflow.state.deliverables[0].fields.push({ id: 'appendixPdf', definitionId: 'field-appendix',
+      label: 'Appendix PDF', type: 'drive', pdfRequired: true, documentCheckPolicy: 'MANUAL', aiReviewEnabled: true });
+    ron.values.appendixPdf = 'https://drive.google.com/file/d/ron-appendix/view';
+    ron.artifactAiReviews = { 'field-appendix': { status: 'COMPLETED', sourceUrl: ron.values.appendixPdf,
+      report: { findings: [{ issue: 'Appendix saved result', source: 'DOCUMENT', evidence: 'Appendix PDF excerpt.' }] } } };
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([
+      savedEntry(), savedEntry(), savedEntry(ron.id, 'field-appendix', ron.values.appendixPdf)
+    ]));
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Check saved reviews' }));
+    const chooser = await screen.findByRole('dialog', { name: 'Saved AI Reviews' });
+    expect(within(chooser).getAllByRole('button', { name: /View review:/ })).toHaveLength(2);
+    fireEvent.click(within(chooser).getByRole('button', { name: /View review:.*Appendix PDF/ }));
+    const report = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
+    expect(report).toHaveTextContent('Appendix saved result');
+    expect(report).not.toHaveTextContent('traceability links');
+    fireEvent.click(within(report).getByRole('button', { name: 'Close AI Review details' }));
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Saved AI Reviews' })).toBeVisible());
+    expectNoAiRequests();
+  });
+
+  it('opens only batch-selected results and excludes unrelated older saved reviews', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    const muriel = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
+    muriel.aiReviewState = { ...ron.aiReviewState, sourceUrl: muriel.values.documentPdf };
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([
+      { ...savedEntry(), selected: true },
+      { ...savedEntry(muriel.id, null, muriel.values.documentPdf), selected: false, phase: 'PREPARED' }
+    ]));
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Check saved reviews' }));
+    expect(await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' })).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'Saved AI Reviews' })).not.toBeInTheDocument();
+    expectNoAiRequests();
+  });
+
+  it('can read existing saved reports before a prepared batch has selected any PDFs', async () => {
+    getLatestAiReviewBatch.mockResolvedValue({ ...completedBatch([{ ...savedEntry(), selected: false }]), state: 'READY' });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Check saved reviews' }));
+    expect(await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' })).toBeVisible();
+    expectNoAiRequests();
+  });
+
+  it('opens a saved result when the submitted link contains surrounding whitespace', async () => {
+    workflow.state.attempts.find(item => item.id === 'response-ron-srs').values.documentPdf = '  https://drive.google.com/file/d/ron-srs/view  ';
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([savedEntry()]));
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Check saved reviews' }));
+    expect(await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' })).toBeVisible();
+    expectNoAiRequests();
+  });
+
+  it('opens a previous saved report with its failure warning rather than implying a failed batch succeeded', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    ron.aiReviewState = { status: 'UNCERTAIN', failureCode: 'REQUEST_REJECTED', sourceUrl: ron.values.documentPdf,
+      previousReport: ron.aiReviewState.report, previousGeneratedAt: checkedAt, message: 'Latest request failed.' };
+    const entry = { ...savedEntry(), resultStatus: 'UNCERTAIN', error: 'Latest request failed.' };
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([entry]));
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Check saved reviews' }));
+    const report = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
+    expect(report).toHaveTextContent('Latest AI Review did not finish');
+    expect(report).toHaveTextContent('Previously saved AI Review');
+    expectNoAiRequests();
+  });
+
+  it('gives visible feedback instead of opening a batch review for a replacement file', async () => {
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([savedEntry(undefined, null, 'https://drive.google.com/file/d/replaced/view')]));
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Check saved reviews' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No saved AI Review is available for the current files');
+    expect(screen.queryByRole('dialog', { name: /AI Review:/ })).not.toBeInTheDocument();
+    expectNoAiRequests();
+  });
+
+  it('reports a saved-results read failure and reenables the button', async () => {
+    workflow.reload.mockResolvedValue(null);
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([savedEntry()]));
+    renderPage();
+    const button = await screen.findByRole('button', { name: 'Check saved reviews' });
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.getAllByText('Saved reviews could not be loaded. Please try again.').length).toBeGreaterThan(0));
+    expect(button).toBeEnabled();
+    expectNoAiRequests();
+  });
+
+  it.each(['workspace', 'account'])('ignores a saved-review read after changing %s', async change => {
+    let complete;
+    workflow.reload.mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([savedEntry()]));
+    const view = renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Check saved reviews' }));
+    if (change === 'workspace') workflow.workspaceId = 'different-workspace';
+    else workflow.session = { authenticated: true, email: 'another-admin@school.edu' };
+    getLatestAiReviewBatch.mockResolvedValue(null);
+    view.rerender(pageTree());
+    await act(async () => { complete(workflow.state); });
+    expect(screen.queryByRole('dialog', { name: /AI Review:/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Saved AI Reviews' })).not.toBeInTheDocument();
+    expectNoAiRequests();
   });
 
   it('reruns a current Document Check directly from its artifact without starting AI Review', async () => {
@@ -377,7 +525,7 @@ describe('deliverable-first submission review', () => {
     workflow.runDocumentCheck.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Review Pacio, Muriel D. response' }));
-    const check = await screen.findByRole('button', { name: 'Check again', exact: true });
+    const check = await screen.findByRole('button', { name: 'Run Document Check', exact: true });
     fireEvent.click(check);
     expect(check).toBeDisabled();
     await act(async () => finish({ ok: false, error: 'Document service unavailable. Try again.' }));
@@ -445,7 +593,7 @@ describe('deliverable-first submission review', () => {
     const confirmation = await screen.findByRole('dialog', { name: 'Rerun AI Review?' });
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Rerun review' }));
     await waitFor(() => expect(within(drawer).getByText(/Gemini's quota or rate limit was reached/)).toBeInTheDocument());
-    expect(within(drawer).queryByRole('button', { name: 'View AI Review' })).not.toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: 'View AI Review' })).toBeDisabled();
     expect(within(drawer).getByRole('button', { name: 'Retry AI review' })).toBeInTheDocument();
     expect(workflow.runAiReviews).toHaveBeenCalledTimes(1);
   });
@@ -493,7 +641,7 @@ describe('deliverable-first submission review', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
     const confirmation = await screen.findByRole('dialog', { name: 'AI review submissions' });
-    await waitFor(() => expect(confirmation).toHaveTextContent('2 unique documents to review'));
+    await waitFor(() => expect(confirmation).toHaveTextContent('2 unique reviews to run'));
     expect(startAiReviewBatch).not.toHaveBeenCalled();
     expect(within(confirmation).getByRole('button', { name: 'Start review' })).toBeDisabled();
     fireEvent.click(within(confirmation).getByRole('checkbox', { name: 'I agree to retry 1 uncertain review' }));
@@ -555,10 +703,10 @@ describe('deliverable-first submission review', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
     const dialog = await screen.findByRole('dialog', { name: 'AI review submissions' });
-    await waitFor(() => expect(dialog).toHaveTextContent('1 unique document to review'));
+    await waitFor(() => expect(dialog).toHaveTextContent('1 unique review to run'));
     expect(dialog).toHaveTextContent('3 total PDF submissions');
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Include successful reviews too' }));
-    expect(dialog).toHaveTextContent('2 unique documents to review');
+    expect(dialog).toHaveTextContent('2 unique reviews to run');
     expect(startAiReviewBatch).not.toHaveBeenCalled();
   });
 
@@ -572,7 +720,7 @@ describe('deliverable-first submission review', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
     const dialog = await screen.findByRole('dialog', { name: 'AI review submissions' });
-    await waitFor(() => expect(dialog).toHaveTextContent('1 unique document to review'));
+    await waitFor(() => expect(dialog).toHaveTextContent('1 unique review to run'));
     expect(dialog).toHaveTextContent('Some PDFs could not be verified');
     expect(dialog).toHaveTextContent('excluded from the review count because their contents could not be verified');
     fireEvent.click(within(dialog).getByText('See affected PDFs'));
@@ -590,11 +738,11 @@ describe('deliverable-first submission review', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
     const dialog = await screen.findByRole('dialog', { name: 'AI review submissions' });
-    await waitFor(() => expect(dialog).toHaveTextContent('1 unique document to review'));
-    fireEvent.click(within(dialog).getByText('See updated documents'));
+    await waitFor(() => expect(dialog).toHaveTextContent('1 unique review to run'));
+    fireEvent.click(within(dialog).getByText('See affected PDFs'));
     expect(dialog).toHaveTextContent('Document Check also recorded a file update after the saved AI Review');
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Include these updated documents (1)' }));
-    expect(dialog).toHaveTextContent('0 unique documents to review');
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Include updated PDFs (1)' }));
+    expect(dialog).toHaveTextContent('0 unique reviews to run');
     expect(within(dialog).getByRole('button', { name: 'Start review' })).toBeDisabled();
   });
 
@@ -1173,11 +1321,14 @@ describe('deliverable-first submission review', () => {
     ['Validation Instrument', 'Framework / Model', 'Validation Response Sheet', 'MVP Validation Highlights', 'Validation Evidence']
       .forEach(label => expect(within(drawer).getByText(label)).toBeInTheDocument());
     expect(within(drawer).getByText('Framework PDF is ready for staff review.')).toBeInTheDocument();
-    expect(within(drawer).getByRole('button', { name: 'View Document Check' })).toBeEnabled();
-    expect(within(drawer).getByRole('button', { name: 'Rerun Document Check' })).toBeEnabled();
-    expect(within(drawer).getByRole('button', { name: 'Check document' })).toBeEnabled();
+    const framework = within(drawer).getByRole('group', { name: 'Framework / Model artifact' });
+    expect(within(framework).getByRole('button', { name: 'View Document Check' })).toBeEnabled();
+    expect(within(framework).getByRole('button', { name: 'Rerun Document Check' })).toBeEnabled();
+    const highlights = within(drawer).getByRole('group', { name: 'MVP Validation Highlights artifact' });
+    expect(within(highlights).getByRole('button', { name: 'View Document Check' })).toBeDisabled();
+    expect(within(highlights).getByRole('button', { name: 'Run Document Check' })).toBeEnabled();
 
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Check document' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Run Document Check' }));
     await waitFor(() => expect(workflow.runDocumentCheck).toHaveBeenCalledWith(
       'response-muriel-srs',
       expect.objectContaining({ id: 'validationHighlights', definitionId: 'field-highlights' })

@@ -1,7 +1,7 @@
 import { Alert, Button, Group, Progress, Stack, Text } from '@mantine/core';
 import { AiReviewBatchFailures } from './AiReviewBatchFailures.jsx';
 
-export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDismiss, onResume, onChoose, onPrepare, onRefresh }) {
+export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDismiss, onResume, onChoose, onPrepare, onRefresh, refreshing = false }) {
   if (dismissed && batch?.state === 'COMPLETED' && !error) return null;
   if (!batch || batch.state === 'CANCELLED') return error ? <Alert color="red" role="alert">{error}</Alert> : null;
   const running = batch.state === 'RUNNING';
@@ -24,7 +24,7 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
       <Group gap="sm">
         {batch.state === 'READY' ? <Button onClick={onChoose}>Choose review scope</Button> : null}
         {paused && batch.pendingDocuments > 0 ? <Button loading={busy} onClick={onResume}>Continue remaining ({batch.pendingDocuments})</Button> : null}
-        {!running && !preparing ? <Button variant="default" onClick={onRefresh}>Check saved reviews</Button> : null}
+        {!running && !preparing ? <Button variant="default" loading={refreshing} onClick={onRefresh}>Check saved reviews</Button> : null}
         {paused || batch.state === 'COMPLETED' && failed ? <Button variant="default" onClick={onPrepare}>Review retry options</Button> : null}
       </Group>
     </Stack>

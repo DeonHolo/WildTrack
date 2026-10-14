@@ -2,7 +2,7 @@ import { Alert, Modal, Stack, Text } from '@mantine/core';
 import { AiReviewReport } from './AiReviewReport.jsx';
 import { formatDateTime } from '../../lib/workflow.js';
 
-export function AiReviewReportDialog({ opened, onClose, report, review, documentChange = null, fieldLabel = 'PDF', deliverableTitle = 'Submission' }) {
+export function AiReviewReportDialog({ opened, onClose, report, review, documentChange = null, deliverableTitle = 'Submission' }) {
   const previous = !report && Boolean(review?.previousReport || review?.lastSubstantiveReport);
   const displayReport = report || review?.previousReport || review?.lastSubstantiveReport;
   if (!displayReport) return null;
@@ -27,7 +27,6 @@ export function AiReviewReportDialog({ opened, onClose, report, review, document
             {' '}Run AI Review again to review the updated PDF. Automatic Document Check does not run AI Review.
           </Alert>
         ) : null}
-        {fieldLabel && fieldLabel !== deliverableTitle ? <Text size="sm" className="wt-ai-review-reference">Artifact: {fieldLabel}</Text> : null}
         {previous ? (
           <Alert color="orange" title={inconclusive ? 'Latest AI Review inconclusive' : review?.status === 'OUTDATED'
             ? 'Review settings changed; report is historical' : review?.status === 'RUNNING'
