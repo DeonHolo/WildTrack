@@ -15,7 +15,7 @@ it('renders useful evidence and references inline with the specific action', () 
   expect(screen.getByText('Missing constraints detail')).toBeInTheDocument();
   expect(screen.getByText('Add the offline requirement.')).toBeInTheDocument();
   expect(screen.getByText('Section 2.4 passage')).toBeInTheDocument();
-  expect(screen.getByText('Submitted document')).toBeInTheDocument();
+  expect(screen.getByText('PDF excerpt')).toBeInTheDocument();
   expect(screen.getByText('Reference: 2.4 Constraints')).toBeInTheDocument();
   expect(screen.queryByText('View evidence')).not.toBeInTheDocument();
   expect(screen.getByText(/page 4/)).toBeInTheDocument();
@@ -31,10 +31,12 @@ it('keeps verification notes separate and prevents a green result with two check
 it('shows positive outcome only for two distinct grounded checks and keeps observations collapsed', () => {
   show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks });
   expect(screen.getByRole('status')).toHaveTextContent('No actionable issues identified in the checked areas');
-  expect(screen.getByText('Observed checks (2)')).toBeInTheDocument();
+  expect(screen.getByText('Checks with supporting excerpts (2)')).toBeInTheDocument();
   expect(screen.getByText('Scope: students and advisers.')).not.toBeVisible();
-  fireEvent.click(screen.getByText('Observed checks (2)'));
+  fireEvent.click(screen.getByText('Checks with supporting excerpts (2)'));
   expect(screen.getByText('Scope: students and advisers.')).toBeInTheDocument();
+  expect(screen.getByText('Scope: students and advisers.').tagName).toBe('BLOCKQUOTE');
+  expect(screen.getByText(/PDF excerpts quote the extracted document text/)).toBeVisible();
 });
 
 it('deduplicates repeated findings and preserves full evidence text once', () => {

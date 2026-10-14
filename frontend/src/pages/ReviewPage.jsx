@@ -134,6 +134,12 @@ export function ReviewPage() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [checkDialogTarget, setCheckDialogTarget] = useState(null);
   const [aiReportDialogTarget, setAiReportDialogTarget] = useState(null);
+  const [savedReviews, setSavedReviews] = useState([]);
+  const [savedReviewsLoading, setSavedReviewsLoading] = useState(false);
+  const [savedReviewsError, setSavedReviewsError] = useState('');
+  const savedReviewsRequest = useRef(0);
+  const savedReviewsScope = useRef(isCurrentScope);
+  const visibleSavedReviews = savedReviewsScope.current === isCurrentScope ? savedReviews : [];
   const [batchProgress, setBatchProgress] = useState(null);
   const [acceptProgress, setAcceptProgress] = useState(null);
   const acceptBusy = useRef(false);
@@ -159,6 +165,10 @@ export function ReviewPage() {
     setCheckError(null);
     setCheckDialogTarget(null);
     setAiReportDialogTarget(null);
+    setSavedReviews([]);
+    setSavedReviewsLoading(false);
+    setSavedReviewsError('');
+    savedReviewsRequest.current += 1;
     setSelectedIds(new Set());
     setSelectedResponseId('');
     setConflictStudentNumbers([]);
@@ -202,17 +212,21 @@ export function ReviewPage() {
       || checkDialogResponse?.observedFileHistory
       || null)
     : null;
-  const aiReportDialogResponse = state.attempts.find((response) => response.id === aiReportDialogTarget?.responseId) || null;
+  const visibleAiReportTarget = !aiReportDialogTarget?.scope || aiReportDialogTarget.scope === isCurrentScope
+    ? aiReportDialogTarget : null;
+  const aiReportDialogResponse = state.attempts.find(response => response.id === visibleAiReportTarget?.responseId) || null;
   const aiReportDialogDeliverable = aiReportDialogResponse
     ? state.deliverables.find((item) => item.id === aiReportDialogResponse.deliverableId) || null
     : null;
   const aiReportDialogField = aiReportDialogDeliverable?.fields?.find((field) => (
-    (field.definitionId || field.id) === aiReportDialogTarget?.fieldId
+    (field.definitionId || field.id) === visibleAiReportTarget?.fieldId
   )) || null;
-  const aiReportDialogReview = aiReportDialogField
+  const aiReportSourceMatches = !visibleAiReportTarget?.sourceUrl
+    || String(aiReportDialogResponse?.values?.[aiReportDialogField?.id] || '').trim() === visibleAiReportTarget.sourceUrl;
+  const aiReportDialogReview = aiReportDialogField && aiReportSourceMatches
     ? artifactAiReview(aiReportDialogResponse, aiReportDialogField)
     : null;
-  const aiReportDialogReport = artifactAiReportForDisplay(aiReportDialogResponse, aiReportDialogField);
+  const aiReportDialogReport = aiReportSourceMatches ? artifactAiReportForDisplay(aiReportDialogResponse, aiReportDialogField) : null;
   const documentCheckEnabled = deliverableUsesDocumentCheck(selectedDeliverable);
   const uncheckedDocumentTargets = useMemo(() => documentCheckEnabled
     ? documentTargetsForResponses(selectedSummary?.responses || [], [selectedDeliverable], { onlyUnchecked: true })
@@ -471,6 +485,42 @@ export function ReviewPage() {
           currentItem: '',
           authenticationRequired: Boolean(progress.authenticationRequired || outcome?.authenticationRequired),
           sessionConfirmed: Boolean(progress.sessionConfirmed || outcome?.sessionConfirmed) }); }
+    }
+  }
+
+  async function openSavedBatchReviews() {
+    if (!isCurrentScope() || savedReviewsLoading || !aiBatch.batch) return;
+    const request = ++savedReviewsRequest.current;
+    savedReviewsScope.current = isCurrentScope;
+    setSavedReviewsLoading(true);
+    setSavedReviewsError('');
+    setSavedReviews([]);
+    try {
+      const fresh = await reload();
+      if (!isCurrentScope() || request !== savedReviewsRequest.current) return;
+      if (!fresh) throw new Error('Saved reviews could not be loaded. Please try again.');
+      const results = savedBatchReviewTargets(aiBatch.batch, fresh);
+      setSavedReviews(results);
+      if (results.length === 1) setAiReportDialogTarget({ ...results[0], scope: isCurrentScope });
+      else if (!results.length) setSavedReviewsError('No saved AI Review is available for the current files in this batch. An unfinished or failed attempt does not create a new review.');
+    } catch (error) {
+      if (isCurrentScope() && request === savedReviewsRequest.current) {
+        const message = error?.message || 'Saved reviews could not be loaded. Please try again.';
+        setSavedReviewsError(message);
+        notifications.show({ color: 'orange', title: 'Saved reviews unavailable', message });
+      }
+    } finally {
+      if (isCurrentScope() && request === savedReviewsRequest.current) setSavedReviewsLoading(false);
+    }
+  }
+
+  function openSavedReview(target) {
+    if (!isCurrentScope()) return;
+    const current = savedBatchReviewTargets({ entries: [{ target, identity: { sourceUrl: target.sourceUrl } }] }, reviewStateRef.current)[0];
+    if (current) setAiReportDialogTarget({ ...current, scope: isCurrentScope });
+    else {
+      setSavedReviews([]);
+      setSavedReviewsError('This file or its saved review changed. Check saved reviews again to load the current results.');
     }
   }
 
@@ -777,8 +827,25 @@ export function ReviewPage() {
       </Group></Paper>
       <AiReviewBatchPanel batch={aiBatch.batch} error={aiBatch.error} busy={aiBatch.busy}
         dismissed={aiBatch.panelDismissed} onDismiss={aiBatch.dismiss}
-        onResume={aiBatch.resume} onChoose={aiBatch.open} onRefresh={reload}
+        onResume={aiBatch.resume} onChoose={aiBatch.open} onRefresh={openSavedBatchReviews} refreshing={savedReviewsScope.current === isCurrentScope && savedReviewsLoading}
         onPrepare={() => requestAiReview(allAiTargets, false, {}, true)} />
+      {savedReviewsScope.current === isCurrentScope && savedReviewsError ? <Alert color="orange" role="alert">{savedReviewsError}</Alert> : null}
+      <Modal opened={visibleSavedReviews.length > 1 && !visibleAiReportTarget} onClose={() => setSavedReviews([])}
+        title="Saved AI Reviews" centered size="lg">
+        <Stack gap="sm">
+          <Text size="sm" c="dimmed">Choose a saved review to open. This does not run AI Review.</Text>
+          {visibleSavedReviews.map(target => (
+            <Paper withBorder p="sm" key={target.key}>
+              <Stack gap="xs">
+                <Text size="sm" fw={650}>{target.label}</Text>
+                <Button variant="default" onClick={() => openSavedReview(target)} aria-label={`View review: ${target.label}`}>
+                  View AI Review
+                </Button>
+              </Stack>
+            </Paper>
+          ))}
+        </Stack>
+      </Modal>
       <Modal opened={aiBatch.opened} onClose={aiBatch.cancel} title="AI review submissions" centered size="lg">
         <AiReviewBatchDialog key={aiBatch.batch?.id || 'new'} plan={aiBatch.batch} error={aiBatch.error}
           busy={aiBatch.busy} onStart={aiBatch.start} onCancel={aiBatch.cancel} />
@@ -1096,7 +1163,7 @@ export function ReviewPage() {
         onRecheck={recheckFromDialog}
       />
       <AiReviewReportDialog
-        opened={Boolean(aiReportDialogReport || aiReportDialogReview?.previousReport)}
+        opened={Boolean(aiReportDialogReport || aiReportDialogReview?.previousReport || aiReportDialogReview?.lastSubstantiveReport)}
         report={aiReportDialogReport}
         review={aiReportDialogReview}
         documentChange={artifactAiReviewChange(aiReportDialogResponse, aiReportDialogField)}
@@ -1107,6 +1174,34 @@ export function ReviewPage() {
       </ResourceBoundary>
     </Stack>
   );
+}
+
+function savedBatchReviewTargets(batch, state) {
+  const seen = new Set();
+  return (batch.entries || []).flatMap(entry => {
+    if (entry.selected === false && batch.state !== 'READY') return [];
+    const response = state.attempts.find(item => item.id === entry.target?.responseId);
+    const deliverable = state.deliverables.find(item => item.id === response?.deliverableId);
+    const field = reviewableSubmissionFields(deliverable).find(item => entry.target?.fieldId
+      ? (item.definitionId || item.id) === entry.target.fieldId
+      : !item.definitionId && item.id === 'documentPdf');
+    if (!response || !field) return [];
+    const sourceUrl = String(response.values?.[field.id] || '').trim();
+    const expectedUrl = String(entry.identity?.sourceUrl || entry.preview?.sourceUrl || '').trim();
+    if (!sourceUrl || (expectedUrl && sourceUrl !== expectedUrl)) return [];
+    const review = artifactAiReview(response, field);
+    const sameSource = review?.sourceUrl ? String(review.sourceUrl).trim() === sourceUrl
+      : review?.sourceResponseUpdatedAt === (response.updatedAt || response.submittedAt);
+    const report = artifactAiReportForDisplay(response, field)
+      || (sameSource && (review?.previousReport || review?.lastSubstantiveReport));
+    const fieldId = field.definitionId || field.id;
+    const key = `${response.id}:${fieldId}`;
+    if (!report || seen.has(key)) return [];
+    seen.add(key);
+    const student = findStudent(state.students, response.studentNumber)?.name || response.studentName || response.studentNumber;
+    return [{ responseId: response.id, fieldId, key, sourceUrl,
+      label: [student, deliverable.title, field.label].filter(Boolean).join(' · ') }];
+  });
 }
 
 function withoutId(values, id) {

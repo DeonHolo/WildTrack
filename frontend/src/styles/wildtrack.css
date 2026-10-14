@@ -2485,8 +2485,31 @@
 }
 
 .wt-review-artifact-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   border-top: 1px solid var(--wt-border);
   padding-top: 10px;
+}
+
+.wt-review-artifact-actions > button {
+  min-width: 0;
+  height: auto;
+  min-height: 34px;
+  padding: 8px;
+}
+
+.wt-review-artifact-actions .mantine-Button-inner {
+  height: auto;
+}
+
+.wt-review-artifact-actions .mantine-Button-label {
+  height: auto;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .wt-review-detail-section {

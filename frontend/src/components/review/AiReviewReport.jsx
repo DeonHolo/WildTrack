@@ -81,7 +81,8 @@ export function AiReviewReport({ report }) {
       ) : null}
       {checks.length ? (
         <details className="wt-ai-review-secondary">
-          <summary>Observed checks ({checks.length})</summary>
+          <summary>Checks with supporting excerpts ({checks.length})</summary>
+          <Text size="sm" c="dimmed" mt="sm">The headings describe what AI checked. PDF excerpts quote the extracted document text; spacing and line breaks may differ from the original PDF.</Text>
           <Stack gap="md" mt="sm">
             {checks.map((check, index) => <CheckRow key={`check-${index}`} check={check} />)}
           </Stack>
@@ -116,7 +117,7 @@ function Evidence({ finding }) {
   return (
     <div className="wt-ai-review-evidence">
         <Stack gap="md" mt="sm">
-          {finding.evidence ? <Passage label="Submitted document" text={finding.evidence} /> : null}
+          {finding.evidence ? <Passage label="PDF excerpt" text={finding.evidence} quote /> : null}
           {finding.requirement ? finding.requirement.length > 160
             ? <Passage label={sourceLabel ? `Reference: ${sourceLabel}` : 'Reference'} text={finding.requirement} />
             : <Text className="wt-ai-review-reference" size="sm">Reference: {sourceLabel ? `${sourceLabel} · ` : ''}{finding.requirement}</Text> : null}
@@ -225,14 +226,15 @@ function ArtifactVerificationRow({ group }) {
   </article>;
 }
 
-function Passage({ label, text }) {
+function Passage({ label, text, quote = false }) {
   const [full, setFull] = useState(false);
   const long = text.length > 420;
   const excerpt = long && !full ? `${text.slice(0, 420).replace(/\s+\S*$/, '')}…` : text;
   return (
     <div>
       <Text size="sm" fw={700}>{label}</Text>
-      <Text size="sm" mt={4} className="wt-ai-review-passage">{excerpt}</Text>
+      <Text component={quote ? 'blockquote' : 'p'} size="sm" mt={4}
+        className={`wt-ai-review-passage${quote ? ' wt-ai-review-quote' : ''}`}>{excerpt}</Text>
       {long ? <Button variant="subtle" size="compact-xs" mt={4} onClick={() => setFull(value => !value)}>
         {full ? 'Show short excerpt' : 'View full passage'}
       </Button> : null}
