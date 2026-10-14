@@ -46,6 +46,17 @@ describe('official template browser preview', () => {
     expect(screen.queryByRole('region', { name: 'Template sections not detected' })).not.toBeInTheDocument();
   });
 
+  it('lets an adviser read the scoped template and return to their teams', async () => {
+    workspace.session = { authenticated: true, email: 'adviser@school.edu', roles: ['ADVISER'] };
+    render(tree());
+    await screen.findByRole('heading', { name: 'STD TEMPLATE.docx' });
+    expect(api.structure).toHaveBeenCalledWith('workspace-link', 'template-std');
+    expect(screen.getByRole('link', { name: 'Back to my teams' })).toHaveAttribute('href', '/adviser');
+    expect(screen.getByRole('link', { name: 'Original file' })).toHaveAttribute('href',
+      '/api/templates/template-std/file?workspaceId=workspace-link');
+    expect(screen.queryByRole('link', { name: 'Back to workspace' })).not.toBeInTheDocument();
+  });
+
   it('lists each detected heading once and keeps missing expectations separate', async () => {
     render(tree());
     expect(await screen.findByRole('heading', { name: 'STD TEMPLATE.docx' })).toBeInTheDocument();

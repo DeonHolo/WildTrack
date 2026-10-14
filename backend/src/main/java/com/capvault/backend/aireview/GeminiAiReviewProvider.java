@@ -319,11 +319,36 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             try {
                 JsonNode error = json.readTree(body).path("error");
                 String message = error.path("message").asText("").toLowerCase(Locale.ROOT);
+                for (JsonNode detail : error.path("details")) {
+                    String reason = detail.path("reason").asText("");
+                    if (List.of("API_KEY_INVALID", "API_KEY_EXPIRED", "API_KEY_SERVICE_BLOCKED",
+                            "API_KEY_HTTP_REFERRER_BLOCKED", "API_KEY_IP_ADDRESS_BLOCKED").contains(reason))
+                        return new Failure("API_KEY_REJECTED", "api_key");
+                    // Field names are used only for classification, never copied into logs.
+                    for (JsonNode violation : detail.path("fieldViolations"))
+                        message += " " + violation.path("field").asText("").toLowerCase(Locale.ROOT);
+                }
                 if (message.contains("responsejsonschema") || message.contains("response_json_schema")
                         || message.contains("response schema") || message.contains("response_schema")
                         || message.contains("schema is too complex") || message.contains("too many states")) {
                     return new Failure("REQUEST_SCHEMA_REJECTED", "response_schema");
                 }
+                if (message.contains("thinkingconfig") || message.contains("thinking_config")
+                        || message.contains("thinkinglevel") || message.contains("thinking_level")
+                        || message.contains("thinkingbudget") || message.contains("thinking_budget"))
+                    return new Failure("REQUEST_PARAMETER_REJECTED", "thinking_config");
+                if (message.contains("generationconfig") || message.contains("generation_config")
+                        || message.contains("maxoutputtokens") || message.contains("max_output_tokens"))
+                    return new Failure("REQUEST_PARAMETER_REJECTED", "generation_config");
+                if (message.contains("document has no pages") || message.contains("unable to process the pdf")
+                        || message.contains("invalid pdf") || message.contains("file_data")
+                        || message.contains("filedata") || message.contains("inline_data") || message.contains("inlinedata"))
+                    return new Failure("REQUEST_DOCUMENT_REJECTED", "pdf_input");
+                return new Failure("REQUEST_REJECTED", switch (error.path("status").asText("")) {
+                    case "INVALID_ARGUMENT" -> "invalid_argument";
+                    case "FAILED_PRECONDITION" -> "failed_precondition";
+                    default -> "http_400";
+                });
             } catch (Exception ignored) {
                 // Empty/non-JSON errors keep the bounded generic classification.
             }

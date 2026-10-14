@@ -138,15 +138,31 @@ public class AiReviewStore {
     }
 
     public void complete(Job job, String report, boolean substantive) {
+        complete(job, report, substantive, job.startedAt());
+    }
+
+    Instant captureTime() { return clock.instant(); }
+
+    public void complete(Job job, String report, boolean substantive, Instant capturedAt) {
         Instant completed = clock.instant();
         String substantiveSql = substantive ? ", report_json = ?, completed_at = ?" : "";
         Object[] args = substantive
             ? new Object[] {report, Timestamp.from(completed), report, Timestamp.from(completed), job.key(), job.token()}
             : new Object[] {report, Timestamp.from(completed), job.key(), job.token()};
-        tx.executeWithoutResult(status -> jdbc.update("""
-            UPDATE ai_review_jobs SET state = 'COMPLETED', latest_attempt_report_json = ?, latest_attempt_completed_at = ?, failure_code = NULL
-            WHERE cache_key = ? AND claim_token = ? AND state = 'RUNNING'
-            """.replace("WHERE", substantiveSql + " WHERE"), args));
+        tx.executeWithoutResult(status -> {
+            int changed = jdbc.update("""
+                UPDATE ai_review_jobs SET state = 'COMPLETED', latest_attempt_report_json = ?, latest_attempt_completed_at = ?, failure_code = NULL
+                WHERE cache_key = ? AND claim_token = ? AND state = 'RUNNING'
+                """.replace("WHERE", substantiveSql + " WHERE"), args);
+            if (changed == 1) {
+                // This receipt belongs to the saved report's inspected input.
+                // A failed or superseded worker must never advance it.
+                jdbc.update("UPDATE ai_review_response_links SET source_verified_at = ? WHERE cache_key = ?",
+                    Timestamp.from(capturedAt), job.key());
+                jdbc.update("UPDATE ai_review_field_links SET source_verified_at = ? WHERE cache_key = ?",
+                    Timestamp.from(capturedAt), job.key());
+            }
+        });
     }
 
     public void uncertain(Job job) {
@@ -161,14 +177,26 @@ public class AiReviewStore {
     }
 
     public void link(UUID responseId, long revision, String key) {
+        link(responseId, revision, key, clock.instant());
+    }
+
+    public void link(UUID responseId, long revision, String key, Instant capturedAt) {
         try {
-            tx.executeWithoutResult(status -> jdbc.update(
-                "INSERT INTO ai_review_response_links(response_id, source_revision, cache_key, source_verified_at) VALUES (?, ?, ?, ?)", responseId, revision, key, Timestamp.from(clock.instant())));
+            tx.executeWithoutResult(status -> jdbc.update("""
+                INSERT INTO ai_review_response_links(response_id, source_revision, cache_key, source_verified_at)
+                VALUES (?, ?, ?, CASE WHEN EXISTS (
+                    SELECT 1 FROM ai_review_jobs WHERE cache_key = ? AND state = 'COMPLETED'
+                ) THEN CAST(? AS TIMESTAMP WITH TIME ZONE) ELSE NULL END)
+                """, responseId, revision, key, key, Timestamp.from(capturedAt)));
         } catch (DuplicateKeyException duplicate) {
             tx.executeWithoutResult(status -> jdbc.update("""
-                UPDATE ai_review_response_links SET source_revision = ?, cache_key = ?, source_verified_at = ?
+                UPDATE ai_review_response_links SET source_verified_at = CASE
+                    WHEN EXISTS (SELECT 1 FROM ai_review_jobs WHERE cache_key = ? AND state = 'COMPLETED')
+                        THEN CAST(? AS TIMESTAMP WITH TIME ZONE)
+                    WHEN cache_key = ? AND source_revision = ? THEN source_verified_at ELSE NULL END,
+                    source_revision = ?, cache_key = ?
                 WHERE response_id = ? AND source_revision <= ?
-                """, revision, key, Timestamp.from(clock.instant()), responseId, revision));
+                """, key, Timestamp.from(capturedAt), key, revision, revision, key, responseId, revision));
         }
     }
 
@@ -206,16 +234,26 @@ public class AiReviewStore {
     }
 
     public void linkField(UUID responseId, String fieldId, String sourceValueHash, String key) {
+        linkField(responseId, fieldId, sourceValueHash, key, clock.instant());
+    }
+
+    public void linkField(UUID responseId, String fieldId, String sourceValueHash, String key, Instant capturedAt) {
         try {
             tx.executeWithoutResult(status -> jdbc.update("""
                 INSERT INTO ai_review_field_links(response_id, field_id, source_value_sha256, cache_key, source_verified_at)
-                VALUES (?, ?, ?, ?, ?)
-                """, responseId, fieldId, sourceValueHash, key, Timestamp.from(clock.instant())));
+                VALUES (?, ?, ?, ?, CASE WHEN EXISTS (
+                    SELECT 1 FROM ai_review_jobs WHERE cache_key = ? AND state = 'COMPLETED'
+                ) THEN CAST(? AS TIMESTAMP WITH TIME ZONE) ELSE NULL END)
+                """, responseId, fieldId, sourceValueHash, key, key, Timestamp.from(capturedAt)));
         } catch (DuplicateKeyException duplicate) {
             tx.executeWithoutResult(status -> jdbc.update("""
-                UPDATE ai_review_field_links SET source_value_sha256 = ?, cache_key = ?, source_verified_at = ?
+                UPDATE ai_review_field_links SET source_verified_at = CASE
+                    WHEN EXISTS (SELECT 1 FROM ai_review_jobs WHERE cache_key = ? AND state = 'COMPLETED')
+                        THEN CAST(? AS TIMESTAMP WITH TIME ZONE)
+                    WHEN cache_key = ? AND source_value_sha256 = ? THEN source_verified_at ELSE NULL END,
+                    source_value_sha256 = ?, cache_key = ?
                 WHERE response_id = ? AND field_id = ?
-                """, sourceValueHash, key, Timestamp.from(clock.instant()), responseId, fieldId));
+                """, key, Timestamp.from(capturedAt), key, sourceValueHash, sourceValueHash, key, responseId, fieldId));
         }
     }
 

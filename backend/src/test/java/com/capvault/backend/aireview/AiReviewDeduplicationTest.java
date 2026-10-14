@@ -815,7 +815,7 @@ class AiReviewDeduplicationTest {
     void persistenceFailureLogsItsStageWithoutLoggingDatabaseDetails(CapturedOutput output) {
         var storage = spy(store);
         doThrow(new IllegalStateException("private-database-content-and-token"))
-            .when(storage).complete(any(), anyString(), anyBoolean());
+            .when(storage).complete(any(), anyString(), anyBoolean(), any(Instant.class));
         service = newService(storage);
 
         var failed = run(first);
@@ -934,12 +934,16 @@ class AiReviewDeduplicationTest {
         assertThat(bRunning.report()).isNull();
         assertThat(bRunning.previousReport()).isEqualTo(a.report());
         assertThat(bRunning.lastSubstantiveReport()).isNull();
+        assertThat(bRunning.sourceVerifiedAt()).isEqualTo(a.sourceVerifiedAt());
+        Instant bCapturedAt = now.get();
+        now.set(now.get().plusSeconds(30)); // File capture happened before queue execution and persistence.
         tasks.remove(0).run();
         service = newService(new AiReviewStore(jdbc, new DataSourceTransactionManager(datasource), clock), tasks::add);
         var b = service.saved(workspace, first.getId(), "admin");
         assertThat(b.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
         assertThat(b.report().verificationNotes()).hasSize(1);
         assertThat(b.generatedAt()).isEqualTo(now.get().toString());
+        assertThat(b.sourceVerifiedAt()).isEqualTo(bCapturedAt.toString());
         assertThat(b.lastSubstantiveReport()).isEqualTo(a.report());
         assertThat(b.lastSubstantiveGeneratedAt()).isEqualTo(a.generatedAt());
         assertThat(service.saved(workspace, second.getId(), "admin").report()).isEqualTo(b.report());
@@ -949,6 +953,7 @@ class AiReviewDeduplicationTest {
         var cRunning = service.review(workspace, first.getId(), null, "admin", false, null, true);
         assertThat(cRunning.previousReport()).isEqualTo(b.report());
         assertThat(cRunning.lastSubstantiveReport()).isEqualTo(a.report());
+        assertThat(cRunning.sourceVerifiedAt()).isEqualTo(b.sourceVerifiedAt());
         tasks.remove(0).run();
         var c = service.saved(workspace, first.getId(), "admin");
         assertThat(c.status()).isEqualTo("UNCERTAIN");
@@ -956,6 +961,9 @@ class AiReviewDeduplicationTest {
         assertThat(c.generatedAt()).isNull();
         assertThat(c.previousReport()).isEqualTo(b.report());
         assertThat(c.previousGeneratedAt()).isEqualTo(b.generatedAt());
+        assertThat(c.sourceVerifiedAt()).isEqualTo(b.sourceVerifiedAt());
+        assertThat(service.savedByFieldFor(List.of(first)).get(first.getId()).values().iterator().next().sourceVerifiedAt())
+            .isEqualTo(b.sourceVerifiedAt());
         assertThat(c.lastSubstantiveReport()).isEqualTo(a.report());
         assertThat(service.savedFor(List.of(first)).get(first.getId()).previousReport()).isEqualTo(b.report());
         assertThat(service.savedByFieldFor(List.of(first)).get(first.getId()).values().iterator().next().previousReport())

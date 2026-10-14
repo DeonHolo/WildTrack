@@ -101,6 +101,37 @@ class GeminiAiReviewProviderTest {
         server.verify();
     }
 
+    @Test void badRequestDiagnosticsUseFixedLabelsForProviderDetails() throws Exception {
+        String privateText = "private-key and submitted-document-text";
+        var cases = List.of(
+            List.of(Map.of("message", privateText, "details", List.of(Map.of("reason", "API_KEY_INVALID"))),
+                "API_KEY_REJECTED", "api_key"),
+            List.of(Map.of("message", privateText, "details", List.of(Map.of("fieldViolations",
+                List.of(Map.of("field", "generation_config.thinking_config.thinking_level", "description", privateText))))),
+                "REQUEST_PARAMETER_REJECTED", "thinking_config"),
+            List.of(Map.of("message", "Unsupported generationConfig: " + privateText),
+                "REQUEST_PARAMETER_REJECTED", "generation_config"),
+            List.of(Map.of("message", "Unable to process the PDF: " + privateText),
+                "REQUEST_DOCUMENT_REJECTED", "pdf_input"),
+            List.of(Map.of("message", privateText, "status", "INVALID_ARGUMENT"),
+                "REQUEST_REJECTED", "invalid_argument"),
+            List.of(Map.of("message", privateText, "status", "FAILED_PRECONDITION"),
+                "REQUEST_REJECTED", "failed_precondition"));
+        for (var example : cases) {
+            setup();
+            server.expect(requestTo(GENERATE)).andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_JSON).body(json.writeValueAsString(Map.of("error", example.get(0)))));
+            assertThatThrownBy(() -> provider.review(input()))
+                .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                    assertThat(failure.code).isEqualTo(example.get(1));
+                    assertThat(failure.detail).isEqualTo(example.get(2));
+                    assertThat(failure).hasNoCause();
+                    assertThat(failure.toString()).doesNotContain(privateText);
+                });
+            server.verify();
+        }
+    }
+
     @Test void sendsOnePdfWithBoundedStructuredOutputAndNoDuplicatedText() throws Exception {
         server.expect(requestTo(GENERATE)).andExpect(method(HttpMethod.POST))
             .andExpect(header("x-goog-api-key", "test-key"))

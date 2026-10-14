@@ -172,7 +172,7 @@ public class AiReviewService {
         DisplayIdentity identity() { return identity; }
         DrivePreparationFailure identified(DisplayIdentity value) { return new DrivePreparationFailure(kind, getReason(), value); }
     }
-    private record Prepared(byte[] bytes, PdfInspection inspection, String key, String modifiedAt) { }
+    private record Prepared(byte[] bytes, PdfInspection inspection, String key, String modifiedAt, java.time.Instant capturedAt) { }
 
     /** Local, authorized labels for a failed preflight; no Drive or Gemini calls. */
     DisplayIdentity displayIdentity(UUID workspaceId, UUID responseId, String fieldId, String subject) {
@@ -257,6 +257,7 @@ public class AiReviewService {
             throw new IllegalArgumentException("AI review requires a downloadable PDF. Run Document Check first.");
         if (metadata.size() != null && metadata.size() > driveProperties.maximumFileSizeBytes())
             throw new IllegalArgumentException("The PDF exceeds the document size limit.");
+        java.time.Instant capturedAt = store.captureTime();
         byte[] bytes = preclaimDrive(() -> drive.download(reference));
         if (bytes == null || bytes.length > driveProperties.maximumFileSizeBytes())
             throw new IllegalArgumentException("The PDF exceeds the document size limit.");
@@ -270,7 +271,7 @@ public class AiReviewService {
         if (team.isBlank()) throw new IllegalArgumentException("Assign this response to a team before AI review.");
         String key = digest(List.of(response.getWorkspaceId().toString(), response.getDeliverableId().toString(),
             target.fieldId(), team, sha256(bytes), context.hash()));
-        return new Prepared(bytes, inspection, key, metadata.modifiedTime() == null ? null : metadata.modifiedTime().toString());
+        return new Prepared(bytes, inspection, key, metadata.modifiedTime() == null ? null : metadata.modifiedTime().toString(), capturedAt);
     }
 
     public Map<String, Object> status(String subject) {
@@ -333,7 +334,7 @@ public class AiReviewService {
             context.hash(), retryAcknowledged ? expectedRetryToken : null, rerunRequested, expectedRerunToken);
         if (claim.acquired() && prior.isPresent() && sameScope(prior.get(), response)
                 && !prior.get().key().equals(key)) store.preservePreviousResults(claim.job(), prior.get());
-        link(target, response, sourceValueHash, key);
+        link(target, response, sourceValueHash, key, prepared.capturedAt());
         if (claim.acquired()) {
             try {
                 executor.execute(() -> {
@@ -356,7 +357,7 @@ public class AiReviewService {
                         // Every valid result is saved; only a substantive result replaces report history.
                         stage = "persistence";
                         store.complete(claim.job(), json.writeValueAsString(result),
-                            result.outcome() != AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+                            result.outcome() != AiReviewProvider.ReviewOutcome.INCONCLUSIVE, prepared.capturedAt());
                         stage = "source_validation";
                         assertCurrent(response, target, context, subject);
                     } catch (Exception failure) {
@@ -569,9 +570,9 @@ public class AiReviewService {
         throw new IllegalArgumentException("No submitted PDF link was found for this artifact.");
     }
 
-    private void link(ReviewTarget target, FormResponse response, String sourceValueHash, String key) {
-        if (target.legacyStore()) store.link(response.getId(), response.getRevision(), key);
-        else store.linkField(response.getId(), target.fieldId(), sourceValueHash, key);
+    private void link(ReviewTarget target, FormResponse response, String sourceValueHash, String key, java.time.Instant capturedAt) {
+        if (target.legacyStore()) store.link(response.getId(), response.getRevision(), key, capturedAt);
+        else store.linkField(response.getId(), target.fieldId(), sourceValueHash, key, capturedAt);
     }
 
     private void unlink(ReviewTarget target, FormResponse response, String sourceValueHash, String key) {
@@ -639,6 +640,8 @@ public class AiReviewService {
             case "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE" -> "The document or review requirements exceed the supported size. Nothing was silently truncated.";
             case "REQUEST_REJECTED" -> "Gemini rejected WildTrack's AI request (HTTP 400). No review was generated.";
             case "REQUEST_SCHEMA_REJECTED" -> "Gemini rejected WildTrack's response schema. The AI request configuration needs correction.";
+            case "REQUEST_PARAMETER_REJECTED" -> "Gemini rejected a WildTrack AI request setting (HTTP 400). The request configuration needs correction.";
+            case "REQUEST_DOCUMENT_REJECTED" -> "Gemini rejected the supplied PDF data (HTTP 400). No review was generated.";
             case "CONTENT_BLOCKED" -> "Gemini could not return a review under its content policies. Instructor review is needed.";
             case "OUTPUT_TRUNCATED" -> "Gemini's review exceeded the output limit. The incomplete review was not saved as a result.";
             case "FILE_PROCESSING_FAILED" -> "Gemini could not finish processing the PDF. No review was generated.";
@@ -1108,7 +1111,8 @@ public class AiReviewService {
             case "NOT_CONFIGURED", "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE", "RATE_LIMITED",
                  "API_KEY_REJECTED", "MODEL_UNAVAILABLE", "PROVIDER_OUTCOME_UNKNOWN", "PROVIDER_TIMEOUT",
                  "PROVIDER_CONNECTION_FAILED", "INVALID_RESPONSE", "FILE_PROCESSING_FAILED", "CONTENT_BLOCKED",
-                 "OUTPUT_TRUNCATED", "REQUEST_SCHEMA_REJECTED", "REQUEST_REJECTED", "NO_GROUNDED_FINDINGS",
+                 "OUTPUT_TRUNCATED", "REQUEST_SCHEMA_REJECTED", "REQUEST_PARAMETER_REJECTED", "REQUEST_DOCUMENT_REJECTED",
+                 "REQUEST_REJECTED", "NO_GROUNDED_FINDINGS",
                  "FINDINGS_FILTERED", "INSUFFICIENT_REVIEW_EVIDENCE" -> code;
             default -> "PROVIDER_OUTCOME_UNKNOWN";
         };

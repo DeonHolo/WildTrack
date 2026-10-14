@@ -68,6 +68,7 @@ vi.mock('../pages/ReviewPage.jsx', () => ({ ReviewPage: () => <h1>Review page</h
 vi.mock('../pages/StudentStatusPage.jsx', () => ({ StudentStatusPage: () => <h1>Student dashboard page</h1> }));
 vi.mock('../pages/TrackerPage.jsx', () => ({ TrackerPage: () => <h1>Tracker page</h1> }));
 vi.mock('../pages/WorkspacePage.jsx', () => ({ WorkspacePage: () => <h1>Workspace page</h1> }));
+vi.mock('../pages/TemplatePreviewPage.jsx', () => ({ TemplatePreviewPage: () => <h1>Official template preview</h1> }));
 
 function setRole(role) {
   localStorage.setItem('wildtrack.v2.preview-role', role);
@@ -150,6 +151,20 @@ describe('role-specific application shells', () => {
     renderApp('/validation-study');
     expect(await screen.findByRole('heading', { name: "Today's work page" })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Validation Study' })).not.toBeInTheDocument();
+  });
+
+  it('lets an adviser open the official template without redirecting to their home', async () => {
+    setRole('adviser');
+    renderApp('/templates/template-std/preview?workspaceId=workspace-it');
+    expect(await screen.findByRole('heading', { name: 'Official template preview' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Team review page' })).not.toBeInTheDocument();
+  });
+
+  it('keeps official template staff previews unavailable to student routes', async () => {
+    setRole('student');
+    renderApp('/templates/template-std/preview?workspaceId=workspace-it');
+    await screen.findByRole('heading', { name: 'Student dashboard page' });
+    expect(screen.queryByRole('heading', { name: 'Official template preview' })).not.toBeInTheDocument();
   });
 
   it('redirects retired study bookmarks to the Adviser home', async () => {

@@ -33,8 +33,10 @@ vi.mock('../app/StaffIdentity.jsx', () => ({
   })
 }));
 
-vi.mock('../hooks/useWorkspaceResource.js', () => ({
-  useWorkspaceResource: () => {
+vi.mock('../hooks/useWorkspaceResource.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { useWorkspaceResource: (...args) => {
+    if (args[3] === 'document-change-acknowledgements') return actual.useWorkspaceResource(...args);
     const [, refresh] = useReducer((value) => value + 1, 0);
     return {
       data: workflow.state,
@@ -45,7 +47,12 @@ vi.mock('../hooks/useWorkspaceResource.js', () => ({
       status: 'ready',
       error: ''
     };
-  }
+  } };
+});
+
+vi.mock('../lib/api.js', async (importOriginal) => ({
+  ...await importOriginal(),
+  getWorkTaskDismissals: vi.fn().mockResolvedValue([])
 }));
 
 vi.mock('../lib/reviewDeskClient.js', () => ({
