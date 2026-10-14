@@ -6,6 +6,7 @@ import { formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
 import { DriveIdentityValue } from './DriveIdentityValue.jsx';
 import { DocumentChangeNotice } from './DocumentChangeNotice.jsx';
+import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
 import { historyDate, newestHistoryEntries, observationTime } from '../../lib/fileHistoryPresentation.js';
 
 export function DocumentCheckDialog({
@@ -112,6 +113,8 @@ export function DocumentCheckDialog({
           </div>
 
           <div className="document-check-details-body">
+            {!studentView && !outdated && (report?.resultStatus || report?.status) === 'BLOCKED'
+              ? <ProviderFailureDetails service="Google Drive" diagnostic={report.failureDetails} /> : null}
             <section className="document-check-section">
               <h3>File validation</h3>
               <div className="document-check-grid">

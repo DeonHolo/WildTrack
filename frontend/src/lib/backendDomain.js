@@ -196,6 +196,7 @@ export function applyFileCheck(response, report) {
       ...report,
       checkedAt: recordedIsoTime(report.checkedAt),
       type: 'Document Check',
+      resultStatus: report.resultStatus || report.status,
       status: report.status === 'UNAVAILABLE' ? 'Unavailable' : 'Current',
       reportId: report.id
     }
@@ -277,6 +278,7 @@ function normalizeFileCheck(report) {
     ...report,
     checkedAt: recordedIsoTime(report.checkedAt),
     type: 'Document Check',
+    resultStatus: report.resultStatus || report.status,
     status: report.status === 'UNAVAILABLE' ? 'Unavailable' : report.status === 'BLOCKED' ? 'Current' : 'Current',
     reportId: report.id
   };

@@ -15,6 +15,7 @@ import { workQueueTimestamp } from '../../lib/workQueueSorting.js';
 
 const TYPE_ICONS = {
   'Document Check': FileMagnifyingGlass,
+  'Submitted link changed': FileMagnifyingGlass,
   'Review decision': SealWarning,
   'Identity conflict': IdentificationBadge,
   'Import warning': TableIcon,

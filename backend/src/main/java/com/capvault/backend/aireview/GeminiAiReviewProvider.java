@@ -195,30 +195,28 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             if (status == 429) {
                 quotaBlockedUntil = System.currentTimeMillis() + 60_000;
                 LOG.warn("Gemini AI review HTTP failure: stage={} status={} code=RATE_LIMITED", stage, status);
-                throw new Failure("RATE_LIMITED");
+                throw new Failure("RATE_LIMITED").withHttpStatus(status, requestId(rejected)).withContext(stage, startedAt);
             }
-            Failure failure = status == 400 ? rejectedRequest(rejected)
-                : new Failure(status == 401 || status == 403 ? "API_KEY_REJECTED"
-                    : status == 404 ? "MODEL_UNAVAILABLE" : "PROVIDER_OUTCOME_UNKNOWN", "http_" + status);
+            Failure failure = status == 400 ? rejectedRequest(rejected) : new Failure(status == 401 || status == 403 ? "API_KEY_REJECTED" : status == 404 ? "MODEL_UNAVAILABLE" : "PROVIDER_OUTCOME_UNKNOWN", "http_" + status).withHttpStatus(status, requestId(rejected));
             LOG.warn("Gemini AI review HTTP failure: stage={} status={} code={} detail={}",
                 stage, status, failure.code, failure.detail);
-            throw failure;
+            throw failure.withContext(stage, startedAt);
         } catch (Failure failure) {
             // Error details are fixed internal labels only. Never record document content,
             // provider error bodies, credentials or model-generated passages.
             LOG.warn("Gemini AI review failure: stage={} code={} detail={}", stage, failure.code, failure.detail);
-            throw failure;
+            throw failure.withContext(stage, startedAt);
         } catch (RestClientException failure) {
             Failure classified = classifyClientFailure(failure);
             // Types and fixed codes only: exception messages may contain URLs, keys or response content.
             LOG.warn("Gemini AI review client failure: stage={} elapsedMs={} code={} exception={} cause={}",
                 stage, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt),
                 classified.code, failure.getClass().getSimpleName(), failure.getMostSpecificCause().getClass().getSimpleName());
-            throw classified;
+            throw classified.withContext(stage, startedAt);
         } catch (Exception failure) {
             LOG.warn("Gemini AI review unexpected failure: stage={} exception={}", stage,
                 failure.getClass().getSimpleName());
-            throw new Failure("INVALID_RESPONSE");
+            throw new Failure("INVALID_RESPONSE").withContext(stage, startedAt);
         } finally {
             if (uploadedName != null && uploadedName.matches("files/[a-zA-Z0-9_-]+")) {
                 try {
@@ -319,36 +317,93 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             try {
                 JsonNode error = json.readTree(body).path("error");
                 String message = error.path("message").asText("").toLowerCase(Locale.ROOT);
+                var safeFields = new java.util.LinkedHashSet<String>();
+                String safeReason = switch (error.path("status").asText("")) {
+                    case "INVALID_ARGUMENT" -> "invalid_argument";
+                    case "FAILED_PRECONDITION" -> "failed_precondition";
+                    default -> null;
+                };
                 for (JsonNode detail : error.path("details")) {
                     String reason = detail.path("reason").asText("");
                     if (List.of("API_KEY_INVALID", "API_KEY_EXPIRED", "API_KEY_SERVICE_BLOCKED",
                             "API_KEY_HTTP_REFERRER_BLOCKED", "API_KEY_IP_ADDRESS_BLOCKED").contains(reason))
-                        return new Failure("API_KEY_REJECTED", "api_key");
-                    // Field names are used only for classification, never copied into logs.
-                    for (JsonNode violation : detail.path("fieldViolations"))
-                        message += " " + violation.path("field").asText("").toLowerCase(Locale.ROOT);
+                        return diagnostic("API_KEY_REJECTED", "api_key", 400, safeProviderStatus(error), List.of(),
+                            "Gemini rejected the configured API key or its permissions.", requestId(rejected));
+                    if (List.of("SCHEMA_TOO_COMPLEX", "INVALID_ARGUMENT", "FAILED_PRECONDITION",
+                            "API_KEY_INVALID").contains(reason)) safeReason = reason;
+                    for (JsonNode violation : detail.path("fieldViolations")) {
+                        String field = violation.path("field").asText("");
+                        String normalized = field.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9.]", "");
+                        if (normalized.contains("responsejsonschema") || normalized.contains("responseschema"))
+                            safeFields.add("responseJsonSchema");
+                        else if (normalized.contains("thinkingconfig") || normalized.contains("thinkinglevel")
+                                || normalized.contains("thinkingbudget")) safeFields.add("generationConfig.thinkingConfig");
+                        else if (normalized.contains("maxoutputtokens")) safeFields.add("generationConfig.maxOutputTokens");
+                        else if (normalized.contains("generationconfig")) safeFields.add("generationConfig");
+                        else if (normalized.contains("filedata")) safeFields.add("contents.parts.fileData");
+                        else if (normalized.contains("inlinedata")) safeFields.add("contents.parts.inlineData");
+                        else if (normalized.contains("contents.parts") || normalized.equals("contents"))
+                            safeFields.add("contents.parts");
+                        else if (normalized.contains("safetysettings")) safeFields.add("safetySettings");
+                        else if (normalized.contains("systeminstruction")) safeFields.add("systemInstruction");
+                        else if (normalized.contains("tools")) safeFields.add("tools");
+                        String description = violation.path("description").asText("").toLowerCase(Locale.ROOT);
+                        if (description.contains("schema is too complex") || description.contains("too many states"))
+                            safeReason = "SCHEMA_TOO_COMPLEX";
+                        if (description.contains("thinking config") || description.contains("thinking level")
+                                || description.contains("thinking budget")) safeReason = "INVALID_ARGUMENT";
+                    }
                 }
                 if (message.contains("responsejsonschema") || message.contains("response_json_schema")
-                        || message.contains("response schema") || message.contains("response_schema")
-                        || message.contains("schema is too complex") || message.contains("too many states")) {
-                    return new Failure("REQUEST_SCHEMA_REJECTED", "response_schema");
-                }
+                        || message.contains("response schema")) safeFields.add("responseJsonSchema");
                 if (message.contains("thinkingconfig") || message.contains("thinking_config")
                         || message.contains("thinkinglevel") || message.contains("thinking_level")
                         || message.contains("thinkingbudget") || message.contains("thinking_budget"))
-                    return new Failure("REQUEST_PARAMETER_REJECTED", "thinking_config");
-                if (message.contains("generationconfig") || message.contains("generation_config")
+                    safeFields.add("generationConfig.thinkingConfig");
+                if (message.contains("maxoutputtokens") || message.contains("max_output_tokens"))
+                    safeFields.add("generationConfig.maxOutputTokens");
+                if (message.contains("generationconfig") || message.contains("generation_config"))
+                    safeFields.add("generationConfig");
+                if (message.contains("schema is too complex") || message.contains("too many states"))
+                    safeReason = "SCHEMA_TOO_COMPLEX";
+                if (safeFields.contains("responseJsonSchema") || safeReason != null && safeReason.equals("SCHEMA_TOO_COMPLEX")
+                        || message.contains("responsejsonschema") || message.contains("response_json_schema")
+                        || message.contains("response schema") || message.contains("response_schema")
+                        || message.contains("schema is too complex") || message.contains("too many states")) {
+                    return diagnostic("REQUEST_SCHEMA_REJECTED",
+                        safeReason == null ? "response_schema" : safeReason, 400, safeProviderStatus(error),
+                        safeFields.isEmpty() ? List.of("responseJsonSchema") : List.copyOf(safeFields),
+                        "SCHEMA_TOO_COMPLEX".equals(safeReason)
+                            ? "Gemini rejected the response schema because it exceeds Google's supported schema complexity limits."
+                            : "Gemini rejected the response schema; the provider response did not establish a more specific supported cause.",
+                        requestId(rejected));
+                }
+                if (safeFields.contains("generationConfig.thinkingConfig")
+                        || message.contains("thinkingconfig") || message.contains("thinking_config")
+                        || message.contains("thinkinglevel") || message.contains("thinking_level")
+                        || message.contains("thinkingbudget") || message.contains("thinking_budget"))
+                    return diagnostic("REQUEST_PARAMETER_REJECTED", "thinking_config", 400, safeProviderStatus(error),
+                        safeFields.isEmpty() ? List.of("generationConfig.thinkingConfig") : List.copyOf(safeFields),
+                        "Gemini rejected the configured thinking option. Check the allowlisted field path for the affected setting.",
+                        requestId(rejected));
+                if (safeFields.contains("generationConfig") || safeFields.contains("generationConfig.maxOutputTokens")
+                        || message.contains("generationconfig") || message.contains("generation_config")
                         || message.contains("maxoutputtokens") || message.contains("max_output_tokens"))
-                    return new Failure("REQUEST_PARAMETER_REJECTED", "generation_config");
-                if (message.contains("document has no pages") || message.contains("unable to process the pdf")
+                    return diagnostic("REQUEST_PARAMETER_REJECTED", "generation_config", 400, safeProviderStatus(error),
+                        safeFields.isEmpty() ? List.of("generationConfig") : List.copyOf(safeFields),
+                        safeGenerationExplanation(message, safeFields),
+                        requestId(rejected));
+                if (safeFields.stream().anyMatch(field -> field.startsWith("contents.parts"))
+                        || message.contains("document has no pages") || message.contains("unable to process the pdf")
                         || message.contains("invalid pdf") || message.contains("file_data")
                         || message.contains("filedata") || message.contains("inline_data") || message.contains("inlinedata"))
-                    return new Failure("REQUEST_DOCUMENT_REJECTED", "pdf_input");
-                return new Failure("REQUEST_REJECTED", switch (error.path("status").asText("")) {
-                    case "INVALID_ARGUMENT" -> "invalid_argument";
-                    case "FAILED_PRECONDITION" -> "failed_precondition";
-                    default -> "http_400";
-                });
+                    return diagnostic("REQUEST_DOCUMENT_REJECTED", "pdf_input", 400, safeProviderStatus(error),
+                        safeFields.isEmpty() ? List.of("contents.parts") : List.copyOf(safeFields),
+                        "Gemini rejected the supplied PDF input.", requestId(rejected));
+                return diagnostic("REQUEST_REJECTED", safeReason == null ? "http_400" : safeReason, 400,
+                    safeProviderStatus(error), List.copyOf(safeFields),
+                    "Gemini rejected the request; the provider reason did not identify a supported request field.",
+                    requestId(rejected));
             } catch (Exception ignored) {
                 // Empty/non-JSON errors keep the bounded generic classification.
             }
@@ -358,6 +413,50 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
 
 
 
+    private static String safeGenerationExplanation(String message, java.util.Set<String> fields) {
+        if (fields.contains("generationConfig.maxOutputTokens")) {
+            Integer limit = safeOutputTokenUpperLimit(message);
+            return limit != null
+                ? "Gemini rejected maxOutputTokens because it exceeds the allowed limit of " + limit + "."
+                : "Gemini rejected maxOutputTokens; the provider response did not establish a numeric upper-limit cause.";
+        }
+        return "Gemini rejected a generationConfig setting. Check the allowlisted field path for the affected setting.";
+    }
+
+    private static Integer safeOutputTokenUpperLimit(String message) {
+        var matcher = java.util.regex.Pattern.compile(
+            "(?i)max[_ ]?output[_ ]?tokens.{0,80}?(?:at most|maximum(?: allowed)?|<=|less than or equal to|limit(?: is)?)[^0-9]{0,12}([0-9]{1,6})")
+            .matcher(Objects.requireNonNullElse(message, ""));
+        if (!matcher.find()) return null;
+        try {
+            int limit = Integer.parseInt(matcher.group(1));
+            return limit > 0 && limit <= 65_536 ? limit : null;
+        } catch (NumberFormatException ignored) { return null; }
+    }
+
+    private static String safeProviderStatus(JsonNode error) {
+        String status = error == null ? "" : error.path("status").asText("");
+        return List.of("INVALID_ARGUMENT", "FAILED_PRECONDITION", "PERMISSION_DENIED", "UNAUTHENTICATED",
+                "RESOURCE_EXHAUSTED", "NOT_FOUND", "INTERNAL", "UNAVAILABLE", "DEADLINE_EXCEEDED")
+            .contains(status) ? status : null;
+    }
+    private static String requestId(RestClientResponseException response) {
+        if (response == null || response.getResponseHeaders() == null) return null;
+        String id = response.getResponseHeaders().getFirst("x-goog-request-id");
+        if (id == null) id = response.getResponseHeaders().getFirst("x-request-id");
+        return id != null && id.matches("[A-Za-z0-9._:-]{1,128}") ? id : null;
+    }
+    private static Failure diagnostic(String code, String detail, Integer status, String providerStatus,
+            List<String> fields, String explanation, String requestId) {
+        String reasonCode = switch (Objects.requireNonNullElse(detail, "")) {
+            case "SCHEMA_TOO_COMPLEX", "INVALID_ARGUMENT", "FAILED_PRECONDITION" -> detail;
+            case "generation_config" -> fields.contains("generationConfig.maxOutputTokens")
+                    && explanation.contains("allowed limit of ") ? "OUTPUT_TOKEN_LIMIT_EXCEEDED" : code;
+            default -> "REQUEST_REJECTED".equals(code) && providerStatus != null ? providerStatus : code;
+        };
+        return new Failure(code, detail, new AiReviewProvider.FailureDiagnostic("gemini", null, status,
+            providerStatus, reasonCode, fields, explanation, requestId, MODEL, null));
+    }
     private static String requiredText(JsonNode node, String field, int maximum) {
         if (node == null || !node.path(field).isTextual()) throw invalid("missing_or_invalid_" + field);
         String value = node.path(field).asText().trim();
@@ -517,11 +616,30 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     static final class Failure extends RuntimeException {
         final String code;
         final String detail;
-        Failure(String code) { this(code, "unspecified"); }
-        Failure(String code, String detail) {
+        final AiReviewProvider.FailureDiagnostic diagnostic;
+        Failure(String code) { this(code, "unspecified", null); }
+        Failure(String code, String detail) { this(code, detail, null); }
+        Failure(String code, String detail, AiReviewProvider.FailureDiagnostic diagnostic) {
             super(code);
             this.code = code;
             this.detail = detail;
+            this.diagnostic = diagnostic;
+        }
+        Failure withHttpStatus(int status, String requestId) {
+            return new Failure(code, detail, new AiReviewProvider.FailureDiagnostic("gemini", null, status,
+                diagnostic == null ? null : diagnostic.providerStatus(), code,
+                diagnostic == null ? List.of() : diagnostic.parameterFields(),
+                diagnostic == null ? "The provider request failed." : diagnostic.explanation(), requestId, MODEL, null));
+        }
+        Failure withContext(String stage, long startedAt) {
+            AiReviewProvider.FailureDiagnostic d = diagnostic == null
+                ? new AiReviewProvider.FailureDiagnostic("gemini", stage, null, null, code, List.of(),
+                    "The provider request failed; no safe provider explanation was available.", null, MODEL,
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt))
+                : new AiReviewProvider.FailureDiagnostic(diagnostic.provider(), stage, diagnostic.httpStatus(),
+                    diagnostic.providerStatus(), diagnostic.reasonCode(), diagnostic.parameterFields(), diagnostic.explanation(),
+                    diagnostic.requestId(), diagnostic.model(), java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            return new Failure(code, detail, d);
         }
     }
 }

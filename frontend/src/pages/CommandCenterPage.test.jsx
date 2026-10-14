@@ -255,6 +255,135 @@ describe("today's work queues", () => {
     expect(within(queue).queryByText('archived-005')).not.toBeInTheDocument();
   });
 
+  it('identifies a recorded replacement Drive link and keeps Document Check as the next action', () => {
+    const current = 'https://drive.google.com/file/d/new-file/view';
+    workflow.state = makeState([response('replaced-001', {
+      values: { documentPdf: current },
+      artifactChecks: {
+        documentPdf: { status: 'Current', sourceUrl: 'https://drive.google.com/file/d/old-file/view', checkedAt: submittedAt }
+      },
+      observedFileHistoryByField: { documentPdf: { observations: [
+        { changeType: 'SOURCE_CHANGED', fileId: 'new-file', sourceUrl: current, firstObservedAt: submittedAt },
+        { changeType: 'FIRST_OBSERVED', fileId: 'old-file', firstObservedAt: '2026-04-18T09:00:00+08:00' }
+      ] } }
+    })]);
+    renderPage();
+
+    const queue = screen.getByRole('table', { name: "Today's work queue" });
+    expect(within(queue).getByText('Submitted link changed')).toBeInTheDocument();
+    expect(within(queue).getByText(/Submitted link changed for PDF Drive link/)).toBeInTheDocument();
+    expect(within(queue).getByText(/old-file.*new-file/)).toBeInTheDocument();
+    expect(within(queue).getByRole('button', { name: 'Run Document Check for Student replaced-001 changed submitted PDF artifact' })).toBeInTheDocument();
+  });
+
+  it('does not classify a query-only or same-file content change as a submitted link replacement', () => {
+    const prior = 'https://drive.google.com/file/d/same-file/view';
+    workflow.state = makeState([response('same-file-001', {
+      values: { documentPdf: `${prior}?resourcekey=current` },
+      artifactChecks: {
+        documentPdf: { status: 'Current', sourceUrl: `${prior}?resourcekey=prior`, checkedAt: submittedAt }
+      }
+    })]);
+    renderPage();
+
+    const queue = screen.getByRole('table', { name: "Today's work queue" });
+    expect(within(queue).queryByText('Submitted link changed')).not.toBeInTheDocument();
+    expect(within(queue).getByText('Document Check')).toBeInTheDocument();
+  });
+
+  it('retains a replacement-link task when the latest check is BLOCKED for the new source', () => {
+    const current = 'https://drive.google.com/file/d/current-file/view';
+    workflow.state = makeState([response('auto-blocked-001', {
+      values: { documentPdf: current },
+      artifactChecks: { documentPdf: { status: 'BLOCKED', sourceUrl: current, checkedAt: submittedAt } },
+      observedFileHistoryByField: { documentPdf: { observations: [
+        { changeType: 'SOURCE_CHANGED', fileId: 'current-file', sourceUrl: current, firstObservedAt: submittedAt },
+        { changeType: 'CONTENT_CHANGED', fileId: 'previous-file', sourceUrl: 'https://drive.google.com/file/d/previous-file/view', firstObservedAt: '2026-04-18T09:00:00+08:00' }
+      ] } }
+    })]);
+    renderPage();
+
+    const queue = screen.getByRole('table', { name: "Today's work queue" });
+    expect(within(queue).getByText('Submitted link changed')).toBeInTheDocument();
+    expect(within(queue).getByText(/previous-file.*current-file/)).toBeInTheDocument();
+    expect(within(queue).getByRole('button', { name: 'Run Document Check for Student auto-blocked-001 changed submitted PDF artifact' })).toBeInTheDocument();
+  });
+
+  it('keeps a successful current replacement notice until dismissal and switches to Review response', async () => {
+    const current = 'https://drive.google.com/file/d/current-ready/view';
+    workflow.state = makeState([response('ready-change-001', {
+      values: { documentPdf: current },
+      documentCheck: { status: 'COMPLETED', sourceUrl: current, checkedAt: submittedAt, document: { readable: true } },
+      observedFileHistoryByField: { documentPdf: { observations: [
+        { changeType: 'SOURCE_CHANGED', fileId: 'current-ready', sourceUrl: current, firstObservedAt: '2026-10-14T13:00:00Z' },
+        { changeType: 'CONTENT_CHANGED', fileId: 'previous-ready', sourceUrl: 'https://drive.google.com/file/d/previous-ready/view', firstObservedAt: '2026-10-14T12:00:00Z' }
+      ] } }
+    })]);
+    renderPage();
+    const queue = screen.getByRole('table', { name: "Today's work queue" });
+    expect(within(queue).getByText('Submitted link changed')).toBeInTheDocument();
+    expect(within(queue).getByRole('button', { name: 'Review Student ready-change-001 response after submitted link changed' })).toBeInTheDocument();
+    fireEvent.click(within(queue).getByRole('button', { name: 'Dismiss Submitted link changed: Student ready-change-001 | SRS' }));
+    await waitFor(() => expect(api.dismissWorkTask).toHaveBeenCalledWith(null, 'link-change:ready-change-001:documentPdf:current-ready:2026-10-14T13:00:00Z'));
+  });
+
+  it('creates a new source-change identity when a newer replacement follows dismissal', () => {
+    const first = 'https://drive.google.com/file/d/first-replacement/view';
+    workflow.state = makeState([response('new-replacement-001', { values: { documentPdf: first }, observedFileHistoryByField: { documentPdf: { observations: [
+      { changeType: 'SOURCE_CHANGED', fileId: 'first-replacement', sourceUrl: first, firstObservedAt: '2026-10-14T13:00:00Z' },
+      { changeType: 'CONTENT_CHANGED', fileId: 'old-replacement', sourceUrl: 'https://drive.google.com/file/d/old-replacement/view', firstObservedAt: '2026-10-14T12:00:00Z' }
+    ] } } })]);
+    workflow.state.dismissedKeys = ['link-change:new-replacement-001:documentPdf:first-replacement:2026-10-14T13:00:00Z'];
+    const view = renderPage();
+    expect(screen.getByText('All clear for this workspace')).toBeInTheDocument();
+    workflow.state = { ...workflow.state, attempts: [response('new-replacement-001', { values: { documentPdf: 'https://drive.google.com/file/d/new-replacement/view' }, observedFileHistoryByField: { documentPdf: { observations: [
+      { changeType: 'SOURCE_CHANGED', fileId: 'new-replacement', sourceUrl: 'https://drive.google.com/file/d/new-replacement/view', firstObservedAt: '2026-10-14T14:00:00Z' },
+      { changeType: 'SOURCE_CHANGED', fileId: 'first-replacement', sourceUrl: first, firstObservedAt: '2026-10-14T13:00:00Z' }
+    ] } } })] };
+    view.rerender(pageTree());
+    expect(screen.getByText('Submitted link changed')).toBeInTheDocument();
+  });
+
+
+  it('keeps an old-check source mismatch generic until a persisted source event gives it a stable identity', () => {
+    workflow.state = makeState([response('await-history-001', {
+      values: { documentPdf: 'https://drive.google.com/file/d/new-file/view' },
+      documentCheck: { status: 'COMPLETED', sourceUrl: 'https://drive.google.com/file/d/old-file/view', checkedAt: submittedAt }
+    })]);
+    renderPage();
+    const queue = screen.getByRole('table', { name: "Today's work queue" });
+    expect(within(queue).queryByText('Submitted link changed')).not.toBeInTheDocument();
+    expect(within(queue).getByText('Document Check')).toBeInTheDocument();
+  });
+
+  it.each(['individual', 'bulk'])('keeps the link-change notice after a successful %s check and changes its action to review', async (mode) => {
+    const current = 'https://drive.google.com/file/d/checked-replacement/view';
+    const id = 'check-change-001';
+    const history = { observations: [
+      { changeType: 'SOURCE_CHANGED', fileId: 'checked-replacement', firstObservedAt: '2026-10-14T13:00:00Z' },
+      { changeType: 'FIRST_OBSERVED', fileId: 'older-file', firstObservedAt: '2026-10-14T12:00:00Z' }
+    ] };
+    workflow.state = makeState([response(id, { values: { documentPdf: current },
+      documentCheck: { status: 'BLOCKED', sourceUrl: current, checkedAt: submittedAt },
+      observedFileHistoryByField: { documentPdf: history } })]);
+    const report = { status: 'COMPLETED', sourceUrl: current, checkedAt: submittedAt, document: { readable: true } };
+    workflow.runDocumentCheck.mockResolvedValueOnce({ ok: true, report });
+    workflow.runDocumentChecks.mockResolvedValueOnce({ completed: 1, total: 1, failed: 0,
+      results: [{ attemptId: id, fieldId: 'documentPdf', ok: true, report }] });
+    renderPage();
+    if (mode === 'individual') {
+      fireEvent.click(screen.getByRole('button', { name: 'Run Document Check for Student check-change-001 changed submitted PDF artifact' }));
+    } else {
+      fireEvent.click(screen.getByRole('button', { name: 'Check all unchecked (1)' }));
+      fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Start Document Check' }));
+    }
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'Review Student check-change-001 response after submitted link changed'
+    })).toBeInTheDocument());
+    expect(screen.getByText('Submitted link changed')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review Student check-change-001 response', exact: true })).not.toBeInTheDocument();
+  });
+
   it('removes checked and archived tasks immediately after their in-place actions', async () => {
     workflow.runDocumentCheck.mockImplementation(async (id) => {
       workflow.state = makeState(workflow.state.attempts.map((item) => item.id === id ? checkedResponse(id) : item));

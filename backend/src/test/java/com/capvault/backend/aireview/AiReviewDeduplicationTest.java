@@ -85,7 +85,8 @@ class AiReviewDeduplicationTest {
                 PRIMARY KEY(response_id, field_id)
             )
             """);
-        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V37__ai_review_source_verification_time.sql")).execute(datasource);
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V37__ai_review_source_verification_time.sql"),
+            new ClassPathResource("db/migration/V39__durable_ai_review_failure_diagnostics.sql")).execute(datasource);
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", workspace);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", deliverableId);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(datasource), Clock.systemUTC());
@@ -124,6 +125,22 @@ class AiReviewDeduplicationTest {
         return response;
     }
     private AiReviewService.View run(FormResponse response) { return service.review(workspace, response.getId(), "admin", false); }
+
+    @Test void savedViewRestoresOnlyValidatedFailureDiagnosticsFromCache() throws Exception {
+        var completed = run(first);
+        var linked = store.linkedFor(List.of(first.getId())).get(first.getId()).job();
+        var retry = store.claim(linked.key(), workspace, deliverableId, "team-one", "pdf",
+            linked.contextHash(), null, true).job();
+        var diagnostic = new AiReviewProvider.FailureDiagnostic("gemini", "generation", 400,
+            "INVALID_ARGUMENT", "OUTPUT_TOKEN_LIMIT_EXCEEDED", List.of("generationConfig.maxOutputTokens"),
+            "Gemini rejected maxOutputTokens because it exceeds the allowed limit of 2048.",
+            "req-123", GeminiAiReviewProvider.MODEL, 42L);
+        store.uncertain(retry, "REQUEST_PARAMETER_REJECTED", new ObjectMapper().writeValueAsString(diagnostic));
+
+        var cached = service.saved(workspace, first.getId(), "admin");
+        assertThat(cached.status()).isEqualTo("UNCERTAIN");
+        assertThat(cached.failureDiagnostics()).isEqualTo(diagnostic);
+    }
 
     @Test void preparationHashesDifferentLinksWithoutClaimingOrCallingTheProvider() {
         var one = service.preview(workspace, first.getId(), null, "admin");

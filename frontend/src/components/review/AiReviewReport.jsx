@@ -117,9 +117,9 @@ function Evidence({ finding }) {
   return (
     <div className="wt-ai-review-evidence">
         <Stack gap="md" mt="sm">
-          {finding.evidence ? <Passage label="PDF excerpt" text={finding.evidence} quote /> : null}
+          {finding.evidence ? <Passage text={finding.evidence} quote /> : null}
           {finding.requirement ? finding.requirement.length > 160
-            ? <Passage label={sourceLabel ? `Reference: ${sourceLabel}` : 'Reference'} text={finding.requirement} />
+            ? <Passage label={`Reference${sourceLabel ? ` · ${sourceLabel}` : ''}`} text={finding.requirement} />
             : <Text className="wt-ai-review-reference" size="sm">Reference: {sourceLabel ? `${sourceLabel} · ` : ''}{finding.requirement}</Text> : null}
           {finding.location?.page || finding.location?.section ? (
             <Text size="sm" className="wt-ai-review-reference">
@@ -232,9 +232,9 @@ function Passage({ label, text, quote = false }) {
   const excerpt = long && !full ? `${text.slice(0, 420).replace(/\s+\S*$/, '')}…` : text;
   return (
     <div>
-      <Text size="sm" fw={700}>{label}</Text>
+      {label ? <Text fw={600} size="sm">{label}</Text> : null}
       <Text component={quote ? 'blockquote' : 'p'} size="sm" mt={4}
-        className={`wt-ai-review-passage${quote ? ' wt-ai-review-quote' : ''}`}>{excerpt}</Text>
+        className={`wt-ai-review-passage${quote ? ' wt-ai-review-quote' : ''}`} aria-label="Evidence excerpt">{excerpt}</Text>
       {long ? <Button variant="subtle" size="compact-xs" mt={4} onClick={() => setFull(value => !value)}>
         {full ? 'Show short excerpt' : 'View full passage'}
       </Button> : null}

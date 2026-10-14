@@ -79,6 +79,7 @@ public class FileCheckService {
     public record CapturedPdf(DriveFileMetadata metadata, byte[] bytes, PdfInspection inspection) { }
 
     public CapturedPdf capture(DriveFileReference reference, DriveFileMetadata metadata) {
+        long started = System.nanoTime();
         requireMatchingMetadata(reference, metadata);
         if (!PDF_MIME_TYPE.equalsIgnoreCase(metadata.mimeType()) || !metadata.canDownload()
                 || (metadata.size() != null && metadata.size() > driveProperties.maximumFileSizeBytes())) {
@@ -87,14 +88,22 @@ public class FileCheckService {
         byte[] bytes = driveGateway.download(reference);
         if (bytes == null || bytes.length == 0 || bytes.length > driveProperties.maximumFileSizeBytes()
                 || (metadata.size() != null && metadata.size() != bytes.length)) {
-            throw new GoogleDriveUnavailableException("The downloaded PDF did not match its Drive metadata. Try checking the latest version again.");
+            String code = bytes == null || bytes.length == 0 ? "EMPTY_FILE"
+                : bytes.length > driveProperties.maximumFileSizeBytes() ? "FILE_TOO_LARGE" : "SIZE_MISMATCH";
+            String reason = "The downloaded PDF did not match its Drive metadata.";
+            throw new GoogleDriveUnavailableException(reason, null, GoogleDriveUnavailableException.Kind.UNKNOWN,
+                new DriveFailureDetails("download", "INTEGRITY", code, null, reason, null,
+                    elapsedMs(started), metadata.size(), bytes == null ? null : (long) bytes.length));
         }
         if (metadata.md5Checksum() != null && !metadata.md5Checksum().isBlank()) {
             try {
                 byte[] digest = java.security.MessageDigest.getInstance("MD5").digest(bytes);
                 String downloadedChecksum = java.util.HexFormat.of().formatHex(digest);
                 if (!downloadedChecksum.equalsIgnoreCase(metadata.md5Checksum())) {
-                    throw new GoogleDriveUnavailableException("The Drive PDF changed during download. Try checking the latest version again.");
+                    String reason = "The Drive PDF changed during download because its checksum did not match its metadata.";
+                    throw new GoogleDriveUnavailableException(reason, null, GoogleDriveUnavailableException.Kind.UNKNOWN,
+                        new DriveFailureDetails("download", "INTEGRITY", "CHECKSUM_MISMATCH", null, reason, null,
+                            elapsedMs(started), metadata.size(), (long) bytes.length));
                 }
             } catch (java.security.NoSuchAlgorithmException noMd5) {
                 throw new IllegalStateException("MD5 provider is unavailable.", noMd5);
@@ -132,12 +141,13 @@ public class FileCheckService {
     @Transactional
     public FileCheckResponse recordBatchProviderFailureTyped(UUID workspaceId, FileCheckRequest request,
             boolean metadataFailure, GoogleDriveUnavailableException failure) {
-        return recordBatchProviderFailure(workspaceId, request, metadataFailure,
-            failure == null ? GoogleDriveUnavailableException.Kind.UNKNOWN : failure.kind());
+        return recordBatchProviderFailure(workspaceId, request, metadataFailure, failure);
     }
 
     private FileCheckResponse recordBatchProviderFailure(UUID workspaceId, FileCheckRequest request,
-            boolean metadataFailure, GoogleDriveUnavailableException.Kind kind) {
+            boolean metadataFailure, GoogleDriveUnavailableException failure) {
+        GoogleDriveUnavailableException.Kind kind = failure == null
+            ? GoogleDriveUnavailableException.Kind.UNKNOWN : failure.kind();
         requireCurrentSubmissionRevision(validateFieldAssociation(workspaceId, request), request);
         boolean fileAccess = kind == GoogleDriveUnavailableException.Kind.FILE_ACCESS;
         String flag = metadataFailure
@@ -150,9 +160,38 @@ public class FileCheckService {
         String action = fileAccess
             ? "Check the submitted file's access, then try Document Check again."
             : "Try Document Check again later.";
-        return persist(workspaceId, request, blocked(request, LocalDateTime.now(java.time.ZoneOffset.UTC),
+        FileCheckResponse report = blocked(request, LocalDateTime.now(java.time.ZoneOffset.UTC),
             summary,
-            flag, action, null));
+            flag, action, null);
+        return persist(workspaceId, request, withFailure(report, failure, metadataFailure ? "metadata" : "download"));
+    }
+
+    private FileCheckResponse recordBatchProviderFailure(UUID workspaceId, FileCheckRequest request,
+            boolean metadataFailure, GoogleDriveUnavailableException.Kind kind) {
+        GoogleDriveUnavailableException failure = kind == null ? null
+            : new GoogleDriveUnavailableException("Drive request failed", kind);
+        return recordBatchProviderFailure(workspaceId, request, metadataFailure, failure);
+    }
+
+    private static FileCheckResponse withFailure(FileCheckResponse report,
+            GoogleDriveUnavailableException failure, String defaultStage) {
+        DriveFailureDetails details = failure == null ? null : failure.failureDetails();
+        if (details == null) {
+            String code = failure == null ? "UPSTREAM_ERROR" : switch (failure.kind()) {
+                case FILE_ACCESS -> "ACCESS_DENIED";
+                case CONFIGURATION -> "CONFIGURATION_ERROR";
+                case RATE_LIMIT -> "RATE_LIMIT";
+                case PROVIDER_UNAVAILABLE -> "PROVIDER_ERROR";
+                case UNKNOWN -> "UPSTREAM_ERROR";
+            };
+            details = new DriveFailureDetails(defaultStage, "PROVIDER", code, null,
+                "Google Drive could not complete the request.", null, null, null, null);
+        }
+        return report.withFailureDetails(details);
+    }
+
+    private static Long elapsedMs(long started) {
+        return (System.nanoTime() - started) / 1_000_000;
     }
 
     private static void requireMatchingMetadata(DriveFileReference reference, DriveFileMetadata metadata) {
@@ -201,7 +240,7 @@ public class FileCheckService {
             metadata = captured == null ? driveGateway.getMetadata(reference) : captured.metadata();
         } catch (GoogleDriveUnavailableException exception) {
             boolean fileAccess = exception.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS;
-            return persist(workspaceId, request, blocked(
+            return persist(workspaceId, request, withFailure(blocked(
                 request,
                 checkedAt,
                 fileAccess ? "Google Drive reported a file-access or download restriction."
@@ -210,7 +249,7 @@ public class FileCheckService {
                 fileAccess ? "Set the file to Anyone with the link - Viewer, allow downloads, then run the check again."
                     : "Google Drive could not verify the file right now. Try Document Check again later.",
                 null
-            ));
+            ), exception, "metadata"));
         }
 
         FileCheckResponse.DriveMetadata responseMetadata = metadata(metadata);
@@ -251,7 +290,7 @@ public class FileCheckService {
             if (bytes == null) throw new GoogleDriveUnavailableException("The captured Drive file could not be downloaded.");
         } catch (GoogleDriveUnavailableException exception) {
             boolean fileAccess = exception.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS;
-            return persist(workspaceId, request, blocked(
+            return persist(workspaceId, request, withFailure(blocked(
                 request,
                 checkedAt,
                 fileAccess ? "The submitted Drive file is inaccessible. Confirm its sharing permissions and retry."
@@ -260,7 +299,7 @@ public class FileCheckService {
                 fileAccess ? "Check the submitted file's access, then try Document Check again."
                     : "Try Document Check again later.",
                 responseMetadata
-            ), metadata);
+            ), exception, "download"), metadata);
         } catch (IllegalArgumentException exception) {
             return persist(workspaceId, request, blocked(
                 request, checkedAt, exception.getMessage(), "Download Failed",

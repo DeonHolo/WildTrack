@@ -65,6 +65,10 @@ import {
 } from '../lib/workflow.js';
 
 const REVIEW_PAGE_SIZE = 50;
+const REVIEW_SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest activity' },
+  { value: 'oldest', label: 'Oldest activity' }
+];
 
 function progressPercent(completed, total) {
   return Math.round((Math.min(completed || 0, total || 0) / Math.max(total || 0, 1)) * 100);
@@ -129,6 +133,7 @@ export function ReviewPage() {
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [filter, setFilter] = useState('Pending');
   const [query, setQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState('newest');
   const [selectedResponseId, setSelectedResponseId] = useState(linkedResponse?.id || '');
   const [conflictStudentNumbers, setConflictStudentNumbers] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -187,6 +192,9 @@ export function ReviewPage() {
     filter,
     query
   }), [filter, query, selectedDeliverable, selectedSummary, state.students]);
+  const sortedResponses = useMemo(() => [...visibleResponses].sort((first, second) => (
+    compareReviewActivity(first, second, sortOrder)
+  )), [sortOrder, visibleResponses]);
   const selectedResponse = state.attempts.find((response) => response.id === selectedResponseId) || null;
   const selectedStudent = selectedResponse
     ? findStudent(state.students, selectedResponse.studentNumber) || {
@@ -231,11 +239,11 @@ export function ReviewPage() {
   const uncheckedDocumentTargets = useMemo(() => documentCheckEnabled
     ? documentTargetsForResponses(selectedSummary?.responses || [], [selectedDeliverable], { onlyUnchecked: true })
     : [], [documentCheckEnabled, selectedDeliverable, selectedSummary]);
-  const pageCount = Math.max(1, Math.ceil(visibleResponses.length / REVIEW_PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(sortedResponses.length / REVIEW_PAGE_SIZE));
   const activePage = Math.min(page, pageCount);
-  const pageResponses = visibleResponses.slice((activePage - 1) * REVIEW_PAGE_SIZE, activePage * REVIEW_PAGE_SIZE);
-  const firstVisibleIndex = visibleResponses.length ? (activePage - 1) * REVIEW_PAGE_SIZE + 1 : 0;
-  const lastVisibleIndex = Math.min(activePage * REVIEW_PAGE_SIZE, visibleResponses.length);
+  const pageResponses = sortedResponses.slice((activePage - 1) * REVIEW_PAGE_SIZE, activePage * REVIEW_PAGE_SIZE);
+  const firstVisibleIndex = sortedResponses.length ? (activePage - 1) * REVIEW_PAGE_SIZE + 1 : 0;
+  const lastVisibleIndex = Math.min(activePage * REVIEW_PAGE_SIZE, sortedResponses.length);
 
   // Ticket 06: compact conflict indicators for the staff exception view.
   useEffect(() => {
@@ -262,7 +270,7 @@ export function ReviewPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [activeDeliverableId, filter, query]);
+  }, [activeDeliverableId, filter, query, sortOrder]);
 
   function chooseDeliverable(id) {
     setSelectedDeliverableId(id);
@@ -975,6 +983,16 @@ export function ReviewPage() {
               leftSection={<MagnifyingGlass size={17} />}
               className="wt-review-search"
             />
+            <Select
+              aria-label="Sort by"
+              label="Sort by"
+              data={REVIEW_SORT_OPTIONS}
+              value={sortOrder}
+              onChange={(value) => setSortOrder(value || 'newest')}
+              allowDeselect={false}
+              className="wt-review-sort"
+              comboboxProps={{ withinPortal: false }}
+            />
             <Group gap="sm" wrap="nowrap" className="wt-review-toolbar-actions">
               {documentCheckEnabled && uncheckedDocumentTargets.length ? (
                 <Button
@@ -988,7 +1006,7 @@ export function ReviewPage() {
                 </Button>
               ) : null}
               <Text size="sm" fw={700} c="dimmed" className="wt-nowrap wt-tabular">
-                Showing {firstVisibleIndex}-{lastVisibleIndex} of {visibleResponses.length}
+                Showing {firstVisibleIndex}-{lastVisibleIndex} of {sortedResponses.length}
               </Text>
             </Group>
           </div>
@@ -1089,14 +1107,14 @@ export function ReviewPage() {
             onToggleAll={toggleAllVisible}
           />
 
-          {!visibleResponses.length ? (
+          {!sortedResponses.length ? (
             <div className="wt-review-empty">
               <Text fw={750}>{filter === 'Pending' ? 'Pending queue is clear' : `No ${filter.toLowerCase()} responses`}</Text>
               <Text size="sm" c="dimmed">Try another filter, search term, or deliverable.</Text>
             </div>
           ) : null}
 
-          {visibleResponses.length > REVIEW_PAGE_SIZE ? (
+          {sortedResponses.length > REVIEW_PAGE_SIZE ? (
             <div className="wt-review-pagination">
               <Text size="sm" c="dimmed" className="wt-tabular">Page {activePage} of {pageCount}</Text>
               <Pagination total={pageCount} value={activePage} onChange={setPage} color="wildtrackMaroon" size="sm" withEdges />
@@ -1212,6 +1230,19 @@ function withoutId(values, id) {
 
 function sameSet(first, second) {
   return first.size === second.size && [...first].every((value) => second.has(value));
+}
+
+function compareReviewActivity(first, second, sortOrder = 'newest') {
+  const firstTime = reviewActivityTime(first);
+  const secondTime = reviewActivityTime(second);
+  const direction = sortOrder === 'oldest' ? 1 : -1;
+  return direction * (firstTime - secondTime)
+    || String(first.id || '').localeCompare(String(second.id || ''), undefined, { numeric: true });
+}
+
+function reviewActivityTime(response) {
+  const timestamp = Date.parse(response?.updatedAt || response?.submittedAt || '');
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function artifactTargetKey(responseId, field) {

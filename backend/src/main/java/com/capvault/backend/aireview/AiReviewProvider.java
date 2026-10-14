@@ -13,6 +13,13 @@ public interface AiReviewProvider {
     String cacheVersion();
     Result review(Input input);
 
+    record FailureDiagnostic(String provider, String stage, Integer httpStatus, String providerStatus,
+                             String reasonCode, List<String> parameterFields, String explanation,
+                             String requestId, String model, Long elapsedMs) {
+        public FailureDiagnostic {
+            parameterFields = parameterFields == null ? List.of() : List.copyOf(parameterFields);
+        }
+    }
     record Input(String idempotencyKey, byte[] pdf, String extractedText, String systemInstruction,
                  String deliverableTitle, String instructions, String templateText) { }
     enum FindingSource { DOCUMENT, DELIVERABLE_REQUIREMENTS, OFFICIAL_TEMPLATE }
