@@ -23,7 +23,7 @@ import org.springframework.web.client.UnknownContentTypeException;
 
 /** One generation attempt, no SDK retries, credentials/Google error bodies never returned to users. */
 final class GeminiAiReviewProvider implements AiReviewProvider {
-    static final String MODEL = "gemini-3.1-flash-lite";
+    static final String MODEL = "gemini-3.5-flash-lite";
     private static final Logger LOG = LoggerFactory.getLogger(GeminiAiReviewProvider.class);
     // This is an output ceiling, not a target. Long PDFs can need room for several
     // evidence passages and exact authority quotes in the structured JSON response.
@@ -137,7 +137,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     @Override public boolean isConfigured() { return !key.isBlank(); }
 
     @Override public String cacheVersion() {
-        return MODEL + ":rest-pdf-v5:temperature-0.2:thinking-" + thinkingLevel.toLowerCase(Locale.ROOT)
+        return MODEL + ":rest-pdf-v6:thinking-" + thinkingLevel.toLowerCase(Locale.ROOT)
             + ":output-" + maxOutputTokens
             + ":schema-" + RESPONSE_SCHEMA_VERSION
             + ":" + AiReviewService.sha256(GUIDANCE.getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -180,8 +180,8 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 "systemInstruction", Map.of("parts", List.of(Map.of("text", input.systemInstruction() + "\n" + GUIDANCE))),
                 "contents", List.of(Map.of("role", "user", "parts", List.of(
                     Map.of("text", "Review the attached PDF using this requirements data:\n" + json.writeValueAsString(requirements)), document))),
-                "generationConfig", Map.of("temperature", 0.2, "candidateCount", 1,
-                    "maxOutputTokens", maxOutputTokens, "thinkingConfig", Map.of("thinkingLevel", thinkingLevel),
+                "generationConfig", Map.of("maxOutputTokens", maxOutputTokens,
+                    "thinkingConfig", Map.of("thinkingLevel", thinkingLevel),
                     "responseMimeType", "application/json", "responseJsonSchema", schema(passages)));
             // Send the full PDF once, with at most six short exact citation references, not all extracted text.
             LOG.info("Gemini AI review request: model={} {}", MODEL,

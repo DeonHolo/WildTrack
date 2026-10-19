@@ -88,7 +88,7 @@ export function AdviserViewPage() {
   const { data: state, setData: setState, status: reviewStatus, error: reviewError, reload } = useWorkspaceResource(
     activeWorkspaceId,
     loadReviewDesk,
-    emptyReviewDesk, 'monitoring');
+    emptyReviewDesk, 'monitoring', { refreshIntervalMs: 60_000 });
   const role = useApplicationRole();
   const isAdmin = role === APPLICATION_ROLES.ADMIN;
   const adviserOptions = useMemo(() => getAdviserOptions(state), [state]);

@@ -83,7 +83,7 @@ Run setup once for every Windows user account that runs WildTrack. Run it again 
 
 ### Optional: enable Gemini AI review
 
-The backend is wired to `gemini-3.1-flash-lite`. Without a key, AI review remains disabled.
+The backend uses `gemini-3.5-flash-lite` with minimal thinking by default. Without a key, AI review remains disabled.
 For local use, run `./setup-gemini.ps1` and enter your Gemini API key in the hidden prompt,
 then restart WildTrack. For hosting, set the backend's secret `GEMINI_API_KEY` environment
 variable and restart/deploy the updated backend. Never put it in frontend/Vercel browser

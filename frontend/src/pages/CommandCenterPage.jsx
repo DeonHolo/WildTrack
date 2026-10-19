@@ -84,7 +84,7 @@ export function CommandCenterPage() {
   const { data: state, setData: setState, status, error, reload } = useWorkspaceResource(
     activeWorkspaceId,
     loadWorkQueue,
-    emptyWorkQueue, 'work-queue');
+    emptyWorkQueue, 'work-queue', { refreshIntervalMs: 60_000 });
   const [accountManagementOpen, setAccountManagementOpen] = useState(false);
   const [filter, setFilter] = useState('all');
   const [taskTab, setTaskTab] = useState('open');

@@ -27,7 +27,7 @@ const COMPACT_LABELS = {
 
 export function TrackerPage() {
   const { activeWorkspaceId } = useWorkspaceSession();
-  const { data: state, status, error, reload } = useWorkspaceResource(activeWorkspaceId, loadMonitoringState, emptyMonitoringState, 'monitoring');
+  const { data: state, status, error, reload } = useWorkspaceResource(activeWorkspaceId, loadMonitoringState, emptyMonitoringState, 'monitoring', { refreshIntervalMs: 60_000 });
   const role = useApplicationRole();
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState(state.activeStudentNumber || getStudentKey(state.students[0]) || '');
