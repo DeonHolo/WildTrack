@@ -15,7 +15,7 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
     title={preparing ? 'Preparing AI Review' : running ? 'AI Review running' : paused ? 'AI Review paused' : batch.state === 'READY' ? 'AI Review ready to start' : 'AI Review batch finished'}>
     <Stack gap="sm">
       <Text size="sm" fw={600}>{preparing ? `${batch.preparedPdfs} of ${batch.totalPdfs} PDF submissions checked`
-        : `${counts.finished} of ${batch.selectedDocuments ?? 0} unique review attempts finished · ${batch.totalPdfs} total PDF submissions`}</Text>
+        : `${batch.completedDocuments ?? 0} of ${batch.selectedDocuments ?? 0} unique review attempts finished · ${batch.totalPdfs} total PDF submissions`}</Text>
       <Progress value={preparing ? batch.preparedPdfs / Math.max(1, batch.totalPdfs) * 100
         : batch.completedDocuments / Math.max(1, batch.selectedDocuments) * 100} animated={running || preparing} />
       <Text size="sm">{batch.message}</Text>
