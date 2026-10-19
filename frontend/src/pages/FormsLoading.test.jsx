@@ -55,6 +55,11 @@ function Journey() {
 
 afterEach(() => vi.restoreAllMocks());
 
+function makeResourceStale() {
+  const now = Date.now();
+  vi.spyOn(Date, 'now').mockReturnValue(now + 60001);
+}
+
 it('lists published forms while unrelated response detail requests remain unresolved', async () => {
   installApi(async () => Response.json(payload));
   render(<Journey />);
@@ -86,6 +91,7 @@ it('preserves a server-confirmed edit across a late read and return navigation',
   });
   render(<Journey />);
   await screen.findByText('Ready to publish');
+  makeResourceStale();
   act(() => window.dispatchEvent(new Event('focus')));
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
   fireEvent.click(screen.getByRole('button', { name: 'Edit SRS form' }));
@@ -107,6 +113,7 @@ it('retains forms on a failed refresh, labels them as old, and retries successfu
   installApi(load);
   render(<Journey />);
   await screen.findByText('Ready to publish');
+  makeResourceStale();
   act(() => window.dispatchEvent(new Event('focus')));
   expect(await screen.findByRole('alert', { name: 'Form error' })).toHaveTextContent('Temporary outage');
   expect(screen.getByText('Ready to publish')).toBeInTheDocument();
@@ -123,6 +130,7 @@ it('clears cached forms on forbidden refresh and does not resurrect them during 
   installApi(load);
   render(<Journey />);
   await screen.findByText('Ready to publish');
+  makeResourceStale();
   act(() => window.dispatchEvent(new Event('focus')));
   await screen.findByText('Access revoked');
   expect(screen.queryByText('Ready to publish')).not.toBeInTheDocument();
