@@ -18,7 +18,7 @@ import org.springframework.web.client.RestClient;
 
 class GeminiAiReviewProviderTest {
     private static final String ORIGIN = "https://generativelanguage.googleapis.com";
-    private static final String GENERATE = ORIGIN + "/v1beta/models/gemini-3.1-flash-lite:generateContent";
+    private static final String GENERATE = ORIGIN + "/v1beta/models/gemini-3.5-flash-lite:generateContent";
     private final ObjectMapper json = new ObjectMapper();
     private RestClient client;
     private MockRestServiceServer server;
@@ -217,6 +217,8 @@ class GeminiAiReviewProviderTest {
             .andExpect(header("x-goog-api-key", "test-key"))
             .andExpect(jsonPath("$.generationConfig.thinkingConfig.thinkingLevel").value("MINIMAL"))
             .andExpect(jsonPath("$.generationConfig.thinkingConfig.thinkingBudget").doesNotExist())
+            .andExpect(jsonPath("$.generationConfig.temperature").doesNotExist())
+            .andExpect(jsonPath("$.generationConfig.candidateCount").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.maxOutputTokens").value(8192))
             .andExpect(jsonPath("$.generationConfig.responseMimeType").value("application/json"))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required.length()").value(5))
@@ -250,8 +252,9 @@ class GeminiAiReviewProviderTest {
         assertThat(result.missingRequiredSections()).isEmpty();
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
-        assertThat(provider.cacheVersion()).contains("gemini-3.1-flash-lite", "rest-pdf-v5", "thinking-minimal", "output-8192",
+        assertThat(provider.cacheVersion()).contains("gemini-3.5-flash-lite", "rest-pdf-v6", "thinking-minimal", "output-8192",
             "schema-structured-review-v6-source-passages-compact");
+        assertThat(provider.cacheVersion()).doesNotContain("temperature-0.2");
         server.verify();
     }
 

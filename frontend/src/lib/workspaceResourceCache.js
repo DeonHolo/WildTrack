@@ -52,6 +52,10 @@ export function createWorkspaceResourceCache({ storageKey = 'wildtrack.resource-
       const entry = entries.get(key);
       return entry && Date.now() - entry.updatedAt < ttl ? entry.data : undefined;
     },
+    isFresh(key, maxAge) {
+      const entry = entries.get(key);
+      return Boolean(entry && entry.data !== undefined && Date.now() - entry.updatedAt < maxAge);
+    },
     async load(key, load) {
       const entry = entryFor(key);
       if (entry.pending) return entry.pending;
@@ -74,9 +78,14 @@ export function createWorkspaceResourceCache({ storageKey = 'wildtrack.resource-
       persist();
     },
     remove(key) { entries.delete(key); persist(); },
-    invalidate() {
+    invalidate(key) {
       // Keep display data, but detach reads started before a server mutation.
-      for (const [key, entry] of entries) entries.set(key, { ...entry, pending: null });
+      if (key !== undefined) {
+        const entry = entries.get(key);
+        if (entry) entries.set(key, { ...entry, pending: null });
+        return;
+      }
+      for (const [entryKey, entry] of entries) entries.set(entryKey, { ...entry, pending: null });
     },
     clear() { entries.clear(); persist(); }
   };

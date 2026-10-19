@@ -103,7 +103,7 @@ export function ReviewPage() {
   const { data: state, setData: setState, status: reviewStatus, error: reviewError, reload } = useWorkspaceResource(
     activeWorkspaceId,
     loadReviewDesk,
-    emptyReviewDesk, 'monitoring');
+    emptyReviewDesk, 'monitoring', { refreshIntervalMs: 60_000 });
   const aiBatch = useAiReviewBatch(activeWorkspaceId, reload);
   const [searchParams] = useSearchParams();
   const linkedResponseId = searchParams.get('response') || '';

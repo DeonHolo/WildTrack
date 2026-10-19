@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 
-export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = '') {
+export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = '', options = {}) {
+  const { refreshIntervalMs = 0, staleTimeMs = 60000 } = options;
   const { session, resourceCache } = useWorkspaceSession();
   const accountKey = session?.authenticated ? JSON.stringify([session.email, session.googleSubject, session.roles]) : '';
   const cache = cacheKey && accountKey ? resourceCache : null;
@@ -16,9 +17,13 @@ export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = ''
   const activeScope = useRef(null);
   const requestId = useRef(0);
   const pendingRequest = useRef(null);
+  const lastRefreshAt = useRef(0);
+  const autoRefreshBlockedUntil = useRef(0);
 
   useLayoutEffect(() => {
     activeScope.current = scope;
+    lastRefreshAt.current = 0;
+    autoRefreshBlockedUntil.current = 0;
     return () => {
       activeScope.current = null;
       requestId.current += 1;
@@ -38,9 +43,14 @@ export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = ''
     });
   }, [scope, empty, cache, key]);
 
-  const reload = useCallback(async ({ background = false } = {}) => {
+  const reload = useCallback(async ({ background = false, force = true } = {}) => {
     if (activeScope.current !== scope) return null;
-    if (background && pendingRequest.current?.scope === scope && pendingRequest.current.id === requestId.current) return null;
+    if (background && !force && autoRefreshBlockedUntil.current > Date.now()) return null;
+    if (pendingRequest.current?.scope === scope) {
+      if (!force) return null;
+      cache?.invalidate?.(key);
+      pendingRequest.current = null;
+    }
     const currentRequest = ++requestId.current;
     if (!background) setSnapshot(current => current.scope !== scope ? initial
       : current.status === 'ready' ? { ...current, error: '' } : empty);
@@ -52,6 +62,8 @@ export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = ''
       const loaded = await (cache ? cache.load(key, () => load(workspaceId)) : load(workspaceId));
       if (activeScope.current !== scope || requestId.current !== currentRequest) return null;
       setSnapshot({ scope, data: loaded, status: 'ready', error: '' });
+      lastRefreshAt.current = Date.now();
+      autoRefreshBlockedUntil.current = 0;
       return loaded;
     } catch (loadError) {
       if (activeScope.current !== scope || requestId.current !== currentRequest) return null;
@@ -61,11 +73,12 @@ export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = ''
         ...(current.scope === scope && current.status === 'ready' && !unauthorized ? current : { ...empty, status: 'error' }),
         error: loadError?.message || 'Data could not be loaded.'
       }));
+      if (background && !force) autoRefreshBlockedUntil.current = Date.now() + Math.min(staleTimeMs, 5000);
       return null;
     } finally {
       if (pendingRequest.current?.id === currentRequest) pendingRequest.current = null;
     }
-  }, [load, scope, empty, initial, workspaceId, cache, key]);
+  }, [load, scope, empty, initial, workspaceId, cache, key, staleTimeMs]);
 
   useEffect(() => {
     reload();
@@ -73,21 +86,26 @@ export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = ''
 
   useEffect(() => {
     if (!workspaceId) return undefined;
+    const isFresh = () => cache?.isFresh?.(key, staleTimeMs)
+      || (lastRefreshAt.current > 0 && Date.now() - lastRefreshAt.current < staleTimeMs);
     const refreshVisible = () => {
-      if (document.visibilityState === 'visible') reload({ background: true });
+      if (document.visibilityState === 'visible' && !isFresh()) reload({ background: true, force: false });
+    };
+    const refreshTimer = () => {
+      if (document.visibilityState === 'visible') reload({ background: true, force: false });
     };
     const refreshInvalidated = () => reload();
     window.addEventListener('focus', refreshVisible);
     window.addEventListener('wildtrack:refresh-resources', refreshInvalidated);
     document.addEventListener('visibilitychange', refreshVisible);
-    const timer = window.setInterval(refreshVisible, 15000);
+    const timer = refreshIntervalMs > 0 ? window.setInterval(refreshTimer, refreshIntervalMs) : null;
     return () => {
-      window.clearInterval(timer);
+      if (timer) window.clearInterval(timer);
       window.removeEventListener('focus', refreshVisible);
       window.removeEventListener('wildtrack:refresh-resources', refreshInvalidated);
       document.removeEventListener('visibilitychange', refreshVisible);
     };
-  }, [reload, workspaceId]);
+  }, [cache, key, refreshIntervalMs, reload, staleTimeMs, workspaceId]);
 
   const current = snapshot.scope === scope ? snapshot : initial;
   return { data: current.data, setData, status: current.status, error: current.error, reload };
