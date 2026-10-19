@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { ActionIcon, Anchor, Group, Stack, Text } from '@mantine/core';
-import { FileLock } from '@phosphor-icons/react';
+import { Warning } from '@phosphor-icons/react';
 import { aiBatchFailureGroups, isAiBatchAccessRestriction } from '../../lib/aiReviewBatch.js';
 
 export function AiReviewBatchFailures({ entries }) {
@@ -17,9 +17,10 @@ function FailureGroup({ group }) {
   };
   return <div>
       <Group gap="xs" wrap="nowrap" align="flex-start">
-        {group.entries.some(isAiBatchAccessRestriction) ? <ActionIcon color="orange" variant="light" size="sm"
+        {group.entries.some(isAiBatchAccessRestriction) ? <ActionIcon color="yellow.7" variant="transparent" size={20}
+          style={{ minHeight: 20, flexShrink: 0 }}
           aria-label="Show PDFs with access restrictions" title="Show PDFs with access restrictions" onClick={showAffected}>
-          <FileLock size={16} aria-hidden="true" />
+          <Warning size={16} weight="fill" aria-hidden="true" />
         </ActionIcon> : null}
         <Text size="sm">{group.message}</Text>
       </Group>

@@ -3296,6 +3296,10 @@ textarea:not(.mantine-Input-input):focus {
   padding-bottom: 14px;
 }
 
+.document-check-details-body > .wt-provider-failure {
+  margin-top: 12px;
+}
+
 .document-check-details-body .document-check-section:first-child {
   border-top: 0;
   padding-top: 0;
