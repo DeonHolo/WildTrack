@@ -57,6 +57,12 @@ export function aiBatchSelection(plan, mode, includeOutdated) {
   };
 }
 
+export function isAiBatchAccessRestriction(entry) {
+  return entry.noAiStarted !== false && String(entry.error || '').trim().startsWith(
+    'The submitted Drive PDF could not be opened. Google Drive reported a file-access or download restriction.'
+  );
+}
+
 export function aiBatchFailureGroups(entries = []) {
   const groups = new Map();
   for (const entry of entries) {

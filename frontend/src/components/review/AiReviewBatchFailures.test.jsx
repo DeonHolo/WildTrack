@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AiReviewBatchDialog } from './AiReviewBatchDialog.jsx';
 import { AiReviewBatchPanel } from './AiReviewBatchPanel.jsx';
@@ -13,6 +13,53 @@ const entry = (id, error = restricted) => ({ target: { responseId: id, fieldId: 
 const renderView = view => render(<MantineProvider>{view}</MantineProvider>);
 
 describe('AI batch affected PDF presentation', () => {
+  const completedBatch = blocked => ({ id: 'finished', state: 'COMPLETED', entries: [
+    { target: { responseId: 'reviewed', fieldId: 'pdf' }, preview: { key: 'reviewed' }, selected: true,
+      phase: 'DONE', resultStatus: 'COMPLETED', noAiStarted: false, error: '' },
+    { ...entry('restricted'), selected: false, noAiStarted: true, ...blocked }
+  ], totalPdfs: 2, selectedDocuments: 1, completedDocuments: 1, pendingDocuments: 0, uniqueDocuments: 1,
+    message: 'AI Review batch finished. Saved results are available.' });
+
+  it('shows a green finished batch and progress bar when only access-restricted PDFs were excluded', () => {
+    renderView(<AiReviewBatchPanel batch={completedBatch()} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('green');
+    expect(screen.getByRole('progressbar').style.getPropertyValue('--progress-section-color')).toContain('green');
+    expect(screen.getByText('1 AI review available')).toBeInTheDocument();
+    expect(screen.getByText(/These PDFs could not be opened/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review retry options' })).toBeInTheDocument();
+  });
+
+  it('opens the affected PDF list and moves keyboard focus there from the access-restriction icon', () => {
+    renderView(<AiReviewBatchPanel batch={completedBatch()} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    const details = screen.getByText('restricted.pdf').closest('details');
+    expect(details.open).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Show PDFs with access restrictions' }));
+    expect(details.open).toBe(true);
+    expect(details.querySelector('summary')).toHaveFocus();
+    expect(screen.getByRole('link', { name: 'restricted.pdf' })).toHaveAttribute('href', entry('restricted').identity.sourceUrl);
+  });
+
+  it.each([
+    ['Drive retrieval failure', { error: unavailable }],
+    ['unclassified Drive 403', { error: 'Google Drive returned an unrecognized response. HTTP 403.' }],
+    ['Gemini 400', { error: "Gemini rejected WildTrack's AI request (HTTP 400).", noAiStarted: false }],
+    ['uncertain provider outcome', { error: 'Gemini outcome could not be confirmed.', noAiStarted: false }],
+    ['access wording after AI started', { error: restricted, noAiStarted: false }],
+    ['failed result without an error message', { error: '', selected: true, preview: { key: 'failed' },
+      phase: 'DONE', resultStatus: 'FAILED', noAiStarted: false }]
+  ])('keeps the finished batch orange for %s', (_name, failure) => {
+    renderView(<AiReviewBatchPanel batch={completedBatch(failure)} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('orange');
+    expect(screen.getByRole('progressbar').style.getPropertyValue('--progress-section-color')).toContain('orange');
+  });
+
+  it.each([['RUNNING', 'blue'], ['PLANNING', 'blue'], ['PAUSED', 'orange']])(
+    'preserves the %s state with access restrictions', (state, color) => {
+      renderView(<AiReviewBatchPanel batch={{ ...completedBatch(), state, preparedPdfs: 2 }} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+      expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain(color);
+    }
+  );
+
   it.each(['choices', 'progress'])('explains Drive failures once in %s and identifies the exact affected PDFs', view => {
     const plan = { id: 'batch', state: view === 'choices' ? 'READY' : 'PAUSED', entries: [entry('SDD'), entry('STD', unavailable)],
       totalPdfs: 2, preparedPdfs: 2, selectedDocuments: 0, completedDocuments: 0, pendingDocuments: 0, uniqueDocuments: 0 };
