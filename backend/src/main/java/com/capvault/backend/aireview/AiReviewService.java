@@ -36,6 +36,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import jakarta.annotation.PreDestroy;
 
 @Service
 public class AiReviewService {
@@ -99,7 +100,7 @@ public class AiReviewService {
     private final StaffAccessResolver roles;
     private final ObjectMapper json;
     private final Executor executor;
-    private final VerifiedPdfSnapshotCache verifiedPdfSnapshots = new VerifiedPdfSnapshotCache();
+    private final VerifiedPdfSnapshotCache verifiedPdfSnapshots;
 
     public AiReviewService(AiReviewProvider provider, AiReviewStore store, FormResponseRepository responses,
             DeliverableRepository deliverables, DeliverableFieldRepository fields, DocumentTemplateService templates, GoogleDriveGateway drive,
@@ -109,7 +110,13 @@ public class AiReviewService {
         this.templates = templates; this.drive = drive; this.driveProperties = driveProperties; this.pdf = pdf;
         this.access = access; this.roles = roles; this.json = json;
         this.executor = executor;
+        this.verifiedPdfSnapshots = new VerifiedPdfSnapshotCache(java.time.Clock.systemUTC(),
+            VerifiedPdfSnapshotCache.MAX_WEIGHT_BYTES, VerifiedPdfSnapshotCache.MAX_ENTRIES,
+            VerifiedPdfSnapshotCache.MAX_DISK_WEIGHT_BYTES, json, null, driveProperties.maximumFileSizeBytes());
     }
+
+    @PreDestroy
+    void closeVerifiedPdfSnapshotCache() { verifiedPdfSnapshots.close(); }
 
     public record View(String status, boolean reused, String message, AiReviewProvider.Result report,
                        String generatedAt, String sourceResponseUpdatedAt, boolean sourceVerified, UUID retryToken, String failureCode,
