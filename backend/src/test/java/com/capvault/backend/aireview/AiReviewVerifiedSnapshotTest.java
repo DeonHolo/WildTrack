@@ -75,6 +75,34 @@ class AiReviewVerifiedSnapshotTest {
     private byte[] bytes;
     private DriveFileMetadata metadata;
 
+    @org.junit.jupiter.api.AfterEach void closeCache() { service.closeVerifiedPdfSnapshotCache(); }
+
+    @Test void preparedBatchRestoresEvictedSnapshotWithoutAnotherMediaDownload() {
+        service.closeVerifiedPdfSnapshotCache();
+        try (var cache = new VerifiedPdfSnapshotCache(Clock.systemUTC(), 64, 256)) {
+            ReflectionTestUtils.setField(service, "verifiedPdfSnapshots", cache);
+            var plan = service.preview(WORKSPACE, response.getId(), null, "admin");
+            var second = new FormResponse(UUID.randomUUID(), WORKSPACE, DELIVERABLE_ID, "file-2", "other@example.com",
+                UUID.randomUUID(), "other", "Other", "team-two",
+                "{\"documentPdf\":\"https://drive.google.com/file/d/file-2/view\"}", CAPTURED_AT, CAPTURED_AT);
+            when(responses.findById(second.getId())).thenReturn(Optional.of(second));
+            jdbc.update("INSERT INTO form_responses VALUES (?)", second.getId());
+            var secondPlan = service.preview(WORKSPACE, second.getId(), null, "admin");
+            assertThat(cache.size()).isEqualTo(2);
+            assertThat(cache.ramSize()).isEqualTo(1);
+            assertThat(cache.diskSize()).isEqualTo(2);
+            service.reviewPlanned(WORKSPACE, response.getId(), plan.fieldId(), "admin", false, null, false, plan.key(), null);
+            service.reviewPlanned(WORKSPACE, second.getId(), secondPlan.fieldId(), "admin", false, null, false, secondPlan.key(), null);
+            verify(drive, times(2)).download(any());
+            verify(drive, times(8)).getMetadata(any());
+            var input = org.mockito.ArgumentCaptor.forClass(AiReviewProvider.Input.class);
+            verify(provider, times(2)).review(input.capture());
+            assertThat(input.getValue().pdf()).containsExactly(bytes);
+            assertThat(store.linkedFor(List.of(response.getId())).get(response.getId()).sourceVerifiedAt().toEpochMilli())
+                .isEqualTo(CAPTURED_AT.toEpochMilli());
+        }
+    }
+
     @BeforeEach void setup() throws Exception {
         var dataSource = new DriverManagerDataSource("jdbc:h2:mem:snapshot_" + UUID.randomUUID() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1", "sa", "");
         jdbc = new JdbcTemplate(dataSource);

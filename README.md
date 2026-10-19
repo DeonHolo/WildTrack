@@ -3,7 +3,7 @@
 WildTrack manages capstone class workflows: academic workspaces, Google Sheet imports, deliverable forms, student submissions, progress tracking, adviser review, Document Check, and archive preparation.
 
 > [!IMPORTANT]
-> WildTrack is currently for local development and supervised demonstrations. It is **not ready for a public production deployment** or real student data. Read [Production status](#production-status) before exposing it to the internet.
+> WildTrack is hosted for supervised evaluation at [www.wildtrack.dev](https://www.wildtrack.dev). Current AI review uses Gemini 3.5 Flash Lite with minimal thinking and an 8,192-token output ceiling.
 
 ## Persistence and Identity Architecture
 
@@ -84,6 +84,8 @@ Run setup once for every Windows user account that runs WildTrack. Run it again 
 ### Optional: enable Gemini AI review
 
 The backend uses `gemini-3.5-flash-lite` with minimal thinking by default. Without a key, AI review remains disabled.
+
+Batch AI Review reuses verified PDF snapshots for 15 minutes, rechecks current Drive access and file-version metadata, and reports available reviews separately from failed attempts. A 32 MiB memory cache and 256 MiB private temporary disk cache retain prepared PDFs across larger batches; expiry, eviction and application shutdown clean up snapshots. The Gemini structured-output schema accepts quoted evidence as strings; the service validates those quotes against the source passages.
 For local use, run `./setup-gemini.ps1` and enter your Gemini API key in the hidden prompt,
 then restart WildTrack. For hosting, set the backend's secret `GEMINI_API_KEY` environment
 variable and restart/deploy the updated backend. Never put it in frontend/Vercel browser
@@ -92,7 +94,7 @@ automatically loaded secrets file.
 
 Reviews use the submitted PDF and deliverable requirements/template, return concise advisory
 feedback, and never accept or grade submissions. Exact duplicate team documents reuse saved
-results. Thinking is set to minimal, output is capped at 2,048 tokens, and new requests are spaced
+results. Thinking is set to minimal, output is capped at 8,192 tokens, and new requests are spaced
 15 seconds apart per backend instance (`WILDTRACK_GEMINI_MINIMUM_INTERVAL_SECONDS`). Actual
 free-tier quotas depend on the API project. Quota failures pause the batch; uncertain requests
 require an explicit retry. Uploaded large PDFs are deleted after processing where possible
@@ -313,15 +315,11 @@ cd ..
 
 ## Production status
 
-WildTrack is deployment-ready at the repository level: a clean clone builds the production backend and frontend, migrates an empty PostgreSQL database, and passes the packaged production smoke test without source edits. Connecting the live services (Heroku app, Vercel project, wildtrack.dev DNS, Google Identity client) are external launch steps owned by the project owner.
+WildTrack is hosted for supervised evaluation at https://www.wildtrack.dev. Document Check and Gemini advisory review are implemented; configure the backend Drive and Gemini secrets described below when setting up another deployment.
 
 Follow the ordered handoff in [`docs/deployment/deployment-runbook.md`](docs/deployment/deployment-runbook.md), the variable contract in [`.env.production.example`](.env.production.example), and the operations and recovery procedures in [`docs/deployment/operations-runbook.md`](docs/deployment/operations-runbook.md). The pilot uses an always-on Heroku Basic dyno; a sleeping runtime does not provide reliable classroom testing.
 
-Deferred until separately configured and verified: Gemini/AI-assisted review, Google Sheet writeback, and independent archive file storage. Each stays disabled with honest unavailable states until its own ticket lands.
-
-
-
-Google Sheet writeback, independent archive storage, and Gemini-assisted review also require separate service credentials and operational limits. Choose hosting only after the classroom demo scope is confirmed.
+Google Sheet writeback and independent archive file storage remain separate service scopes with their own credentials and operational limits.
 
 ## Repository layout
 
