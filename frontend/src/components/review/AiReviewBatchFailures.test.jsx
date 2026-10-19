@@ -49,4 +49,70 @@ describe('AI batch affected PDF presentation', () => {
     renderView(<AiReviewBatchFailures entries={[failed]} />);
     expect(screen.getByText('invalid.pdf').tagName).toBe('SPAN');
   });
+
+  it('reports completed, failed, reused, and pending groups separately', () => {
+    const reviewEntry = (id, key, overrides = {}) => ({
+      target: { responseId: id, fieldId: 'pdf' }, preview: { key }, selected: true,
+      phase: 'DONE', resultStatus: 'COMPLETED', reused: false, error: '', ...overrides
+    });
+    const batch = { id: 'mixed', state: 'RUNNING', entries: [
+      reviewEntry('first', 'shared'),
+      reviewEntry('duplicate', 'shared'),
+      reviewEntry('reused', 'reused', { reused: true }),
+      reviewEntry('failed', 'failed', { resultStatus: 'FAILED', error: 'Provider failed' }),
+      reviewEntry('pending', 'pending', { phase: 'PENDING', resultStatus: null })
+    ], totalPdfs: 5, selectedDocuments: 4, completedDocuments: 3, pendingDocuments: 1, uniqueDocuments: 4,
+      reusedDocuments: 1, message: 'Running' };
+    renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByText('3 of 4 unique review attempts finished · 5 total PDF submissions')).toBeInTheDocument();
+    expect(screen.getByText(/2 AI reviews available/)).toBeInTheDocument();
+    expect(screen.getByText(/1 failed or unconfirmed/)).toBeInTheDocument();
+    expect(screen.getByText(/1 pending/)).toBeInTheDocument();
+  });
+
+  it('does not count unselected blocked rows as selected review groups or AI blocks', () => {
+    const blockedEntry = id => ({ ...entry(id), selected: false, noAiStarted: true,
+      identity: { ...entry(id).identity, sourceUrl: 'https://drive.google.com/file/d/same/view' } });
+    const batch = { id: 'blocked', state: 'READY', entries: [blockedEntry('one'), blockedEntry('two')], totalPdfs: 2,
+      preparedPdfs: 2, selectedDocuments: 0, completedDocuments: 0, pendingDocuments: 0, uniqueDocuments: 0 };
+    renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByText('0 of 0 unique review attempts finished · 2 total PDF submissions')).toBeInTheDocument();
+    expect(screen.queryByText(/blocked before AI/)).not.toBeInTheDocument();
+  });
+
+  it('keeps selected blocked groups separate from preparation failures and counts scoped reviews', () => {
+    const selected = (id, key, overrides = {}) => ({
+      target: { responseId: id, fieldId: 'pdf' }, preview: { key }, selected: true,
+      phase: 'DONE', resultStatus: 'FAILED', noAiStarted: true, error: 'Drive access failed', ...overrides
+    });
+    const unselected = (id, preview = null) => ({ target: { responseId: id, fieldId: 'pdf' }, preview,
+      selected: false, phase: preview ? 'PREPARED' : 'UNVERIFIED', noAiStarted: true, error: 'Drive access failed' });
+    const sameUrlA = selected('same-url-a', 'scope-a', { noAiStarted: false, resultStatus: 'COMPLETED', error: '' });
+    const sameUrlB = selected('same-url-b', 'scope-b', { noAiStarted: false, resultStatus: 'COMPLETED', error: '' });
+    const batch = { id: 'live-shape', state: 'COMPLETED', entries: [
+      selected('blocked-a', 'blocked-a'), selected('blocked-b', 'blocked-b'), sameUrlA, sameUrlB,
+      unselected('prepared-clean', { key: 'clean', category: 'CLEAN' }),
+      unselected('unverified-1'), unselected('unverified-2'), unselected('unverified-3')
+    ], totalPdfs: 8, selectedDocuments: 4, completedDocuments: 4, pendingDocuments: 0, uniqueDocuments: 5 };
+    renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByText('4 of 4 unique review attempts finished · 8 total PDF submissions')).toBeInTheDocument();
+    expect(screen.getByText(/2 AI reviews available/)).toBeInTheDocument();
+    expect(screen.getByText(/2 blocked before AI/)).toBeInTheDocument();
+    expect(screen.queryByText(/failed after start/)).not.toBeInTheDocument();
+  });
+
+  it('counts an alternate successful copy as available for a shared review group', () => {
+    const copy = (id, overrides = {}) => ({
+      target: { responseId: id, fieldId: 'pdf' }, preview: { key: 'shared-file' }, selected: true,
+      phase: 'DONE', resultStatus: 'FAILED', noAiStarted: true, error: 'Drive access failed', ...overrides
+    });
+    const batch = { id: 'alternate', state: 'COMPLETED', entries: [
+      copy('blocked-copy'), copy('successful-copy', { noAiStarted: false, resultStatus: 'COMPLETED', error: '' })
+    ], totalPdfs: 2, selectedDocuments: 1, completedDocuments: 1, pendingDocuments: 0, uniqueDocuments: 1 };
+    renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByText('1 of 1 unique review attempts finished · 2 total PDF submissions')).toBeInTheDocument();
+    expect(screen.getByText(/1 AI review available/)).toBeInTheDocument();
+    expect(screen.queryByText(/blocked before AI/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/failed or unconfirmed/)).not.toBeInTheDocument();
+  });
 });
