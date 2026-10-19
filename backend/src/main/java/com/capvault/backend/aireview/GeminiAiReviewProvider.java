@@ -137,7 +137,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     @Override public boolean isConfigured() { return !key.isBlank(); }
 
     @Override public String cacheVersion() {
-        return MODEL + ":rest-pdf-v6:thinking-" + thinkingLevel.toLowerCase(Locale.ROOT)
+        return MODEL + ":rest-pdf-v7:thinking-" + thinkingLevel.toLowerCase(Locale.ROOT)
             + ":output-" + maxOutputTokens
             + ":schema-" + RESPONSE_SCHEMA_VERSION
             + ":" + AiReviewService.sha256(GUIDANCE.getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -571,7 +571,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         // notes are optional legacy/parser fields or are grounded by WildTrack.
         // Google may reject deeply nested/large schemas before examining any PDF.
         var string = Map.of("type", "string");
-        Map<String, ?> evidence = passages.isEmpty() ? string : Map.of("type", "string", "enum", passages);
+        Map<String, ?> evidence = string;
         var findingSource = Map.of("type", "string", "enum",
             List.of("DOCUMENT", "DELIVERABLE_REQUIREMENTS", "OFFICIAL_TEMPLATE"));
         var requirementSource = Map.of("type", "string", "enum",

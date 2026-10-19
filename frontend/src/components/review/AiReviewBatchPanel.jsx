@@ -8,17 +8,24 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
   const paused = batch.state === 'PAUSED';
   const preparing = batch.state === 'PLANNING';
   const failed = batch.entries.filter(entry => entry.error).length;
+  const counts = summarizeBatch(batch.entries);
   return <Alert role="status" color={paused || failed || error ? 'orange' : running || preparing ? 'blue' : 'green'}
     withCloseButton={batch.state === 'COMPLETED' && Boolean(onDismiss) && !busy}
     onClose={onDismiss} closeButtonLabel="Dismiss finished AI Review batch"
     title={preparing ? 'Preparing AI Review' : running ? 'AI Review running' : paused ? 'AI Review paused' : batch.state === 'READY' ? 'AI Review ready to start' : 'AI Review batch finished'}>
     <Stack gap="sm">
       <Text size="sm" fw={600}>{preparing ? `${batch.preparedPdfs} of ${batch.totalPdfs} PDF submissions checked`
-        : `${batch.completedDocuments} of ${batch.selectedDocuments || batch.uniqueDocuments} unique documents processed · ${batch.totalPdfs} total PDF submissions`}</Text>
+        : `${batch.completedDocuments ?? 0} of ${batch.selectedDocuments ?? 0} unique review attempts finished · ${batch.totalPdfs} total PDF submissions`}</Text>
       <Progress value={preparing ? batch.preparedPdfs / Math.max(1, batch.totalPdfs) * 100
         : batch.completedDocuments / Math.max(1, batch.selectedDocuments) * 100} animated={running || preparing} />
       <Text size="sm">{batch.message}</Text>
       {batch.reusedDocuments ? <Text size="sm">{batch.reusedDocuments} saved {batch.reusedDocuments === 1 ? 'review reused' : 'reviews reused'}.</Text> : null}
+      {!preparing ? <Text size="sm">
+        {counts.completed} AI {counts.completed === 1 ? 'review' : 'reviews'} available
+        {counts.blocked ? ` · ${counts.blocked} blocked before AI` : ''}
+        {counts.failed ? ` · ${counts.failed} failed or unconfirmed` : ''}
+        {counts.pending ? ` · ${counts.pending} pending` : ''}
+      </Text> : null}
       {error ? <Text size="sm">{error}</Text> : null}
       {failed ? <AiReviewBatchFailures entries={batch.entries} /> : null}
       <Group gap="sm">
@@ -29,4 +36,22 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
       </Group>
     </Stack>
   </Alert>;
+}
+
+function summarizeBatch(entries = []) {
+  const groups = new Map();
+  for (const entry of entries) {
+    if (!entry.selected || !entry.preview?.key) continue;
+    if (!groups.has(entry.preview.key)) groups.set(entry.preview.key, []);
+    groups.get(entry.preview.key).push(entry);
+  }
+  let completed = 0, blocked = 0, failed = 0, pending = 0;
+  for (const group of groups.values()) {
+    if (group.every(entry => entry.phase === 'DONE')) {
+      if (group.some(entry => entry.resultStatus === 'COMPLETED')) completed += 1;
+      else if (group.every(entry => entry.noAiStarted)) blocked += 1;
+      else failed += 1;
+    } else pending += 1;
+  }
+  return { finished: completed + blocked + failed, completed, blocked, failed, pending };
 }

@@ -99,6 +99,7 @@ public class AiReviewService {
     private final StaffAccessResolver roles;
     private final ObjectMapper json;
     private final Executor executor;
+    private final VerifiedPdfSnapshotCache verifiedPdfSnapshots = new VerifiedPdfSnapshotCache();
 
     public AiReviewService(AiReviewProvider provider, AiReviewStore store, FormResponseRepository responses,
             DeliverableRepository deliverables, DeliverableFieldRepository fields, DocumentTemplateService templates, GoogleDriveGateway drive,
@@ -258,6 +259,22 @@ public class AiReviewService {
             throw new IllegalArgumentException("AI review requires a downloadable PDF. Run Document Check first.");
         if (metadata.size() != null && metadata.size() > driveProperties.maximumFileSizeBytes())
             throw new IllegalArgumentException("The PDF exceeds the document size limit.");
+        var cacheKey = VerifiedPdfSnapshotCache.Key.of(response.getWorkspaceId(), reference, metadata);
+        var cached = verifiedPdfSnapshots.get(cacheKey);
+        if (cached != null) {
+            // A cache hit still performs the same fresh after-read metadata check as a download.
+            var afterReuse = preclaimDrive(() -> drive.getMetadata(reference));
+            if (!VerifiedPdfSnapshotCache.metadataMatches(metadata, afterReuse))
+                throw stale("The Drive file changed during download. Prepare the review again.");
+            byte[] cachedBytes = cached.bytesCopy();
+            var cachedInspection = cached.inspectionCopy();
+            String team = response.getTeamCode().trim().toLowerCase(Locale.ROOT);
+            if (team.isBlank()) throw new IllegalArgumentException("Assign this response to a team before AI review.");
+            String key = digest(List.of(response.getWorkspaceId().toString(), response.getDeliverableId().toString(),
+                target.fieldId(), team, sha256(cachedBytes), context.hash()));
+            return new Prepared(cachedBytes, cachedInspection, key,
+                metadata.modifiedTime().toString(), cached.capturedAt());
+        }
         java.time.Instant capturedAt = store.captureTime();
         byte[] bytes = preclaimDrive(() -> drive.download(reference));
         if (bytes == null || bytes.length > driveProperties.maximumFileSizeBytes())
@@ -272,6 +289,11 @@ public class AiReviewService {
         if (team.isBlank()) throw new IllegalArgumentException("Assign this response to a team before AI review.");
         String key = digest(List.of(response.getWorkspaceId().toString(), response.getDeliverableId().toString(),
             target.fieldId(), team, sha256(bytes), context.hash()));
+        if (VerifiedPdfSnapshotCache.metadataMatches(metadata, afterDownload)
+                && VerifiedPdfSnapshotCache.actualMd5AndSizeMatch(bytes, metadata)) {
+            verifiedPdfSnapshots.put(cacheKey,
+                new VerifiedPdfSnapshotCache.Snapshot(bytes, inspection, capturedAt));
+        }
         return new Prepared(bytes, inspection, key, metadata.modifiedTime() == null ? null : metadata.modifiedTime().toString(), capturedAt);
     }
 

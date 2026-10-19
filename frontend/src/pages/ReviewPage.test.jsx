@@ -769,7 +769,7 @@ describe('deliverable-first submission review', () => {
     resumeAiReviewBatch.mockResolvedValue({ ...paused, state: 'RUNNING', version: 3 });
     renderPage();
     const resume = await screen.findByRole('button', { name: 'Continue remaining (1)' });
-    expect(screen.getByText(/1 of 2 unique documents processed/)).toBeVisible();
+    expect(screen.getByText(/1 of 2 unique review attempts finished/)).toBeVisible();
     fireEvent.click(resume);
     await waitFor(() => expect(resumeAiReviewBatch).toHaveBeenCalledWith('workspace-it', 'batch-paused'));
     expect(startAiReviewBatch).not.toHaveBeenCalled();
