@@ -252,7 +252,7 @@ class GeminiAiReviewProviderTest {
         assertThat(result.missingRequiredSections()).isEmpty();
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
-        assertThat(provider.cacheVersion()).contains("gemini-3.5-flash-lite", "rest-pdf-v6", "thinking-minimal", "output-8192",
+        assertThat(provider.cacheVersion()).contains("gemini-3.5-flash-lite", "rest-pdf-v7", "thinking-minimal", "output-8192",
             "schema-structured-review-v6-source-passages-compact");
         assertThat(provider.cacheVersion()).doesNotContain("temperature-0.2");
         server.verify();
@@ -503,8 +503,10 @@ class GeminiAiReviewProviderTest {
             "missingRequiredSections", List.of(), "suggestedAction", "Review", "verifiedChecks", checks));
         server.expect(requestTo(GENERATE))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(3))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].properties.documentEvidence.enum[0]").value(scope))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[1].properties.documentEvidence.enum[2]").value(feedback))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].properties.documentEvidence.type").value("string"))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].properties.documentEvidence.enum").doesNotExist())
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[1].properties.documentEvidence.type").value("string"))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[1].properties.documentEvidence.enum").doesNotExist())
             .andExpect(content().string(org.hamcrest.Matchers.containsString("positiveEvidencePassages")))
             .andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
 
