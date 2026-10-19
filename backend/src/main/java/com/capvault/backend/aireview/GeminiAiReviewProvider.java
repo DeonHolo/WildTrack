@@ -184,6 +184,9 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                     "maxOutputTokens", maxOutputTokens, "thinkingConfig", Map.of("thinkingLevel", thinkingLevel),
                     "responseMimeType", "application/json", "responseJsonSchema", schema(passages)));
             // Send the full PDF once, with at most six short exact citation references, not all extracted text.
+            LOG.info("Gemini AI review request: model={} {}", MODEL,
+                GeminiRequestFingerprint.describe(json, input.pdf(), input.systemInstruction() + "\n" + GUIDANCE,
+                    requirements, payload.get("generationConfig")));
             stage = "generation";
             JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
                 .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON)
