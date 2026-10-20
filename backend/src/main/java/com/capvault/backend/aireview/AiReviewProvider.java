@@ -21,7 +21,18 @@ public interface AiReviewProvider {
         }
     }
     record Input(String idempotencyKey, byte[] pdf, String extractedText, String systemInstruction,
-                 String deliverableTitle, String instructions, String templateText) { }
+                 String deliverableTitle, String instructions, String templateText,
+                 List<String> priorEvidence, List<String> focusCriterionIds) {
+        public Input {
+            priorEvidence = priorEvidence == null ? List.of() : List.copyOf(priorEvidence);
+            focusCriterionIds = focusCriterionIds == null ? List.of() : List.copyOf(focusCriterionIds);
+        }
+        public Input(String idempotencyKey, byte[] pdf, String extractedText, String systemInstruction,
+                     String deliverableTitle, String instructions, String templateText) {
+            this(idempotencyKey, pdf, extractedText, systemInstruction, deliverableTitle, instructions,
+                templateText, List.of(), List.of());
+        }
+    }
     enum FindingSource { DOCUMENT, DELIVERABLE_REQUIREMENTS, OFFICIAL_TEMPLATE }
     enum ReviewOutcome { ISSUES_IDENTIFIED, NO_ISSUES_IN_CHECKED_AREAS, INCONCLUSIVE }
     record EvidenceLocation(Integer page, String section) { }
@@ -38,15 +49,35 @@ public interface AiReviewProvider {
             this(aspect, source, documentEvidence, requirement, null);
         }
     }
+    enum CoverageStatus { EVIDENCE_RECORDED, ISSUE_RECORDED, NEEDS_VERIFICATION, NOT_CHECKED }
+    record CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
+                               List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
+                               List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes) {
+        public CriterionAssessment {
+            verifiedCheckIndexes = verifiedCheckIndexes == null ? List.of() : List.copyOf(verifiedCheckIndexes);
+            findingIndexes = findingIndexes == null ? List.of() : List.copyOf(findingIndexes);
+            missingSectionIndexes = missingSectionIndexes == null ? List.of() : List.copyOf(missingSectionIndexes);
+            verificationNoteIndexes = verificationNoteIndexes == null ? List.of() : List.copyOf(verificationNoteIndexes);
+        }
+    }
+    record ReviewCoverage(List<CriterionAssessment> criteria, int omittedCriteria, int completedPasses,
+                          String followupNotice, String scopeNote) {
+        public ReviewCoverage { criteria = criteria == null ? List.of() : List.copyOf(criteria); }
+    }
     record Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
                   List<String> limitations, String suggestedAction, List<VerifiedCheck> verifiedChecks,
-                  List<Finding> verificationNotes, ReviewOutcome outcome) {
+                  List<Finding> verificationNotes, ReviewOutcome outcome, ReviewCoverage coverage) {
         public Result {
             // Saved reports and provider doubles from earlier versions omit these fields.
             verifiedChecks = verifiedChecks == null ? List.of() : List.copyOf(verifiedChecks);
             verificationNotes = verificationNotes == null ? List.of() : List.copyOf(verificationNotes);
         }
-
+        public Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
+                      List<String> limitations, String suggestedAction, List<VerifiedCheck> verifiedChecks,
+                      List<Finding> verificationNotes, ReviewOutcome outcome) {
+            this(summary, findings, missingRequiredSections, limitations, suggestedAction, verifiedChecks,
+                verificationNotes, outcome, null);
+        }
         public Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
                       List<String> limitations, String suggestedAction, List<VerifiedCheck> verifiedChecks) {
             this(summary, findings, missingRequiredSections, limitations, suggestedAction,

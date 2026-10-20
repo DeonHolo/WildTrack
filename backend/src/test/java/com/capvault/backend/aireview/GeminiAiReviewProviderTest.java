@@ -221,17 +221,18 @@ class GeminiAiReviewProviderTest {
             .andExpect(jsonPath("$.generationConfig.candidateCount").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.maxOutputTokens").value(8192))
             .andExpect(jsonPath("$.generationConfig.responseMimeType").value("application/json"))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required.length()").value(5))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required.length()").value(6))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required").value(org.hamcrest.Matchers.hasItem("verifiedChecks")))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required").value(org.hamcrest.Matchers.hasItem("criterionReviews")))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.source.enum.length()").value(3))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.missingRequiredSections.items.properties.source.enum.length()").value(2))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(0))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(5))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.minItems").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf").doesNotExist())
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.required.length()").value(2))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.required.length()").value(3))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.source").doesNotExist())
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.passageId.enum[0]").value("P1"))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.length()").value(5))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.passageId.enum[0]").value(""))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.length()").value(6))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.length()").value(4))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.location").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.title").doesNotExist())
@@ -252,9 +253,105 @@ class GeminiAiReviewProviderTest {
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
         assertThat(provider.cacheVersion()).contains("gemini-3.5-flash-lite", "rest-pdf-v7", "thinking-minimal", "output-8192",
-            "schema-structured-review-v7-body-reference-observations");
+            "schema-structured-review-v9-body-citations-coverage");
         assertThat(provider.cacheVersion()).doesNotContain("temperature-0.2");
         server.verify();
+    }
+
+    @Test void directBodyCitationsCanUseEvidenceOutsideTheSuggestedPassages() throws Exception {
+        var paragraphs = java.util.stream.IntStream.rangeClosed(1, 35).mapToObj(i ->
+            "The request registrar in unit " + i + " records the applicant identifier and preserves its original submission. "
+            + "Authorized staff can inspect that stored application before recording a decision for the applicant.").toList();
+        String text = java.util.stream.IntStream.range(0, paragraphs.size()).mapToObj(i ->
+            (i + 1) + ". Registration unit " + (i + 1) + "\n" + paragraphs.get(i)).collect(java.util.stream.Collectors.joining("\n"));
+        var suggested = AiReviewGroundingPolicy.positiveEvidencePassages(text);
+        String quote = paragraphs.stream().filter(p -> suggested.stream().noneMatch(s -> s.contains(p))).findFirst().orElseThrow();
+        String label = quote.substring(0, quote.indexOf(" records"));
+        var request = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), text,
+            "Instructor review only", "SRS", "Describe the request registrar.", "");
+        var checks = List.of(Map.of("aspect", "Invented cloud deployment", "passageId", "", "documentEvidence", quote),
+            Map.of("aspect", label, "passageId", "", "documentEvidence", quote));
+        var mapping = Map.of("criterionId", "C1", "verifiedCheckIndexes", List.of(1), "findingIndexes", List.of(),
+            "missingSectionIndexes", List.of(), "verificationNoteIndexes", List.of());
+        String body = json.writeValueAsString(Map.of("summary", "Review", "findings", List.of(),
+            "missingRequiredSections", List.of(), "suggestedAction", "Inspect", "verifiedChecks", checks,
+            "criterionReviews", List.of(mapping)));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(body, "STOP"), MediaType.APPLICATION_JSON));
+        var parsed = provider.review(request);
+        assertThat(parsed.verifiedChecks()).hasSize(1);
+        assertThat(parsed.verifiedChecks().getFirst().documentEvidence()).isEqualTo(quote);
+        assertThat(parsed.coverage().criteria().getFirst().verifiedCheckIndexes()).containsExactly(0);
+        var grounded = AiReviewService.postprocessForBenchmark(parsed, request.deliverableTitle(), request.instructions(), "", text);
+        assertThat(grounded.verifiedChecks()).hasSize(1);
+        assertThat(grounded.coverage().criteria().getFirst().status()).isEqualTo(AiReviewProvider.CoverageStatus.EVIDENCE_RECORDED);
+        server.verify();
+    }
+
+    @Test void inventedOrFrontMatterBodyCitationsCannotCreateObservations() throws Exception {
+        String quote = "The registrar retains the submitted application and records an authorized staff decision.";
+        String text = "Software Requirements Specification\nPrepared by the project team\n1. Purpose\n" + quote;
+        var request = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), text,
+            "Instructor review only", "SRS", "", "");
+        var checks = List.of(
+            Map.of("aspect", "cloud deployment", "passageId", "", "documentEvidence", "The cloud deployment uses a private cluster."),
+            Map.of("aspect", "Prepared by", "passageId", "", "documentEvidence", "Prepared by the project team"),
+            Map.of("aspect", "All requirements are satisfied", "passageId", "", "documentEvidence", quote));
+        String body = json.writeValueAsString(Map.of("summary", "Review", "findings", List.of(),
+            "missingRequiredSections", List.of(), "suggestedAction", "Inspect", "verifiedChecks", checks,
+            "criterionReviews", List.of()));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(body, "STOP"), MediaType.APPLICATION_JSON));
+        assertThat(provider.review(request).verifiedChecks()).isEmpty();
+        server.verify();
+    }
+
+    @Test void coverageReferencesFollowTheChecksThatSurvivedProviderParsing() throws Exception {
+        String text = "1. Registration purpose\nThe registration service records applications and sends them to authorized staff for a decision."
+            + " The staff view retains the original application so reviewers can inspect the submitted information.";
+        var request = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), text,
+            "Instructor review only", "SRS", "Describe the registration purpose.", "");
+        var checks = List.of(Map.of("aspect", "Invented cloud deployment", "passageId", "P1"),
+            Map.of("aspect", "registration service records applications", "passageId", "P1"));
+        var mapping = Map.of("criterionId", "C1", "verifiedCheckIndexes", List.of(1), "findingIndexes", List.of(),
+            "missingSectionIndexes", List.of(), "verificationNoteIndexes", List.of());
+        String body = json.writeValueAsString(Map.of("summary", "Review", "findings", List.of(),
+            "missingRequiredSections", List.of(), "suggestedAction", "Inspect", "verifiedChecks", checks,
+            "criterionReviews", List.of(mapping)));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(body, "STOP"), MediaType.APPLICATION_JSON));
+        var parsed = provider.review(request);
+        assertThat(parsed.verifiedChecks()).hasSize(1);
+        assertThat(parsed.coverage().criteria().getFirst().verifiedCheckIndexes()).containsExactly(0);
+        var grounded = AiReviewService.postprocessForBenchmark(parsed, request.deliverableTitle(), request.instructions(), "", text);
+        assertThat(grounded.coverage().criteria().getFirst().status()).isEqualTo(AiReviewProvider.CoverageStatus.EVIDENCE_RECORDED);
+        server.verify();
+    }
+
+    @Test void malformedOrDuplicateWireMappingsLeaveAreasUnchecked() throws Exception {
+        String text = "1. Registration purpose\nThe registration service records applications and sends them to authorized staff for a decision."
+            + " The staff view retains the original application so reviewers can inspect the submitted information.";
+        var request = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), text,
+            "Instructor review only", "SRS", "Describe the registration purpose.", "");
+        var valid = Map.of("criterionId", "C1", "verifiedCheckIndexes", List.of(0), "findingIndexes", List.of(),
+            "missingSectionIndexes", List.of(), "verificationNoteIndexes", List.of());
+        for (var mappings : List.of(List.of(valid, valid),
+                List.of(Map.of("criterionId", "C99", "verifiedCheckIndexes", List.of(0), "findingIndexes", List.of(),
+                    "missingSectionIndexes", List.of(), "verificationNoteIndexes", List.of())),
+                List.of(Map.of("criterionId", "C1", "verifiedCheckIndexes", List.of(0, 0), "findingIndexes", List.of(),
+                    "missingSectionIndexes", List.of(), "verificationNoteIndexes", List.of())),
+                List.of(Map.of("criterionId", "C1", "verifiedCheckIndexes", List.of(0, 9), "findingIndexes", List.of(),
+                    "missingSectionIndexes", List.of(), "verificationNoteIndexes", List.of())),
+                List.of(Map.of("criterionId", "C1", "verifiedCheckIndexes", List.of(0), "findingIndexes", List.of(49),
+                    "missingSectionIndexes", List.of(), "verificationNoteIndexes", List.of())))) {
+            setup();
+            String body = json.writeValueAsString(Map.of("summary", "Review", "findings", List.of(),
+                "missingRequiredSections", List.of(), "suggestedAction", "Inspect",
+                "verifiedChecks", List.of(Map.of("aspect", "registration service records applications", "passageId", "P1")),
+                "criterionReviews", mappings));
+            server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(body, "STOP"), MediaType.APPLICATION_JSON));
+            var grounded = AiReviewService.postprocessForBenchmark(provider.review(request), "SRS", request.instructions(), "", text);
+            assertThat(grounded.verifiedChecks()).hasSize(1);
+            assertThat(grounded.coverage().criteria().getFirst().status()).isEqualTo(AiReviewProvider.CoverageStatus.NOT_CHECKED);
+            server.verify();
+        }
     }
 
     @Test void parsesOptionalFindingGuidanceLocationsAndVerificationNotes() throws Exception {
@@ -503,8 +600,8 @@ class GeminiAiReviewProviderTest {
             "missingRequiredSections", List.of(), "suggestedAction", "Review", "verifiedChecks", checks));
         server.expect(requestTo(GENERATE))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(5))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.passageId.enum.length()").value(2))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.documentEvidence").doesNotExist())
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.passageId.enum.length()").value(3))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.documentEvidence.maxLength").value(780))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("positiveEvidencePassages")))
             .andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
 

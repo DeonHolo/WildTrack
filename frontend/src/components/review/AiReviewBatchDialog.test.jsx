@@ -18,6 +18,7 @@ it('lists each affected PDF once with its latest artifact record and preserves s
   const onStart = vi.fn();
   render(<MantineProvider><AiReviewBatchDialog plan={plan} onStart={onStart} onCancel={vi.fn()} /></MantineProvider>);
   expect(screen.getByText('3 unique reviews to run')).toBeVisible();
+  expect(screen.getByText(/Each new review uses at most two Gemini requests and their tokens/)).toBeVisible();
   const include = screen.getByRole('checkbox', { name: 'Include updated PDFs (2)' });
   expect(include).toBeChecked();
   fireEvent.click(screen.getByText('See affected PDFs'));

@@ -27,6 +27,7 @@ export function AiReviewDialog({ targets = null, responses = [], excludeArchived
         : retry
         ? 'This sends a new request for each selected review that needs retrying. Previous attempts may already have used tokens; retrying may use additional tokens or incur charges.'
         : 'New reviews send document contents to Gemini and use AI tokens. Saved matching reviews are reused.'}</Text>
+    <Text size="sm">If the first feedback is too limited, WildTrack may ask Gemini once more to check additional content. A new review uses at most two Gemini requests and their tokens.</Text>
     <Text size="sm" c="dimmed">AI feedback is advisory. Review it before making an academic decision.</Text>
     <Group justify="flex-end" gap="sm" wrap="nowrap" pt="sm">
       <Button variant="default" onClick={onCancel}>Cancel</Button>
