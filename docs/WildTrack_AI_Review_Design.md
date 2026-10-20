@@ -2,7 +2,9 @@
 
 ## Body evidence and inconclusive outcomes — 20 October 2026
 
-Prompt v20 and response contract `structured-review-v7-body-reference-observations` address thin reviews of populated PDFs. The full PDF still reaches Gemini; the model, `MINIMAL` thinking and 8,192-token output limit are unchanged.
+Prompt v21 retains v20's body-reference response contract `structured-review-v7-body-reference-observations` and preserves physical figure evidence through prepared-PDF cache copies. The full PDF still reaches Gemini; the model, `MINIMAL` thinking and 8,192-token output limit are unchanged.
+
+The live v20 SRS retest retained five body observations but reproduced seven figure notes. Its prepared snapshot used the old three-field page copy, dropping `illustratedArtifacts` before review. The v21 cache keeps those immutable associations through RAM, private-disk serialization and defensive copies, accounts for their label storage, and invalidates prior review-context reuse. Regression tests reproduced all three copy/grounding failures before the repair. This changes neither figure correctness limits nor genuine missing-artifact checks.
 
 - Citation preparation preserves wrapped paragraphs and table context in up to 20 non-overlapping passages spread across the body. It excludes front matter, index/reference regions, repeated margins, placeholders and isolated headings/captions. The earlier six isolated lines could omit most of a long document's useful evidence.
 - Gemini selects request-local passage identifiers for positive observations and copies a descriptive phrase from that same passage as its label. The server resolves each identifier to the original text, rejects mismatched labels, then applies the existing grounding rules. Unknown identifiers, mixed contracts, overlapping evidence and unsupported claims cannot create extra checked evidence. Selecting a passage does not certify it as factually correct or academically sufficient.
