@@ -1,5 +1,13 @@
 # WildTrack AI Review Design
 
+## Batch completion and assessment notices — 20 October 2026
+
+Batch completion describes whether processing finished, while the saved assessment describes the feedback. A completed batch is green when its only notices are limited review coverage, manual verification, or PDFs excluded because of confirmed Drive access/download restrictions. Provider failures (including HTTP 400), server retrieval failures, missing reports and unconfirmed attempts remain orange. Assessment notices retain their affected-PDF lists and links; the green banner never means academic acceptance.
+
+Completed reports previously displayed under the broad `Inconclusive` label now distinguish **Limited review coverage** (too little retained source-supported evidence) from **Needs manual verification** (specific unresolved checks). Exact excerpts, page locations, findings and verification notes remain visible. Saved historical reports receive these labels when opened, without another Gemini call. The underlying evidence guard and stored `INCONCLUSIVE` outcome remain unchanged; the two-observation minimum is not a measure of whole-document coverage and must not be represented as one.
+
+This presentation fix does not introduce an automatic follow-up request, a requirement-by-requirement coverage checklist, or a new model/prompt/schema. It separates successful processing from assessment limitations. A later coverage redesign must be validated separately before claiming that the system has examined additional requirements or sections.
+
 ## Body evidence and inconclusive outcomes — 20 October 2026
 
 Prompt v21 retains v20's body-reference response contract `structured-review-v7-body-reference-observations` and preserves physical figure evidence through prepared-PDF cache copies. The full PDF still reaches Gemini; the model, `MINIMAL` thinking and 8,192-token output limit are unchanged.

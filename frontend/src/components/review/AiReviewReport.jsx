@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Alert, Button, Stack, Text } from '@mantine/core';
-import { isInconclusiveAiReviewReport, verifiedAiChecks } from '../../lib/workflow.js';
+import { aiReviewReportStatus, isInconclusiveAiReviewReport, verifiedAiChecks } from '../../lib/workflow.js';
 
 const CHECK_SOURCE_LABELS = {
   DOCUMENT: 'Submitted document',
@@ -30,19 +30,24 @@ export function AiReviewReport({ report }) {
     })
   );
   const noIssues = issueCount === 0 && !inconclusive && checks.length >= 2;
-  const outcome = inconclusive ? 'Inconclusive' : noIssues ? 'No issues in checked areas' : 'Issues identified';
+  const reviewStatus = aiReviewReportStatus({ ...report, findings, verificationNotes });
+  const outcome = inconclusive ? reviewStatus : noIssues ? 'No issues in checked areas' : 'Issues identified';
 
   return (
     <Stack gap="lg" className="wt-ai-review-report">
       <div className="wt-ai-review-outcome">
         <Text fw={700}>{outcome}</Text>
         <Text mt={4} size="sm">
-          {issueCount} recorded issue{issueCount === 1 ? '' : 's'} in {reviewAreaCount} review area{reviewAreaCount === 1 ? '' : 's'} · {verificationNotes.length} to verify
+          {issueCount} recorded issue{issueCount === 1 ? '' : 's'}
+          {issueCount ? ` in ${reviewAreaCount} review area${reviewAreaCount === 1 ? '' : 's'}`
+            : ` · ${checks.length} supported observation${checks.length === 1 ? '' : 's'}`} · {verificationNotes.length} to verify
         </Text>
       </div>
       {inconclusive ? (
-        <Alert color="orange" title="Inconclusive AI Review" role="status">
-          Unresolved checks or limited evidence prevent a no-issues conclusion. Use the original PDF to verify the areas below.
+        <Alert color="orange" title={reviewStatus} role="status">
+          {reviewStatus === 'Needs manual verification'
+            ? 'This review finished with specific questions that need confirmation. Inspect the items under Verify in PDF before requesting a revision.'
+            : 'This review finished, but recorded too little supported evidence for a no-issues conclusion. This does not mean the PDF is empty or incorrect. Check the excerpts below and assess the remaining content in the original PDF.'}
         </Alert>
       ) : noIssues ? (
         <Alert color="green" title="No actionable issues identified in the checked areas" role="status">

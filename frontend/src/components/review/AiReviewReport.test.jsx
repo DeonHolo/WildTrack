@@ -32,8 +32,8 @@ it('keeps long passages as accessible quotes without repeated excerpt labels', (
 
 it('keeps verification notes separate and prevents a green result with two checks', () => {
   show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks, verificationNotes: [{ title: 'Diagram semantics require checking', issue: 'Image-only diagram cannot be verified.', evidence: 'Page 8 image', requirement: 'Diagram requirement' }] });
-  expect(screen.getByText(/Verify in PDF/)).toBeInTheDocument();
-  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.getByText('Verify in PDF (1)')).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
   expect(screen.getByRole('status')).not.toHaveTextContent('No actionable issues');
 });
 
@@ -104,7 +104,7 @@ it('groups uncertain section checks without counting them as supported issues or
     { issue: 'The required section “1. Introduction” could not be located.', requirement: '1. Introduction', source: 'OFFICIAL_TEMPLATE', evidence: 'Original introduction observation' },
     { issue: 'The required section “2. Overall Description” could not be located.', requirement: '2. Overall Description', source: 'OFFICIAL_TEMPLATE', evidence: 'Original context observation' }
   ] });
-  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
   expect(screen.getAllByRole('heading', { name: 'Verify section coverage in the PDF', hidden: true })).toHaveLength(1);
   expect(screen.getByText(/0 recorded issues/)).toBeInTheDocument();
   expect(screen.getByText('Original introduction observation')).toBeInTheDocument();
@@ -123,7 +123,7 @@ it('groups repeated artifact verification locations while preserving original ev
     issue: `Text extraction could not verify 'Use Case Description' in transaction '${context}'. Its label was not located in the extracted transaction.`,
     source: 'OFFICIAL_TEMPLATE', requirement: 'Use Case Description', evidence: `${context} original observation`
   })) });
-  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
   expect(screen.getAllByRole('heading', { name: 'Verify Use Case Description in the PDF', hidden: true })).toHaveLength(1);
   expect(screen.getByText("transaction '1.2 Upload receipt'")).toBeInTheDocument();
   expect(screen.getByText("transaction '2.1 Review draft'")).toBeInTheDocument();
@@ -142,6 +142,19 @@ it('keeps artifact verification groups separate across requirement sources', () 
 
 it('treats an empty legacy generic report as inconclusive', () => {
   show({ summary: 'The PDF satisfies all requirements.', findings: [], missingRequiredSections: [] });
-  expect(screen.getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(screen.getByRole('status')).toHaveTextContent('Limited review coverage');
+  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+});
+
+it('explains one retained observation as limited review coverage without suggesting an empty or incorrect PDF', () => {
+  show({ outcome: 'INCONCLUSIVE', findings: [], missingRequiredSections: [], verifiedChecks: [
+    { ...checks[0], location: { page: 12 } }
+  ] });
+  expect(screen.getByRole('status')).toHaveTextContent('Limited review coverage');
+  expect(screen.getByRole('status')).toHaveTextContent('This does not mean the PDF is empty or incorrect.');
+  expect(screen.getByText('0 recorded issues · 1 supported observation · 0 to verify')).toBeInTheDocument();
+  expect(screen.getByText('Checks with supporting excerpts (1)')).toBeInTheDocument();
+  expect(screen.getByRole('blockquote', { name: 'Evidence excerpt', hidden: true })).toHaveTextContent('Scope: students and advisers.');
+  expect(screen.getByText('Location: page 12')).toBeInTheDocument();
   expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
 });

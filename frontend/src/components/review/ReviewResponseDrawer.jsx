@@ -25,6 +25,7 @@ import {
   artifactAiReviewChange,
   artifactAiReportForDisplay,
   artifactAiReviewStatus,
+  aiReviewReportSummary,
   artifactDocumentCheck,
   artifactDocumentCheckStatus,
   formatDateTime,
@@ -246,7 +247,8 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
                   <Text size="xs" c="dimmed">A new review is running. The previous report remains available until the new result is saved.</Text>
                 ) : null}
                 {aiReport && !documentChange ? (
-                  <Text size="sm" c="dimmed" lineClamp={3}>{aiReport.summary}</Text>
+                  <Text size="sm" c="dimmed" lineClamp={3}>{aiCurrent && aiState?.status === 'COMPLETED'
+                    ? aiReviewReportSummary(aiReport) : aiReport.summary}</Text>
                 ) : <Text size="xs" c="dimmed">{aiState?.message || 'No current AI Review is available for this PDF.'}</Text>}
               </Stack>
             ) : null}

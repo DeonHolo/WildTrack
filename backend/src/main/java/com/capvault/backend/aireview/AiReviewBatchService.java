@@ -231,7 +231,10 @@ public class AiReviewBatchService {
                 : review.status().equals("COMPLETED") && review.report() == null
                 ? "No saved AI Review was produced for this document. Check saved reviews before retrying."
                 : review.status().equals("COMPLETED") && review.report() != null
-                && review.report().outcome() == AiReviewProvider.ReviewOutcome.INCONCLUSIVE ? "This review is inconclusive; it does not establish a clean result."
+                && review.report().outcome() == AiReviewProvider.ReviewOutcome.INCONCLUSIVE
+                ? review.report().verificationNotes().isEmpty()
+                    ? "Review finished with limited coverage. Open the saved review to see the supported observations."
+                    : "Review finished with checks needing manual verification. Open the saved review to inspect the cited areas."
                 : review.status().equals("COMPLETED") ? "" : review.message();
             entries.set(index, entry.result(review, message));
             if (!starting && Set.of("NOT_REVIEWED", "OUTDATED").contains(review.status())) next = "PAUSED";
@@ -279,9 +282,21 @@ public class AiReviewBatchService {
     private static String finishedMessage(List<Entry> entries) {
         var selected = entries.stream().filter(Entry::selected).toList();
         if (selected.isEmpty()) return "AI Review batch finished. No documents were selected.";
-        if (selected.stream().anyMatch(e -> !"COMPLETED".equals(e.resultStatus()) || !e.error().isBlank()))
+        if (entries.stream().anyMatch(AiReviewBatchService::technicalFailure))
             return "AI Review batch finished with items needing attention. Open the affected PDFs below.";
+        if (selected.stream().noneMatch(e -> "COMPLETED".equals(e.resultStatus())))
+            return "AI Review batch finished. No reviews were produced; check the file-access notices below.";
         return "AI Review batch finished. Saved results are available.";
+    }
+
+    private static boolean technicalFailure(Entry entry) {
+        // Completion describes execution; an assessment notice is not a failed request.
+        if ("COMPLETED".equals(entry.resultStatus())) return false;
+        if ("UNCERTAIN".equals(entry.resultStatus())) return true;
+        if (entry.noAiStarted() && entry.error().startsWith(
+                "The submitted Drive PDF could not be opened. Google Drive reported a file-access or download restriction."))
+            return false;
+        return !entry.error().isBlank() || entry.selected();
     }
 
 
@@ -292,7 +307,7 @@ public class AiReviewBatchService {
         var selected = groups.values().stream().filter(g -> g.stream().anyMatch(Entry::selected)).toList();
         int complete = (int) selected.stream().filter(g -> g.stream().filter(Entry::selected).allMatch(e -> e.phase().equals("DONE"))).count();
         int pending = (int) selected.stream().filter(g -> g.stream().anyMatch(e -> e.selected() && e.phase().equals("PENDING"))).count();
-        int reused = (int) selected.stream().filter(g -> g.stream().filter(Entry::selected).allMatch(e -> e.phase().equals("DONE") && "COMPLETED".equals(e.resultStatus()) && e.error().isBlank() && e.reused())).count();
+        int reused = (int) selected.stream().filter(g -> g.stream().filter(Entry::selected).allMatch(e -> e.phase().equals("DONE") && "COMPLETED".equals(e.resultStatus()) && e.reused())).count();
         return new View(row.id(), row.state(), row.version(), row.updatedAt().toString(), entries, entries.size(),
             (int) entries.stream().filter(e -> !e.phase().equals("PREPARING")).count(), groups.size(), selected.size(), complete, pending, reused, row.state().equals("COMPLETED") ? finishedMessage(entries) : row.data().message());
     }
