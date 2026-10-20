@@ -260,13 +260,17 @@ final class VerifiedPdfSnapshotCache implements AutoCloseable {
     private static boolean fresh(Instant captured, Instant now) { return captured.plus(TTL).isAfter(now); }
     private static long textWeight(PdfInspection inspection) {
         long total = chars(inspection.extractedText());
-        for (PdfInspection.PageText page : inspection.pages()) total += chars(page.text());
+        for (PdfInspection.PageText page : inspection.pages()) {
+            total += chars(page.text());
+            for (var artifact : page.illustratedArtifacts()) total += chars(artifact.label()) + 2;
+        }
         return total * 2L;
     }
     private static int chars(String value) { return value == null ? 0 : value.length(); }
     private static PdfInspection copyInspection(PdfInspection value) {
         if (value == null) return null;
-        var pages = value.pages().stream().map(page -> new PdfInspection.PageText(page.pageNumber(), page.text(), page.hasVisualContent())).toList();
+        var pages = value.pages().stream().map(page -> new PdfInspection.PageText(page.pageNumber(), page.text(),
+            page.hasVisualContent(), page.illustratedArtifacts())).toList();
         return new PdfInspection(value.readable(), value.encrypted(), value.pageCount(), value.textBearingPageCount(),
             value.extractedCharacterCount(), value.extractedText(), value.error(), pages);
     }

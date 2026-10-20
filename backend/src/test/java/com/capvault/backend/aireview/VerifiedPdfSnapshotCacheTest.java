@@ -54,6 +54,27 @@ class VerifiedPdfSnapshotCacheTest {
         }
     }
 
+    @Test void illustratedArtifactsSurviveRamSnapshotsAndDefensiveCopies() {
+        assertIllustratedArtifactsSurvive(1_000_000);
+    }
+
+    @Test void illustratedArtifactsSurviveDiskOnlySnapshotsAndDefensiveCopies() {
+        assertIllustratedArtifactsSurvive(1);
+    }
+
+    private void assertIllustratedArtifactsSurvive(long ram) {
+        var artifacts = List.of(new PdfInspection.IllustratedArtifact("use case diagram", 2));
+        var inspection = new PdfInspection(true, false, 1, 1, 13, "captured text", null,
+            List.of(new PdfInspection.PageText(1, "Use Case Diagram", true, artifacts)));
+        try (var cache = cache(ram, 256, 10000)) {
+            cache.put(key("illustrated"), new VerifiedPdfSnapshotCache.Snapshot(BYTES, inspection, NOW));
+            assertThat(cache.ramSize()).isEqualTo(ram == 1 ? 0 : 1);
+            assertThat(cache.get(key("illustrated")).inspectionCopy()).isEqualTo(inspection);
+            assertThat(cache.get(key("illustrated")).inspection().pages().getFirst().illustratedArtifacts())
+                .containsExactlyElementsOf(artifacts);
+        }
+    }
+
     @Test void ramEvictionRestoresBytesInspectionAndOriginalCaptureTime() {
         try (var cache = cache(RAM_WEIGHT, 256, 10000)) {
             cache.put(key("one"), snapshot());

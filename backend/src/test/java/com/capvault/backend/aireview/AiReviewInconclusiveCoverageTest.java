@@ -37,6 +37,15 @@ class AiReviewInconclusiveCoverageTest {
         assertThat(report.limitations()).anySatisfy(limit -> assertThat(limit).contains("Graphical content", "do not establish"));
     }
 
+    @Test void preparedSnapshotKeepsFigureEvidenceForReviewPostprocessing() {
+        var prepared = new VerifiedPdfSnapshotCache.Snapshot(new byte[] {1},
+            inspection(FIRST, SECOND, true), java.time.Instant.now());
+        var report = process(twoChecks(), prepared.inspectionCopy());
+        assertThat(report.verifiedChecks()).hasSize(2);
+        assertThat(report.verificationNotes()).isEmpty();
+        assertThat(report.outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS);
+    }
+
     @Test void labelWithoutGraphicalEvidenceRemainsAnUnresolvedCheck() {
         var report = process(twoChecks(), inspection(FIRST, SECOND, false));
         assertThat(report.verificationNotes()).anySatisfy(note -> assertThat(note.issue()).contains("Use Case Diagram"));

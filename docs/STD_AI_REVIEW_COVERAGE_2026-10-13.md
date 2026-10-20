@@ -1,6 +1,8 @@
 # STD AI Review coverage repair — 2026-10-13
 
-## Prompt v20 body-evidence repair — 20 October 2026
+## Prompt v20/v21 body-evidence repair — 20 October 2026
+
+The first live v20 SRS attempt returned an invalid provider response and was discarded; an explicit retry retained five body observations but still produced seven figure-verification notes. The live batch's prepared-PDF copy discarded the new `illustratedArtifacts` field. Two RAM/disk preservation tests and one cached-grounding test reproduced the loss (three failures before repair). The v21 follow-up preserves the metadata through snapshot copies and invalidates earlier report contexts. Final deployment/retest results are recorded in the submitted QA evidence index.
 
 Three current inconclusive reports were traced through their saved backend results, current PDF bytes, extracted pages and isolated provider replies. The PDFs contained 59, 75 and 65 pages, with 73,908, 72,331 and 117,479 extracted characters. Their bytes matched the backend job hashes. The full PDFs were sent; this was not an input-size truncation.
 
