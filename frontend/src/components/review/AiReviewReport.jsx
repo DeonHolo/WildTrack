@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Button, Stack, Text } from '@mantine/core';
 import { aiReviewReportStatus, isInconclusiveAiReviewReport, verifiedAiChecks } from '../../lib/workflow.js';
+import { AiReviewCoverage } from './AiReviewCoverage.jsx';
 
 const CHECK_SOURCE_LABELS = {
   DOCUMENT: 'Submitted document',
@@ -10,6 +11,9 @@ const CHECK_SOURCE_LABELS = {
 const LEGACY_VERIFICATION = /^Mapped-template (?:body heading|transaction artifact)/i;
 
 export function AiReviewReport({ report }) {
+  const issuesRef = useRef(null);
+  const notesRef = useRef(null);
+  const checksRef = useRef(null);
   if (!report) return null;
   const originalFindings = report.findings || legacyFindings(report.flags);
   const legacyNotes = originalFindings.filter(isLegacyVerification).map(legacyVerification);
@@ -32,6 +36,14 @@ export function AiReviewReport({ report }) {
   const noIssues = issueCount === 0 && !inconclusive && checks.length >= 2;
   const reviewStatus = aiReviewReportStatus({ ...report, findings, verificationNotes });
   const outcome = inconclusive ? reviewStatus : noIssues ? 'No issues in checked areas' : 'Issues identified';
+  const openRecords = kind => {
+    const target = (kind === 'checks' ? checksRef.current : kind === 'notes' ? notesRef.current : issuesRef.current)
+      || issuesRef.current;
+    if (!target) return;
+    if (target.tagName === 'DETAILS') target.open = true;
+    (target.querySelector('summary') || target).focus();
+    target.scrollIntoView?.({ block: 'nearest' });
+  };
 
   return (
     <Stack gap="lg" className="wt-ai-review-report">
@@ -54,8 +66,9 @@ export function AiReviewReport({ report }) {
           {checks.length} distinct observations supported by submitted PDF evidence. This is advisory feedback, not approval or a guarantee of full compliance.
         </Alert>
       ) : null}
+      <AiReviewCoverage report={report} onOpenRecords={openRecords} />
       {issueCount ? (
-        <section aria-label="Issues to review">
+        <section aria-label="Issues to review" ref={issuesRef} tabIndex={-1}>
           <Stack gap="md">
             {glossary.filter(group => !group.terms).map((group, index) => <FindingRow key={`finding-${index}`} finding={group.finding} />)}
             {missing.length ? <article className="wt-ai-review-row">
@@ -73,7 +86,7 @@ export function AiReviewReport({ report }) {
         </section>
       ) : null}
       {verificationNotes.length ? (
-        <details className="wt-ai-review-secondary">
+        <details className="wt-ai-review-secondary" ref={notesRef}>
           <summary>Verify in PDF ({verificationNotes.length})</summary>
           <Text size="sm" mt="sm">These observations require confirmation before requesting a revision.</Text>
           <Stack gap="md" mt="sm">
@@ -85,7 +98,7 @@ export function AiReviewReport({ report }) {
         </details>
       ) : null}
       {checks.length ? (
-        <details className="wt-ai-review-secondary">
+        <details className="wt-ai-review-secondary" ref={checksRef}>
           <summary>Checks with supporting excerpts ({checks.length})</summary>
           <Text size="sm" c="dimmed" mt="sm">The headings describe what AI checked. PDF excerpts quote the extracted document text; spacing and line breaks may differ from the original PDF.</Text>
           <Stack gap="md" mt="sm">

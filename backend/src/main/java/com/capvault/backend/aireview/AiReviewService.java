@@ -43,7 +43,7 @@ public class AiReviewService {
     private static final Logger LOG = LoggerFactory.getLogger(AiReviewService.class);
     // Post-validation behavior is part of the persisted review cache fingerprint.
     // Do not reuse reports generated before the named body-section evidence correction.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v21";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v22-coverage";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -392,17 +392,13 @@ public class AiReviewService {
                         assertCurrent(response, target, context, subject);
                         if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Administrator access changed.");
                         stage = "provider";
-                        var raw = provider.review(new AiReviewProvider.Input(key + ":" + claim.job().token(), bytes, inspection.extractedText(),
-                            SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template()));
-                        stage = "grounding";
-                        var rejectedChecks = new java.util.EnumMap<CheckRejection, Integer>(CheckRejection.class);
-                        var result = groundAndValidate(raw, context, inspection.extractedText(), inspection.pages(), rejectedChecks);
-                        // Fixed labels and counts only; never log PDF text, provider output or credentials.
-                        LOG.info("AI review grounded: outcome={} proposedFindings={} acceptedFindings={} "
-                            + "proposedSections={} acceptedSections={} proposedChecks={} verifiedChecks={} verificationNotes={} rejectedChecks={}",
-                            result.outcome(), raw.findings().size(), result.findings().size(),
-                            raw.missingRequiredSections().size(), result.missingRequiredSections().size(),
-                            raw.verifiedChecks().size(), result.verifiedChecks().size(), result.verificationNotes().size(), rejectedChecks);
+                        var result = reviewWithCoverage(provider,
+                            new AiReviewProvider.Input(key + ":" + claim.job().token(), bytes, inspection.extractedText(),
+                                SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template()),
+                            inspection, () -> {
+                                assertCurrent(response, target, context, subject);
+                                if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Administrator access changed.");
+                            });
                         // Every valid result is saved; only a substantive result replaces report history.
                         stage = "persistence";
                         store.complete(claim.job(), json.writeValueAsString(result),
@@ -415,7 +411,8 @@ public class AiReviewService {
                                 ? inconclusive.code : failure instanceof InvalidReviewResult
                                     ? "INVALID_RESPONSE" : "PROVIDER_OUTCOME_UNKNOWN";
                         // Fixed labels/types only: exception messages and provider details can contain private data.
-                        LOG.warn("AI review failure: stage={} code={} exception={}", stage,
+                        String diagnosticStage = failure instanceof InvalidReviewResult ? "grounding" : stage;
+                        LOG.warn("AI review failure: stage={} code={} exception={}", diagnosticStage,
                             diagnosticFailureCode(failureCode), failure.getClass().getSimpleName());
                         if (failure instanceof ResponseStatusException || failure instanceof AccessDeniedException)
                             unlink(target, response, sourceValueHash, key);
@@ -734,6 +731,82 @@ public class AiReviewService {
             inspection.extractedText(), inspection.pages());
     }
 
+    /** Isolated provider evaluation uses the identical orchestration as a fresh production review. */
+    static AiReviewProvider.Result reviewForBenchmark(AiReviewProvider provider, AiReviewProvider.Input input,
+            PdfInspection inspection) {
+        return reviewWithCoverage(provider, input, inspection, () -> { });
+    }
+
+    private static AiReviewProvider.Result reviewWithCoverage(AiReviewProvider provider, AiReviewProvider.Input input,
+            PdfInspection inspection, Runnable validateCurrent) {
+        long startedAt = System.nanoTime();
+        var context = new Context("", input.deliverableTitle(), input.instructions(), input.templateText());
+        validateCurrent.run();
+        // A failure before a valid first response escapes. Never retry an uncertain provider attempt.
+        var firstRaw = provider.review(input);
+        var first = groundPass(firstRaw, context, inspection, 1);
+        validateCurrent.run();
+        if (!AiReviewCoveragePolicy.canFollowUp(first, inspection.extractedText(), firstRaw.coverage() != null)) return first;
+        // The provider has a 180-second request read timeout and the persistent claim expires after ten
+        // minutes. Start a second pass only while the successful first pass is still within 90 seconds.
+        if (Thread.currentThread().isInterrupted()
+                || java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt) >= 90_000) {
+            return AiReviewCoveragePolicy.withPasses(first, 1,
+                "A further pass was not started within this review's time limit. The recorded evidence remains available.");
+        }
+        validateCurrent.run();
+        var focus = first.coverage().criteria().stream()
+            .filter(area -> area.status() == AiReviewProvider.CoverageStatus.NOT_CHECKED)
+            .map(AiReviewProvider.CriterionAssessment::id).toList();
+        var nextInput = new AiReviewProvider.Input(input.idempotencyKey() + ":coverage-2", input.pdf(),
+            input.extractedText(), input.systemInstruction(), input.deliverableTitle(), input.instructions(),
+            input.templateText(), first.verifiedChecks().stream().map(AiReviewProvider.VerifiedCheck::documentEvidence).toList(), focus);
+        AiReviewProvider.Result secondRaw;
+        try {
+            secondRaw = provider.review(nextInput);
+            groundPass(secondRaw, context, inspection, 2);
+        } catch (RuntimeException failure) {
+            // This is not another retry. Preserve the valid first assessment if the one optional
+            // focused pass fails; never expose arbitrary provider messages or discard its evidence.
+            LOG.warn("AI review focused pass unavailable: exception={}", failure.getClass().getSimpleName());
+            validateCurrent.run();
+            return AiReviewCoveragePolicy.withPasses(first, 1,
+                "The focused follow-up could not be completed. This result preserves the first completed pass; unchecked areas still need review.");
+        }
+        validateCurrent.run();
+        AiReviewProvider.Result merged;
+        try {
+            // Merge the original proposed records and run the guards once on that
+            // union. Generated manual-verification notes are not provider quotes.
+            merged = groundAndValidate(AiReviewCoveragePolicy.combine(firstRaw, secondRaw), context,
+                inspection.extractedText(), inspection.pages());
+        } catch (RuntimeException invalidMerge) {
+            // A usable first result must also survive a failed cross-pass merge.
+            LOG.warn("AI review focused merge unavailable: exception={}", invalidMerge.getClass().getSimpleName());
+            return AiReviewCoveragePolicy.withPasses(first, 2,
+                "The focused pass completed, but its records could not be combined safely. This result preserves the first completed pass; unchecked areas still need review.");
+        }
+        String notice = merged.verifiedChecks().size() > first.verifiedChecks().size()
+                || merged.findings().size() > first.findings().size()
+                || merged.missingRequiredSections().size() > first.missingRequiredSections().size()
+            ? "One focused follow-up recorded additional supported evidence. Unchecked areas remain outside this review's recorded coverage."
+            : "One focused follow-up completed without additional independent evidence. Unchecked areas still need review.";
+        return AiReviewCoveragePolicy.withPasses(merged, 2, notice);
+    }
+
+    private static AiReviewProvider.Result groundPass(AiReviewProvider.Result raw, Context context,
+            PdfInspection inspection, int pass) {
+        var rejectedChecks = new java.util.EnumMap<CheckRejection, Integer>(CheckRejection.class);
+        var result = groundAndValidate(raw, context, inspection.extractedText(), inspection.pages(), rejectedChecks);
+        // Fixed labels and counts only; never log PDF text, provider output or credentials.
+        LOG.info("AI review grounded: pass={} outcome={} proposedFindings={} acceptedFindings={} "
+            + "proposedSections={} acceptedSections={} proposedChecks={} verifiedChecks={} verificationNotes={} rejectedChecks={}",
+            pass, result.outcome(), raw.findings().size(), result.findings().size(),
+            raw.missingRequiredSections().size(), result.missingRequiredSections().size(),
+            raw.verifiedChecks().size(), result.verifiedChecks().size(), result.verificationNotes().size(), rejectedChecks);
+        return result;
+    }
+
 
     private static AiReviewProvider.Result groundAndValidate(AiReviewProvider.Result result, Context context, String documentText) {
         return groundAndValidate(result, context, documentText, List.of());
@@ -891,7 +964,7 @@ public class AiReviewService {
                 .replaceFirst("(?i)\\s*\\(pages?\\s+\\d+(?:\\s*[-–]\\s*\\d+)?\\)\\.?\\s*$", ""), check.source(),
                 check.documentEvidence(), check.requirement(),
                 validatedLocation(check.location(), check.documentEvidence(), documentText, pages)))
-            .limit(5).toList();
+            .limit(10).toList();
         var groundedLimitations = new java.util.ArrayList<>(limitations(context));
         if (pages.stream().anyMatch(PdfInspection.PageText::hasVisualContent)) groundedLimitations.add(
             "Graphical content is present. Text-based structural checks do not establish the meaning or correctness "
@@ -916,8 +989,10 @@ public class AiReviewService {
                 ? "Review the original PDF directly; this attempt supplied no checked evidence."
                 : "Verify the cited areas in the original PDF before deciding whether a revision is needed."
             : groundedSuggestedAction(groundedFindings, groundedMissing, groundedLimitations, verifiedChecks);
-        return new AiReviewProvider.Result(summary, groundedFindings, groundedMissing, groundedLimitations,
+        var accepted = new AiReviewProvider.Result(summary, groundedFindings, groundedMissing, groundedLimitations,
             action, verifiedChecks, verificationNotes, outcome);
+        return AiReviewCoveragePolicy.withCoverage(accepted,
+            AiReviewCoveragePolicy.grounded(result, accepted, context.instructions(), context.template()));
     }
 
     private enum CheckRejection {

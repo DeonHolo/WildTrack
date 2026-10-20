@@ -1,0 +1,38 @@
+name: AI Review coverage checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/ai-review-coverage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Check grounding, bounded follow-up, HTTP framing and CSRF
+        run: mvn -B -Dtest=AiReviewCoverage*,AiReviewDeduplicationTest,Gemini*,AiReviewCsrfErrorDispatchIntegrationTest package
+      - name: Save test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ai-review-coverage-results
+          path: backend/target/surefire-reports/
+          if-no-files-found: ignore
+          retention-days: 7

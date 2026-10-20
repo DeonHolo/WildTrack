@@ -85,7 +85,7 @@ it('does not merge distinct requirement operators and keeps substantive observat
     glossaryFinding('OCR', { requirement: 'Glossary >= 10 terms' }),
     { title: 'Conflicting states', issue: 'The document uses two different acceptance states.', evidence: 'State: pending or accepted.' }] });
   expect(screen.getByText(/3 recorded issues in 3 review areas/)).toBeInTheDocument();
-  expect(screen.getAllByRole('heading')[0]).toHaveTextContent('Conflicting states');
+  expect(within(screen.getByRole('region', { name: 'Issues to review' })).getAllByRole('heading')[0]).toHaveTextContent('Conflicting states');
 });
 
 it('groups section checks without evidence buttons and preserves requirement references', () => {
