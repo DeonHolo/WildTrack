@@ -43,7 +43,7 @@ public class AiReviewService {
     private static final Logger LOG = LoggerFactory.getLogger(AiReviewService.class);
     // Post-validation behavior is part of the persisted review cache fingerprint.
     // Do not reuse reports generated before the named body-section evidence correction.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v19";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v20";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -871,12 +871,18 @@ public class AiReviewService {
         // for requirement-based checks, an exact passage in the supplied authority.
         // Keep only one observation per independent document excerpt: five
         // rephrasings of the cover title do not establish an informative review.
-        var seenEvidence = new java.util.HashSet<String>();
+        String normalizedDocument = normalizeAuthorityText(AiReviewGroundingPolicy.positiveEvidenceBody(documentText));
+        var seenEvidenceSpans = new java.util.ArrayList<int[]>();
         var verifiedChecks = result.verifiedChecks().stream()
             .filter(check -> {
                 var rejection = verifiedCheckRejection(check, context, documentText);
-                if (rejection == null && !seenEvidence.add(normalizeAuthorityText(check.documentEvidence())))
-                    rejection = CheckRejection.DUPLICATE_EVIDENCE;
+                if (rejection == null) {
+                    String excerpt = normalizeAuthorityText(check.documentEvidence());
+                    int start = normalizedDocument.indexOf(excerpt), end = start + excerpt.length();
+                    if (seenEvidenceSpans.stream().anyMatch(span -> start < span[1] && end > span[0]))
+                        rejection = CheckRejection.DUPLICATE_EVIDENCE;
+                    else seenEvidenceSpans.add(new int[]{start, end});
+                }
                 if (rejection == null) return true;
                 rejectedChecks.merge(rejection, 1, Integer::sum);
                 return false;
@@ -887,6 +893,9 @@ public class AiReviewService {
                 validatedLocation(check.location(), check.documentEvidence(), documentText, pages)))
             .limit(5).toList();
         var groundedLimitations = new java.util.ArrayList<>(limitations(context));
+        if (pages.stream().anyMatch(PdfInspection.PageText::hasVisualContent)) groundedLimitations.add(
+            "Graphical content is present. Text-based structural checks do not establish the meaning or correctness "
+                + "of diagrams, screenshots or wireframes; inspect the original PDF.");
         if (!crosscheck.isEmpty()) groundedLimitations.add(
             "Mapped-template body-heading comparison is advisory: confirm section applicability, equivalent names, "
                 + "and the PDF's original formatting before treating an undetected heading as a required omission.");
@@ -915,7 +924,7 @@ public class AiReviewService {
         MALFORMED_CHECK, BLANKET_CLAIM, TEMPLATE_SAMPLE_IDENTITY, INSUFFICIENT_DOCUMENT_QUOTE,
         DOCUMENT_QUOTE_NOT_FOUND, PLACEHOLDER_EVIDENCE, BODY_SECTION_MISMATCH,
         DOCUMENT_HAS_REQUIREMENT, AUTHORITY_QUOTE_NOT_FOUND, DUPLICATE_EVIDENCE,
-        SUBMISSION_ONLY_AUTHORITY, ASPECT_EVIDENCE_MISMATCH
+        SUBMISSION_ONLY_AUTHORITY, ASPECT_EVIDENCE_MISMATCH, FRONT_MATTER_ONLY_EVIDENCE
     }
 
     private static CheckRejection verifiedCheckRejection(AiReviewProvider.VerifiedCheck check,
@@ -936,6 +945,8 @@ public class AiReviewService {
         String excerpt = normalizeAuthorityText(check.documentEvidence());
         if (excerpt.length() < 15 || excerpt.split(" ").length < 3) return CheckRejection.INSUFFICIENT_DOCUMENT_QUOTE;
         if (!containsNormalized(documentText, check.documentEvidence())) return CheckRejection.DOCUMENT_QUOTE_NOT_FOUND;
+        if (!AiReviewGroundingPolicy.positiveQuoteOccursInBody(documentText, check.documentEvidence()))
+            return CheckRejection.FRONT_MATTER_ONLY_EVIDENCE;
         if (AiReviewGroundingPolicy.containsExplicitPlaceholder(check.documentEvidence())
                 || AiReviewCompletenessPolicy.authoringInstruction(check.documentEvidence()))
             return CheckRejection.PLACEHOLDER_EVIDENCE;

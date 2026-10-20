@@ -12,7 +12,14 @@ public record PdfInspection(
     String error,
     List<PageText> pages
 ) {
-    public record PageText(int pageNumber, String text, boolean hasVisualContent) { }
+    public record IllustratedArtifact(String label, int graphicPageNumber) { }
+    public record PageText(int pageNumber, String text, boolean hasVisualContent,
+                           List<IllustratedArtifact> illustratedArtifacts) {
+        public PageText { illustratedArtifacts = illustratedArtifacts == null ? List.of() : List.copyOf(illustratedArtifacts); }
+        public PageText(int pageNumber, String text, boolean hasVisualContent) {
+            this(pageNumber, text, hasVisualContent, List.of());
+        }
+    }
 
     public PdfInspection {
         pages = pages == null ? List.of() : List.copyOf(pages);
