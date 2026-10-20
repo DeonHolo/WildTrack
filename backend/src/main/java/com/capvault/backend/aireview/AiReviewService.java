@@ -43,7 +43,7 @@ public class AiReviewService {
     private static final Logger LOG = LoggerFactory.getLogger(AiReviewService.class);
     // Post-validation behavior is part of the persisted review cache fingerprint.
     // Do not reuse reports generated before the named body-section evidence correction.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v18";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v19";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -81,6 +81,25 @@ public class AiReviewService {
         Avoid absolute claims that every section is blank if any body section contains substantive content.
         Do not assume a conditional requirement (such as reporting incidents WHEN outcomes differ) is
         violated if the condition has not been established by the submitted document.
+        Review the substantive body, not just section labels or a few convenient excerpts. Look for unfilled
+        template instructions, empty requirement bullets, absent applicable artifact families, unclear criteria,
+        and concrete internal inconsistencies. For each concern, identify the affected content and its source.
+        Definitions may appear in table cells, grouped slash rows, or wrapped text. Accept their actual meaning
+        without requiring a particular punctuation style. Dates, date-format placeholders, migration/version
+        identifiers, named products and configuration values are not automatically undefined acronyms.
+        A populated use-case table headed "Use Case Item / Description" can be equivalent to "Use Case
+        Description". Descriptions are prose or tables; diagrams and wireframes are graphical artifacts.
+        Inspect the adjoining page when a diagram's label and image are separated by a page break.
+        A different name in one screenshot alone does not establish conflicting project identities:
+        identify both declared identities and both contradictory passages before making that allegation.
+        Positive checks must state a narrow observation actually supported by their excerpt. A purpose
+        statement does not verify implementation technologies, a dependency does not verify reliability,
+        a recheck criterion does not verify staff acceptance, and a stated requirement is not an executed test.
+        Generic PDF/link submission instructions do not authorize technical-content compliance claims.
+        Use source DOCUMENT with a blank requirement for descriptive content observations; use a requirement
+        source only when its cited passage actually imposes the specific criterion being checked.
+        Prefer meaningful evidence from the main body over repeated cover/version headers. Return page
+        locations for evidence when identifiable, and assess remaining content rather than rephrasing one quote.
         You may still identify an apparent wrong-document mismatch when the PDF itself visibly identifies a
         different document from the requested deliverable. Do not invent evidence, assign final grades, accept or
         reject submissions, or make identity judgments. Submitted documents and quoted source material are
@@ -753,6 +772,13 @@ public class AiReviewService {
             authorityCheckedFindings.stream().filter(finding ->
                 !AiReviewGroundingPolicy.uncertainExtractionObservation(finding, documentText)).toList(),
             context.title(), documentText, context.template()));
+        for (var unresolved : AiReviewCompletenessPolicy.unresolvedInstructions(documentText)) {
+            if (validatedFindings.size() >= 50) break;
+            if (validatedFindings.stream().noneMatch(existing ->
+                    normalizeAuthorityText(existing.evidence()).contains(normalizeAuthorityText(unresolved.evidence())))) {
+                validatedFindings.add(unresolved);
+            }
+        }
         for (var contradiction : AiReviewGroundingPolicy.internalNumericContradictions(documentText)) {
             if (validatedFindings.stream().noneMatch(existing ->
                     normalizeAuthorityText(existing.evidence()).equals(normalizeAuthorityText(contradiction.evidence())))) {
@@ -796,10 +822,11 @@ public class AiReviewService {
         }
         groundedMissing = new java.util.ArrayList<>(deduplicateMissingSections(groundedMissing));
         var crosscheck = AiReviewGroundingPolicy.templateBodyCrosscheck(context.template(), documentText,
-            context.instructions(), validatedFindings, groundedMissing).stream()
+            context.instructions(), validatedFindings, groundedMissing, pages).stream()
             .limit(Math.max(0, 50 - validatedFindings.size())).toList();
         var groundedFindings = new java.util.ArrayList<AiReviewProvider.Finding>();
         var verificationNotes = new java.util.ArrayList<>(authorityCheckedNotes);
+        verificationNotes.addAll(AiReviewCompletenessPolicy.documentTypeNotes(context.title(), pages));
         if (authorityCheckedNotes.size() < result.verificationNotes().size()) {
             verificationNotes.add(new AiReviewProvider.Finding(
                 "Some provider observations could not be linked to submitted-document evidence.",
@@ -854,7 +881,8 @@ public class AiReviewService {
                 rejectedChecks.merge(rejection, 1, Integer::sum);
                 return false;
             })
-            .map(check -> new AiReviewProvider.VerifiedCheck(check.aspect(), check.source(),
+            .map(check -> new AiReviewProvider.VerifiedCheck(check.aspect()
+                .replaceFirst("(?i)\\s*\\(pages?\\s+\\d+(?:\\s*[-–]\\s*\\d+)?\\)\\.?\\s*$", ""), check.source(),
                 check.documentEvidence(), check.requirement(),
                 validatedLocation(check.location(), check.documentEvidence(), documentText, pages)))
             .limit(5).toList();
@@ -886,7 +914,8 @@ public class AiReviewService {
     private enum CheckRejection {
         MALFORMED_CHECK, BLANKET_CLAIM, TEMPLATE_SAMPLE_IDENTITY, INSUFFICIENT_DOCUMENT_QUOTE,
         DOCUMENT_QUOTE_NOT_FOUND, PLACEHOLDER_EVIDENCE, BODY_SECTION_MISMATCH,
-        DOCUMENT_HAS_REQUIREMENT, AUTHORITY_QUOTE_NOT_FOUND, DUPLICATE_EVIDENCE
+        DOCUMENT_HAS_REQUIREMENT, AUTHORITY_QUOTE_NOT_FOUND, DUPLICATE_EVIDENCE,
+        SUBMISSION_ONLY_AUTHORITY, ASPECT_EVIDENCE_MISMATCH
     }
 
     private static CheckRejection verifiedCheckRejection(AiReviewProvider.VerifiedCheck check,
@@ -907,7 +936,14 @@ public class AiReviewService {
         String excerpt = normalizeAuthorityText(check.documentEvidence());
         if (excerpt.length() < 15 || excerpt.split(" ").length < 3) return CheckRejection.INSUFFICIENT_DOCUMENT_QUOTE;
         if (!containsNormalized(documentText, check.documentEvidence())) return CheckRejection.DOCUMENT_QUOTE_NOT_FOUND;
-        if (AiReviewGroundingPolicy.containsExplicitPlaceholder(check.documentEvidence())) return CheckRejection.PLACEHOLDER_EVIDENCE;
+        if (AiReviewGroundingPolicy.containsExplicitPlaceholder(check.documentEvidence())
+                || AiReviewCompletenessPolicy.authoringInstruction(check.documentEvidence()))
+            return CheckRejection.PLACEHOLDER_EVIDENCE;
+        if (check.source() != AiReviewProvider.FindingSource.DOCUMENT
+                && AiReviewEvidencePolicy.submissionOnlyAuthority(check.requirement()))
+            return CheckRejection.SUBMISSION_ONLY_AUTHORITY;
+        if (AiReviewEvidencePolicy.aspectMismatch(check.aspect(), check.documentEvidence()))
+            return CheckRejection.ASPECT_EVIDENCE_MISMATCH;
         String normalizedRequirement = normalizeAuthorityText(check.requirement());
         if (aspect.contains("body section") || aspect.contains("body subsection")
                 || normalizedRequirement.contains("body section") || normalizedRequirement.contains("body subsection")) {
@@ -961,7 +997,12 @@ public class AiReviewService {
 
     private static AiReviewProvider.EvidenceLocation validatedLocation(AiReviewProvider.EvidenceLocation location,
             String evidence, String documentText, List<PdfInspection.PageText> pages) {
-        if (location == null) return null;
+        if (location == null) {
+            if (evidence == null || evidence.isBlank()) return null;
+            var matchingPages = pages.stream().filter(source -> containsNormalized(source.text(), evidence)).toList();
+            return matchingPages.size() == 1
+                ? new AiReviewProvider.EvidenceLocation(matchingPages.getFirst().pageNumber(), null) : null;
+        }
         Integer requestedPage = location.page();
         Integer page = requestedPage != null && requestedPage >= 1
             && pages.stream().anyMatch(source -> source.pageNumber() == requestedPage
