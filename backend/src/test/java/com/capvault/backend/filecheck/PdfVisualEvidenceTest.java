@@ -48,6 +48,9 @@ class PdfVisualEvidenceTest {
     @Test void nextTransactionOnTheSamePagePreventsBorrowingItsFigure() throws Exception {
         assertThat(inspect(10).pages().getFirst().illustratedArtifacts()).isEmpty();
     }
+    @Test void sectionChangeBeforeThePageBreakPreventsBorrowingANextPageImage() throws Exception {
+        assertThat(inspect(11).pages().getFirst().illustratedArtifacts()).isEmpty();
+    }
     private static PdfInspection inspect(int scenario) throws Exception {
         try (var doc = new PDDocument(); var bytes = new ByteArrayOutputStream()) {
             var page = new PDPage(); doc.addPage(page);
@@ -61,8 +64,9 @@ class PdfVisualEvidenceTest {
                 if (scenario == 3) { text(stream, "Activity Diagram", 600); image(doc, stream, 200, 250, 220, 220); }
                 if (scenario == 6) { text(stream, "Use Case Diagram", 500); image(doc, stream, 200, 150, 220, 220); }
                 if (scenario == 10) { text(stream, "1.2 Another transaction", 600); image(doc, stream, 200, 250, 220, 220); }
+                if (scenario == 11) text(stream, "1.2 Another transaction", 600);
             }
-            if (scenario == 4 || scenario == 5 || scenario == 8 || scenario == 9) {
+            if (scenario == 4 || scenario == 5 || scenario == 8 || scenario == 9 || scenario == 11) {
                 var second = new PDPage(); doc.addPage(second);
                 try (var stream = new PDPageContentStream(doc, second)) {
                     if (scenario == 5) text(stream, "Activity Diagram", 740);

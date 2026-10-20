@@ -60,7 +60,8 @@ final class PdfVisualEvidence {
                     boolean same = current.images.stream().anyMatch(image -> image.top >= label.top - 3
                         && image.top < nextTop - 3 && image.top + image.height < boundary + 3);
                     int graphicPage = same ? i + 1 : -1;
-                    if (!same && j == current.labels.size() - 1 && i + 1 < geometries.size()) {
+                    if (!same && boundary == Float.MAX_VALUE
+                            && j == current.labels.size() - 1 && i + 1 < geometries.size()) {
                         Geometry next = geometries.get(i + 1);
                         float firstLabel = next.labels.isEmpty() ? Float.MAX_VALUE : next.labels.getFirst().top;
                         float firstSection = next.sectionTops.stream().min(Float::compare).orElse(Float.MAX_VALUE);
