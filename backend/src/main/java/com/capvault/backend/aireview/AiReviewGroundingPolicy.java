@@ -496,27 +496,37 @@ final class AiReviewGroundingPolicy {
     static List<String> positiveEvidencePassages(String pdfText) {
         var region = layout(pdfText, true);
         if (!region.reliableBody()) return List.of();
-        var candidates = new ArrayList<String>();
-        var seen = new HashSet<String>();
-        int start = region.toc() < 0 ? 0 : region.tocEnd() + 1;
-        for (int i = start; i < region.lines().size(); i++) {
+        int start = positiveBodyStart(region);
+        return AiReviewPositiveEvidencePolicy.select(region.lines().subList(start, region.lines().size()));
+    }
+
+    static boolean positiveQuoteOccursInBody(String pdfText, String evidence) {
+        String body = normalize(positiveEvidenceBody(pdfText));
+        String excerpt = normalize(evidence);
+        return !excerpt.isBlank() && body.contains(excerpt);
+    }
+
+    static String positiveEvidenceBody(String pdfText) {
+        var region = layout(pdfText, true);
+        if (!region.reliableBody()) return "";
+        int start = positiveBodyStart(region);
+        return String.join("\n", region.lines().subList(start, region.lines().size()));
+    }
+
+    private static int positiveBodyStart(Layout region) {
+        if (region.toc() >= 0) return region.tocEnd() + 1;
+        for (int i = 0; i < region.lines().size(); i++) {
             String line = region.lines().get(i);
-            if (NUMBERED_HEADING.matcher(line).matches() || TOC_LEADER.matcher(line).matches()
-                    || containsExplicitPlaceholder(line)) continue;
-            String excerpt = line;
-            if (excerpt.length() > 320) {
-                excerpt = excerpt.substring(0, 320);
-                int wordEnd = excerpt.lastIndexOf(' ');
-                if (wordEnd >= 0) excerpt = excerpt.substring(0, wordEnd);
+            if (!NUMBERED_HEADING.matcher(line).matches() || TOC_LEADER.matcher(line).matches()
+                    || line.length() > 120 || line.split("\\s+").length > 14) continue;
+            if (normalize(line).matches(".*\\b(?:revision|change history|references|bibliography|index)\\b.*")) continue;
+            for (int j = i + 1; j < Math.min(region.lines().size(), i + 5); j++) {
+                String following = region.lines().get(j);
+                if (following.length() >= 50 && following.split("\\s+").length >= 8
+                        && !NUMBERED_HEADING.matcher(following).matches()) return i;
             }
-            String normalized = normalize(excerpt);
-            if (excerpt.length() >= 60 && normalized.split(" ").length >= 8 && seen.add(normalized))
-                candidates.add(excerpt);
         }
-        if (candidates.size() <= 6) return List.copyOf(candidates);
-        var selected = new ArrayList<String>();
-        for (int i = 0; i < 6; i++) selected.add(candidates.get(i * (candidates.size() - 1) / 5));
-        return List.copyOf(selected);
+        return 0;
     }
 
     static boolean hasReliableBodyBoundary(String pdfText) {
@@ -700,10 +710,18 @@ final class AiReviewGroundingPolicy {
                 int labelIndex = artifactIndexInRange(document, documentRange, artifact);
                 Integer labelPage = physicalPage(document, labelIndex, pages);
                 boolean prose = artifact.equals("use case description");
-                boolean nearbyVisual = !prose && labelPage != null && pages.stream().anyMatch(page ->
-                    page.hasVisualContent() && (page.pageNumber() == labelPage
-                        || page.pageNumber() == labelPage + 1
-                            && beforeNextTransaction(document, documentRange, page.pageNumber(), pages)));
+                boolean nearbyVisual = !prose && labelPage != null && pages.stream()
+                    .filter(page -> page.pageNumber() == labelPage)
+                    .flatMap(page -> page.illustratedArtifacts().stream())
+                    .anyMatch(illustration -> normalize(illustration.label()).equals(artifact)
+                        && (illustration.graphicPageNumber() == labelPage
+                            || illustration.graphicPageNumber() == labelPage + 1
+                                && beforeNextTransaction(document, documentRange, illustration.graphicPageNumber(), pages)));
+                // Image content cannot be evaluated as absent just because extraction has no
+                // narrative beneath a figure label. Its correctness remains a report limitation,
+                // not a synthetic unresolved omission. Explicit placeholders still need attention.
+                if (nearbyVisual && submittedLabel != null
+                        && !artifactPlaceholderNearLabel(document, documentRange, labelIndex)) continue;
                 warnings.add(new AiReviewProvider.Finding(
                     "Text extraction could not verify '" + label + "' in " + location + ". "
                         + (submittedLabel == null ? "Its label was not located in the extracted transaction."
@@ -718,6 +736,16 @@ final class AiReviewGroundingPolicy {
                     labelPage == null ? null : new AiReviewProvider.EvidenceLocation(labelPage, null)));
             }
         }
+    }
+
+    private static boolean artifactPlaceholderNearLabel(Layout document, TransactionRange range, int labelIndex) {
+        for (int i = labelIndex; i < Math.min(range.end(), labelIndex + 5); i++) {
+            String line = document.lines().get(i);
+            if (i > labelIndex && (looksLikeBodyHeading(line)
+                    || normalize(line).matches("^(?:use case (?:description|diagram)|activity diagram|wireframe)$"))) break;
+            if (containsExplicitPlaceholder(line) || AiReviewCompletenessPolicy.authoringInstruction(line)) return true;
+        }
+        return false;
     }
 
     private static boolean acceptedFindingCoversTransactionArtifact(
@@ -759,7 +787,9 @@ final class AiReviewGroundingPolicy {
             List<PdfInspection.PageText> pages) {
         Integer nextPage = range.end() < document.lines().size()
             ? physicalPage(document, range.end(), pages) : null;
-        return nextPage == null || page < nextPage;
+        // Figure association already checks physical ordering against section headings;
+        // a continuation figure can precede the next transaction on the same page.
+        return nextPage == null || page <= nextPage;
     }
 
     private static String repeatedTransactionArtifactEvidence(Layout template,

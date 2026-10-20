@@ -495,7 +495,7 @@ class StdAiPilotRunTest {
         String report = JSON.writeValueAsString(Map.of(
             "summary", "Contains echoed test-key; it must be redacted at rest.",
             "findings", List.of(), "missingRequiredSections", List.of(),
-            "suggestedAction", "Inspect the controlled sample."));
+            "suggestedAction", "Inspect the controlled sample.", "verifiedChecks", List.of()));
         String raw = JSON.writeValueAsString(Map.of("candidates", List.of(Map.of(
             "finishReason", "STOP", "content", Map.of("parts", List.of(Map.of("text", report)))))));
         server.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/"

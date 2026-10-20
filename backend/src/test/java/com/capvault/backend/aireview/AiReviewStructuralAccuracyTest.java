@@ -125,7 +125,7 @@ class AiReviewStructuralAccuracyTest {
         assertThat(notes).noneMatch(note -> note.issue().contains("Use Case Description"));
     }
 
-    @Test void labelledFigureOnFollowingPageIsAnInspectionNoteWithPhysicalPage() {
+    @Test void labelledFigureOnFollowingPageDoesNotCreateASuspectedOmission() {
         String first = """
             1. Introduction
             This system manages registration requests and their status.
@@ -136,13 +136,10 @@ class AiReviewStructuralAccuracyTest {
             Use Case Diagram
             """;
         String second = "Activity Diagram: Start -> Save -> End\nWireframe: Email | Register";
-        var notes = crosscheck(first + second, List.of(new PdfInspection.PageText(1, first, false),
+        var notes = crosscheck(first + second, List.of(new PdfInspection.PageText(1, first, false,
+            List.of(new PdfInspection.IllustratedArtifact("use case diagram", 2))),
             new PdfInspection.PageText(2, second, true)));
-        assertThat(notes).singleElement().satisfies(note -> {
-            assertThat(note.issue()).contains("label and nearby visual content are present");
-            assertThat(note.issue()).doesNotContain("label was not located");
-            assertThat(note.location()).isEqualTo(new AiReviewProvider.EvidenceLocation(1, null));
-        });
+        assertThat(notes).isEmpty();
     }
 
     @Test void proseDescriptionNeverReceivesGraphicalInspectionWording() {

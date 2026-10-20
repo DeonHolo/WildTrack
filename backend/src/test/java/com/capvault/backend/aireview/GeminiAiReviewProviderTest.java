@@ -227,11 +227,10 @@ class GeminiAiReviewProviderTest {
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.missingRequiredSections.items.properties.source.enum.length()").value(2))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(0))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.minItems").doesNotExist())
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf.length()").value(2))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].required.length()").value(4))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].properties.source.enum[0]").value("DOCUMENT"))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].properties.requirement.enum[0]").value(""))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[1].properties.source.enum.length()").value(2))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf").doesNotExist())
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.required.length()").value(2))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.source").doesNotExist())
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.passageId.enum[0]").value("P1"))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.length()").value(5))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.length()").value(4))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.location").doesNotExist())
@@ -253,7 +252,7 @@ class GeminiAiReviewProviderTest {
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
         assertThat(provider.cacheVersion()).contains("gemini-3.5-flash-lite", "rest-pdf-v7", "thinking-minimal", "output-8192",
-            "schema-structured-review-v6-source-passages-compact");
+            "schema-structured-review-v7-body-reference-observations");
         assertThat(provider.cacheVersion()).doesNotContain("temperature-0.2");
         server.verify();
     }
@@ -488,34 +487,54 @@ class GeminiAiReviewProviderTest {
         server.verify();
     }
 
-    @Test void exactExtractedPassagesConstrainCitationsAndSurviveStrictGrounding() throws Exception {
+    @Test void sourceReferencesPreserveWrappedBodyContextAndExcludeMismatchedLabels() throws Exception {
         String scope = "The application checks the submitted PDF against configured sub-";
         String continuation = "mission rules and preserves the response that staff use to give feedback.";
         String feedback = "The feedback view separates recorded issues from an instructor's final academic decision.";
         String document = "1. Scope\n" + scope + "\n" + continuation + "\n2. Feedback\n" + feedback;
         var request = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), document,
             "Instructor review only", "SRS", "", "");
-        var checks = List.of(Map.of("aspect", "PDF screening is described", "source", "DOCUMENT",
-                "documentEvidence", scope, "requirement", ""),
-            Map.of("aspect", "Academic decisions are distinguished from recorded issues", "source", "DOCUMENT",
-                "documentEvidence", feedback, "requirement", ""));
+        String fullScope = scope + "\n" + continuation;
+        var checks = List.of(Map.of("aspect", "oversized ".repeat(25), "passageId", "P1"),
+            Map.of("aspect", "Unrelated processor hardware specifications", "passageId", "P1"),
+            Map.of("aspect", "The application checks the submitted PDF", "passageId", "P1"),
+            Map.of("aspect", "The feedback view separates recorded issues", "passageId", "P2"));
         String report = json.writeValueAsString(Map.of("summary", "Observed passages", "findings", List.of(),
             "missingRequiredSections", List.of(), "suggestedAction", "Review", "verifiedChecks", checks));
         server.expect(requestTo(GENERATE))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(3))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].properties.documentEvidence.type").value("string"))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[0].properties.documentEvidence.enum").doesNotExist())
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[1].properties.documentEvidence.type").value("string"))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.anyOf[1].properties.documentEvidence.enum").doesNotExist())
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.maxItems").value(5))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.passageId.enum.length()").value(2))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.documentEvidence").doesNotExist())
             .andExpect(content().string(org.hamcrest.Matchers.containsString("positiveEvidencePassages")))
             .andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
 
         var grounded = AiReviewService.postprocessForBenchmark(provider.review(request), "SRS", "", "", document);
 
         assertThat(grounded.verifiedChecks()).extracting(AiReviewProvider.VerifiedCheck::documentEvidence)
-            .containsExactly(scope, feedback);
+            .containsExactly("1. Scope\n" + fullScope, "2. Feedback\n" + feedback);
+        assertThat(grounded.verifiedChecks()).extracting(AiReviewProvider.VerifiedCheck::aspect)
+            .doesNotContain("Unrelated processor hardware specifications");
         assertThat(grounded.outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS);
         server.verify();
+    }
+
+    @Test void unknownOrMixedReferencesCannotCreateDocumentEvidence() throws Exception {
+        for (var check : List.of(Map.of("aspect", "Unknown passage", "passageId", "P1"),
+                Map.of("aspect", "Invalid passage", "passageId", "P99"),
+                Map.of("aspect", "Mixed contracts", "passageId", "P1", "source", "OFFICIAL_TEMPLATE"))) {
+            setup();
+            String report = json.writeValueAsString(Map.of("summary", "Observed passages", "findings", List.of(),
+                "missingRequiredSections", List.of(), "suggestedAction", "Review", "verifiedChecks", List.of(check)));
+            server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+            var request = check.containsKey("source")
+                ? new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8),
+                    "1. Scope\nThe portal records original submitted documents and the instructor's observations before any academic decision is recorded.",
+                    "Instructor review only", "SRS", "", "") : input();
+            assertThatThrownBy(() -> provider.review(request)).isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class,
+                failure -> assertThat(failure.detail).isEqualTo(check.containsKey("source")
+                    ? "mixed_evidence_contracts" : "unknown_evidence_reference"));
+            server.verify();
+        }
     }
 
     @Test void oneUnusablePositiveCheckDoesNotDiscardIndependentVerifiedEvidence() throws Exception {

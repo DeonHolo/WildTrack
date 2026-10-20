@@ -56,6 +56,7 @@ public class PdfInspector {
                 }
             }
             String text = normalize(extracted.toString());
+            pages = PdfVisualEvidence.associate(document, pages);
             return new PdfInspection(
                 true,
                 false,

@@ -1,5 +1,35 @@
 # WildTrack AI Review Design
 
+## Body evidence and inconclusive outcomes — 20 October 2026
+
+Prompt v20 and response contract `structured-review-v7-body-reference-observations` address thin reviews of populated PDFs. The full PDF still reaches Gemini; the model, `MINIMAL` thinking and 8,192-token output limit are unchanged.
+
+- Citation preparation preserves wrapped paragraphs and table context in up to 20 non-overlapping passages spread across the body. It excludes front matter, index/reference regions, repeated margins, placeholders and isolated headings/captions. The earlier six isolated lines could omit most of a long document's useful evidence.
+- Gemini selects request-local passage identifiers for positive observations and copies a descriptive phrase from that same passage as its label. The server resolves each identifier to the original text, rejects mismatched labels, then applies the existing grounding rules. Unknown identifiers, mixed contracts, overlapping evidence and unsupported claims cannot create extra checked evidence. Selecting a passage does not certify it as factually correct or academically sufficient.
+- Positive observations describe submitted content. Requirement-based concerns and missing sections retain their separate exact instruction/template authority checks. Student-authored requirements cannot become external rules merely by being quoted. Historical direct-quote reports remain readable; invalid source/requirement pairs are never silently relabelled.
+- A label with an associated substantial raster image is not automatically an unresolved missing-figure warning. The association checks physical order on the label page or the following page, before another artifact label or numbered section. Small logos, images above the label, ambiguous repeated labels, unrelated later figures and explicit placeholders do not satisfy that check. Vector-only or ambiguous layouts remain candidates for manual inspection. Image presence does not establish graphical correctness.
+- At least two independent grounded observations and no unresolved notes are still needed for `NO_ISSUES_IN_CHECKED_AREAS`. `INCONCLUSIVE` remains the correct result when too little supported evidence survives. Neither outcome accepts the submission or grades its contents.
+- The cache fingerprint changes with the prompt and response contract. Earlier saved results remain dated history until staff request a fresh review; opening a report does not spend quota or rerun it.
+
+See [the coverage record](STD_AI_REVIEW_COVERAGE_2026-10-13.md) for the bounded validation and release evidence.
+
+## Implementation addendum — 13 October 2026
+
+The August design below preserves the original pilot decisions. For the deployed report contract and later fixes, use [STD AI Review coverage](STD_AI_REVIEW_COVERAGE_2026-10-13.md), [report readability](AI_REVIEW_READABILITY_REDESIGN_2026-10-09.md) and [the session index](SESSION_CHANGE_INDEX_2026-10-13.md).
+
+- The current accuracy-repair target uses `gemini-3.5-flash-lite`, `MINIMAL` thinking and an 8,192-token output limit. The original 2.5 pilot and earlier 3.1 identifiers below are historical; prompt v19 does not add a stronger-model fallback or change saved-review settings.
+- Prompt v19 preserves the structured review contract and requires grounded checks with meaningful source quotes, accurate aspect labels and physical page evidence. Whitespace, wrapped and grouped glossary/comma matches are normalized; dates, settings, HTTP verbs and status codes are not terminology. Equivalent Use Case Item/Description tables and numbered-flow boundaries remain valid. Figure inspection is physical-page advisory evidence, and an author instruction is flagged only when no authored content is present.
+- Positive observations require exact submitted-PDF evidence. Bounded exact source references improve citation matching; incorrect source/requirement pairs are excluded independently without relabelling them into valid evidence. Body-section checks must use evidence from the actual named body section.
+- A zero-issue positive result requires at least two independent accepted observations and no unresolved verification notes. It remains limited to checked areas, not whole-document compliance. Inconclusive saved reports are labelled accordingly in the table and details.
+- Opening saved reports is read-only. Potentially billed retries retain explicit acknowledgement; source/requirements freshness, scoped byte-hash reuse, previous-report dates, role boundaries and human academic decisions remain.
+- Observed checks show the submitted-document heading once. Authority names remain with template/deliverable references after PR #110.
+
+Live acceptance establishes the successful STD request/save/reopen path and STD/SDD display correction only. Historical benchmark scores and beneficiary acceptance remain separate evidence.
+
+Five isolated fresh reviews (R02, R07, R12, R14 and R17) returned successfully under the same model/settings. Their elapsed times were 7.349, 12.005, 11.259, 16.887 and 9.756 seconds. These are bounded observations; they do not establish a blanket accuracy percentage, cure the historical provider-transport record, or replace staff decisions.The 20 October 2026 regression run passed 235 checks with one skipped, zero failures and zero errors. Replay covered 17 distinct PDFs represented by 18 saved records: all 20 known false acronym warnings were removed and all 11 confirmed missing-term warnings were retained. Five isolated fresh Gemini requests completed successfully; saved student reviews, decisions and production settings were unchanged. These are bounded regression results.
+
+## Original approved pilot design — 23 August 2026
+
 **Status:** Approved design decision  
 **Date:** August 23, 2026  
 **Scope:** Economical staff-facing AI review of submitted capstone PDFs
