@@ -9,6 +9,8 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.capvault.backend.filecheck.PdfInspection;
+
 /**
  * Conservative structural/identity checks on provider suggestions. Text-only checking cannot
  * establish academic correctness; when structure is ambiguous, avoid asserting that it is absent.
@@ -16,7 +18,7 @@ import java.util.regex.Pattern;
 final class AiReviewGroundingPolicy {
     private static final int MAX_TEMPLATE_ALERTS = 8;
     private static final Pattern TEMPLATE_BODY_NUMBERED_HEADING = Pattern.compile(
-        "^(\\d+(?:\\.\\d+){0,5})[.)]?\\s+(.+)$");
+        "^(\\d+(?:\\.\\d+){0,5})(?:[.)]\\s*|\\s+)([\\p{L}].*)$");
     private static final Pattern OPTIONAL_SECTION = Pattern.compile(
         "(?i)\\b(?:optional|if applicable|when applicable|where applicable|as needed|"
             + "not required|for reference only|example only|illustrative only)\\b");
@@ -32,7 +34,8 @@ final class AiReviewGroundingPolicy {
             + "\\b(?:lists?|includes?|contains?|shows?)\\s+(?:the\\s+)?(?:section\\s+)?"
             + "(\\d+(?:\\.\\d+){1,5})\\b");
     private static final Pattern NUMBERED_HEADING = Pattern.compile(
-        "^(?:[A-Z](?:\\.\\d+)*|\\d+(?:\\.(?:\\d+|[A-Za-z]))*|[IVXLC]+)[.)]?\\s+(.+)$");
+        "^(?:\\d+(?:\\.\\d+)*[.)]\\s*|"
+            + "(?:[A-Z](?:\\.\\d+)*|\\d+(?:\\.(?:\\d+|[A-Za-z]))*|[IVXLC]+)[.)]?\\s+)(.+)$");
     private static final Pattern QUOTED_HEADING = Pattern.compile("[\\\"'‘“]([^\\\"'’”]{3,100})[\\\"'’”]");
     private static final Pattern ABSENCE = Pattern.compile(
         "\\b(missing|absent|omitted|not present|not included|no section|lacks|does not contain)\\b",
@@ -116,8 +119,11 @@ final class AiReviewGroundingPolicy {
     static List<AiReviewProvider.Finding> findings(List<AiReviewProvider.Finding> input, String title,
             String documentText, String templateText) {
         var accepted = new ArrayList<AiReviewProvider.Finding>();
+        String definitions = glossaryText(documentText);
         for (var finding : input) {
             String issue = finding.issue();
+            if (AiReviewGlossaryPolicy.contradictedConcern(issue, finding.evidence(), definitions, documentText))
+                continue;
             // The provider occasionally places its own exculpatory observation
             // in the findings array. The screenshot's naming difference was
             // explicitly called "not a noncompliance". Such prose is not an
@@ -129,6 +135,7 @@ final class AiReviewGroundingPolicy {
             if (unsupportedBulletFormattingClaim(finding)) continue;
             if (unsupportedArtifactRenderingClaim(finding, documentText)) continue;
             if (unsupportedUnspecifiedCompletenessClaim(finding)) continue;
+            if (AiReviewEvidencePolicy.unsupportedIdentityContradiction(finding, documentText)) continue;
             if (finding.source() == AiReviewProvider.FindingSource.DOCUMENT) {
                 if (wrongDeliverableFromSyntheticLabel(issue, title, documentText)
                         || sampleNameConfusion(issue + " " + finding.evidence(), documentText, templateText)
@@ -262,6 +269,12 @@ final class AiReviewGroundingPolicy {
     static List<AiReviewProvider.Finding> templateBodyCrosscheck(String templateText, String documentText,
             String instructions, List<AiReviewProvider.Finding> accepted,
             List<AiReviewProvider.MissingRequiredSection> acceptedMissing) {
+        return templateBodyCrosscheck(templateText, documentText, instructions, accepted, acceptedMissing, List.of());
+    }
+
+    static List<AiReviewProvider.Finding> templateBodyCrosscheck(String templateText, String documentText,
+            String instructions, List<AiReviewProvider.Finding> accepted,
+            List<AiReviewProvider.MissingRequiredSection> acceptedMissing, List<PdfInspection.PageText> pages) {
         if (templateText == null || templateText.isBlank() || documentText == null || documentText.isBlank()
                 || templateText.length() > 300_000 || documentText.length() > 1_000_000) return List.of();
         var template = layout(templateText, true);
@@ -290,7 +303,11 @@ final class AiReviewGroundingPolicy {
         // submission should instead receive its own document-identity review, not bulk template alerts.
         long overlap = expected.stream().filter(head ->
             containsBodyHeading(documentText, head.quote())).count();
-        if (overlap == 0) return List.of();
+        if (overlap == 0) {
+            var transactionNotes = new ArrayList<AiReviewProvider.Finding>();
+            addTransactionArtifactWarnings(template, document, accepted, transactionNotes, pages);
+            return List.copyOf(transactionNotes);
+        }
 
         var existingSections = new HashSet<String>();
         for (var missing : acceptedMissing) existingSections.add(canonical(missing.section()));
@@ -331,7 +348,7 @@ final class AiReviewGroundingPolicy {
                 null));
         }
         if (warnings.size() < MAX_TEMPLATE_ALERTS)
-            addTransactionArtifactWarnings(template, document, accepted, warnings);
+            addTransactionArtifactWarnings(template, document, accepted, warnings, pages);
         return List.copyOf(warnings);
     }
 
@@ -527,6 +544,8 @@ final class AiReviewGroundingPolicy {
                 : first.replaceFirst("\\s*[.·…]{3,}\\s*\\d+\\s*$", "").trim();
             if (TOC_PAGE_ENTRY.matcher(tocHeading).matches())
                 tocHeading = tocHeading.replaceFirst("\\s+\\d{1,4}\\s*$", "").trim();
+            else if (tocHeading.matches(".*[\\p{L}]\\d{1,4}$"))
+                tocHeading = tocHeading.replaceFirst("\\d{1,4}$", "").trim();
             if (tocHeading.length() > 100 || tocHeading.split("\\s+").length > 10) continue;
             String anchor = canonical(tocHeading);
             if (anchor.isBlank() || !headingMatches(tocHeading, anchor)) continue;
@@ -643,11 +662,14 @@ final class AiReviewGroundingPolicy {
     private record TransactionRange(int start, int end) { }
 
     private static void addTransactionArtifactWarnings(Layout template, Layout document,
-            List<AiReviewProvider.Finding> accepted, List<AiReviewProvider.Finding> warnings) {
+            List<AiReviewProvider.Finding> accepted, List<AiReviewProvider.Finding> warnings,
+            List<PdfInspection.PageText> pages) {
         var templateRanges = moduleTransactionRanges(template);
         var documentRanges = moduleTransactionRanges(document);
         if (templateRanges.isEmpty() || documentRanges.isEmpty()) return;
-        for (String artifact : List.of("use case description", "use case diagram", "activity diagram", "wireframe")) {
+        for (int index = 0; index < documentRanges.size(); index++) {
+            TransactionRange documentRange = documentRanges.get(index);
+            for (String artifact : List.of("use case description", "use case diagram", "activity diagram", "wireframe")) {
             if (warnings.size() >= MAX_TEMPLATE_ALERTS) return;
             String requirement = artifactLineInRange(template, templateRanges.get(0), artifact);
             if (requirement == null || OPTIONAL_SECTION.matcher(requirement).find()) continue;
@@ -658,10 +680,8 @@ final class AiReviewGroundingPolicy {
                     return line != null && !OPTIONAL_SECTION.matcher(line).find();
                 });
 
-            for (int index = 0; index < documentRanges.size(); index++) {
-                if (index > 0 && !repeatedTemplatePattern) break;
+                if (index > 0 && !repeatedTemplatePattern) continue;
                 if (warnings.size() >= MAX_TEMPLATE_ALERTS) return;
-                TransactionRange documentRange = documentRanges.get(index);
                 if (artifactHasSubstantiveContentInRange(document, documentRange, artifact)) continue;
 
                 String label = switch (artifact) {
@@ -673,22 +693,29 @@ final class AiReviewGroundingPolicy {
                 };
                 String transaction = transactionHeading(document, documentRange);
                 if (acceptedFindingCoversTransactionArtifact(accepted, artifact, transaction, index)) continue;
-                String location = index == 0
-                    ? "the first transaction under Module 1"
-                    : "transaction '" + transaction + "'";
+                String location = "transaction '" + transaction + "'";
                 String submittedLabel = artifactLineInRange(document, documentRange, artifact);
                 String mappedRequirement = index == 0 ? requirement
                     : repeatedTransactionArtifactEvidence(template, templateRanges, artifact);
+                int labelIndex = artifactIndexInRange(document, documentRange, artifact);
+                Integer labelPage = physicalPage(document, labelIndex, pages);
+                boolean prose = artifact.equals("use case description");
+                boolean nearbyVisual = !prose && labelPage != null && pages.stream().anyMatch(page ->
+                    page.hasVisualContent() && (page.pageNumber() == labelPage
+                        || page.pageNumber() == labelPage + 1
+                            && beforeNextTransaction(document, documentRange, page.pageNumber(), pages)));
                 warnings.add(new AiReviewProvider.Finding(
                     "Text extraction could not verify '" + label + "' in " + location + ". "
                         + (submittedLabel == null ? "Its label was not located in the extracted transaction."
-                            : "Its label is present, but graphical content cannot be assessed from text alone."),
+                            : prose ? "Its label is present; confirm that its narrative or table is completed."
+                            : nearbyVisual ? "Its label and nearby visual content are present; inspect the figure in the original PDF."
+                            : "Its label is present; inspect the original PDF because text cannot establish graphical completeness."),
                     AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE,
                     Objects.requireNonNullElse(submittedLabel, ""),
                     mappedRequirement,
                     "Verify " + label,
                     "Open the original PDF and inspect this transaction before requesting a revision.",
-                    null));
+                    labelPage == null ? null : new AiReviewProvider.EvidenceLocation(labelPage, null)));
             }
         }
     }
@@ -711,6 +738,28 @@ final class AiReviewGroundingPolicy {
             if (!line.isBlank()) return line;
         }
         return "unidentified transaction";
+    }
+
+    private static Integer physicalPage(Layout document, int lineIndex, List<PdfInspection.PageText> pages) {
+        if (lineIndex < 0 || pages.isEmpty()) return null;
+        String label = normalize(document.lines().get(lineIndex));
+        int occurrence = 0;
+        for (int i = 0; i <= lineIndex; i++) {
+            if (normalize(document.lines().get(i)).equals(label)) occurrence++;
+        }
+        for (var page : pages) {
+            for (String line : page.text().lines().toList()) {
+                if (normalize(line).equals(label) && --occurrence == 0) return page.pageNumber();
+            }
+        }
+        return null;
+    }
+
+    private static boolean beforeNextTransaction(Layout document, TransactionRange range, int page,
+            List<PdfInspection.PageText> pages) {
+        Integer nextPage = range.end() < document.lines().size()
+            ? physicalPage(document, range.end(), pages) : null;
+        return nextPage == null || page < nextPage;
     }
 
     private static String repeatedTransactionArtifactEvidence(Layout template,
@@ -805,6 +854,10 @@ final class AiReviewGroundingPolicy {
     }
 
     private static int artifactIndexInRange(Layout region, TransactionRange range, String expected) {
+        if (expected.equals("use case description")) {
+            int table = descriptionTableIndex(region, range);
+            if (table >= 0) return table;
+        }
         String normalizedExpected = normalize(expected);
         for (int i = range.start(); i < range.end(); i++) {
             if (!region.inBody(i)) continue;
@@ -812,6 +865,7 @@ final class AiReviewGroundingPolicy {
             String normalized = normalize(line);
             if (normalized.equals(normalizedExpected)) return i;
             if (artifactInlineContent(line, expected) != null) return i;
+            if (explicitUseCaseFigureCaption(line, expected)) return i;
             if (line.length() <= 100 && line.split("\\s+").length <= 12
                     && normalized.contains(normalizedExpected)
                     && !ABSENCE.matcher(line).find()) return i;
@@ -821,6 +875,7 @@ final class AiReviewGroundingPolicy {
 
     private static boolean artifactHasSubstantiveContentInRange(Layout region, TransactionRange range,
             String expected) {
+        if (expected.equals("use case description") && descriptionTableIndex(region, range) >= 0) return true;
         String normalizedExpected = normalize(expected);
         for (int i = range.start(); i < range.end(); i++) {
             if (!region.inBody(i)) continue;
@@ -831,12 +886,48 @@ final class AiReviewGroundingPolicy {
             if (inline != null) {
                 return !inline.isBlank() && !EXPLICIT_PLACEHOLDER.matcher(inline).find();
             }
+            if (explicitUseCaseFigureCaption(line, expected)) return true;
             if (line.length() <= 100 && line.split("\\s+").length <= 12
                     && normalized.contains(normalizedExpected)
                     && !ABSENCE.matcher(line).find()
                     && !normalized.matches("(?s).*\\b(?:placeholder|todo|tbd)\\b.*")) return true;
         }
         return false;
+    }
+
+    private static boolean explicitUseCaseFigureCaption(String line, String artifact) {
+        return Pattern.compile("(?i)^\\s*Figure(?:\\s+\\d+(?:[.-]\\d+)*)?\\s*[-:–—.]?\\s*"
+            + (artifact.equals("wireframe") ? "(?:(?:low|high)[- ]fidelity\\s+)?" : "")
+            + Pattern.quote(artifact) + "\\s+(?:for|of)\\s+UC(?:-[A-Z0-9]+)+\\b.{0,200}$")
+            .matcher(line).matches();
+    }
+
+    private static int descriptionTableIndex(Layout region, TransactionRange range) {
+        for (int i = range.start(); i < range.end(); i++) {
+            String line = normalize(region.lines().get(i));
+            if (!(line.equals("use case item description") || line.equals("item description")
+                    || line.equals("element description") || line.startsWith("use case id "))) continue;
+            Set<String> fields = new HashSet<>();
+            for (int next = i + 1; next < Math.min(range.end(), i + 50); next++) {
+                String candidate = region.lines().get(next);
+                if (containsExplicitPlaceholder(candidate)) continue;
+                Matcher field = Pattern.compile("(?i)^\\s*(?:(?:primary|secondary)\\s+)?"
+                    + "(actors?|preconditions?|postconditions?|trigger|main (?:flow|success)|"
+                    + "basic flow|normal flow|alternative flows?|use case name)\\b\\s*[:|]?\\s*(.*)").matcher(candidate);
+                if (!field.matches()) continue;
+                String value = field.group(2).trim();
+                if (value.isBlank() && next + 1 < range.end()) {
+                    String following = region.lines().get(next + 1).trim();
+                    if (!following.matches("(?i)^(?:(?:primary|secondary)\\s+)?(?:actor|precondition|postcondition|"
+                            + "trigger|main |basic flow|normal flow|alternative flow|use case |activity diagram|wireframe).*")
+                            && !looksLikeBodyHeading(following)) value = following;
+                }
+                if (value.length() >= 3 && !containsExplicitPlaceholder(value))
+                    fields.add(normalize(field.group(1)).replaceAll("s$", ""));
+            }
+            if (fields.size() >= 3) return i;
+        }
+        return -1;
     }
 
     private static String artifactInlineContent(String line, String expected) {
@@ -868,6 +959,7 @@ final class AiReviewGroundingPolicy {
         var ranges = new ArrayList<TransactionRange>();
         int moduleNumber = -1;
         int start = -1;
+        String activeUseCaseId = "";
         for (int i = 0; i < region.lines().size(); i++) {
             if (!region.inBody(i)) continue;
             String line = region.lines().get(i);
@@ -876,20 +968,52 @@ final class AiReviewGroundingPolicy {
                 if (start >= 0) ranges.add(new TransactionRange(start, i));
                 moduleNumber = Integer.parseInt(module.group(1));
                 start = -1;
+                activeUseCaseId = "";
+                continue;
+            }
+            // A structured use-case ID row identifies a transaction independently of numbering.
+            // Traceability/mapping rows have requirement IDs and must not create transactions.
+            boolean identifiedUseCase = line.matches("(?i)^\\s*Use Case ID\\s*[:|]?\\s*UC[-A-Z0-9]+\\s*$");
+            if (!identifiedUseCase && line.matches("^UC[-A-Z0-9]+\\s+.{3,120}$")
+                    && !line.matches(".*\\bFR[-A-Z0-9]+\\b.*")) {
+                identifiedUseCase = region.lines().subList(i + 1, Math.min(region.lines().size(), i + 8))
+                    .stream().map(AiReviewGroundingPolicy::normalize).anyMatch(next ->
+                        next.equals("use case item description") || next.startsWith("use case name "));
+            }
+            if (identifiedUseCase) {
+                Matcher identifier = Pattern.compile("\\bUC(?:-[A-Z0-9]+)+\\b").matcher(line);
+                String id = identifier.find() ? identifier.group() : "";
+                if (!id.isBlank() && id.equals(activeUseCaseId)) continue;
+                activeUseCaseId = id;
+                if (start >= 0 && region.lines().subList(start + 1, i).stream().map(AiReviewGroundingPolicy::normalize)
+                        .allMatch(part -> part.isBlank() || part.matches("(?:use case (?:item )?description|"
+                            + "software .*|document version.*|published date.*|page \\d+.*|\\d+)"))) continue;
+                if (start >= 0) ranges.add(new TransactionRange(start, i));
+                start = i;
                 continue;
             }
             Matcher heading = TEMPLATE_BODY_NUMBERED_HEADING.matcher(line);
             if (!heading.matches() || moduleNumber < 0) continue;
             int root = leadingNumber(heading.group(1));
-            if (root != moduleNumber) {
+            // A major body section ends a module even when its numbering shares the root.
+            if (canonical(heading.group(2)).matches("(?:non functional requirements|references|"
+                    + "appendices|appendix|traceability matrix|requirements traceability matrix)")) {
                 if (start >= 0) ranges.add(new TransactionRange(start, i));
                 start = -1;
                 moduleNumber = -1;
+                activeUseCaseId = "";
                 continue;
             }
+            // Numbered main-flow steps belong to the current use case.
+            if (root != moduleNumber) continue;
             if (heading.group(1).matches("\\d+\\.\\d+")) {
+                String name = normalize(heading.group(2));
+                if (name.contains("use case diagram") || name.contains("activity diagram")
+                        || name.contains("wireframe") || name.contains("use case description")
+                        || line.matches("(?i).*\\bFR[-A-Z0-9]+\\b.*")) continue;
                 if (start >= 0) ranges.add(new TransactionRange(start, i));
                 start = i;
+                activeUseCaseId = "";
             }
         }
         if (start >= 0) ranges.add(new TransactionRange(start, region.lines().size()));
@@ -1121,7 +1245,7 @@ final class AiReviewGroundingPolicy {
                 definitionsEnd = i;
                 break;
             }
-            definitions.append(' ').append(line);
+            definitions.append('\n').append(line);
         }
         String definitionsText = definitions.toString();
 
@@ -1159,6 +1283,7 @@ final class AiReviewGroundingPolicy {
                 // Tokens embedded in identifiers such as LFT-0001 are trace IDs,
                 // not terminology that belongs in the definitions section.
                 int start = matcher.start(), end = matcher.end();
+                if (!AiReviewGlossaryPolicy.terminologyUse(acronym, line, start, end)) continue;
                 if (start > 0 && line.charAt(start - 1) == '-'
                         || end < line.length() && line.charAt(end) == '-') continue;
                 evidenceByAcronym.putIfAbsent(acronym, line.trim());
@@ -1180,14 +1305,22 @@ final class AiReviewGroundingPolicy {
     }
 
     private static boolean acronymDefined(String acronym, String definitionsText, String documentText) {
-        String token = Pattern.quote(acronym);
-        if (Pattern.compile("(?i)\\b" + token
-                + "\\b\\s*(?:means|stands\\s+for|is\\s+defined\\s+as|[:=â€“—-])")
-                .matcher(definitionsText).find()) return true;
-        // Also accept a conventional expansion such as "Recovery Point Objective (RPO)"
-        // anywhere in the submitted document.
-        return Pattern.compile("(?i)\\b[A-Za-z][A-Za-z -]{4,100}\\(\\s*" + token + "\\s*\\)")
-            .matcher(documentText).find();
+        return AiReviewGlossaryPolicy.acronymDefined(acronym, definitionsText, documentText);
+    }
+
+    private static String glossaryText(String documentText) {
+        var document = layout(Objects.requireNonNullElse(documentText, ""), false);
+        if (!document.reliableBody()) return "";
+        int heading = bodyHeadingIndex(document, "Definitions, Acronyms and Abbreviations", true);
+        if (heading < 0) return "";
+        StringBuilder text = new StringBuilder();
+        for (int i = heading + 1; i < document.lines().size(); i++) {
+            if (!document.inBody(i)) continue;
+            String line = document.lines().get(i);
+            if (isBodyBoundaryAfter(document.lines().get(heading), line)) break;
+            text.append(line).append('\n');
+        }
+        return text.toString();
     }
 
     private static String normalizeCapSubject(String value) {
@@ -1261,8 +1394,7 @@ final class AiReviewGroundingPolicy {
             String raw = document.lines().get(i).trim();
             if (raw.isBlank()) continue;
             String line = normalize(raw);
-            if (line.equals("use case description") || line.equals("use case diagram")
-                    || line.equals("activity diagram") || line.equals("wireframe")
+            if (line.matches("^(?:use case (?:description|diagram)|activity diagram|wireframe)(?: .*)?$")
                     || MODULE_ONE_HEADING.matcher(raw).matches()
                     || TEMPLATE_BODY_NUMBERED_HEADING.matcher(raw).matches()
                     || looksLikeBodyHeading(raw)) return false;
@@ -1386,6 +1518,7 @@ final class AiReviewGroundingPolicy {
 
     private static String canonical(String text) {
         return normalize(Objects.requireNonNullElse(text, "")
+            .replaceFirst("^\\d+(?:\\.\\d+)*[.)]\\s*(?=\\p{L})", "")
             .replaceFirst("^(?:\\d+(?:\\.(?:\\d+|[A-Za-z]))*|[A-Z](?:\\.\\d+)*|[IVXLC]+)[.)]?\\s+", ""));
     }
 
