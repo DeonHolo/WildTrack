@@ -1035,7 +1035,10 @@ describe("today's work queues", () => {
   it('reruns a completed PDF through the API and replaces View AI Review with its newly saved output', async () => {
     workflow.activeWorkspaceId = 'ws-rerun';
     const old = { status: 'COMPLETED', sourceUrl: 'https://drive.google.com/file/d/review-001/view',
-      generatedAt: '2026-09-21T08:00:00Z', report: { summary: 'Previously saved AI findings.' } };
+      generatedAt: '2026-09-21T08:00:00Z', report: { summary: 'Previously saved AI findings.',
+        outcome: 'ISSUES_IDENTIFIED', findings: [{ source: 'DOCUMENT',
+          issue: 'The submitted PDF identifies itself as an SPMP rather than an SRS.',
+          evidence: 'Title page: Software Project Management Plan', requirement: '' }] } };
     workflow.state = makeState([checkedResponse('review-001', { aiReviewState: old })]);
     workflow.state.deliverables[0].fields[0].aiReviewEnabled = true;
     let finish;
