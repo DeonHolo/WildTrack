@@ -534,6 +534,23 @@ export function isInconclusiveAiReviewReport(report) {
     && verifiedAiChecks(report).length < 2;
 }
 
+export function aiReviewReportStatus(report) {
+  if (!isInconclusiveAiReviewReport(report)) return 'Reviewed';
+  return report?.verificationNotes?.length ? 'Needs manual verification' : 'Limited review coverage';
+}
+
+export function aiReviewReportSummary(report) {
+  const status = aiReviewReportStatus(report);
+  if (status === 'Limited review coverage') {
+    const checks = verifiedAiChecks(report).length;
+    return `Review finished with limited coverage: ${checks} supported observation${checks === 1 ? '' : 's'} recorded. This does not establish a no-issues result or mean the PDF is empty or incorrect.`;
+  }
+  if (status === 'Needs manual verification') {
+    return 'Review finished with checks needing manual verification. Inspect the cited areas in the original PDF before deciding whether revisions are needed.';
+  }
+  return report?.summary || 'AI Review is available.';
+}
+
 export function artifactAiReview(response, field) {
   if (!response || !field) return null;
   if (field.definitionId && response.artifactAiReviews?.[field.definitionId]) {
@@ -604,7 +621,7 @@ export function artifactAiReviewStatus(response, field) {
   if (!field?.aiReviewEnabled) return 'Not applicable';
   const review = artifactAiReview(response, field);
   if (isArtifactAiReviewCurrent(response, field)) {
-    return isInconclusiveAiReviewReport(review.report) ? 'Inconclusive' : 'Reviewed';
+    return aiReviewReportStatus(review.report);
   }
   if (review?.status === 'UNCERTAIN') return 'Retry required';
   if (review?.status === 'RUNNING') return 'Reviewing';
@@ -615,7 +632,7 @@ export function artifactAiReviewStatus(response, field) {
 export function aiReviewStatus(response) {
   const review = response?.aiReviewState;
   if (review?.sourceResponseUpdatedAt && review.sourceResponseUpdatedAt !== (response.updatedAt || response.submittedAt)) return 'Not reviewed';
-  if (isAiReportCurrent(response)) return isInconclusiveAiReviewReport(response.aiReport) ? 'Inconclusive' : 'Reviewed';
+  if (isAiReportCurrent(response)) return aiReviewReportStatus(response.aiReport);
   if (review?.status === 'UNCERTAIN') return 'Retry required';
   if (review?.status === 'RUNNING') return 'Reviewing';
   if (review?.status === 'UNAVAILABLE') return 'Unavailable';
@@ -708,7 +725,7 @@ function parseDisplayDate(value) {
 
 export function statusTone(status) {
   const key = String(status).toLowerCase();
-  if (key === 'retry required' || key === 'inconclusive') return 'warning';
+  if (['retry required', 'inconclusive', 'limited review coverage', 'needs manual verification'].includes(key)) return 'warning';
   if (key === 'reviewing') return 'info';
   if (/^\d+\s+days?\s+late$/.test(key)) return 'warning';
   if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'looks substantially filled', 'connected', 'imported', 'published', 'submitted', 'file accessible'].includes(key)) return 'success';

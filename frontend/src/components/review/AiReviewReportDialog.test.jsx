@@ -53,7 +53,7 @@ it('marks a historical generic fallback inconclusive rather than treating it as 
     previousReport: { summary: 'The AI review returned no grounded findings from the submitted PDF or supplied requirement sources.',
       findings: [], missingRequiredSections: [] }, previousGeneratedAt: '2026-09-20T08:00:00Z' });
   const dialog = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
-  expect(within(dialog).getByRole('status')).toHaveTextContent('Inconclusive AI Review');
+  expect(within(dialog).getByRole('status')).toHaveTextContent('Limited review coverage');
   expect(dialog).toHaveTextContent('Previously saved AI Review');
 });
 

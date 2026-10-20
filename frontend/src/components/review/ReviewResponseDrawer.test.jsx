@@ -5,6 +5,31 @@ import { wildTrackTheme } from '../../app/theme.js';
 import { ReviewResponseDrawer } from './ReviewResponseDrawer.jsx';
 
 describe('ReviewResponseDrawer submission artifacts', () => {
+  it.each([
+    [{ outcome: 'INCONCLUSIVE', summary: 'AI Review is inconclusive. Only one independent source-backed check was recorded.',
+      verifiedChecks: [{ aspect: 'Scope identifies students', source: 'DOCUMENT', documentEvidence: 'Students submit project documentation.' }] },
+      'Limited review coverage', 'Review finished with limited coverage: 1 supported observation recorded.'],
+    [{ outcome: 'INCONCLUSIVE', summary: 'AI Review is inconclusive. Unresolved verification requires review of the original PDF.',
+      verificationNotes: [{ issue: 'Verify the diagram in the original PDF.' }] },
+      'Needs manual verification', 'Review finished with checks needing manual verification.']
+  ])('explains current completed assessment warnings without generic inconclusive copy', async (report, label, summary) => {
+    const url = 'https://drive.google.com/file/d/current/view';
+    const response = { id: 'response-1', studentName: 'DOE, JANE', studentNumber: '26-0001',
+      submittedAt: '2026-09-19T08:00:00+08:00', reviewStatus: 'Received', values: { pdf: url },
+      artifactAiReviews: { pdf: { status: 'COMPLETED', sourceUrl: url, report } } };
+    render(<MantineProvider theme={wildTrackTheme} forceColorScheme="light">
+      <ReviewResponseDrawer opened response={response} student={{ name: 'DOE, JANE', studentNumber: '26-0001' }}
+        state={{ projectMetadata: [] }} deliverable={{ id: 'deliverable-1', shortTitle: 'SRS', fields: [
+          { id: 'pdf', definitionId: 'pdf', label: 'SRS PDF', type: 'drive', pdfRequired: true, aiReviewEnabled: true,
+            documentCheckPolicy: 'MANUAL' }
+        ] }} onClose={vi.fn()} />
+    </MantineProvider>);
+    expect(await screen.findByText(label)).toBeInTheDocument();
+    expect(screen.getByText(summary, { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText(report.summary)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View AI Review' })).toBeEnabled();
+  });
+
   it('renders only file/link artifact fields and never academic identity or ordinary response fields', async () => {
     const student = { name: 'DOE, JANE', studentNumber: '26-0001', teamCode: 'TEAM-01' };
     const deliverable = {

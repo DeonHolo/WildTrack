@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { aiBatchGroups, aiBatchSelection, aiBatchUpdatedDocuments } from './aiReviewBatch.js';
+import { aiBatchFailureGroups, aiBatchGroups, aiBatchSelection, aiBatchUpdatedDocuments,
+  isAiBatchAccessRestriction, isAiBatchReviewAdvisory, isAiBatchTechnicalFailure } from './aiReviewBatch.js';
 
 
 describe('latest affected PDF display', () => {
@@ -81,5 +82,42 @@ describe('verified AI batch selection', () => {
     const entries = [entry('shared', 'FAILED', { retryToken: 'token', outdated: true }), entry('shared', 'FAILED', { retryToken: 'token', outdated: true }), entry('new')];
     expect(aiBatchSelection({ entries }, 'ATTENTION', true)).toMatchObject({ unique: 2, retries: 1, updated: 1 });
     expect(aiBatchSelection({ entries }, 'ATTENTION', false)).toMatchObject({ unique: 1, retries: 0, updated: 0 });
+  });
+});
+
+describe('AI batch completion versus assessment warnings', () => {
+  const restricted = 'The submitted Drive PDF could not be opened. Google Drive reported a file-access or download restriction.';
+  const inconclusive = 'This review is inconclusive; it does not establish a clean result.';
+
+  it('keeps a completed assessment warning separate from a technical failure', () => {
+    const completed = { resultStatus: 'COMPLETED', noAiStarted: false, error: inconclusive };
+    expect(isAiBatchReviewAdvisory(completed)).toBe(true);
+    expect(isAiBatchTechnicalFailure(completed)).toBe(false);
+    expect(aiBatchFailureGroups([completed])[0]).toMatchObject({ advisory: true,
+      message: 'Limited review coverage or manual verification needed. These reviews finished; open their results for details.' });
+  });
+
+  it.each(['FAILED', 'UNCERTAIN'])('does not hide %s behind assessment or access wording', resultStatus => {
+    for (const error of [inconclusive, restricted, '']) {
+      const failed = { resultStatus, noAiStarted: false, error };
+      expect(isAiBatchTechnicalFailure(failed)).toBe(true);
+      expect(isAiBatchReviewAdvisory(failed)).toBe(false);
+      expect(isAiBatchAccessRestriction(failed)).toBe(false);
+    }
+  });
+
+  it.each([undefined, null, 'UNKNOWN'])('treats unknown or legacy status %s with an error conservatively', resultStatus => {
+    expect(isAiBatchTechnicalFailure({ resultStatus, noAiStarted: false, error: inconclusive })).toBe(true);
+    expect(isAiBatchTechnicalFailure({ resultStatus, noAiStarted: true, error: 'Google Drive returned HTTP 403.' })).toBe(true);
+  });
+
+  it('recognizes only the confirmed pre-AI access restriction as nontechnical', () => {
+    expect(isAiBatchAccessRestriction({ error: restricted, noAiStarted: true })).toBe(true);
+    expect(isAiBatchTechnicalFailure({ error: restricted, noAiStarted: true })).toBe(false);
+    expect(isAiBatchTechnicalFailure({ error: restricted, noAiStarted: false })).toBe(true);
+    expect(isAiBatchTechnicalFailure({ error: 'WildTrack could not retrieve the submitted PDF from Google Drive.', noAiStarted: true })).toBe(true);
+    expect(isAiBatchTechnicalFailure({ resultStatus: 'FAILED', error: restricted, noAiStarted: true })).toBe(false);
+    expect(isAiBatchTechnicalFailure({ resultStatus: 'FAILED', error: restricted })).toBe(true);
+    expect(isAiBatchTechnicalFailure({ resultStatus: 'UNCERTAIN', error: restricted, noAiStarted: true })).toBe(true);
   });
 });

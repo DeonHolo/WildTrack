@@ -29,6 +29,67 @@ describe('AI batch affected PDF presentation', () => {
     expect(screen.getByRole('button', { name: 'Review retry options' })).toBeInTheDocument();
   });
 
+  it('keeps completed inconclusive reviews green while retaining their warning and affected PDF', () => {
+    const batch = completedBatch();
+    batch.message = 'AI Review batch finished with items needing attention. Open the affected PDFs below.';
+    batch.entries[0] = { ...batch.entries[0], error: 'This review is inconclusive; it does not establish a clean result.',
+      identity: { fileName: 'reviewed.pdf', sourceUrl: 'https://drive.google.com/file/d/reviewed/view' } };
+    renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('green');
+    expect(screen.getByRole('progressbar').style.getPropertyValue('--progress-section-color')).toContain('green');
+    expect(screen.getByText('AI Review batch finished. Saved results are available.')).toBeInTheDocument();
+    expect(screen.queryByText(/finished with items needing attention/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Limited review coverage or manual verification needed/)).toBeInTheDocument();
+    expect(screen.getByText(/These PDFs could not be opened/)).toBeInTheDocument();
+    expect(screen.getByText('1 AI review available')).toBeInTheDocument();
+    const details = screen.getByText('reviewed.pdf').closest('details');
+    fireEvent.click(screen.getByRole('button', { name: 'Show PDFs with review limits' }));
+    expect(details.open).toBe(true);
+    expect(details.querySelector('summary')).toHaveFocus();
+    expect(screen.getByRole('link', { name: 'reviewed.pdf' })).toHaveAttribute('href', 'https://drive.google.com/file/d/reviewed/view');
+  });
+
+  it.each(['FAILED', 'UNCERTAIN', undefined])('keeps a %s attempt orange alongside completed review advisories', resultStatus => {
+    const batch = completedBatch();
+    batch.entries[0].error = 'This review is inconclusive; it does not establish a clean result.';
+    batch.entries.push({ target: { responseId: 'failed', fieldId: 'pdf' }, preview: { key: 'failed' },
+      selected: true, phase: 'DONE', resultStatus, noAiStarted: false,
+      error: "Gemini rejected WildTrack's AI request (HTTP 400)." });
+    renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('orange');
+    expect(screen.getByText(/Limited review coverage or manual verification needed/)).toBeInTheDocument();
+    expect(screen.getByText(/Gemini rejected/)).toBeInTheDocument();
+    expect(screen.getByText(/1 failed or unconfirmed/)).toBeInTheDocument();
+  });
+
+  it('keeps completed duplicate groups available while showing each advisory only as a review limit', () => {
+    const batch = completedBatch();
+    batch.entries[0].error = 'This review is inconclusive; it does not establish a clean result.';
+    batch.entries.push({ ...batch.entries[0], target: { responseId: 'duplicate', fieldId: 'pdf' } });
+    renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByText('1 AI review available')).toBeInTheDocument();
+    expect(screen.queryByText(/failed or unconfirmed/)).not.toBeInTheDocument();
+    expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('green');
+  });
+
+  it('keeps backend-shaped selected pre-AI FILE_ACCESS failures green without counting them as reviews', () => {
+    const blocked = { ...entry('selected-restricted'), selected: true, phase: 'DONE', resultStatus: 'FAILED',
+      noAiStarted: true, preview: { key: 'selected-restricted' } };
+    const batch = { id: 'all-access', state: 'COMPLETED', entries: [blocked], totalPdfs: 1,
+      selectedDocuments: 1, completedDocuments: 1, pendingDocuments: 0, uniqueDocuments: 1 };
+    renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('green');
+    expect(screen.getByText('0 AI reviews available · 1 blocked before AI')).toBeInTheDocument();
+    expect(screen.getByText('AI Review batch finished. No reviews were produced; check the file-access notices below.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show PDFs with access restrictions' })).toBeInTheDocument();
+    expect(screen.queryByText(/failed or unconfirmed/)).not.toBeInTheDocument();
+  });
+
+  it.each(['RUNNING', 'PLANNING'])('keeps %s blue while earlier attempts have technical failures', state => {
+    renderView(<AiReviewBatchPanel batch={{ ...completedBatch({ error: unavailable }), state, preparedPdfs: 2 }} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
+    expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('blue');
+  });
+
   it('opens the affected PDF list and moves keyboard focus there from the access-restriction icon', () => {
     renderView(<AiReviewBatchPanel batch={completedBatch()} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
     const details = screen.getByText('restricted.pdf').closest('details');

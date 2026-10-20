@@ -15,11 +15,14 @@ function FailureGroup({ group }) {
     details.current.open = true;
     details.current.querySelector('summary')?.focus();
   };
+  const warningLabel = group.entries.some(isAiBatchAccessRestriction)
+    ? 'Show PDFs with access restrictions'
+    : group.advisory ? 'Show PDFs with review limits' : '';
   return <div>
       <Group gap="xs" wrap="nowrap" align="flex-start">
-        {group.entries.some(isAiBatchAccessRestriction) ? <ActionIcon color="yellow.7" variant="transparent" size={20}
+        {warningLabel ? <ActionIcon color="yellow.7" variant="transparent" size={20}
           style={{ minHeight: 20, flexShrink: 0 }}
-          aria-label="Show PDFs with access restrictions" title="Show PDFs with access restrictions" onClick={showAffected}>
+          aria-label={warningLabel} title={warningLabel} onClick={showAffected}>
           <Warning size={16} weight="fill" aria-hidden="true" />
         </ActionIcon> : null}
         <Text size="sm">{group.message}</Text>

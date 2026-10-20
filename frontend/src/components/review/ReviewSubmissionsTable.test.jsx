@@ -55,13 +55,13 @@ function renderAiStatus(reviews) {
 }
 
 describe('ReviewSubmissionsTable AI Review status', () => {
-  it('shows a current saved inconclusive report as Inconclusive', () => {
-    expect(renderAiStatus([savedInconclusive])).toHaveTextContent(/^Inconclusive$/);
+  it('shows a current saved insufficient-evidence report as Limited review coverage', () => {
+    expect(renderAiStatus([savedInconclusive])).toHaveTextContent(/^Limited review coverage$/);
   });
 
   it.each([
-    ['a reviewed PDF', [savedReviewed], 'Inconclusive'],
-    ['an unreviewed PDF', [null], 'Inconclusive'],
+    ['a reviewed PDF', [savedReviewed], 'Limited review coverage'],
+    ['an unreviewed PDF', [null], 'Limited review coverage'],
     ['a running review', [{ status: 'RUNNING' }], 'Reviewing'],
     ['a retry-required review', [{ status: 'UNCERTAIN' }], 'Retry required'],
     ['running and retry-required reviews', [{ status: 'RUNNING' }, { status: 'UNCERTAIN' }], 'Retry required']
@@ -71,6 +71,11 @@ describe('ReviewSubmissionsTable AI Review status', () => {
 
   it('keeps Reviewed when every PDF has a current substantive report', () => {
     expect(renderAiStatus([savedReviewed, savedReviewed])).toHaveTextContent(/^Reviewed$/);
+  });
+
+  it('keeps specific manual-verification questions visible ahead of limited coverage', () => {
+    const manual = { status: 'COMPLETED', report: { outcome: 'INCONCLUSIVE', verificationNotes: [{ issue: 'Check the original diagram.' }] } };
+    expect(renderAiStatus([savedInconclusive, manual, savedReviewed])).toHaveTextContent(/^Needs manual verification$/);
   });
 
   it('does not present an inconclusive report for a replaced PDF as current', () => {

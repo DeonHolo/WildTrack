@@ -134,6 +134,8 @@ function aggregateAiStatus(response, deliverable) {
   const statuses = fields.map((field) => artifactAiReviewStatus(response, field));
   if (statuses.includes('Retry required')) return 'Retry required';
   if (statuses.includes('Reviewing')) return 'Reviewing';
+  if (statuses.includes('Needs manual verification')) return 'Needs manual verification';
+  if (statuses.includes('Limited review coverage')) return 'Limited review coverage';
   if (statuses.includes('Inconclusive')) return 'Inconclusive';
   if (statuses.includes('Outdated')) return 'Outdated';
   if (statuses.every((status) => status === 'Reviewed')) return 'Reviewed';

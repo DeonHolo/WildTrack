@@ -178,6 +178,65 @@ class AiReviewBatchLifecycleTest {
         assertThat(progress.message()).contains("items needing attention").doesNotContain("Saved results are available");
     }
 
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void completedAssessmentNoticesDoNotTurnBatchCompletionIntoTechnicalFailure(boolean manualVerification) {
+        var report = new AiReviewProvider.Result("Limited assessment", List.of(), List.of(), List.of(),
+            "Inspect the PDF.", List.of(), manualVerification
+                ? List.of(new AiReviewProvider.Finding("Inspect this figure", AiReviewProvider.FindingSource.DOCUMENT,
+                    "Figure 1", "")) : List.of(), AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        var review = new AiReviewService.View("COMPLETED", true, "Saved status", report,
+            clock.instant().toString(), clock.instant().toString(), false, null, null, "pdf", "source", null, null);
+        when(reviews.reviewPlanned(eq(workspace), any(), eq("pdf"), eq("admin"), anyBoolean(), any(), anyBoolean(), anyString(), any()))
+            .thenReturn(review);
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        service.tick(); service.tick(); service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.state()).isEqualTo("COMPLETED");
+        assertThat(progress.message()).isEqualTo("AI Review batch finished. Saved results are available.");
+        assertThat(progress.completedDocuments()).isEqualTo(1);
+        assertThat(progress.reusedDocuments()).isEqualTo(1);
+        assertThat(progress.entries().get(0).resultStatus()).isEqualTo("COMPLETED");
+        assertThat(progress.entries().get(0).error())
+            .contains(manualVerification ? "manual verification" : "limited coverage");
+        assertThat(progress.entries().get(0).error()).doesNotContain("clean result");
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), eq("pdf"), eq("admin"), anyBoolean(), any(), anyBoolean(), anyString(), any());
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(second), eq("pdf"), eq("admin"), anyBoolean(), any(), anyBoolean(), anyString(), any());
+    }
+
+
+    @Test void aTechnicalFailureRemainsVisibleAlongsideCompletedAssessmentNotices() {
+        when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin")))
+            .thenAnswer(inv -> preview(inv.getArgument(1), inv.getArgument(1).toString(), "MISSING", null));
+        var report = new AiReviewProvider.Result("Limited assessment", List.of(), List.of(), List.of(),
+            "Inspect the PDF.", List.of(), List.of(), AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenReturn(new AiReviewService.View("COMPLETED", false, "Saved status", report,
+                clock.instant().toString(), clock.instant().toString(), false, null, null, "pdf", "source", null, null));
+        when(reviews.reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenReturn(result("UNCERTAIN", "INVALID_RESPONSE", false));
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        for (int i = 0; i < 6; i++) service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.state()).isEqualTo("COMPLETED");
+        assertThat(progress.message()).contains("items needing attention");
+        assertThat(progress.entries()).extracting(AiReviewBatchService.Entry::resultStatus)
+            .containsExactly("COMPLETED", "UNCERTAIN");
+        assertThat(progress.entries().get(0).error()).contains("limited coverage");
+        assertThat(progress.reusedDocuments()).isZero();
+    }
+
+    @Test void accessRestrictionsRemainNoticesWithoutClaimingAnAiReviewWasProduced() {
+        when(reviews.reviewPlanned(eq(workspace), any(), eq("pdf"), eq("admin"), anyBoolean(), any(), anyBoolean(), anyString(), any()))
+            .thenThrow(new AiReviewService.DrivePreparationFailure(Kind.FILE_ACCESS,
+                "The submitted Drive PDF could not be opened. Google Drive reported a file-access or download restriction. No AI review was started."));
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        for (int i = 0; i < 6; i++) service.tick();
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.state()).isEqualTo("COMPLETED");
+        assertThat(progress.message()).contains("No reviews were produced", "file-access notices")
+            .doesNotContain("items needing attention", "Saved results are available");
+        assertThat(progress.entries()).allMatch(AiReviewBatchService.Entry::noAiStarted);
+    }
 
     @Test void pauseAndContinueNeverReplayTheFailedRequest() {
         when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin"))).thenAnswer(inv -> preview(inv.getArgument(1), inv.getArgument(1).toString(), "MISSING", null));

@@ -58,9 +58,23 @@ export function aiBatchSelection(plan, mode, includeOutdated) {
 }
 
 export function isAiBatchAccessRestriction(entry) {
-  return entry.noAiStarted !== false && String(entry.error || '').trim().startsWith(
+  const beforeAi = entry.noAiStarted === true
+    || entry.noAiStarted == null && !['UNCERTAIN', 'FAILED'].includes(entry.resultStatus);
+  return entry.resultStatus !== 'UNCERTAIN' && beforeAi && String(entry.error || '').trim().startsWith(
     'The submitted Drive PDF could not be opened. Google Drive reported a file-access or download restriction.'
   );
+}
+
+export function isAiBatchReviewAdvisory(entry) {
+  return entry.resultStatus === 'COMPLETED' && Boolean(String(entry.error || '').trim());
+}
+
+export function isAiBatchTechnicalFailure(entry) {
+  if (entry.resultStatus === 'UNCERTAIN') return true;
+  if (isAiBatchAccessRestriction(entry)) return false;
+  if (entry.resultStatus === 'FAILED') return true;
+  return Boolean(String(entry.error || '').trim())
+    && !isAiBatchReviewAdvisory(entry) && !isAiBatchAccessRestriction(entry);
 }
 
 export function aiBatchFailureGroups(entries = []) {
@@ -70,9 +84,13 @@ export function aiBatchFailureGroups(entries = []) {
     if (!error) continue;
     const driveAccess = error.startsWith('The submitted Drive PDF could not be opened.');
     const driveRetrieval = error.startsWith('WildTrack could not retrieve the submitted PDF from Google Drive.');
-    const message = driveAccess || driveRetrieval
-      ? 'These PDFs could not be opened from Google Drive. No AI review started for them.' : error;
-    if (!groups.has(message)) groups.set(message, { message, entries: [] });
+    const advisory = isAiBatchReviewAdvisory(entry);
+    const reviewLimit = advisory && /inconclusive|limited (?:review )?coverage|manual verification/i.test(error);
+    const message = reviewLimit
+      ? 'Limited review coverage or manual verification needed. These reviews finished; open their results for details.'
+      : driveAccess || driveRetrieval
+        ? 'These PDFs could not be opened from Google Drive. No AI review started for them.' : error;
+    if (!groups.has(message)) groups.set(message, { message, advisory, entries: [] });
     groups.get(message).entries.push({ ...entry,
       failureDetail: driveAccess ? 'Access or download restricted' : driveRetrieval ? 'Server retrieval failed' : '' });
   }

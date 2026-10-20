@@ -1,5 +1,5 @@
 import { Alert, Button, Group, Progress, Stack, Text } from '@mantine/core';
-import { isAiBatchAccessRestriction } from '../../lib/aiReviewBatch.js';
+import { isAiBatchTechnicalFailure } from '../../lib/aiReviewBatch.js';
 import { AiReviewBatchFailures } from './AiReviewBatchFailures.jsx';
 
 export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDismiss, onResume, onChoose, onPrepare, onRefresh, refreshing = false }) {
@@ -8,10 +8,14 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
   const running = batch.state === 'RUNNING';
   const paused = batch.state === 'PAUSED';
   const preparing = batch.state === 'PLANNING';
-  const failed = batch.entries.filter(entry => entry.error).length;
+  const attention = batch.entries.filter(entry => entry.error).length;
   const counts = summarizeBatch(batch.entries);
-  const technicalFailure = counts.failed > 0 || batch.entries.some(entry => entry.error && !isAiBatchAccessRestriction(entry));
-  const color = paused || technicalFailure || error ? 'orange' : running || preparing ? 'blue' : 'green';
+  const technicalFailure = counts.failed > 0 || batch.entries.some(isAiBatchTechnicalFailure);
+  const color = running || preparing ? 'blue' : paused || technicalFailure || error ? 'orange' : 'green';
+  const message = batch.state === 'COMPLETED' && !technicalFailure && !error
+    ? counts.completed ? 'AI Review batch finished. Saved results are available.'
+      : 'AI Review batch finished. No reviews were produced; check the file-access notices below.'
+    : batch.message;
   return <Alert role="status" color={color}
     withCloseButton={batch.state === 'COMPLETED' && Boolean(onDismiss) && !busy}
     onClose={onDismiss} closeButtonLabel="Dismiss finished AI Review batch"
@@ -21,7 +25,7 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
         : `${batch.completedDocuments ?? 0} of ${batch.selectedDocuments ?? 0} unique review attempts finished · ${batch.totalPdfs} total PDF submissions`}</Text>
       <Progress color={color} value={preparing ? batch.preparedPdfs / Math.max(1, batch.totalPdfs) * 100
         : batch.completedDocuments / Math.max(1, batch.selectedDocuments) * 100} animated={running || preparing} />
-      <Text size="sm">{batch.message}</Text>
+      <Text size="sm">{message}</Text>
       {batch.reusedDocuments ? <Text size="sm">{batch.reusedDocuments} saved {batch.reusedDocuments === 1 ? 'review reused' : 'reviews reused'}.</Text> : null}
       {!preparing ? <Text size="sm">
         {counts.completed} AI {counts.completed === 1 ? 'review' : 'reviews'} available
@@ -30,12 +34,12 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
         {counts.pending ? ` · ${counts.pending} pending` : ''}
       </Text> : null}
       {error ? <Text size="sm">{error}</Text> : null}
-      {failed ? <AiReviewBatchFailures entries={batch.entries} /> : null}
+      {attention ? <AiReviewBatchFailures entries={batch.entries} /> : null}
       <Group gap="sm">
         {batch.state === 'READY' ? <Button onClick={onChoose}>Choose review scope</Button> : null}
         {paused && batch.pendingDocuments > 0 ? <Button loading={busy} onClick={onResume}>Continue remaining ({batch.pendingDocuments})</Button> : null}
         {!running && !preparing ? <Button variant="default" loading={refreshing} onClick={onRefresh}>Check saved reviews</Button> : null}
-        {paused || batch.state === 'COMPLETED' && failed ? <Button variant="default" onClick={onPrepare}>Review retry options</Button> : null}
+        {paused || batch.state === 'COMPLETED' && (attention || technicalFailure) ? <Button variant="default" onClick={onPrepare}>Review retry options</Button> : null}
       </Group>
     </Stack>
   </Alert>;

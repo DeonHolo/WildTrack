@@ -3,6 +3,8 @@ import {
   activeSubmissionValues,
   isArtifactAiReviewCurrent,
   isInconclusiveAiReviewReport,
+  aiReviewReportStatus,
+  aiReviewReportSummary,
   verifiedAiChecks,
   artifactAiReview,
   artifactAiReviewStatus,
@@ -118,6 +120,8 @@ describe('Document Check submission-substance status tones', () => {
     expect(statusTone('Looks substantially filled')).toBe('success');
     expect(statusTone('Could not determine')).toBe('warning');
     expect(statusTone('Inconclusive')).toBe('warning');
+    expect(statusTone('Limited review coverage')).toBe('warning');
+    expect(statusTone('Needs manual verification')).toBe('warning');
   });
 });
 
@@ -151,6 +155,34 @@ describe('grounded positive AI review evidence', () => {
       verifiedChecks: [first] };
     expect(isInconclusiveAiReviewReport(report)).toBe(false);
     expect(verifiedAiChecks(report)).toEqual([first]);
+  });
+
+  it('separates limited recorded coverage from specific unresolved questions without changing the evidence gate', () => {
+    const limited = { outcome: 'INCONCLUSIVE', findings: [], verifiedChecks: [first] };
+    const manual = { outcome: 'INCONCLUSIVE', findings: [], verifiedChecks: [first, second],
+      verificationNotes: [{ issue: 'Verify the original diagram.', evidence: 'Page 8' }] };
+    expect(aiReviewReportStatus(limited)).toBe('Limited review coverage');
+    expect(aiReviewReportStatus(manual)).toBe('Needs manual verification');
+    expect(aiReviewReportSummary(limited)).toContain('1 supported observation recorded');
+    expect(aiReviewReportSummary(limited)).toContain('does not establish a no-issues result');
+    expect(aiReviewReportSummary(manual)).toContain('checks needing manual verification');
+    expect(isInconclusiveAiReviewReport(limited)).toBe(true);
+    expect(isInconclusiveAiReviewReport(manual)).toBe(true);
+    expect(aiReviewReportStatus({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: [first, second] })).toBe('Reviewed');
+    expect(aiReviewReportStatus({ outcome: 'ISSUES_IDENTIFIED', findings: [{ issue: 'A supported concern.' }],
+      verificationNotes: manual.verificationNotes })).toBe('Reviewed');
+    expect(aiReviewReportSummary({ outcome: 'ISSUES_IDENTIFIED', findings: [{ issue: 'A supported concern.' }],
+      summary: 'A supported concern was found.' })).toBe('A supported concern was found.');
+  });
+
+  it.each([
+    [{ outcome: 'INCONCLUSIVE', verifiedChecks: [first] }, 'Limited review coverage'],
+    [{ outcome: 'INCONCLUSIVE', verificationNotes: [{ issue: 'Check the diagram.' }] }, 'Needs manual verification']
+  ])('uses the completed assessment label for current artifact reports', (report, expected) => {
+    const url = 'https://drive.google.com/file/d/current/view';
+    const field = { id: 'pdf', definitionId: 'pdf', aiReviewEnabled: true };
+    const response = { values: { pdf: url }, artifactAiReviews: { pdf: { status: 'COMPLETED', sourceUrl: url, report } } };
+    expect(artifactAiReviewStatus(response, field)).toBe(expected);
   });
 });
 
