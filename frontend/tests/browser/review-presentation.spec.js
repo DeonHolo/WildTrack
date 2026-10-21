@@ -57,6 +57,19 @@ for (const width of [375, 820, 1440]) {
         return label.scrollWidth <= label.clientWidth + 1 && label.scrollHeight <= label.clientHeight + 1;
       })).toBe(true);
     }
+    await actions.getByRole('button', { name: 'View AI Review', exact: true }).click();
+    const ai = page.getByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
+    const header = ai.locator('.mantine-Modal-header');
+    const pdf = header.getByRole('link', { name: 'Open PDF', exact: true });
+    const close = header.getByRole('button', { name: 'Close AI Review details' });
+    await expect(pdf).toBeVisible();
+    await expect(close).toBeVisible();
+    const pdfBox = await pdf.boundingBox(), closeBox = await close.boundingBox();
+    expect(pdfBox.x + pdfBox.width).toBeLessThanOrEqual(closeBox.x);
+    expect(Math.abs(pdfBox.y + pdfBox.height / 2 - closeBox.y - closeBox.height / 2)).toBeLessThan(2);
+    await expect(ai.locator('.wt-ai-review-dialog-body').getByRole('link', { name: 'Open PDF' })).toHaveCount(0);
+    await expect(ai.getByText(/^Reviewed /)).toBeVisible();
+    expect(await ai.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
     fixture.assertRequestsHandled();
   });
 }

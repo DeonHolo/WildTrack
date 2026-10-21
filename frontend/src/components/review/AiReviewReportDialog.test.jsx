@@ -19,12 +19,18 @@ function show(review, report = null, documentChange = null, fileLink = '') {
 
 it('opens the selected submission PDF in a separate tab from its AI Review', async () => {
   const url = 'https://drive.google.com/file/d/selected-pdf/view?resourcekey=selected-key';
-  show({ status: 'COMPLETED' }, previousReport, null, url);
+  show({ status: 'COMPLETED', generatedAt: '2026-10-22T01:00:00Z' }, previousReport, null, url);
   const dialog = await screen.findByRole('dialog');
   const link = within(dialog).getByRole('link', { name: 'Open PDF' });
   expect(link).toHaveAttribute('href', url);
   expect(link).toHaveAttribute('target', '_blank');
   expect(link).toHaveAttribute('rel', 'noreferrer');
+  const header = link.closest('.mantine-Modal-header');
+  expect(header).toContainElement(within(dialog).getByRole('button', { name: 'Close AI Review details' }));
+  expect(header).toContainElement(within(dialog).getByText('AI Review: Software Requirements Specification'));
+  const body = dialog.querySelector('.wt-ai-review-dialog-body');
+  expect(body).not.toContainElement(link);
+  expect(body.firstElementChild.firstElementChild).toHaveTextContent(/^Reviewed /);
 });
 
 it.each(['', 'javascript:alert(1)'])('omits the PDF link when it is missing or invalid (%s)', async (url) => {
