@@ -112,7 +112,8 @@ final class AiReviewCoveragePolicy {
 
     static Result withCoverage(Result result, ReviewCoverage coverage) {
         return new Result(result.summary(), result.findings(), result.missingRequiredSections(), result.limitations(),
-            result.suggestedAction(), result.verifiedChecks(), result.verificationNotes(), result.outcome(), coverage);
+            result.suggestedAction(), result.verifiedChecks(), result.verificationNotes(), result.outcome(), coverage,
+            result.documentOverview());
     }
 
     static Result withPasses(Result result, int passes, String notice) {
@@ -146,7 +147,8 @@ final class AiReviewCoveragePolicy {
         var missing = unique(first.missingRequiredSections(), second.missingRequiredSections(), AiReviewCoveragePolicy::sameMissing);
         var checks = unique(first.verifiedChecks(), second.verifiedChecks(), AiReviewCoveragePolicy::sameCheck);
         var notes = unique(first.verificationNotes(), second.verificationNotes(), AiReviewCoveragePolicy::sameFinding);
-        var combined = new Result(first.summary(), findings, missing, first.limitations(), first.suggestedAction(), checks, notes, null);
+        var combined = new Result(first.summary(), findings, missing, first.limitations(), first.suggestedAction(), checks, notes, null,
+            null, first.documentOverview() != null ? first.documentOverview() : second.documentOverview());
         var a = mergeCoverage(first, combined);
         var b = mergeCoverage(second, combined);
         if (a == null) return withCoverage(combined, b);

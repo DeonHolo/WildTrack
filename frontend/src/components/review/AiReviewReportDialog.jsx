@@ -1,12 +1,14 @@
-import { Alert, Modal, Stack, Text } from '@mantine/core';
+import { Alert, Button, Group, Modal, Stack, Text } from '@mantine/core';
+import { ArrowSquareOut } from '@phosphor-icons/react';
 import { AiReviewReport } from './AiReviewReport.jsx';
 import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
-import { formatDateTime } from '../../lib/workflow.js';
+import { formatDateTime, makeDriveViewUrl, validateUrl } from '../../lib/workflow.js';
 
-export function AiReviewReportDialog({ opened, onClose, report, review, documentChange = null, deliverableTitle = 'Submission' }) {
+export function AiReviewReportDialog({ opened, onClose, report, review, documentChange = null, fileLink = '', deliverableTitle = 'Submission' }) {
   const previous = !report && Boolean(review?.previousReport || review?.lastSubstantiveReport);
   const displayReport = report || review?.previousReport || review?.lastSubstantiveReport;
   if (!displayReport) return null;
+  const pdfUrl = makeDriveViewUrl(fileLink);
   const inconclusive = previous && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED', 'INSUFFICIENT_REVIEW_EVIDENCE']
     .includes(review?.failureCode);
 
@@ -22,6 +24,14 @@ export function AiReviewReportDialog({ opened, onClose, report, review, document
       closeButtonProps={{ 'aria-label': 'Close AI Review details' }}
     >
       <Stack gap="md">
+        {pdfUrl && !validateUrl(pdfUrl) ? (
+          <Group justify="flex-end">
+            <Button component="a" href={pdfUrl} target="_blank" rel="noreferrer" variant="default" size="xs"
+              leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
+              Open PDF
+            </Button>
+          </Group>
+        ) : null}
         {documentChange ? (
           <Alert color="orange" title="AI Review may be outdated" role="alert">
             Document Check detected changed PDF content. This saved AI Review may describe an earlier file state.

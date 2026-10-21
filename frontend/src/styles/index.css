@@ -3208,6 +3208,12 @@ textarea:not(.mantine-Input-input):focus {
 .wt-ai-review-originals > summary { min-height: 44px; padding: 10px 0; }
 .wt-ai-review-outcome { padding-bottom: 4px; }
 .wt-ai-review-row { border-top: 1px solid var(--border); padding-top: 16px; }
+.wt-ai-review-checklist { margin: 0; padding-left: 24px; }
+.wt-ai-review-checklist > li { padding: 0 0 20px 6px; }
+.wt-ai-review-checklist > li::marker { font-weight: 700; color: var(--wt-ai-review-metadata); }
+.wt-ai-review-checklist > li > .wt-ai-review-row { padding-top: 12px; }
+.wt-ai-review-checklist > li:first-child > .wt-ai-review-row { border-top: 0; padding-top: 4px; }
+.wt-ai-review-report .wt-ai-review-item-label { font-size: 0.875rem; font-weight: 700; color: var(--wt-ai-review-metadata); margin-bottom: 4px; }
 .wt-ai-review-evidence { margin-top: 10px; }
 .wt-ai-review-secondary,
 .wt-ai-review-earlier { border-top: 1px solid var(--border); padding-top: 16px; }

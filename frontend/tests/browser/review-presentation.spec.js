@@ -3,7 +3,8 @@ import { installApiFixtures } from './api-fixtures.js';
 
 const field = 'field-document-pdf';
 const sourceUrl = 'https://drive.google.com/file/d/browser-pdf/view';
-const report = { outcome: 'NO_ISSUES_IN_CHECKED_AREAS', findings: [], verifiedChecks: [
+const documentOverview = { text: 'This requirements document describes a project submission service for students and advisers. It covers the intended users and the PDF submission workflow.', actualDocumentType: 'a software requirements specification', wrongDocument: false };
+const report = { documentOverview, outcome: 'NO_ISSUES_IN_CHECKED_AREAS', findings: [], verifiedChecks: [
   { aspect: 'Scope identifies users', source: 'DELIVERABLE_REQUIREMENTS', documentEvidence: 'Scope: students and advisers.', requirement: 'Identify intended users.' },
   { aspect: 'Submission workflow described', source: 'OFFICIAL_TEMPLATE', documentEvidence: 'FR-01: submit a PDF.', requirement: 'Functional requirements' }
 ] };
@@ -82,8 +83,15 @@ test('opens the saved successful result and quoted PDF evidence without another 
   const ai = page.getByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
   await expect(ai).toBeVisible();
   await expect(ai.getByText(/Artifact:/)).toHaveCount(0);
-  await ai.getByText('Checks with supporting excerpts (2)').click();
-  await expect(ai.getByText(/PDF excerpts quote the extracted document text/)).toBeVisible();
+  await expect(ai.getByRole('link', { name: 'Open PDF', exact: true })).toHaveAttribute('href', sourceUrl);
+  await expect(ai.getByRole('link', { name: 'Open PDF', exact: true })).toHaveAttribute('target', '_blank');
+  await expect(ai.getByText(documentOverview.text, { exact: true })).toBeVisible();
+  await expect(ai.getByText(/This is not the required document/)).toHaveCount(0);
+  await ai.getByText('Other checked items (2)', { exact: true }).click();
+  await expect(ai.getByText('Scope identifies users', { exact: true })).toBeVisible();
+  await expect(ai.locator('blockquote').first()).not.toBeVisible();
+  await ai.getByText('View supporting text', { exact: true }).first().click();
+  await expect(ai.locator('blockquote').first()).toBeVisible();
   await expect(ai.locator('blockquote').first()).toHaveText('Scope: students and advisers.');
   await expect(ai.getByText('PDF excerpt', { exact: true })).toHaveCount(0);
   await expect(ai.locator('blockquote')).toHaveCount(2);

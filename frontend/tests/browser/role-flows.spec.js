@@ -255,7 +255,7 @@ test('saved inconclusive AI review survives opening and reload without starting 
     await drawer.getByRole('button', { name: 'View AI Review', exact: true }).click();
     const savedReport = page.getByRole('dialog', { name: /^AI Review:/ });
     await expect(savedReport.locator('.wt-ai-review-outcome').getByText('Limited review coverage', { exact: true })).toBeVisible();
-    await savedReport.getByText('Coverage and limits', { exact: true }).click();
+    await savedReport.getByText('Review limits', { exact: true }).click();
     await expect(savedReport.getByText(reportLimit, { exact: true })).toBeVisible();
     expect(aiWrites).toEqual([]);
   }

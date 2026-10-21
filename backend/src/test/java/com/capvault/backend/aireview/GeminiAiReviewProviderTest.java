@@ -44,6 +44,19 @@ class GeminiAiReviewProviderTest {
         return response("{\"summary\":\"Requirements need clearer acceptance criteria.\",\"findings\":[{\"issue\":\"Requirement R1 has no measurable threshold.\",\"source\":\"DELIVERABLE_REQUIREMENTS\",\"evidence\":\"Section 3, requirement R1\",\"requirement\":\"Include functional requirements\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Ask the team to clarify R1.\",\"verifiedChecks\":[]}", "STOP");
     }
 
+    @Test void parsesTheSeparateDocumentOverviewWithoutReplacingTheReviewSummary() throws Exception {
+        var overview = Map.of("text", "This questionnaire collects participant feedback.",
+            "actualDocumentType", "a questionnaire", "wrongDocument", false, "evidence", "Participant questionnaire");
+        String report = json.writeValueAsString(Map.of("summary", "Review result only", "documentOverview", overview,
+            "findings", List.of(), "missingRequiredSections", List.of(), "suggestedAction", "Inspect the PDF.", "verifiedChecks", List.of()));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
+        var result = provider.review(input());
+        assertThat(result.summary()).isEqualTo("Review result only");
+        assertThat(result.documentOverview().text()).isEqualTo(overview.get("text"));
+        assertThat(result.documentOverview().wrongDocument()).isFalse();
+        server.verify();
+    }
+
     @Test void maximumCoverageSchemaAvoidsRepeatedBoundedArrays() throws Exception {
         var method = GeminiAiReviewProvider.class.getDeclaredMethod("schema", int.class, int.class);
         method.setAccessible(true);
@@ -241,7 +254,8 @@ class GeminiAiReviewProviderTest {
             .andExpect(jsonPath("$.generationConfig.candidateCount").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.maxOutputTokens").value(8192))
             .andExpect(jsonPath("$.generationConfig.responseMimeType").value("application/json"))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required.length()").value(6))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required.length()").value(7))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required").value(org.hamcrest.Matchers.hasItem("documentOverview")))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required").value(org.hamcrest.Matchers.hasItem("verifiedChecks")))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.required").value(org.hamcrest.Matchers.hasItem("criterionReviews")))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.source.enum.length()").value(3))
@@ -252,7 +266,7 @@ class GeminiAiReviewProviderTest {
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.required.length()").value(3))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.source").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.verifiedChecks.items.properties.passageId.enum[0]").value(""))
-            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.length()").value(6))
+            .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.length()").value(7))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.length()").value(4))
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.location").doesNotExist())
             .andExpect(jsonPath("$.generationConfig.responseJsonSchema.properties.findings.items.properties.title").doesNotExist())
@@ -273,7 +287,7 @@ class GeminiAiReviewProviderTest {
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
         assertThat(provider.cacheVersion()).contains("gemini-3.5-flash-lite", "rest-pdf-v7", "thinking-minimal", "output-8192",
-            "schema-structured-review-v10-compact-coverage");
+            "schema-structured-review-v11-document-overview");
         assertThat(provider.cacheVersion()).doesNotContain("temperature-0.2");
         server.verify();
     }

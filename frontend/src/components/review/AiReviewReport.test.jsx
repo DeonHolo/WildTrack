@@ -4,130 +4,157 @@ import { expect, it } from 'vitest';
 import { AiReviewReport } from './AiReviewReport.jsx';
 
 function show(report) { render(<MantineProvider><AiReviewReport report={report} /></MantineProvider>); }
+function openSupportingText() {
+  screen.getAllByText(/View supporting text/).forEach(item => fireEvent.click(item));
+}
+
+it('shows a neutral document overview before the review without inferring a mismatch from weak content', () => {
+  show({ documentOverview: { text: 'This plan describes the project schedule and responsibilities.', actualDocumentType: 'a management plan', wrongDocument: false },
+    findings: [glossaryFinding('MVP')], missingRequiredSections: [{ section: 'Risks', source: 'OFFICIAL_TEMPLATE', requirement: 'Risks' }] });
+  const overview = screen.getByRole('region', { name: 'Document overview' });
+  const checklist = screen.getByRole('region', { name: 'Review checklist' });
+  expect(overview.compareDocumentPosition(checklist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.queryByText(/This is not the required document/)).not.toBeInTheDocument();
+});
+
+it('shows the wrong-document sentence only for an explicit mismatch result', () => {
+  show({ documentOverview: { text: 'This questionnaire collects participant feedback.', actualDocumentType: 'a survey questionnaire', wrongDocument: true } });
+  expect(screen.getByText('This is not the required document; this is a survey questionnaire.')).toBeVisible();
+});
+
+it('does not relabel the old review-result summary as a document overview', () => {
+  show({ summary: 'This is not the required document.', findings: [] });
+  expect(screen.queryByRole('region', { name: 'Document overview' })).not.toBeInTheDocument();
+  expect(screen.queryByText('This is not the required document.')).not.toBeInTheDocument();
+});
 const checks = [
   { aspect: 'Scope identifies users', source: 'DELIVERABLE_REQUIREMENTS', documentEvidence: 'Scope: students and advisers.', requirement: 'Identify intended users.' },
   { aspect: 'Submission workflow exists', source: 'OFFICIAL_TEMPLATE', documentEvidence: 'FR-01: submit PDF.', requirement: '3.2 Functional requirements' }
 ];
-
-it('renders useful evidence and references inline with the specific action', () => {
-  show({ outcome: 'ISSUES_IDENTIFIED', findings: [{ title: 'Missing constraints detail', issue: 'The constraints section is incomplete.', nextAction: 'Add the offline requirement.', evidence: 'Section 2.4 passage', requirement: '2.4 Constraints', location: { page: 4, section: 'Constraints' } }] });
-  expect(screen.getByRole('region', { name: 'Issues to review' })).toBeInTheDocument();
-  expect(screen.getByText('Missing constraints detail')).toBeInTheDocument();
-  expect(screen.getByText('Add the offline requirement.')).toBeInTheDocument();
-  expect(screen.getByText('Section 2.4 passage')).toBeInTheDocument();
-  expect(screen.getByRole('blockquote', { name: 'Evidence excerpt' })).toHaveTextContent('Section 2.4 passage');
-  expect(screen.queryByText('PDF excerpt')).not.toBeInTheDocument();
-  expect(screen.getByText('Reference: 2.4 Constraints')).toBeInTheDocument();
-  expect(screen.queryByText('View evidence')).not.toBeInTheDocument();
-  expect(screen.getByText(/page 4/)).toBeInTheDocument();
-});
-
-it('keeps long passages as accessible quotes without repeated excerpt labels', () => {
-  show({ findings: [{ issue: 'Long evidence', evidence: 'A '.repeat(240), requirement: 'A '.repeat(100) }] });
-  expect(screen.getAllByRole('blockquote', { name: 'Evidence excerpt' })).toHaveLength(1);
-  expect(screen.getByText('A '.repeat(100), { exact: false })).toBeInTheDocument();
-  expect(screen.queryByText(/PDF excerpt/i)).not.toBeInTheDocument();
-  expect(screen.getAllByRole('button', { name: 'View full passage' }).length).toBeGreaterThanOrEqual(1);
-});
-
-it('keeps verification notes separate and prevents a green result with two checks', () => {
-  show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks, verificationNotes: [{ title: 'Diagram semantics require checking', issue: 'Image-only diagram cannot be verified.', evidence: 'Page 8 image', requirement: 'Diagram requirement' }] });
-  expect(screen.getByText('Verify in PDF (1)')).toBeInTheDocument();
-  expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
-  expect(screen.getByRole('status')).not.toHaveTextContent('No actionable issues');
-});
-
-it('shows positive outcome only for two distinct grounded checks and keeps observations collapsed', () => {
-  show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks });
-  expect(screen.getByRole('status')).toHaveTextContent('No actionable issues identified in the checked areas');
-  expect(screen.getByText('Checks with supporting excerpts (2)')).toBeInTheDocument();
-  expect(screen.getByText('Scope: students and advisers.')).not.toBeVisible();
-  fireEvent.click(screen.getByText('Checks with supporting excerpts (2)'));
-  expect(screen.getByText('Scope: students and advisers.')).toBeInTheDocument();
-  expect(screen.getByText('Scope: students and advisers.').tagName).toBe('BLOCKQUOTE');
-  expect(screen.getByText(/PDF excerpts quote the extracted document text/)).toBeVisible();
-});
-
-it('deduplicates repeated findings and preserves full evidence text once', () => {
-  show({ findings: [
-    { issue: 'Wrong section', source: 'DOCUMENT', evidence: 'A full submitted passage with exact wording.', requirement: '' },
-    { issue: 'Wrong section', source: 'DOCUMENT', evidence: 'A full submitted passage with exact wording.', requirement: '' }
-  ] });
-  expect(screen.getAllByText('Wrong section')).toHaveLength(1);
-  expect(screen.getAllByText('A full submitted passage with exact wording.')).toHaveLength(1);
-});
-
 const glossaryFinding = (term, overrides = {}) => ({
   issue: `The acronym ${term} is used in the submitted PDF but is not defined in section 1.3 Definitions, Acronyms and Abbreviations.`,
   source: 'OFFICIAL_TEMPLATE', requirement: '1.3 Definitions, Acronyms and Abbreviations',
   evidence: `${term} submitted passage`, ...overrides
 });
 
-it('groups glossary corrections while retaining every original observation and evidence', () => {
-  show({ findings: ['MVP', 'OCR', 'MAY'].map(term => glossaryFinding(term)) });
-  expect(screen.getAllByRole('heading', { name: 'Small correction: review glossary definitions' })).toHaveLength(1);
-  expect(screen.getByText(/MVP, OCR, MAY as undefined/)).toBeInTheDocument();
-  expect(screen.getByText(/3 recorded issues in 1 review area/)).toBeInTheDocument();
-  const originals = screen.getByText('Original glossary observations (3)').closest('details');
-  expect(originals).not.toHaveAttribute('open');
-  fireEvent.click(within(originals).getByText('Original glossary observations (3)'));
-  for (const term of ['MVP', 'OCR', 'MAY']) expect(within(originals).getByText(`${term} submitted passage`)).toBeInTheDocument();
+it('shows the concern and action first, with the exact quote and source expandable in place', () => {
+  show({ outcome: 'ISSUES_IDENTIFIED', findings: [{ title: 'Missing constraints detail', issue: 'The constraints section is incomplete.', nextAction: 'Add the offline requirement.', evidence: 'Section 2.4 passage', requirement: '2.4 Constraints', location: { page: 4, section: 'Constraints' } }] });
+  expect(screen.getByRole('region', { name: 'Review checklist' })).toBeVisible();
+  expect(screen.getByText('Missing constraints detail')).toBeVisible();
+  expect(screen.getByText('Add the offline requirement.')).toBeVisible();
+  expect(screen.getByRole('blockquote', { name: 'Evidence excerpt', hidden: true })).not.toBeVisible();
+  fireEvent.click(screen.getByText('View supporting text · PDF page 4 · Constraints'));
+  expect(screen.getByRole('blockquote', { name: 'Evidence excerpt' })).toHaveTextContent('Section 2.4 passage');
+  expect(screen.getByText('Reference: 2.4 Constraints')).toBeVisible();
 });
 
-it('does not combine glossary findings from different authorities or sections', () => {
-  show({ findings: [glossaryFinding('MVP'), glossaryFinding('OCR', { source: 'DELIVERABLE_REQUIREMENTS' }),
-    glossaryFinding('MAY', { issue: 'The acronym MAY is not defined in section 2.1.', requirement: '2.1 Definitions' })] });
-  expect(screen.getByText(/3 recorded issues in 3 review areas/)).toBeInTheDocument();
+it('keeps full long quotes available without filling the initial checklist with them', () => {
+  show({ findings: [{ issue: 'Long evidence', evidence: 'A '.repeat(240), requirement: 'A '.repeat(100) }] });
+  openSupportingText();
+  expect(screen.getAllByRole('blockquote', { name: 'Evidence excerpt' })).toHaveLength(1);
+  fireEvent.click(screen.getAllByRole('button', { name: 'View full passage' })[0]);
+  expect(screen.getByRole('blockquote', { name: 'Evidence excerpt' }).textContent).toBe('A '.repeat(240));
 });
 
-it('does not merge distinct requirement operators and keeps substantive observations ahead of glossary corrections', () => {
+it('puts manual questions in the visible checklist and does not turn them into a green approval', () => {
+  show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks, verificationNotes: [{ title: 'Check the sequence diagram', issue: 'Image-only diagram cannot be verified.', evidence: 'Page 8 image', requirement: 'Diagram requirement' }] });
+  expect(screen.getByText('Check the sequence diagram')).toBeVisible();
+  expect(screen.getByText('Verify in PDF')).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
+  expect(screen.getByRole('status')).not.toHaveTextContent('No actionable issues');
+});
+
+it('keeps supported observations optional and preserves the approval limit', () => {
+  show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks });
+  expect(screen.getByRole('status')).toHaveTextContent('No actionable issues identified in the checked areas');
+  expect(screen.getByText('Scope: students and advisers.')).not.toBeVisible();
+  fireEvent.click(screen.getByText('Other checked items (2)'));
+  expect(screen.getByText('Scope identifies users')).toBeVisible();
+  expect(screen.getByText('Scope: students and advisers.')).not.toBeVisible();
+  openSupportingText();
+  expect(screen.getByText('Scope: students and advisers.')).toBeVisible();
+  expect(screen.queryByText('Review coverage')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Checks with supporting excerpts/)).not.toBeInTheDocument();
+});
+
+it('deduplicates repeated findings while keeping the full evidence once', () => {
+  show({ findings: [
+    { issue: 'Wrong section', source: 'DOCUMENT', evidence: 'A full submitted passage with exact wording.' },
+    { issue: 'Wrong section', source: 'DOCUMENT', evidence: 'A full submitted passage with exact wording.' }
+  ] });
+  expect(screen.getAllByText('Wrong section')).toHaveLength(1);
+  expect(screen.getAllByText('A full submitted passage with exact wording.')).toHaveLength(1);
+});
+
+it('makes glossary feedback one minor item and removes the original-observations section', () => {
+  const value = { findings: ['MVP', 'OCR', 'MAY'].map(term => glossaryFinding(term)) };
+  const saved = JSON.stringify(value);
+  show(value);
+  expect(screen.getAllByRole('heading', { name: 'Review glossary definitions' })).toHaveLength(1);
+  expect(screen.getByText('Minor check')).toBeVisible();
+  expect(screen.getByText('Confirm whether MVP, OCR, MAY need definitions in section 1.3.')).toBeVisible();
+  expect(screen.getByText('1 minor check')).toBeVisible();
+  expect(screen.queryByText(/Original glossary observations/)).not.toBeInTheDocument();
+  for (const term of ['MVP', 'OCR', 'MAY']) expect(screen.queryByText(`${term} submitted passage`)).not.toBeInTheDocument();
+  expect(screen.getAllByText('Reference: Official template · 1.3 Definitions, Acronyms and Abbreviations')).toHaveLength(1);
+  expect(JSON.stringify(value)).toBe(saved);
+});
+
+it('keeps glossary sources and distinct requirement operators separate', () => {
   show({ findings: [glossaryFinding('MVP', { requirement: 'Glossary <= 10 terms' }),
     glossaryFinding('OCR', { requirement: 'Glossary >= 10 terms' }),
-    { title: 'Conflicting states', issue: 'The document uses two different acceptance states.', evidence: 'State: pending or accepted.' }] });
-  expect(screen.getByText(/3 recorded issues in 3 review areas/)).toBeInTheDocument();
-  expect(within(screen.getByRole('region', { name: 'Issues to review' })).getAllByRole('heading')[0]).toHaveTextContent('Conflicting states');
+    glossaryFinding('MAY', { source: 'DELIVERABLE_REQUIREMENTS' })] });
+  expect(screen.getByText(/3 minor checks/)).toBeVisible();
 });
 
-it('groups section checks without evidence buttons and preserves requirement references', () => {
+it('puts substantive concerns and manual questions ahead of minor glossary feedback', () => {
+  show({ findings: [glossaryFinding('MVP'), { title: 'Conflicting states', issue: 'Two acceptance states conflict.', evidence: 'pending or accepted' }],
+    verificationNotes: [{ title: 'Check diagram labels', issue: 'Diagram text could not be read.' }] });
+  const headings = within(screen.getByRole('region', { name: 'Review checklist' })).getAllByRole('heading').map(item => item.textContent);
+  expect(headings).toEqual(['Review checklist', 'Conflicting states', 'Check diagram labels', 'Review glossary definitions']);
+});
+
+it('does not add glossary feedback to an unrelated document report', () => {
+  show({ findings: [{ title: 'Check the attendance limit', issue: 'The same event has two capacity limits.' }] });
+  expect(screen.queryByText(/glossary/i)).not.toBeInTheDocument();
+});
+
+it('groups missing section names into one manual checklist item with their requirements intact', () => {
   show({ missingRequiredSections: [
     { section: '1. Introduction', requirement: '1. Introduction', source: 'OFFICIAL_TEMPLATE' },
     { section: '2. Overall Description', requirement: 'Include the product context.', source: 'DELIVERABLE_REQUIREMENTS' }
   ] });
   expect(screen.getAllByRole('heading', { name: 'Check section coverage' })).toHaveLength(1);
-  expect(screen.getByText('Reference: Include the product context.')).toBeInTheDocument();
-  expect(screen.getByText(/2 recorded issues in 1 review area/)).toBeInTheDocument();
-  expect(screen.queryByText('View evidence')).not.toBeInTheDocument();
+  expect(screen.getByText('Reference: Deliverable requirements · Include the product context.')).toBeInTheDocument();
+  expect(screen.getByText('2 concerns')).toBeVisible();
 });
 
-it('groups uncertain section checks without counting them as supported issues or losing their evidence', () => {
-  show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks, verificationNotes: [
+it('preserves uncertain section evidence without counting it as a supported concern', () => {
+  show({ verifiedChecks: checks, verificationNotes: [
     { issue: 'The required section “1. Introduction” could not be located.', requirement: '1. Introduction', source: 'OFFICIAL_TEMPLATE', evidence: 'Original introduction observation' },
     { issue: 'The required section “2. Overall Description” could not be located.', requirement: '2. Overall Description', source: 'OFFICIAL_TEMPLATE', evidence: 'Original context observation' }
   ] });
   expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
-  expect(screen.getAllByRole('heading', { name: 'Verify section coverage in the PDF', hidden: true })).toHaveLength(1);
-  expect(screen.getByText(/0 recorded issues/)).toBeInTheDocument();
+  expect(screen.getByText('2 to verify')).toBeVisible();
   expect(screen.getByText('Original introduction observation')).toBeInTheDocument();
   expect(screen.getByText('Original context observation')).toBeInTheDocument();
 });
 
-it('does not manufacture duplicated titles or generic next-step copy for legacy findings', () => {
-  const issue = 'The required workflow has contradictory acceptance states and needs a precise decision rule.';
-  show({ findings: [{ issue, requirement: 'Workflow rules', nextAction: 'Review the cited evidence and decide whether a revision is needed.' }] });
+it('does not duplicate generic next-step copy for older findings', () => {
+  const issue = 'The workflow has contradictory acceptance states.';
+  show({ findings: [{ issue, nextAction: 'Review the cited evidence and decide whether a revision is needed.' }] });
   expect(screen.getAllByText(issue)).toHaveLength(1);
   expect(screen.queryByText(/Review the cited evidence/)).not.toBeInTheDocument();
 });
 
-it('groups repeated artifact verification locations while preserving original evidence and an inconclusive outcome', () => {
+it('groups repeated artifact locations and preserves their supporting details', () => {
   show({ verifiedChecks: checks, verificationNotes: ['1.2 Upload receipt', '2.1 Review draft'].map(context => ({
     issue: `Text extraction could not verify 'Use Case Description' in transaction '${context}'. Its label was not located in the extracted transaction.`,
     source: 'OFFICIAL_TEMPLATE', requirement: 'Use Case Description', evidence: `${context} original observation`
   })) });
   expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
-  expect(screen.getAllByRole('heading', { name: 'Verify Use Case Description in the PDF', hidden: true })).toHaveLength(1);
-  expect(screen.getByText("transaction '1.2 Upload receipt'")).toBeInTheDocument();
-  expect(screen.getByText("transaction '2.1 Review draft'")).toBeInTheDocument();
-  expect(screen.getByText('Original artifact observations (2)')).toBeInTheDocument();
+  expect(screen.getAllByRole('heading', { name: 'Verify Use Case Description in the PDF' })).toHaveLength(1);
+  expect(screen.getByText("transaction '1.2 Upload receipt'")).toBeVisible();
   expect(screen.getByText('1.2 Upload receipt original observation')).toBeInTheDocument();
   expect(screen.getByText('2.1 Review draft original observation')).toBeInTheDocument();
 });
@@ -137,24 +164,15 @@ it('keeps artifact verification groups separate across requirement sources', () 
     issue: "Text extraction could not verify 'Use Case Description' in transaction '1.2'. Its label was not located in the extracted transaction.",
     source, requirement: 'Use Case Description'
   })) });
-  expect(screen.getAllByRole('heading', { name: 'Verify Use Case Description in the PDF', hidden: true })).toHaveLength(2);
+  expect(screen.getAllByRole('heading', { name: 'Verify Use Case Description in the PDF' })).toHaveLength(2);
 });
 
-it('treats an empty legacy generic report as inconclusive', () => {
-  show({ summary: 'The PDF satisfies all requirements.', findings: [], missingRequiredSections: [] });
-  expect(screen.getByRole('status')).toHaveTextContent('Limited review coverage');
-  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
-});
-
-it('explains one retained observation as limited review coverage without suggesting an empty or incorrect PDF', () => {
-  show({ outcome: 'INCONCLUSIVE', findings: [], missingRequiredSections: [], verifiedChecks: [
-    { ...checks[0], location: { page: 12 } }
-  ] });
+it('does not claim a clean result from an empty or sparse saved review', () => {
+  show({ summary: 'The PDF satisfies all requirements.', outcome: 'INCONCLUSIVE', findings: [],
+    verifiedChecks: [{ ...checks[0], location: { page: 12 } }] });
   expect(screen.getByRole('status')).toHaveTextContent('Limited review coverage');
   expect(screen.getByRole('status')).toHaveTextContent('This does not mean the PDF is empty or incorrect.');
-  expect(screen.getByText('0 recorded issues · 1 supported observation · 0 to verify')).toBeInTheDocument();
-  expect(screen.getByText('Checks with supporting excerpts (1)')).toBeInTheDocument();
-  expect(screen.getByRole('blockquote', { name: 'Evidence excerpt', hidden: true })).toHaveTextContent('Scope: students and advisers.');
-  expect(screen.getByText('Location: page 12')).toBeInTheDocument();
+  expect(screen.getByText('Other checked items (1)')).toBeVisible();
+  expect(screen.getByText('View supporting text · PDF page 12')).toBeInTheDocument();
   expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
 });

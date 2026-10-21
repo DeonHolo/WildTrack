@@ -1,15 +1,9 @@
-import { Button, Stack, Text } from '@mantine/core';
+import { Text } from '@mantine/core';
 import { verifiedAiChecks } from '../../lib/workflow.js';
 
 const SOURCES = {
   DELIVERABLE_REQUIREMENTS: 'Deliverable requirements',
   OFFICIAL_TEMPLATE: 'Official template'
-};
-const STATES = {
-  EVIDENCE_RECORDED: ['Evidence recorded', 'blue.8'],
-  ISSUE_RECORDED: ['Issue identified', 'orange.8'],
-  NEEDS_VERIFICATION: ['Needs manual verification', 'orange.8'],
-  NOT_CHECKED: ['Not checked', 'dimmed']
 };
 const hasText = value => typeof value === 'string' && value.trim().length > 0;
 const authority = item => item?.source === 'DOCUMENT'
@@ -61,70 +55,24 @@ function coverageRows(report) {
   });
 }
 
-export function AiReviewCoverage({ report, onOpenRecords }) {
+export function AiReviewCoverage({ report }) {
   const coverage = report?.coverage;
-  if (!coverage || !Array.isArray(coverage.criteria)) return (
-    <section aria-label="Review coverage">
-      <Text component="h3" size="sm" fw={700} m={0}>Review coverage</Text>
-      <Text size="sm" c="dimmed" mt={4}>A requirement checklist was not recorded for this saved review.</Text>
-    </section>
-  );
-  const rows = coverageRows(report);
-  const omitted = Number.isInteger(coverage.omittedCriteria) && coverage.omittedCriteria >= 0
+  const hasChecklist = Array.isArray(coverage?.criteria);
+  const rows = hasChecklist ? coverageRows(report) : [];
+  const unchecked = rows.filter(row => row.status === 'NOT_CHECKED');
+  const omitted = Number.isInteger(coverage?.omittedCriteria) && coverage.omittedCriteria > 0
     ? coverage.omittedCriteria : 0;
-  const supporting = rows.filter(row => ['EVIDENCE_RECORDED', 'ISSUE_RECORDED'].includes(row.status)).length;
-  const manual = rows.filter(row => row.status === 'NEEDS_VERIFICATION').length;
-  const unchecked = rows.filter(row => row.status === 'NOT_CHECKED').length + omitted;
-  return (
-    <section aria-label="Review coverage">
-      <Stack gap="xs">
-        <Text component="h3" size="sm" fw={700} m={0}>Review coverage</Text>
-        {rows.length || omitted ? <>
-          <Text size="sm">{supporting} of {rows.length + omitted} supplied review areas have supporting records.</Text>
-          <Text size="sm">{manual} need manual verification · {unchecked} not checked</Text>
-        </> : <Text size="sm">No applicable requirement checklist was available for this review.</Text>}
-        <Text size="sm" c="dimmed">Evidence recorded means content was found. It does not confirm that a requirement is satisfied or that the submission is approved.</Text>
-        {hasText(coverage.scopeNote) ? <Text size="sm" c="dimmed">{coverage.scopeNote}</Text> : null}
-        {omitted ? <Text size="sm">{omitted} additional supplied review {omitted === 1 ? 'area was' : 'areas were'} outside this checklist and remain unchecked.</Text> : null}
-        {rows.length ? <details className="wt-ai-evidence-group">
-          <summary>See review areas ({rows.length})</summary>
-          <Stack gap="md" mt="sm">
-            {rows.map(row => <article key={row.key} className="wt-ai-review-row">
-              <Text size="sm" fw={700} c={STATES[row.status][1]}>{STATES[row.status][0]}</Text>
-              <Text fw={600} mt={4}>{row.requirement}</Text>
-              {row.source ? <Text size="sm" className="wt-ai-review-reference">Source: {row.source}</Text> : null}
-              {row.status === 'NOT_CHECKED' ? <Text size="sm" mt="xs">
-                {row.invalid ? 'The saved checklist references could not be matched to this report. ' : ''}
-                No supporting record was retained for this area. Review it in the original PDF.
-              </Text> : <Stack gap="sm" mt="xs">
-                {row.checks.map((check, index) => <CoverageRecord key={`check-${index}`} title={check.aspect}
-                  label="Supporting observation" location={check.location} />)}
-                {row.findings.map((finding, index) => <CoverageRecord key={`finding-${index}`} title={finding.title || finding.issue}
-                  label="Recorded concern" location={finding.location} />)}
-                {row.missing.map((section, index) => <Text key={`missing-${index}`} size="sm">Not located in the saved review: {section.section}. Confirm its presence or an equivalent section in the original PDF.</Text>)}
-                {row.notes.map((note, index) => <CoverageRecord key={`note-${index}`} title={note.title || note.issue}
-                  label="Item to verify" location={note.location} />)}
-                {onOpenRecords ? <div>
-                  {row.checks.length ? <Button variant="subtle" size="compact-sm" onClick={() => onOpenRecords('checks')}>Open supporting observations</Button> : null}
-                  {row.findings.length || row.missing.length ? <Button variant="subtle" size="compact-sm" onClick={() => onOpenRecords('issues')}>Open recorded issues</Button> : null}
-                  {row.notes.length ? <Button variant="subtle" size="compact-sm" onClick={() => onOpenRecords('notes')}>Open items to verify</Button> : null}
-                </div> : null}
-              </Stack>}
-            </article>)}
-          </Stack>
-        </details> : null}
-        {[1, 2].includes(coverage.completedPasses) && hasText(coverage.followupNotice)
-          ? <Text size="sm" c="dimmed">{coverage.followupNotice}</Text> : null}
-      </Stack>
-    </section>
-  );
-}
-
-function CoverageRecord({ title, label, location }) {
-  const page = Number.isInteger(location?.page) && location.page > 0 ? `PDF page ${location.page}` : '';
-  const section = hasText(location?.section) ? location.section : '';
-  return <div>
-    <Text size="sm">{label}: {title.length > 160 ? `${title.slice(0, 157)}…` : title}</Text>
-    {page || section ? <Text size="sm" c="dimmed">{[page, section].filter(Boolean).join(' · ')}</Text> : null}
-  </div>;
+  return <section aria-label="Saved review scope">
+    <Text size="sm" mt="sm">This is a first-pass summary of selected checks, not a check of every PDF section or an approval.</Text>
+    {!hasChecklist ? <Text size="sm" mt="sm">A requirement checklist was not recorded for this saved review.</Text>
+      : !rows.length && !omitted ? <Text size="sm" mt="sm">No applicable requirement checklist was available for this review.</Text> : null}
+    {unchecked.length ? <>
+      <Text size="sm" mt="sm">No supporting record was saved for these selected template or instruction items:</Text>
+      <ul>{unchecked.map(row => <li key={row.key}>{row.requirement}</li>)}</ul>
+    </> : null}
+    {rows.some(row => row.invalid) ? <Text size="sm" mt="sm">Some saved checklist references could not be matched to this report.</Text> : null}
+    {omitted ? <Text size="sm" mt="sm">{omitted} additional template or instruction {omitted === 1 ? 'item was' : 'items were'} outside the saved checklist.</Text> : null}
+    {[1, 2].includes(coverage?.completedPasses) && hasText(coverage?.followupNotice)
+      ? <Text size="sm" mt="sm">{coverage.followupNotice}</Text> : null}
+  </section>;
 }

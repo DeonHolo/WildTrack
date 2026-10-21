@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Alert, Button, Stack, Text } from '@mantine/core';
 import { aiReviewReportStatus, isInconclusiveAiReviewReport, verifiedAiChecks } from '../../lib/workflow.js';
 import { AiReviewCoverage } from './AiReviewCoverage.jsx';
@@ -11,9 +11,6 @@ const CHECK_SOURCE_LABELS = {
 const LEGACY_VERIFICATION = /^Mapped-template (?:body heading|transaction artifact)/i;
 
 export function AiReviewReport({ report }) {
-  const issuesRef = useRef(null);
-  const notesRef = useRef(null);
-  const checksRef = useRef(null);
   if (!report) return null;
   const originalFindings = report.findings || legacyFindings(report.flags);
   const legacyNotes = originalFindings.filter(isLegacyVerification).map(legacyVerification);
@@ -25,9 +22,11 @@ export function AiReviewReport({ report }) {
   const sectionNotes = verificationNotes.filter(note => sectionVerification(note));
   const artifactNotes = groupArtifactNotes(verificationNotes.filter(note => !sectionVerification(note)));
   const checks = verifiedAiChecks(report).filter(check => !findings.some(finding => sameCheck(finding, check)));
+  const grouped = groupGlossary(findings);
+  const concerns = grouped.filter(group => !group.terms);
+  const glossary = grouped.filter(group => group.terms);
   const issueCount = findings.length + missing.length;
-  const glossary = groupGlossary(findings);
-  const reviewAreaCount = glossary.length + (missing.length ? 1 : 0);
+  const concernCount = concerns.length + missing.length;
   const inconclusive = issueCount === 0 && (
     verificationNotes.length > 0 || report.outcome === 'INCONCLUSIVE' || isInconclusiveAiReviewReport({
       ...report, findings, verificationNotes
@@ -35,92 +34,88 @@ export function AiReviewReport({ report }) {
   );
   const noIssues = issueCount === 0 && !inconclusive && checks.length >= 2;
   const reviewStatus = aiReviewReportStatus({ ...report, findings, verificationNotes });
-  const outcome = inconclusive ? reviewStatus : noIssues ? 'No issues in checked areas' : 'Issues identified';
-  const openRecords = kind => {
-    const target = (kind === 'checks' ? checksRef.current : kind === 'notes' ? notesRef.current : issuesRef.current)
-      || issuesRef.current;
-    if (!target) return;
-    if (target.tagName === 'DETAILS') target.open = true;
-    (target.querySelector('summary') || target).focus();
-    target.scrollIntoView?.({ block: 'nearest' });
-  };
+  const outcome = inconclusive ? reviewStatus : noIssues ? 'No issues in checked areas'
+    : !concernCount && !verificationNotes.length && glossary.length ? 'Minor checks to review' : 'Issues identified';
+  const summary = [
+    concernCount && `${concernCount} concern${concernCount === 1 ? '' : 's'}`,
+    verificationNotes.length && `${verificationNotes.length} to verify`,
+    glossary.length && `${glossary.length} minor check${glossary.length === 1 ? '' : 's'}`
+  ].filter(Boolean).join(' · ') || `${checks.length} supported observation${checks.length === 1 ? '' : 's'}`;
 
   return (
     <Stack gap="lg" className="wt-ai-review-report">
+      {report.documentOverview?.text ? <section aria-label="Document overview">
+        <Text component="h3" fw={700}>Document overview</Text>
+        {report.documentOverview.wrongDocument === true && report.documentOverview.actualDocumentType ? (
+          <Alert color="orange" role="status" mb="sm">
+            This is not the required document; this is {report.documentOverview.actualDocumentType}.
+          </Alert>
+        ) : null}
+        <Text>{report.documentOverview.text}</Text>
+      </section> : null}
       <div className="wt-ai-review-outcome">
         <Text fw={700}>{outcome}</Text>
-        <Text mt={4} size="sm">
-          {issueCount} recorded issue{issueCount === 1 ? '' : 's'}
-          {issueCount ? ` in ${reviewAreaCount} review area${reviewAreaCount === 1 ? '' : 's'}`
-            : ` · ${checks.length} supported observation${checks.length === 1 ? '' : 's'}`} · {verificationNotes.length} to verify
-        </Text>
+        <Text mt={4} size="sm">{summary}</Text>
       </div>
       {inconclusive ? (
         <Alert color="orange" title={reviewStatus} role="status">
           {reviewStatus === 'Needs manual verification'
-            ? 'This review finished with specific questions that need confirmation. Inspect the items under Verify in PDF before requesting a revision.'
-            : 'This review finished, but recorded too little supported evidence for a no-issues conclusion. This does not mean the PDF is empty or incorrect. Check the excerpts below and assess the remaining content in the original PDF.'}
+            ? 'Confirm the items in the review checklist in the original PDF before requesting a revision.'
+            : 'Too little supported evidence was recorded for a no-issues conclusion. This does not mean the PDF is empty or incorrect.'}
         </Alert>
       ) : noIssues ? (
         <Alert color="green" title="No actionable issues identified in the checked areas" role="status">
           {checks.length} distinct observations supported by submitted PDF evidence. This is advisory feedback, not approval or a guarantee of full compliance.
         </Alert>
       ) : null}
-      <AiReviewCoverage report={report} onOpenRecords={openRecords} />
-      {issueCount ? (
-        <section aria-label="Issues to review" ref={issuesRef} tabIndex={-1}>
-          <Stack gap="md">
-            {glossary.filter(group => !group.terms).map((group, index) => <FindingRow key={`finding-${index}`} finding={group.finding} />)}
-            {missing.length ? <article className="wt-ai-review-row">
+      {issueCount || verificationNotes.length ? (
+        <section aria-label="Review checklist">
+          <Text component="h3" fw={700}>Review checklist</Text>
+          <ol className="wt-ai-review-checklist">
+            {concerns.map((group, index) => <li key={`finding-${index}`}><FindingRow finding={group.finding} label="Concern" /></li>)}
+            {missing.length ? <li><article className="wt-ai-review-row">
+              <Text className="wt-ai-review-item-label">Verify in PDF</Text>
               <h3>Check section coverage</h3>
-              <Text>The saved report could not locate these required sections. Confirm their presence or equivalent headings in the PDF before requesting changes.</Text>
+              <Text>Confirm these sections or equivalent headings in the PDF before requesting changes.</Text>
               <ul>{missing.map((item, index) => <li key={index}>{item.section || 'Unnamed required section'}
                 {item.requirement && referenceKey(item.requirement) !== referenceKey(item.section)
-                  ? <Text className="wt-ai-review-reference" size="sm">Reference: {item.requirement}</Text> : null}
+                  ? <Evidence finding={{ requirement: item.requirement, source: item.source }} /> : null}
                 {item.source && !sharedSectionSource ? <Text component="span" className="wt-ai-review-reference" size="sm"> — {CHECK_SOURCE_LABELS[item.source] || item.source}</Text> : null}
               </li>)}</ul>
-              {sharedSectionSource ? <Text className="wt-ai-review-reference" size="sm">Reference: {CHECK_SOURCE_LABELS[sharedSectionSource] || sharedSectionSource}</Text> : null}
-            </article> : null}
-            {glossary.filter(group => group.terms).map((group, index) => <GlossaryRow key={`glossary-${index}`} group={group} />)}
-          </Stack>
+              {sharedSectionSource ? <Text className="wt-ai-review-reference" size="sm">Source: {CHECK_SOURCE_LABELS[sharedSectionSource] || sharedSectionSource}</Text> : null}
+            </article></li> : null}
+            {sectionNotes.length ? <li><SectionVerificationRow notes={sectionNotes} /></li> : null}
+            {artifactNotes.map((group, index) => <li key={`note-${index}`}>{group.artifact
+              ? <ArtifactVerificationRow group={group} />
+              : <FindingRow finding={group.note} label="Verify in PDF" />}</li>)}
+            {glossary.map((group, index) => <li key={`glossary-${index}`}><GlossaryRow group={group} /></li>)}
+          </ol>
         </section>
       ) : null}
-      {verificationNotes.length ? (
-        <details className="wt-ai-review-secondary" ref={notesRef}>
-          <summary>Verify in PDF ({verificationNotes.length})</summary>
-          <Text size="sm" mt="sm">These observations require confirmation before requesting a revision.</Text>
-          <Stack gap="md" mt="sm">
-            {sectionNotes.length ? <SectionVerificationRow notes={sectionNotes} /> : null}
-            {artifactNotes.map((group, index) => group.artifact
-              ? <ArtifactVerificationRow key={`artifact-${index}`} group={group} />
-              : <FindingRow key={`note-${index}`} finding={group.note} />)}
-          </Stack>
-        </details>
-      ) : null}
       {checks.length ? (
-        <details className="wt-ai-review-secondary" ref={checksRef}>
-          <summary>Checks with supporting excerpts ({checks.length})</summary>
-          <Text size="sm" c="dimmed" mt="sm">The headings describe what AI checked. PDF excerpts quote the extracted document text; spacing and line breaks may differ from the original PDF.</Text>
+        <details className="wt-ai-review-secondary">
+          <summary>Other checked items ({checks.length})</summary>
           <Stack gap="md" mt="sm">
             {checks.map((check, index) => <CheckRow key={`check-${index}`} check={check} />)}
           </Stack>
         </details>
       ) : null}
       <details className="wt-ai-review-secondary">
-        <summary>Coverage and limits</summary>
+        <summary>Review limits</summary>
+        <AiReviewCoverage report={report} />
         {report.limitations?.map((limit, index) => <Text key={index} size="sm" mt="sm">{limit}</Text>)}
-        {!report.limitations?.length ? <Text size="sm" mt="sm">This report covers only the cited checks. It does not establish full academic compliance.</Text> : null}
       </details>
     </Stack>
   );
 }
 
-function FindingRow({ finding }) {
+function FindingRow({ finding, label }) {
   const explanation = finding.explanation || finding.issue || '';
   const title = finding.title;
   const nextAction = specificAction(finding);
   return (
     <article className="wt-ai-review-row">
+      {label ? <Text className="wt-ai-review-item-label">{label}</Text> : null}
       {title ? <h3>{title}</h3> : null}
       {explanation && normalized(explanation) !== normalized(title) ? <Text size="sm" mt={6}>{explanation}</Text> : null}
       {nextAction ? <Text size="sm" mt="sm">{nextAction}</Text> : null}
@@ -132,20 +127,17 @@ function FindingRow({ finding }) {
 function Evidence({ finding }) {
   const sourceLabel = CHECK_SOURCE_LABELS[finding.source];
   if (!finding.evidence && !finding.requirement && !finding.location) return null;
+  const location = [finding.location?.page && `PDF page ${finding.location.page}`, finding.location?.section].filter(Boolean).join(' · ');
   return (
-    <div className="wt-ai-review-evidence">
-        <Stack gap="md" mt="sm">
-          {finding.evidence ? <Passage text={finding.evidence} quote /> : null}
-          {finding.requirement ? finding.requirement.length > 160
-            ? <Passage label={`Reference${sourceLabel ? ` · ${sourceLabel}` : ''}`} text={finding.requirement} />
-            : <Text className="wt-ai-review-reference" size="sm">Reference: {sourceLabel ? `${sourceLabel} · ` : ''}{finding.requirement}</Text> : null}
-          {finding.location?.page || finding.location?.section ? (
-            <Text size="sm" className="wt-ai-review-reference">
-              Location: {[finding.location.page && `page ${finding.location.page}`, finding.location.section].filter(Boolean).join(' · ')}
-            </Text>
-          ) : null}
-        </Stack>
-    </div>
+    <details className="wt-ai-review-evidence">
+      <summary>{finding.evidence ? 'View supporting text' : 'View requirement'}{location ? ` · ${location}` : ''}</summary>
+      <Stack gap="sm" mt="sm">
+        {finding.evidence ? <Passage text={finding.evidence} quote /> : null}
+        {finding.requirement ? finding.requirement.length > 160
+          ? <Passage label={`Reference${sourceLabel ? ` · ${sourceLabel}` : ''}`} text={finding.requirement} />
+          : <Text className="wt-ai-review-reference" size="sm">Reference: {sourceLabel ? `${sourceLabel} · ` : ''}{finding.requirement}</Text> : null}
+      </Stack>
+    </details>
   );
 }
 
@@ -184,13 +176,10 @@ function groupGlossary(findings) {
 
 function GlossaryRow({ group }) {
   return <article className="wt-ai-review-row">
-    <h3>Small correction: review glossary definitions</h3>
-    <Text>The report flags {group.terms.join(', ')} as undefined in section {group.section}. Check these terms together, including whether each is actually an acronym or abbreviation.</Text>
+    <Text className="wt-ai-review-item-label">Minor check</Text>
+    <h3>Review glossary definitions</h3>
+    <Text>Confirm whether {group.terms.join(', ')} need definitions in section {group.section}.</Text>
     <Evidence finding={{ requirement: group.findings[0].requirement, source: group.findings[0].source }} />
-    <details className="wt-ai-review-originals">
-      <summary>Original glossary observations ({group.findings.length})</summary>
-      <Stack gap="md" mt="sm">{group.findings.map((finding, index) => <FindingRow key={index} finding={finding} />)}</Stack>
-    </details>
   </article>;
 }
 

@@ -770,6 +770,7 @@ export function CommandCenterPage() {
         error={checkError} onClose={() => { setCheckDialogTarget(null); setCheckError(''); }} onRecheck={recheckFromDialog} />
       <AiReviewReportDialog opened={Boolean(aiReport || aiReview?.previousReport)} report={aiReport} review={aiReview}
         documentChange={artifactAiReviewChange(aiResponse, aiField)}
+        fileLink={aiResponse?.values?.[aiField?.id] || ''}
         fieldLabel={aiField?.label} deliverableTitle={state.deliverables.find(item => item.id === aiResponse?.deliverableId)?.title}
         onClose={() => setAiDialogTarget(null)} />
     </Stack>
