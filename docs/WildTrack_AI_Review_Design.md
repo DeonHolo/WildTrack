@@ -2,7 +2,9 @@
 
 ## Recorded coverage and full-PDF citations — 21 October 2026
 
-Prompt `wildtrack-academic-review-v22-coverage` and schema `structured-review-v9-body-citations-coverage` record which supplied review areas have retained supporting records. Gemini remains `gemini-3.5-flash-lite`, `MINIMAL`, with an 8,192-token output cap. The complete submitted PDF is still attached.
+Prompt `wildtrack-academic-review-v22-coverage` and schema `structured-review-v10-compact-coverage` record which supplied review areas have retained supporting records. Gemini remains `gemini-3.5-flash-lite`, `MINIMAL`, with an 8,192-token output cap. The complete submitted PDF is still attached.
+
+The first hosted batch exposed a response-format compatibility failure on both SPMPs. Isolated requests with no PDF reproduced HTTP 400 `INVALID_ARGUMENT` for the bounded 24-area v9 schema, while six areas succeeded. Removing only the coverage array-size constraints also succeeded with 24 areas. Version v10 keeps the same fields, authority, IDs and server-side count/index/evidence validation; it avoids repeating bounded arrays in Gemini's response decoder. Finding and observation limits remain in the wire schema, and provider errors still require an explicit retry. This is a schema compatibility repair, not a claim that every historical HTTP 400 has the same cause.
 
 The server derives at most 24 areas from explicit content instructions and recognizable body headings in the mapped official template. Review guidance, submission-only requests, optional/example material and numbered example sentences do not become student obligations. Omitted areas are counted and disclosed. Ambiguous or unrecognized template structures may leave the checklist unavailable; the system does not invent a standard checklist. Student-authored text never establishes mandatory review authority.
 
