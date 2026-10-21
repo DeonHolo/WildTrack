@@ -997,9 +997,33 @@ public class AiReviewService {
                 : "Verify the cited areas in the original PDF before deciding whether a revision is needed."
             : groundedSuggestedAction(groundedFindings, groundedMissing, groundedLimitations, verifiedChecks);
         var accepted = new AiReviewProvider.Result(summary, groundedFindings, groundedMissing, groundedLimitations,
-            action, verifiedChecks, verificationNotes, outcome);
+            action, verifiedChecks, verificationNotes, outcome, null,
+            groundDocumentOverview(result.documentOverview(), documentText, groundedFindings));
         return AiReviewCoveragePolicy.withCoverage(accepted,
             AiReviewCoveragePolicy.grounded(result, accepted, context.instructions(), context.template()));
+    }
+
+    static AiReviewProvider.DocumentOverview groundDocumentOverview(AiReviewProvider.DocumentOverview overview,
+            String documentText, List<AiReviewProvider.Finding> findings) {
+        if (overview == null || overview.text() == null || overview.actualDocumentType() == null || overview.evidence() == null)
+            return null;
+        String text = overview.text().strip(), type = overview.actualDocumentType().strip(), evidence = overview.evidence().strip();
+        if (text.isEmpty() || text.length() > 700 || text.split("\\s+").length > 90 || type.isEmpty() || type.length() > 120
+                || evidence.length() < 15 || evidence.length() > 600) return null;
+        String quote = normalizeAuthorityText(evidence);
+        if (quote.isBlank() || !normalizeAuthorityText(documentText).contains(quote)) return null;
+        // Keep the neutral description separate from an actionable identity allegation.
+        if (identityMismatchWording(text)) return null;
+        boolean wrong = overview.wrongDocument() && findings.stream().anyMatch(finding ->
+            finding.source() == AiReviewProvider.FindingSource.DOCUMENT
+                && quote.equals(normalizeAuthorityText(finding.evidence()))
+                && identityMismatchWording(finding.issue()));
+        return new AiReviewProvider.DocumentOverview(text, type, wrong, evidence);
+    }
+
+    private static boolean identityMismatchWording(String text) {
+        return text != null && text.toLowerCase(Locale.ROOT).matches(
+            "(?s).*(?:wrong document|different document|not the required|not the requested|document type mismatch|deliverable type mismatch).*" );
     }
 
     private static boolean sameExecutionContradiction(AiReviewProvider.Finding existing,

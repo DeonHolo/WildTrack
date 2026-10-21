@@ -64,13 +64,21 @@ public interface AiReviewProvider {
                           String followupNotice, String scopeNote) {
         public ReviewCoverage { criteria = criteria == null ? List.of() : List.copyOf(criteria); }
     }
+    record DocumentOverview(String text, String actualDocumentType, boolean wrongDocument, String evidence) { }
     record Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
                   List<String> limitations, String suggestedAction, List<VerifiedCheck> verifiedChecks,
-                  List<Finding> verificationNotes, ReviewOutcome outcome, ReviewCoverage coverage) {
+                  List<Finding> verificationNotes, ReviewOutcome outcome, ReviewCoverage coverage,
+                  DocumentOverview documentOverview) {
         public Result {
             // Saved reports and provider doubles from earlier versions omit these fields.
             verifiedChecks = verifiedChecks == null ? List.of() : List.copyOf(verifiedChecks);
             verificationNotes = verificationNotes == null ? List.of() : List.copyOf(verificationNotes);
+        }
+        public Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
+                      List<String> limitations, String suggestedAction, List<VerifiedCheck> verifiedChecks,
+                      List<Finding> verificationNotes, ReviewOutcome outcome, ReviewCoverage coverage) {
+            this(summary, findings, missingRequiredSections, limitations, suggestedAction, verifiedChecks,
+                verificationNotes, outcome, coverage, null);
         }
         public Result(String summary, List<Finding> findings, List<MissingRequiredSection> missingRequiredSections,
                       List<String> limitations, String suggestedAction, List<VerifiedCheck> verifiedChecks,

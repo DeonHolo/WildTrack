@@ -617,6 +617,7 @@ export function AdviserViewPage() {
         report={aiReviewDialogReport}
         review={aiReviewDialogReview}
         documentChange={artifactAiReviewChange(aiReviewDialogResponse, aiReviewDialogField)}
+        fileLink={aiReviewDialogResponse?.values?.[aiReviewDialogField?.id] || ''}
         fieldLabel={aiReviewDialogField?.label || 'PDF'}
         deliverableTitle={aiReviewDialogDeliverable?.title}
       />

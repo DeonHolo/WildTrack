@@ -11,11 +11,26 @@ const previousReport = {
   missingRequiredSections: []
 };
 
-function show(review, report = null, documentChange = null) {
+function show(review, report = null, documentChange = null, fileLink = '') {
   render(<MantineProvider theme={wildTrackTheme} forceColorScheme="light">
-    <AiReviewReportDialog opened onClose={vi.fn()} review={review} report={report} documentChange={documentChange} deliverableTitle="Software Requirements Specification" fieldLabel="SRS PDF" />
+    <AiReviewReportDialog opened onClose={vi.fn()} review={review} report={report} documentChange={documentChange} fileLink={fileLink} deliverableTitle="Software Requirements Specification" fieldLabel="SRS PDF" />
   </MantineProvider>);
 }
+
+it('opens the selected submission PDF in a separate tab from its AI Review', async () => {
+  const url = 'https://drive.google.com/file/d/selected-pdf/view?resourcekey=selected-key';
+  show({ status: 'COMPLETED' }, previousReport, null, url);
+  const dialog = await screen.findByRole('dialog');
+  const link = within(dialog).getByRole('link', { name: 'Open PDF' });
+  expect(link).toHaveAttribute('href', url);
+  expect(link).toHaveAttribute('target', '_blank');
+  expect(link).toHaveAttribute('rel', 'noreferrer');
+});
+
+it.each(['', 'javascript:alert(1)'])('omits the PDF link when it is missing or invalid (%s)', async (url) => {
+  show({ status: 'COMPLETED' }, previousReport, null, url);
+  expect(within(await screen.findByRole('dialog')).queryByRole('link', { name: 'Open PDF' })).not.toBeInTheDocument();
+});
 
 it('warns above a saved report after Document Check detects changed content', async () => {
   show({ status: 'COMPLETED', generatedAt: '2026-10-13T14:55:20Z' }, previousReport, { changeType: 'CONTENT_CHANGED' });
@@ -94,7 +109,8 @@ it('shows a saved zero-issue report with two verified SRS checks and a clear app
   expect(dialog).toHaveTextContent('No actionable issues identified in the checked areas');
   expect(dialog).toHaveTextContent('2 distinct observations supported by submitted PDF evidence');
   expect(within(dialog).getByText('Section 1.3: The system is for students and advisers.')).not.toBeVisible();
-  fireEvent.click(within(dialog).getByText('Checks with supporting excerpts (2)'));
+  fireEvent.click(within(dialog).getByText('Other checked items (2)'));
+  within(dialog).getAllByText(/View supporting text/).forEach(item => fireEvent.click(item));
   expect(dialog).toHaveTextContent('Section 1.3: The system is for students and advisers.');
   expect(dialog).toHaveTextContent('Reference: Deliverable requirements · Identify intended users of the system.');
   expect(dialog).toHaveTextContent('FR-01: A student submits the PDF link for review.');

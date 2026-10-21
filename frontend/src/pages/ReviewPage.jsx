@@ -1185,6 +1185,7 @@ export function ReviewPage() {
         report={aiReportDialogReport}
         review={aiReportDialogReview}
         documentChange={artifactAiReviewChange(aiReportDialogResponse, aiReportDialogField)}
+        fileLink={aiReportDialogResponse?.values?.[aiReportDialogField?.id] || ''}
         fieldLabel={aiReportDialogField?.label}
         deliverableTitle={aiReportDialogDeliverable?.title}
         onClose={() => setAiReportDialogTarget(null)}
