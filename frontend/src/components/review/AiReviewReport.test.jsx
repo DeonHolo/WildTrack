@@ -17,9 +17,16 @@ it('shows a neutral document overview before the review without inferring a mism
   expect(screen.queryByText(/This is not the required document/)).not.toBeInTheDocument();
 });
 
-it('shows the wrong-document sentence only for an explicit mismatch result', () => {
-  show({ documentOverview: { text: 'This questionnaire collects participant feedback.', actualDocumentType: 'a survey questionnaire', wrongDocument: true } });
-  expect(screen.getByText('This is not the required document; this is a survey questionnaire.')).toBeVisible();
+it('emphasizes a supported mismatch without hiding the review checklist', () => {
+  render(<MantineProvider><AiReviewReport deliverableTitle="Software Requirements Specification" report={{
+    documentOverview: { text: 'This questionnaire collects participant feedback.', actualDocumentType: 'a survey questionnaire', wrongDocument: true },
+    findings: [{ issue: 'Confirm the submitted file.', evidence: 'Participant feedback questionnaire' }]
+  }} /></MantineProvider>);
+  const overview = screen.getByRole('region', { name: 'Document overview' });
+  expect(within(overview).getByRole('status')).toHaveTextContent('This is a survey questionnaire, NOT the required Software Requirements Specification.');
+  expect(within(overview).getByText('NOT').tagName).toBe('STRONG');
+  expect(screen.getByRole('region', { name: 'Review checklist' })).toBeVisible();
+  expect(screen.getByText('Confirm the submitted file.')).toBeVisible();
 });
 
 it('does not relabel the old review-result summary as a document overview', () => {
@@ -27,6 +34,23 @@ it('does not relabel the old review-result summary as a document overview', () =
   expect(screen.queryByRole('region', { name: 'Document overview' })).not.toBeInTheDocument();
   expect(screen.queryByText('This is not the required document.')).not.toBeInTheDocument();
 });
+it('shows a grouped artifact requirement once while preserving the individual observations and evidence', () => {
+  show({ verificationNotes: ['Add entry', 'Archive entry'].map((context, index) => ({
+    title: 'Verify Use Case Diagram',
+    issue: `Text extraction could not verify 'Use Case Diagram' in transaction '${context}'. Its label was not located in the extracted transaction.`,
+    source: 'OFFICIAL_TEMPLATE', requirement: 'Use Case Diagram',
+    evidence: index ? 'Archive entry has a confirmation step.' : ''
+  })) });
+  expect(screen.getByText('2 to verify')).toBeVisible();
+  fireEvent.click(screen.getByText('Original artifact observations (2)'));
+  expect(screen.getAllByText('View requirement', { exact: true })).toHaveLength(1);
+  fireEvent.click(screen.getByText('View requirement', { exact: true }));
+  expect(screen.getAllByText('Reference: Official template · Use Case Diagram')).toHaveLength(1);
+  expect(screen.getAllByText('Verify Use Case Diagram', { exact: true })).toHaveLength(2);
+  fireEvent.click(screen.getByText('View supporting text', { exact: true }));
+  expect(screen.getByRole('blockquote', { name: 'Evidence excerpt' })).toHaveTextContent('Archive entry has a confirmation step.');
+});
+
 const checks = [
   { aspect: 'Scope identifies users', source: 'DELIVERABLE_REQUIREMENTS', documentEvidence: 'Scope: students and advisers.', requirement: 'Identify intended users.' },
   { aspect: 'Submission workflow exists', source: 'OFFICIAL_TEMPLATE', documentEvidence: 'FR-01: submit PDF.', requirement: '3.2 Functional requirements' }

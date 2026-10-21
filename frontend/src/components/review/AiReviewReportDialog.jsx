@@ -13,63 +13,70 @@ export function AiReviewReportDialog({ opened, onClose, report, review, document
     .includes(review?.failureCode);
 
   return (
-    <Modal
+    <Modal.Root
       opened={opened}
       onClose={onClose}
-      title={`AI Review: ${deliverableTitle}`}
       size="52rem"
       centered
       transitionProps={{ duration: 0 }}
       classNames={{ content: 'wt-ai-review-dialog', body: 'wt-ai-review-dialog-body' }}
-      closeButtonProps={{ 'aria-label': 'Close AI Review details' }}
     >
-      <Stack gap="md">
-        {pdfUrl && !validateUrl(pdfUrl) ? (
-          <Group justify="flex-end">
-            <Button component="a" href={pdfUrl} target="_blank" rel="noreferrer" variant="default" size="xs"
-              leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
-              Open PDF
-            </Button>
+      <Modal.Overlay />
+      <Modal.Content>
+        <Modal.Header style={{ gap: 12 }}>
+          <Modal.Title style={{ flex: 1, minWidth: 0 }}>AI Review: {deliverableTitle}</Modal.Title>
+          <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
+            {pdfUrl && !validateUrl(pdfUrl) ? (
+              <Button component="a" href={pdfUrl} target="_blank" rel="noreferrer" variant="default" size="xs"
+                leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
+                Open PDF
+              </Button>
+            ) : null}
+            <Modal.CloseButton aria-label="Close AI Review details" />
           </Group>
-        ) : null}
-        {documentChange ? (
-          <Alert color="orange" title="AI Review may be outdated" role="alert">
-            Document Check detected changed PDF content. This saved AI Review may describe an earlier file state.
-            {' '}Run AI Review again to review the updated PDF. Automatic Document Check does not run AI Review.
-          </Alert>
-        ) : null}
-        {previous ? (
-          <Alert color="orange" title={inconclusive ? 'Latest AI Review inconclusive' : review?.status === 'OUTDATED'
-            ? 'Review settings changed; report is historical' : review?.status === 'RUNNING'
-              ? 'Latest AI Review still running' : 'Latest AI Review did not finish'}>
-            {review?.message || (inconclusive
-              ? 'No source-grounded findings were established in the latest run.'
-              : 'The latest run has not produced a usable new report.')}
-            {' '}The report below is from an earlier saved run. It is not a result of the latest attempt.
-          </Alert>
-        ) : null}
-        {review?.status === 'UNCERTAIN'
-          ? <ProviderFailureDetails diagnostic={review.failureDiagnostics} failureCode={review.failureCode} /> : null}
-        {previous ? (
-          <Text size="sm" fw={700}>Previously saved AI Review{(review?.previousGeneratedAt || review?.lastSubstantiveGeneratedAt)
-            ? ` · ${formatDateTime(review.previousGeneratedAt || review.lastSubstantiveGeneratedAt)}` : ' · date unavailable'}</Text>
-        ) : review?.generatedAt ? (
-          <Text size="sm" className="wt-ai-review-reference">Reviewed {formatDateTime(review.generatedAt)}</Text>
-        ) : review?.lastSubstantiveGeneratedAt ? (
-          <Text size="sm" className="wt-ai-review-reference">Last substantive review · {formatDateTime(review.lastSubstantiveGeneratedAt)}</Text>
-        ) : null}
-        <AiReviewReport report={displayReport} />
-        {review?.lastSubstantiveReport && !sameReport(review.lastSubstantiveReport, displayReport) ? (
-          <details className="wt-ai-review-earlier">
-            <summary>Earlier substantive review · {review.lastSubstantiveGeneratedAt ? formatDateTime(review.lastSubstantiveGeneratedAt) : 'date unavailable'}</summary>
-            <AiReviewReport report={review.lastSubstantiveReport} />
-          </details>
-        ) : null}
-        <Text size="sm" className="wt-ai-review-reference">
-          AI Review is advisory first-pass feedback. Staff should verify the cited document evidence and requirement sources before making an academic decision.
-        </Text>
-      </Stack>
-    </Modal>
+        </Modal.Header>
+        <Modal.Body>
+          <Stack gap="md">
+            {documentChange ? (
+              <Alert color="orange" title="AI Review may be outdated" role="alert">
+                Document Check detected changed PDF content. This saved AI Review may describe an earlier file state.
+                {' '}Run AI Review again to review the updated PDF. Automatic Document Check does not run AI Review.
+              </Alert>
+            ) : null}
+            {previous ? (
+              <Alert color="orange" title={inconclusive ? 'Latest AI Review inconclusive' : review?.status === 'OUTDATED'
+                ? 'Review settings changed; report is historical' : review?.status === 'RUNNING'
+                  ? 'Latest AI Review still running' : 'Latest AI Review did not finish'}>
+                {review?.message || (inconclusive
+                  ? 'No source-grounded findings were established in the latest run.'
+                  : 'The latest run has not produced a usable new report.')}
+                {' '}The report below is from an earlier saved run. It is not a result of the latest attempt.
+              </Alert>
+            ) : null}
+            {review?.status === 'UNCERTAIN'
+              ? <ProviderFailureDetails diagnostic={review.failureDiagnostics} failureCode={review.failureCode} /> : null}
+            {previous ? (
+              <Text size="sm" fw={700}>Previously saved AI Review{(review?.previousGeneratedAt || review?.lastSubstantiveGeneratedAt)
+                ? ` · ${formatDateTime(review.previousGeneratedAt || review.lastSubstantiveGeneratedAt)}` : ' · date unavailable'}</Text>
+            ) : review?.generatedAt ? (
+              <Text size="sm" className="wt-ai-review-reference">Reviewed {formatDateTime(review.generatedAt)}</Text>
+            ) : review?.lastSubstantiveGeneratedAt ? (
+              <Text size="sm" className="wt-ai-review-reference">Last substantive review · {formatDateTime(review.lastSubstantiveGeneratedAt)}</Text>
+            ) : null}
+            <AiReviewReport report={displayReport} deliverableTitle={deliverableTitle} />
+            {review?.lastSubstantiveReport && !sameReport(review.lastSubstantiveReport, displayReport) ? (
+              <details className="wt-ai-review-earlier">
+                <summary>Earlier substantive review · {review.lastSubstantiveGeneratedAt ? formatDateTime(review.lastSubstantiveGeneratedAt) : 'date unavailable'}</summary>
+                <AiReviewReport report={review.lastSubstantiveReport} deliverableTitle={deliverableTitle} />
+              </details>
+            ) : null}
+            <Text size="sm" className="wt-ai-review-reference">
+              AI Review is advisory first-pass feedback. Staff should verify the cited document evidence and requirement sources before making an academic decision.
+            </Text>
+          </Stack>
+        </Modal.Body>
+      </Modal.Content>
+    </Modal.Root>
   );
 }
 

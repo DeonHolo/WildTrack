@@ -10,7 +10,7 @@ const CHECK_SOURCE_LABELS = {
 };
 const LEGACY_VERIFICATION = /^Mapped-template (?:body heading|transaction artifact)/i;
 
-export function AiReviewReport({ report }) {
+export function AiReviewReport({ report, deliverableTitle = '' }) {
   if (!report) return null;
   const originalFindings = report.findings || legacyFindings(report.flags);
   const legacyNotes = originalFindings.filter(isLegacyVerification).map(legacyVerification);
@@ -48,7 +48,7 @@ export function AiReviewReport({ report }) {
         <Text component="h3" fw={700}>Document overview</Text>
         {report.documentOverview.wrongDocument === true && report.documentOverview.actualDocumentType ? (
           <Alert color="orange" role="status" mb="sm">
-            This is not the required document; this is {report.documentOverview.actualDocumentType}.
+            This is {report.documentOverview.actualDocumentType}, <strong>NOT</strong> the required {deliverableTitle || 'document'}.
           </Alert>
         ) : null}
         <Text>{report.documentOverview.text}</Text>
@@ -109,7 +109,7 @@ export function AiReviewReport({ report }) {
   );
 }
 
-function FindingRow({ finding, label }) {
+function FindingRow({ finding, label, hideRequirement = false }) {
   const explanation = finding.explanation || finding.issue || '';
   const title = finding.title;
   const nextAction = specificAction(finding);
@@ -119,23 +119,24 @@ function FindingRow({ finding, label }) {
       {title ? <h3>{title}</h3> : null}
       {explanation && normalized(explanation) !== normalized(title) ? <Text size="sm" mt={6}>{explanation}</Text> : null}
       {nextAction ? <Text size="sm" mt="sm">{nextAction}</Text> : null}
-      <Evidence finding={finding} />
+      <Evidence finding={finding} hideRequirement={hideRequirement} />
     </article>
   );
 }
 
-function Evidence({ finding }) {
+function Evidence({ finding, hideRequirement = false }) {
   const sourceLabel = CHECK_SOURCE_LABELS[finding.source];
-  if (!finding.evidence && !finding.requirement && !finding.location) return null;
+  const requirement = hideRequirement ? '' : finding.requirement;
+  if (!finding.evidence && !requirement && !finding.location) return null;
   const location = [finding.location?.page && `PDF page ${finding.location.page}`, finding.location?.section].filter(Boolean).join(' · ');
   return (
     <details className="wt-ai-review-evidence">
-      <summary>{finding.evidence ? 'View supporting text' : 'View requirement'}{location ? ` · ${location}` : ''}</summary>
+      <summary>{finding.evidence ? 'View supporting text' : requirement ? 'View requirement' : 'View location'}{location ? ` · ${location}` : ''}</summary>
       <Stack gap="sm" mt="sm">
         {finding.evidence ? <Passage text={finding.evidence} quote /> : null}
-        {finding.requirement ? finding.requirement.length > 160
-          ? <Passage label={`Reference${sourceLabel ? ` · ${sourceLabel}` : ''}`} text={finding.requirement} />
-          : <Text className="wt-ai-review-reference" size="sm">Reference: {sourceLabel ? `${sourceLabel} · ` : ''}{finding.requirement}</Text> : null}
+        {requirement ? requirement.length > 160
+          ? <Passage label={`Reference${sourceLabel ? ` · ${sourceLabel}` : ''}`} text={requirement} />
+          : <Text className="wt-ai-review-reference" size="sm">Reference: {sourceLabel ? `${sourceLabel} · ` : ''}{requirement}</Text> : null}
       </Stack>
     </details>
   );
@@ -228,7 +229,7 @@ function ArtifactVerificationRow({ group }) {
     <Evidence finding={{ requirement: group.notes[0].requirement, source: group.notes[0].source }} />
     <details className="wt-ai-review-originals">
       <summary>Original artifact observations ({group.notes.length})</summary>
-      <Stack gap="md" mt="sm">{group.notes.map((note, index) => <FindingRow key={index} finding={note} />)}</Stack>
+      <Stack gap="md" mt="sm">{group.notes.map((note, index) => <FindingRow key={index} finding={note} hideRequirement />)}</Stack>
     </details>
   </article>;
 }
