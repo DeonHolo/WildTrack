@@ -44,6 +44,26 @@ class GeminiAiReviewProviderTest {
         return response("{\"summary\":\"Requirements need clearer acceptance criteria.\",\"findings\":[{\"issue\":\"Requirement R1 has no measurable threshold.\",\"source\":\"DELIVERABLE_REQUIREMENTS\",\"evidence\":\"Section 3, requirement R1\",\"requirement\":\"Include functional requirements\"}],\"missingRequiredSections\":[],\"suggestedAction\":\"Ask the team to clarify R1.\",\"verifiedChecks\":[]}", "STOP");
     }
 
+    @Test void maximumCoverageSchemaAvoidsRepeatedBoundedArrays() throws Exception {
+        var method = GeminiAiReviewProvider.class.getDeclaredMethod("schema", int.class, int.class);
+        method.setAccessible(true);
+        for (int count : new int[]{0, 6, AiReviewCoveragePolicy.MAX_CRITERIA}) {
+            var properties = json.valueToTree(method.invoke(null, 20, count)).path("properties");
+            var coverage = properties.path("criterionReviews");
+            assertThat(coverage.has("maxItems")).isFalse();
+            assertThat(coverage.path("items").path("properties").path("criterionId").path("enum").size())
+                .isEqualTo(Math.max(1, count));
+            for (String field : List.of("verifiedCheckIndexes", "findingIndexes",
+                    "missingSectionIndexes", "verificationNoteIndexes")) {
+                var indexes = coverage.path("items").path("properties").path(field);
+                assertThat(indexes.has("maxItems")).isFalse();
+                assertThat(indexes.path("items").path("maximum").asInt()).isEqualTo(49);
+            }
+            assertThat(properties.path("verifiedChecks").path("maxItems").asInt()).isEqualTo(5);
+            assertThat(properties.path("findings").path("maxItems").asInt()).isEqualTo(8);
+        }
+    }
+
     @Test void parsesExtendedRecordedNotesWithTheCompactWireSchema() throws Exception {
         for (int count : new int[]{9, 50}) {
             setup();
@@ -253,7 +273,7 @@ class GeminiAiReviewProviderTest {
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
         assertThat(provider.cacheVersion()).contains("gemini-3.5-flash-lite", "rest-pdf-v7", "thinking-minimal", "output-8192",
-            "schema-structured-review-v9-body-citations-coverage");
+            "schema-structured-review-v10-compact-coverage");
         assertThat(provider.cacheVersion()).doesNotContain("temperature-0.2");
         server.verify();
     }
