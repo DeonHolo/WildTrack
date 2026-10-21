@@ -27,7 +27,7 @@ jobs:
           cache: maven
           cache-dependency-path: backend/pom.xml
       - name: Check grounding, bounded follow-up, HTTP framing and CSRF
-        run: mvn -B -Dtest=AiReviewCoverage*,AiReviewDeduplicationTest,Gemini*,AiReviewCsrfErrorDispatchIntegrationTest package
+        run: mvn -B -Dtest=AiReviewCoverage*,AiReviewExecution*,AiReviewDeduplicationTest,Gemini*,AiReviewCsrfErrorDispatchIntegrationTest package
       - name: Save test results
         if: always()
         uses: actions/upload-artifact@v7

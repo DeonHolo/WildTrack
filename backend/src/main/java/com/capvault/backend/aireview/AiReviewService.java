@@ -43,7 +43,7 @@ public class AiReviewService {
     private static final Logger LOG = LoggerFactory.getLogger(AiReviewService.class);
     // Post-validation behavior is part of the persisted review cache fingerprint.
     // Do not reuse reports generated before the named body-section evidence correction.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v22-coverage";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v23-execution-consistency";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -858,6 +858,13 @@ public class AiReviewService {
                 validatedFindings.add(contradiction);
             }
         }
+        for (var contradiction : AiReviewExecutionConsistencyPolicy.findings(documentText)) {
+            if (validatedFindings.size() >= 50) break;
+            if (validatedFindings.stream().noneMatch(existing ->
+                    sameExecutionContradiction(existing, contradiction, documentText))) {
+                validatedFindings.add(contradiction);
+            }
+        }
         for (var undefinedAcronym : AiReviewGroundingPolicy.undefinedAcronymsRequiredByTemplate(
                 documentText, context.template())) {
             if (validatedFindings.stream().noneMatch(existing ->
@@ -993,6 +1000,27 @@ public class AiReviewService {
             action, verifiedChecks, verificationNotes, outcome);
         return AiReviewCoveragePolicy.withCoverage(accepted,
             AiReviewCoveragePolicy.grounded(result, accepted, context.instructions(), context.template()));
+    }
+
+    private static boolean sameExecutionContradiction(AiReviewProvider.Finding existing,
+            AiReviewProvider.Finding contradiction, String documentText) {
+        if (existing.source() != AiReviewProvider.FindingSource.DOCUMENT) return false;
+        String issue = normalizeAuthorityText(existing.issue());
+        if (!issue.matches("(?s).*\\bpass(?:ed)?\\b.*")
+                || !issue.matches("(?s).*(?:contradict|inconsisten|mismatch|differ|incorrect|fail|\\bbut\\b|despite|does not match).*"))
+            return false;
+        String evidence = normalizeAuthorityText(existing.evidence());
+        String record = normalizeAuthorityText(contradiction.evidence());
+        if (evidence.equals(record)) return true;
+        if (evidence.length() < 40 || !record.contains(evidence)
+                || !evidence.contains("expected") || !evidence.contains("actual")
+                || !evidence.matches("(?s).*\\bpass(?:ed)?\\b.*")) return false;
+        String existingCase = AiReviewExecutionConsistencyPolicy.executionIdentity(existing.issue());
+        String candidateCase = AiReviewExecutionConsistencyPolicy.executionIdentity(contradiction.issue());
+        if (existingCase != null) return existingCase.equals(candidateCase);
+        String document = normalizeAuthorityText(documentText);
+        int occurrence = document.indexOf(evidence);
+        return occurrence >= 0 && occurrence == document.lastIndexOf(evidence);
     }
 
     private enum CheckRejection {
