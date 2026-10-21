@@ -127,15 +127,20 @@ describe('AI Review repair acceptance behavior', () => {
       { source: 'OFFICIAL_TEMPLATE', issue: "Mapped-template transaction artifact 'Validation Form' is absent.", evidence: 'Mapped-template transaction artifact comparison' }
     ], missingRequiredSections: [] });
     expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
-    expect(screen.getByText('Verify in PDF (2)')).toBeInTheDocument();
-    expect(screen.queryByText('Issues to review')).not.toBeInTheDocument();
+    expect(screen.getByText('2 to verify')).toBeVisible();
+    const checklist = screen.getByRole('region', { name: 'Review checklist' });
+    expect(checklist).toHaveTextContent('Validation Results');
+    expect(checklist).toHaveTextContent('Validation Form');
+    expect(screen.queryByRole('region', { name: 'Issues to review' })).not.toBeInTheDocument();
   });
 
   it('keeps explicit issues as ISSUES_IDENTIFIED while also exposing verification notes', () => {
     renderReport({ outcome: 'ISSUES_IDENTIFIED', findings: [{ issue: 'Missing acceptance criteria.', source: 'DOCUMENT', evidence: 'Section 4' }], verificationNotes: [{ issue: 'Confirm the template heading in the PDF.', source: 'OFFICIAL_TEMPLATE', evidence: 'Page 2' }], missingRequiredSections: [] });
     expect(screen.getByText('Issues identified')).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Issues to review' })).toBeInTheDocument();
-    expect(screen.getByText('Verify in PDF (1)')).toBeInTheDocument();
+    const checklist = screen.getByRole('region', { name: 'Review checklist' });
+    expect(within(checklist).getByText('Missing acceptance criteria.')).toBeVisible();
+    expect(within(checklist).getByText('Confirm the template heading in the PDF.')).toBeVisible();
+    expect(screen.getByText('1 concern · 1 to verify')).toBeVisible();
   });
 
   it('does not render an identical last substantive report twice', () => {
