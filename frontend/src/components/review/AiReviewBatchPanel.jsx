@@ -38,7 +38,7 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
       {error ? <Text size="sm">{error}</Text> : null}
       {attention ? <AiReviewBatchFailures entries={batch.entries} /> : null}
       <Group gap="sm">
-        {running && onStop ? <Button color="orange.8" variant="outline" leftSection={<Stop size={16} weight="fill" aria-hidden="true" />}
+        {running && onStop ? <Button color="#9a3412" variant="outline" leftSection={<Stop size={16} weight="fill" aria-hidden="true" />}
           loading={busy} disabled={batch.stopRequested} onClick={onStop}>{batch.stopRequested ? 'Stop requested' : 'Stop after current document'}</Button> : null}
         {batch.state === 'READY' ? <Button onClick={onChoose}>Choose review scope</Button> : null}
         {(preparing || batch.state === 'READY') && onCancel ? <Button variant="default" disabled={busy} onClick={onCancel}>Cancel precheck</Button> : null}
