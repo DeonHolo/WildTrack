@@ -59,12 +59,17 @@ public class AiReviewBatchService {
                 resultStatus, reused, error, noAiStarted, value);
         }
     }
-    public record Data(List<Entry> entries, String mode, boolean includeOutdated, boolean retryAcknowledged, String message) {
-        Data entries(List<Entry> next, String message) { return new Data(List.copyOf(next), mode, includeOutdated, retryAcknowledged, message); }
+    public record Data(List<Entry> entries, String mode, boolean includeOutdated, boolean retryAcknowledged, String message,
+                       boolean stopRequested) {
+        public Data(List<Entry> entries, String mode, boolean includeOutdated, boolean retryAcknowledged, String message) {
+            this(entries, mode, includeOutdated, retryAcknowledged, message, false);
+        }
+        Data entries(List<Entry> next, String message) { return new Data(List.copyOf(next), mode, includeOutdated, retryAcknowledged, message, stopRequested); }
+        Data stopRequested(boolean value, String message) { return new Data(entries, mode, includeOutdated, retryAcknowledged, message, value); }
     }
     public record View(UUID id, String state, long version, String updatedAt, List<Entry> entries,
                        int totalPdfs, int preparedPdfs, int uniqueDocuments, int selectedDocuments,
-                       int completedDocuments, int pendingDocuments, int reusedDocuments, String message) { }
+                       int completedDocuments, int pendingDocuments, int reusedDocuments, String message, boolean stopRequested) { }
     private final AiReviewBatchStore store;
     private final AiReviewService reviews;
     private final FileCheckReportRepository checks;
@@ -122,10 +127,17 @@ public class AiReviewBatchService {
         if (!row.state().equals("PAUSED")) return view(row, subject);
         if (row.data().entries().stream().noneMatch(e -> e.selected() && e.phase().equals("PENDING")))
             throw conflict("No unstarted documents remain. Prepare a new batch to explicitly retry failed reviews.");
-        if (!store.action(row, "RUNNING", row.data().entries(row.data().entries(),
+        if (!store.action(row, "RUNNING", row.data().stopRequested(false,
             "Continuing unstarted documents. Failed or uncertain attempts are not automatically retried.")))
             throw conflict("The batch changed. Reload its progress.");
         return get(workspace, id, subject);
+    }
+
+    public View stop(UUID workspace, UUID id, String subject) {
+        var row = authorized(workspace, id, subject);
+        if (Set.of("PAUSED", "COMPLETED").contains(row.state())) return view(row, subject);
+        if (!row.state().equals("RUNNING")) throw conflict("Only a running AI Review batch can be stopped.");
+        return view(store.requestStop(row), subject);
     }
 
     public View cancelPreparation(UUID workspace, UUID id, String subject) {
@@ -161,6 +173,9 @@ public class AiReviewBatchService {
         } catch (RuntimeException failure) {
             // Do not expose URLs, credentials, upstream bodies or document text in unclassified failures.
             pauseOwned(row, "The batch could not advance. Check saved reviews before continuing.");
+        } finally {
+            // A concurrent stop invalidates this worker's version, but must not strand its lease.
+            store.releaseLease(row);
         }
     }
 
@@ -208,7 +223,14 @@ public class AiReviewBatchService {
     private void reviewOne(AiReviewBatchStore.Row row) {
         List<Entry> entries = new ArrayList<>(row.data().entries());
         int index = -1;
-        for (int i = 0; i < entries.size(); i++) if (entries.get(i).selected() && Set.of("WAITING", "STARTING", "PENDING").contains(entries.get(i).phase())) { index = i; break; }
+        for (int i = 0; i < entries.size(); i++) if (entries.get(i).selected() && Set.of("WAITING", "STARTING").contains(entries.get(i).phase())) { index = i; break; }
+        if (index < 0 && row.data().stopRequested()) {
+            boolean pending = entries.stream().anyMatch(e -> e.selected() && e.phase().equals("PENDING"));
+            store.saveLeased(row, pending ? "PAUSED" : "COMPLETED", row.data().entries(entries,
+                pending ? stoppedMessage() : finishedMessage(entries)));
+            return;
+        }
+        if (index < 0) for (int i = 0; i < entries.size(); i++) if (entries.get(i).selected() && entries.get(i).phase().equals("PENDING")) { index = i; break; }
         if (index < 0) {
             store.saveLeased(row, "COMPLETED", row.data().entries(entries, finishedMessage(entries)));
             return;
@@ -255,7 +277,11 @@ public class AiReviewBatchService {
             entries.set(index, entry.failed("This artifact could not be processed. Check saved reviews before retrying.", false));
             next = "PAUSED";
         }
-        String message = next.equals("PAUSED") ? "Batch paused. Continue unstarted documents or explicitly prepare retries; uncertain requests are never automatically repeated." : row.data().message();
+        boolean stopped = next.equals("RUNNING") && row.data().stopRequested()
+            && entries.stream().noneMatch(e -> e.selected() && Set.of("STARTING", "WAITING").contains(e.phase()));
+        if (stopped) next = entries.stream().anyMatch(e -> e.selected() && e.phase().equals("PENDING")) ? "PAUSED" : "COMPLETED";
+        String message = stopped ? next.equals("PAUSED") ? stoppedMessage() : finishedMessage(entries)
+            : next.equals("PAUSED") ? "Batch paused. Continue unstarted documents or explicitly prepare retries; uncertain requests are never automatically repeated." : row.data().message();
         store.saveLeased(row, next, row.data().entries(entries, message));
     }
 
@@ -278,6 +304,9 @@ public class AiReviewBatchService {
     private static int indexOf(List<Entry> entries, String phase) {
         for (int i = 0; i < entries.size(); i++) if (entries.get(i).phase().equals(phase)) return i;
         return -1;
+    }
+    private static String stoppedMessage() {
+        return "AI Review stopped. Completed reviews are saved. Continue to review the unstarted documents.";
     }
     private static String finishedMessage(List<Entry> entries) {
         var selected = entries.stream().filter(Entry::selected).toList();
@@ -309,7 +338,7 @@ public class AiReviewBatchService {
         int pending = (int) selected.stream().filter(g -> g.stream().anyMatch(e -> e.selected() && e.phase().equals("PENDING"))).count();
         int reused = (int) selected.stream().filter(g -> g.stream().filter(Entry::selected).allMatch(e -> e.phase().equals("DONE") && "COMPLETED".equals(e.resultStatus()) && e.reused())).count();
         return new View(row.id(), row.state(), row.version(), row.updatedAt().toString(), entries, entries.size(),
-            (int) entries.stream().filter(e -> !e.phase().equals("PREPARING")).count(), groups.size(), selected.size(), complete, pending, reused, row.state().equals("COMPLETED") ? finishedMessage(entries) : row.data().message());
+            (int) entries.stream().filter(e -> !e.phase().equals("PREPARING")).count(), groups.size(), selected.size(), complete, pending, reused, row.state().equals("COMPLETED") ? finishedMessage(entries) : row.data().message(), row.data().stopRequested());
     }
     private Entry restoredIdentity(UUID workspace, Entry entry, String subject) {
         if (entry.identity() != null) return entry;

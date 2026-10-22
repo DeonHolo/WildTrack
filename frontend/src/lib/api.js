@@ -712,6 +712,9 @@ export function startAiReviewBatch(workspaceId, id, options) {
 export function resumeAiReviewBatch(workspaceId, id) {
   return request(withWorkspace(`/ai-reviews/batches/${encodeURIComponent(id)}/resume`, workspaceId), { method: 'POST' });
 }
+export function stopAiReviewBatch(workspaceId, id) {
+  return request(withWorkspace(`/ai-reviews/batches/${encodeURIComponent(id)}/stop`, workspaceId), { method: 'POST' });
+}
 export function cancelAiReviewBatchPreparation(workspaceId, id) {
   return request(withWorkspace(`/ai-reviews/batches/${encodeURIComponent(id)}/cancel`, workspaceId), { method: 'POST' });
 }

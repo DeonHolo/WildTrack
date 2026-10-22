@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
 import { ReviewPage } from './ReviewPage.jsx';
-import { getIdentityConflicts, getLatestAiReviewBatch, getAiReviewBatch, prepareAiReviewBatch, startAiReviewBatch, resumeAiReviewBatch } from '../lib/api.js';
+import { getIdentityConflicts, getLatestAiReviewBatch, getAiReviewBatch, prepareAiReviewBatch, startAiReviewBatch, resumeAiReviewBatch, stopAiReviewBatch, cancelAiReviewBatchPreparation } from '../lib/api.js';
 import { applyReviewState } from '../lib/backendDomain.js';
 import { useCallback, useReducer } from 'react';
 
@@ -64,6 +64,7 @@ vi.mock('../lib/api.js', () => ({
   prepareAiReviewBatch: vi.fn().mockResolvedValue(null),
   startAiReviewBatch: vi.fn().mockResolvedValue(null),
   resumeAiReviewBatch: vi.fn().mockResolvedValue(null),
+  stopAiReviewBatch: vi.fn().mockResolvedValue(null),
   cancelAiReviewBatchPreparation: vi.fn().mockResolvedValue(null),
 
   getSavedAiReview: (...args) => workflow.getSavedAiReview(...args)
@@ -283,6 +284,19 @@ function renderPage(initialEntry = '/review') {
   return render(pageTree(initialEntry));
 }
 
+async function startPrecheck() {
+  fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
+  const confirmation = await screen.findByRole('dialog', { name: 'Prepare AI Review?' });
+  fireEvent.click(within(confirmation).getByRole('button', { name: 'Start precheck' }));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Prepare AI Review?' })).not.toBeInTheDocument());
+}
+
+async function openBatchConfirmation() {
+  await startPrecheck();
+  fireEvent.click(await screen.findByRole('button', { name: 'Choose review scope' }));
+  return screen.findByRole('dialog', { name: 'AI review submissions' });
+}
+
 async function openDeliverableOverview() {
   fireEvent.click(screen.getByRole('button', { name: 'Deliverable overview' }));
   return screen.findByRole('table', { name: 'Deliverables awaiting review' });
@@ -297,6 +311,8 @@ describe('deliverable-first submission review', () => {
     prepareAiReviewBatch.mockReset().mockResolvedValue(null);
     startAiReviewBatch.mockReset().mockResolvedValue(null);
     resumeAiReviewBatch.mockReset().mockResolvedValue(null);
+    stopAiReviewBatch.mockReset().mockResolvedValue(null);
+    cancelAiReviewBatchPreparation.mockReset().mockResolvedValue(null);
 
     workflow.workspaceId = 'workspace-it';
     workflow.session = { authenticated: true, email: 'admin@school.edu' };
@@ -643,6 +659,105 @@ describe('deliverable-first submission review', () => {
     expect(saved).not.toHaveTextContent('AI review completed.');
   });
 
+  it('confirms the precheck first, then shows progress only in the banner without starting AI', async () => {
+    const planning = { id: 'background-precheck', state: 'PLANNING', version: 1,
+      entries: [], totalPdfs: 2, preparedPdfs: 0 };
+    prepareAiReviewBatch.mockResolvedValue(planning);
+    getAiReviewBatch.mockResolvedValue(planning);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Prepare AI Review?' });
+    expect(confirmation).toHaveTextContent('does not send an AI request');
+    expect(prepareAiReviewBatch).not.toHaveBeenCalled();
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Start precheck' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Prepare AI Review?' })).not.toBeInTheDocument());
+    await waitFor(() => expect(prepareAiReviewBatch).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Preparing AI Review')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'AI review submissions' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Checking current files and saved reviews')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
+    expect(screen.queryByRole('dialog', { name: 'Prepare AI Review?' })).not.toBeInTheDocument();
+    expect(prepareAiReviewBatch).toHaveBeenCalledTimes(1);
+    expect(cancelAiReviewBatchPreparation).not.toHaveBeenCalled();
+    expect(startAiReviewBatch).not.toHaveBeenCalled();
+  });
+
+  it.each(['close button', 'Escape', 'outside click', 'Close'])('retains a ready precheck after closing confirmation with %s', async (method) => {
+    const ready = { id: 'ready-precheck', state: 'READY', version: 2,
+      entries: [], totalPdfs: 2, preparedPdfs: 2 };
+    prepareAiReviewBatch.mockResolvedValue(ready);
+    renderPage();
+    const dialog = await openBatchConfirmation();
+    if (method === 'close button') fireEvent.click(within(dialog).getByRole('button', { name: 'Close AI Review window' }));
+    else if (method === 'Escape') fireEvent.keyDown(document.body, { key: 'Escape', code: 'Escape' });
+    else if (method === 'Close') fireEvent.click(within(dialog).getByRole('button', { name: 'Close', exact: true }));
+    else {
+      const overlay = document.querySelector('.mantine-Modal-overlay');
+      fireEvent.mouseDown(overlay); fireEvent.mouseUp(overlay); fireEvent.click(overlay);
+    }
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'AI review submissions' })).not.toBeInTheDocument());
+    expect(cancelAiReviewBatchPreparation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Choose review scope' }));
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'AI review submissions' })).toBeVisible());
+    expect(prepareAiReviewBatch).toHaveBeenCalledTimes(1);
+    expect(startAiReviewBatch).not.toHaveBeenCalled();
+  });
+
+  it('shows a background precheck becoming ready and cancels only from the banner action', async () => {
+    const planning = { id: 'background-precheck', state: 'PLANNING', version: 1,
+      entries: [], totalPdfs: 1, preparedPdfs: 0 };
+    const ready = { ...planning, state: 'READY', version: 2, preparedPdfs: 1, entries: [{
+      target: { responseId: 'response-ron-srs', fieldId: 'documentPdf' }, phase: 'PREPARED',
+      preview: { key: 'ready-pdf', category: 'MISSING' }
+    }] };
+    prepareAiReviewBatch.mockResolvedValue(planning);
+    getAiReviewBatch.mockResolvedValue(ready);
+    cancelAiReviewBatchPreparation.mockResolvedValue({ ...ready, state: 'CANCELLED' });
+    renderPage();
+    await startPrecheck();
+    expect(await screen.findByText('Preparing AI Review')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'AI review submissions' })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose review scope' }));
+    const reopened = await screen.findByRole('dialog', { name: 'AI review submissions' });
+    expect(reopened).toHaveTextContent('1 unique review to run');
+    expect(within(reopened).getByRole('button', { name: 'Start review' })).toBeEnabled();
+    expect(cancelAiReviewBatchPreparation).not.toHaveBeenCalled();
+    expect(startAiReviewBatch).not.toHaveBeenCalled();
+    fireEvent.click(within(reopened).getByRole('button', { name: 'Close', exact: true }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel precheck' }));
+    await waitFor(() => expect(cancelAiReviewBatchPreparation).toHaveBeenCalledWith('workspace-it', planning.id));
+    expect(prepareAiReviewBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not create a precheck when its initial confirmation is cancelled', async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Prepare AI Review?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel', exact: true }));
+    expect(prepareAiReviewBatch).not.toHaveBeenCalled();
+    expect(cancelAiReviewBatchPreparation).not.toHaveBeenCalled();
+    expect(startAiReviewBatch).not.toHaveBeenCalled();
+  });
+
+  it('requests a stop from the running banner and can continue unstarted documents once paused', async () => {
+    const running = { ...completedBatch([savedEntry()]), state: 'RUNNING', completedDocuments: 0, pendingDocuments: 1 };
+    const stopping = { ...running, stopRequested: true, message: 'The current document will finish before the batch stops.' };
+    const paused = { ...stopping, state: 'PAUSED' };
+    getLatestAiReviewBatch.mockResolvedValue(running);
+    stopAiReviewBatch.mockResolvedValue(stopping);
+    getAiReviewBatch.mockResolvedValue(paused);
+    resumeAiReviewBatch.mockResolvedValue({ ...running, stopRequested: false });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop after current document' }));
+    await waitFor(() => expect(stopAiReviewBatch).toHaveBeenCalledWith('workspace-it', running.id));
+    expect(await screen.findByRole('button', { name: 'Stop requested' })).toBeDisabled();
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue remaining (1)' }));
+    await waitFor(() => expect(resumeAiReviewBatch).toHaveBeenCalledWith('workspace-it', running.id));
+    expect(prepareAiReviewBatch).not.toHaveBeenCalled();
+    expect(startAiReviewBatch).not.toHaveBeenCalled();
+    expect(cancelAiReviewBatchPreparation).not.toHaveBeenCalled();
+  });
+
   it('prepares a verified batch before requesting consent and sends retry acknowledgement only after confirmation', async () => {
     const entries = [
       { target: { responseId: 'response-muriel-srs', fieldId: 'documentPdf' }, phase: 'PREPARED',
@@ -654,8 +769,7 @@ describe('deliverable-first submission review', () => {
     startAiReviewBatch.mockResolvedValue({ id: 'batch-1', state: 'RUNNING', version: 5, entries,
       totalPdfs: 2, selectedDocuments: 2, completedDocuments: 0, pendingDocuments: 2 });
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
-    const confirmation = await screen.findByRole('dialog', { name: 'AI review submissions' });
+    const confirmation = await openBatchConfirmation();
     await waitFor(() => expect(confirmation).toHaveTextContent('2 unique reviews to run'));
     expect(startAiReviewBatch).not.toHaveBeenCalled();
     expect(within(confirmation).getByRole('button', { name: 'Start review' })).toBeDisabled();
@@ -670,10 +784,9 @@ describe('deliverable-first submission review', () => {
   it('shows a preparation failure without starting a provider request', async () => {
     prepareAiReviewBatch.mockRejectedValue(new Error('Your WildTrack session expired. Sign in again.'));
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
-    const confirmation = await screen.findByRole('dialog', { name: 'AI review submissions' });
-    await waitFor(() => expect(confirmation).toHaveTextContent('Your WildTrack session expired'));
-    expect(within(confirmation).getByRole('button', { name: 'Start review' })).toBeDisabled();
+    await startPrecheck();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your WildTrack session expired');
+    expect(screen.queryByRole('dialog', { name: 'AI review submissions' })).not.toBeInTheDocument();
     expect(startAiReviewBatch).not.toHaveBeenCalled();
     expect(workflow.runAiReviews).not.toHaveBeenCalled();
   });
@@ -716,8 +829,7 @@ describe('deliverable-first submission review', () => {
     }));
     prepareAiReviewBatch.mockResolvedValue({ id: 'batch-count', state: 'READY', version: 1, entries, totalPdfs: 3 });
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
-    const dialog = await screen.findByRole('dialog', { name: 'AI review submissions' });
+    const dialog = await openBatchConfirmation();
     await waitFor(() => expect(dialog).toHaveTextContent('1 unique review to run'));
     expect(dialog).toHaveTextContent('3 total PDF submissions');
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Include successful reviews too' }));
@@ -733,8 +845,7 @@ describe('deliverable-first submission review', () => {
         error: 'Backend access failure could not be confirmed as a sharing problem.' }
     ] });
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
-    const dialog = await screen.findByRole('dialog', { name: 'AI review submissions' });
+    const dialog = await openBatchConfirmation();
     await waitFor(() => expect(dialog).toHaveTextContent('1 unique review to run'));
     expect(dialog).toHaveTextContent('Some PDFs could not be verified');
     expect(dialog).toHaveTextContent('excluded from the review count because their contents could not be verified');
@@ -751,8 +862,7 @@ describe('deliverable-first submission review', () => {
           generatedAt: '2026-04-19T00:00:00Z', modifiedAt: '2026-04-20T00:00:00Z' } }
     ] });
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'AI review all' }));
-    const dialog = await screen.findByRole('dialog', { name: 'AI review submissions' });
+    const dialog = await openBatchConfirmation();
     await waitFor(() => expect(dialog).toHaveTextContent('1 unique review to run'));
     fireEvent.click(within(dialog).getByText('See affected PDFs'));
     expect(dialog).toHaveTextContent('Document Check also recorded a file update after the saved AI Review');
