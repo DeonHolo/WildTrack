@@ -36,6 +36,10 @@ public class AiReviewBatchController {
     public AiReviewBatchService.View resume(@PathVariable UUID id, @RequestParam UUID workspaceId, HttpServletRequest http) {
         return service.resume(workspaceId, id, security.requireSession(http).googleSubject());
     }
+    @PostMapping("/{id}/stop")
+    public AiReviewBatchService.View stop(@PathVariable UUID id, @RequestParam UUID workspaceId, HttpServletRequest http) {
+        return service.stop(workspaceId, id, security.requireSession(http).googleSubject());
+    }
     @PostMapping("/{id}/cancel")
     public AiReviewBatchService.View cancel(@PathVariable UUID id, @RequestParam UUID workspaceId, HttpServletRequest http) {
         return service.cancelPreparation(workspaceId, id, security.requireSession(http).googleSubject());

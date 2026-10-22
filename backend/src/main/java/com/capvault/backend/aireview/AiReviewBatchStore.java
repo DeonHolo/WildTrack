@@ -65,6 +65,21 @@ public class AiReviewBatchStore {
     }
 
     boolean saveLeased(Row row, String state, AiReviewBatchService.Data data) {
+        if (writeLeased(row, state, data)) return true;
+        return tx.execute(status -> {
+            var current = locked(row).orElse(null);
+            if (current == null || !current.state().equals(row.state()) || row.leaseToken() == null
+                    || !row.leaseToken().equals(current.leaseToken()) || current.version() != row.version() + 1
+                    || row.data().stopRequested() || !current.data().stopRequested()
+                    || !current.data().equals(row.data().stopRequested(true, current.data().message()))) return false;
+            // Only merge the concurrent stop bit. Keep this lease owner's completed result or preclaim error.
+            // Checkpoints deliberately do not merge: a stop before STARTING must prevent the next claim.
+            return writeLeased(current, state, data.stopRequested(true,
+                state.equals("RUNNING") ? current.data().message() : data.message()));
+        });
+    }
+
+    private boolean writeLeased(Row row, String state, AiReviewBatchService.Data data) {
         return jdbc.update("UPDATE ai_review_batches SET state = ?, payload_json = ?, version = version + 1, updated_at = ?, lease_token = NULL, lease_until = NULL WHERE id = ? AND version = ? AND lease_token = ? AND state = ?",
             state, encode(data), Timestamp.from(clock.instant()), row.id(), row.version(), row.leaseToken(), row.state()) == 1;
     }
@@ -73,6 +88,29 @@ public class AiReviewBatchStore {
         int changed = jdbc.update("UPDATE ai_review_batches SET payload_json = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ? AND lease_token = ? AND state = ?",
             encode(data), Timestamp.from(clock.instant()), row.id(), row.version(), row.leaseToken(), row.state());
         return changed == 1 ? find(row.id(), row.workspaceId()) : Optional.empty();
+    }
+
+    Row requestStop(Row row) {
+        return tx.execute(status -> {
+            var current = locked(row).orElseThrow();
+            if (!current.state().equals("RUNNING") || current.data().stopRequested()) return current;
+            // Keep the lease: its worker may already be starting the current document.
+            // The version bump rejects a stale checkpoint before any later document can start.
+            jdbc.update("UPDATE ai_review_batches SET payload_json = ?, version = version + 1, updated_at = ? WHERE id = ?",
+                encode(current.data().stopRequested(true, "Stopping after the current document. Completed reviews will remain saved.")),
+                Timestamp.from(clock.instant()), current.id());
+            return find(current.id(), current.workspaceId()).orElseThrow();
+        });
+    }
+
+    void releaseLease(Row row) {
+        jdbc.update("UPDATE ai_review_batches SET lease_token = NULL, lease_until = NULL WHERE id = ? AND lease_token = ?",
+            row.id(), row.leaseToken());
+    }
+
+    private Optional<Row> locked(Row row) {
+        return query("SELECT * FROM ai_review_batches WHERE id = ? AND workspace_id = ? FOR UPDATE", row.id(), row.workspaceId())
+            .stream().findFirst();
     }
 
     boolean action(Row row, String state, AiReviewBatchService.Data data) {

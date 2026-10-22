@@ -1,13 +1,15 @@
 import { Alert, Button, Group, Progress, Stack, Text } from '@mantine/core';
+import { Stop } from '@phosphor-icons/react';
 import { isAiBatchTechnicalFailure } from '../../lib/aiReviewBatch.js';
 import { AiReviewBatchFailures } from './AiReviewBatchFailures.jsx';
 
-export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDismiss, onResume, onChoose, onPrepare, onRefresh, refreshing = false }) {
+export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDismiss, onResume, onStop, onChoose, onCancel, onPrepare, onRefresh, refreshing = false }) {
   if (dismissed && batch?.state === 'COMPLETED' && !error) return null;
   if (!batch || batch.state === 'CANCELLED') return error ? <Alert color="red" role="alert">{error}</Alert> : null;
   const running = batch.state === 'RUNNING';
   const paused = batch.state === 'PAUSED';
   const preparing = batch.state === 'PLANNING';
+  const precheck = preparing || batch.state === 'READY';
   const attention = batch.entries.filter(entry => entry.error).length;
   const counts = summarizeBatch(batch.entries);
   const technicalFailure = counts.failed > 0 || batch.entries.some(isAiBatchTechnicalFailure);
@@ -19,15 +21,15 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
   return <Alert role="status" color={color}
     withCloseButton={batch.state === 'COMPLETED' && Boolean(onDismiss) && !busy}
     onClose={onDismiss} closeButtonLabel="Dismiss finished AI Review batch"
-    title={preparing ? 'Preparing AI Review' : running ? 'AI Review running' : paused ? 'AI Review paused' : batch.state === 'READY' ? 'AI Review ready to start' : 'AI Review batch finished'}>
+    title={preparing ? 'Preparing AI Review' : running ? batch.stopRequested ? 'Stopping AI Review' : 'AI Review running' : paused ? 'AI Review paused' : batch.state === 'READY' ? 'AI Review ready to start' : 'AI Review batch finished'}>
     <Stack gap="sm">
-      <Text size="sm" fw={600}>{preparing ? `${batch.preparedPdfs} of ${batch.totalPdfs} PDF submissions checked`
+      <Text size="sm" fw={600}>{precheck ? `${batch.preparedPdfs} of ${batch.totalPdfs} PDF submissions checked`
         : `${batch.completedDocuments ?? 0} of ${batch.selectedDocuments ?? 0} unique review attempts finished · ${batch.totalPdfs} total PDF submissions`}</Text>
-      <Progress color={color} value={preparing ? batch.preparedPdfs / Math.max(1, batch.totalPdfs) * 100
+      <Progress color={color} value={precheck ? batch.preparedPdfs / Math.max(1, batch.totalPdfs) * 100
         : batch.completedDocuments / Math.max(1, batch.selectedDocuments) * 100} animated={running || preparing} />
       <Text size="sm">{message}</Text>
       {batch.reusedDocuments ? <Text size="sm">{batch.reusedDocuments} saved {batch.reusedDocuments === 1 ? 'review reused' : 'reviews reused'}.</Text> : null}
-      {!preparing ? <Text size="sm">
+      {!precheck ? <Text size="sm">
         {counts.completed} AI {counts.completed === 1 ? 'review' : 'reviews'} available
         {counts.blocked ? ` · ${counts.blocked} blocked before AI` : ''}
         {counts.failed ? ` · ${counts.failed} failed or unconfirmed` : ''}
@@ -36,7 +38,10 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
       {error ? <Text size="sm">{error}</Text> : null}
       {attention ? <AiReviewBatchFailures entries={batch.entries} /> : null}
       <Group gap="sm">
+        {running && onStop ? <Button color="#9a3412" variant="outline" leftSection={<Stop size={16} weight="fill" aria-hidden="true" />}
+          loading={busy} disabled={batch.stopRequested} onClick={onStop}>{batch.stopRequested ? 'Stop requested' : 'Stop after current document'}</Button> : null}
         {batch.state === 'READY' ? <Button onClick={onChoose}>Choose review scope</Button> : null}
+        {(preparing || batch.state === 'READY') && onCancel ? <Button variant="default" disabled={busy} onClick={onCancel}>Cancel precheck</Button> : null}
         {paused && batch.pendingDocuments > 0 ? <Button loading={busy} onClick={onResume}>Continue remaining ({batch.pendingDocuments})</Button> : null}
         {!running && !preparing ? <Button variant="default" loading={refreshing} onClick={onRefresh}>Check saved reviews</Button> : null}
         {paused || batch.state === 'COMPLETED' && (attention || technicalFailure) ? <Button variant="default" onClick={onPrepare}>Review retry options</Button> : null}

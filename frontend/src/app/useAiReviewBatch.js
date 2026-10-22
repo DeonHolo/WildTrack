@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cancelAiReviewBatchPreparation, getAiReviewBatch, getLatestAiReviewBatch, prepareAiReviewBatch,
-  resumeAiReviewBatch, startAiReviewBatch } from '../lib/api.js';
+  resumeAiReviewBatch, startAiReviewBatch, stopAiReviewBatch } from '../lib/api.js';
 import { useWorkspaceSession } from './WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 
@@ -59,7 +59,7 @@ export function useAiReviewBatch(workspaceId, onFinished) {
   const prepare = useCallback(async targets => {
     const current = scope.current;
     const sequence = ++operation.current;
-    setOpened(true); setBusy(true); setError('');
+    setOpened(false); setBusy(true); setError('');
     try {
       const saved = await prepareAiReviewBatch(workspaceId, targets.map(({ responseId, fieldId }) => ({ responseId, fieldId })));
       if (scope.current !== current || operation.current !== sequence) return;
@@ -89,6 +89,15 @@ export function useAiReviewBatch(workspaceId, onFinished) {
     } catch (failure) { if (scope.current === current) setError(failure?.message || 'The batch could not continue.'); }
     finally { if (scope.current === current) setBusy(false); }
   }
+  async function stop() {
+    const current = scope.current;
+    setBusy(true); setError('');
+    try {
+      const saved = await stopAiReviewBatch(workspaceId, batch.id);
+      if (scope.current === current) setBatch(saved);
+    } catch (failure) { if (scope.current === current) setError(failure?.message || 'The stop request could not be confirmed. Check the batch progress before trying again.'); }
+    finally { if (scope.current === current) setBusy(false); }
+  }
   function cancel() {
     operation.current += 1;
     setOpened(false); setBusy(false);
@@ -107,6 +116,6 @@ export function useAiReviewBatch(workspaceId, onFinished) {
     try { localStorage.setItem(dismissalKey, completedToken); } catch { /* Still dismiss for this page visit. */ }
     setDismissal({ key: dismissalKey, token: completedToken });
   }
-  return { batch, opened, busy, error: error || readError, prepare, start, resume, cancel, dismiss, panelDismissed,
-    open: () => setOpened(true), running: batch?.state === 'RUNNING' };
+  return { batch, opened, busy, error: error || readError, prepare, start, resume, stop, cancel, dismiss, panelDismissed,
+    open: () => setOpened(batch?.state === 'READY'), close: () => setOpened(false), running: batch?.state === 'RUNNING' };
 }

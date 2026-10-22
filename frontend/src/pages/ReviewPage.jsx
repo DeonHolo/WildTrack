@@ -379,6 +379,7 @@ export function ReviewPage() {
         message: 'A review is already running. PDFs included in the batch will be checked there; no additional AI request was sent.' });
       return;
     }
+    if (aiBatch.busy || !rerunRequested && aiBatch.batch?.state === 'PLANNING') return;
     const candidates = normalizeAiTargets(targetsOrIds, state)
       .filter((target) => !excludeArchived || target.response?.archiveStatus !== 'Archived');
     if (!candidates.length) {
@@ -403,7 +404,10 @@ export function ReviewPage() {
       }
       if (!rerunRequested || candidates.length > 1) {
         setAiProgress(null);
-        await aiBatch.prepare(candidates);
+        modals.openConfirmModal({ title: 'Prepare AI Review?', centered: true,
+          children: <Text size="sm">WildTrack will check current PDFs and saved reviews. This is a precheck only; it does not send an AI request. You will confirm AI Review separately.</Text>,
+          labels: { confirm: 'Start precheck', cancel: 'Cancel' },
+          onConfirm: () => aiBatch.prepare(candidates) });
         return;
       }
       const modalId = modals.open({ title: retryAcknowledged ? 'Retry AI reviews?'
@@ -835,7 +839,7 @@ export function ReviewPage() {
       </Group></Paper>
       <AiReviewBatchPanel batch={aiBatch.batch} error={aiBatch.error} busy={aiBatch.busy}
         dismissed={aiBatch.panelDismissed} onDismiss={aiBatch.dismiss}
-        onResume={aiBatch.resume} onChoose={aiBatch.open} onRefresh={openSavedBatchReviews} refreshing={savedReviewsScope.current === isCurrentScope && savedReviewsLoading}
+        onResume={aiBatch.resume} onStop={aiBatch.stop} onChoose={aiBatch.open} onCancel={aiBatch.cancel} onRefresh={openSavedBatchReviews} refreshing={savedReviewsScope.current === isCurrentScope && savedReviewsLoading}
         onPrepare={() => requestAiReview(allAiTargets, false, {}, true)} />
       {savedReviewsScope.current === isCurrentScope && savedReviewsError ? <Alert color="orange" role="alert">{savedReviewsError}</Alert> : null}
       <Modal opened={visibleSavedReviews.length > 1 && !visibleAiReportTarget} onClose={() => setSavedReviews([])}
@@ -854,9 +858,10 @@ export function ReviewPage() {
           ))}
         </Stack>
       </Modal>
-      <Modal opened={aiBatch.opened} onClose={aiBatch.cancel} title="AI review submissions" centered size="lg">
+      <Modal opened={aiBatch.opened && aiBatch.batch?.state === 'READY'} onClose={aiBatch.close} title="AI review submissions" centered size="lg"
+        closeButtonProps={{ 'aria-label': 'Close AI Review window' }}>
         <AiReviewBatchDialog key={aiBatch.batch?.id || 'new'} plan={aiBatch.batch} error={aiBatch.error}
-          busy={aiBatch.busy} onStart={aiBatch.start} onCancel={aiBatch.cancel} />
+          busy={aiBatch.busy} onStart={aiBatch.start} onCancel={aiBatch.close} />
       </Modal>
       {aiProgress ? <Alert role="status" color={aiProgress.failures.length || aiProgress.skippedInaccessible?.length || aiProgress.savedRefresh?.errors.length ? 'orange' : 'blue'} title={aiProgress.savedRefresh?.done
         ? aiProgress.savedRefresh.checked === aiProgress.savedRefresh.total

@@ -10,6 +10,9 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import com.capvault.backend.filecheck.FileCheckReportRepository;
 import com.capvault.backend.drive.GoogleDriveUnavailableException.Kind;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -416,6 +419,163 @@ class AiReviewBatchLifecycleTest {
         assertThatThrownBy(() -> service.individualDuringBatch(workspace, first, "pdf", "admin"))
             .isInstanceOf(ResponseStatusException.class).hasMessageContaining("already included");
         verify(reviews, never()).reviewPlanned(any(), any(), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void stoppingBeforeTheNextDocumentKeepsEveryUnstartedEntryAndIsIdempotent() {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        var stopped = service.stop(workspace, plan.id(), "admin");
+        assertThat(stopped.state()).isEqualTo("RUNNING");
+        assertThat(stopped.stopRequested()).isTrue();
+        assertThat(service.stop(workspace, plan.id(), "admin").version()).isEqualTo(stopped.version());
+        service.tick();
+        var paused = service.get(workspace, plan.id(), "admin");
+        assertThat(paused.state()).isEqualTo("PAUSED");
+        assertThat(paused.entries()).allMatch(e -> e.phase().equals("PENDING"));
+        assertThat(service.stop(workspace, plan.id(), "admin").version()).isEqualTo(paused.version());
+        verify(reviews, never()).reviewPlanned(any(), any(), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void acceptedStopBeforeStartingCheckpointPreventsClaimAndReleasesLeaseImmediately() {
+        store = spy(store);
+        service = new AiReviewBatchService(store, reviews, checks, json, clock);
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        doAnswer(inv -> {
+            service.stop(workspace, plan.id(), "admin");
+            return inv.callRealMethod();
+        }).when(store).checkpoint(any(), any());
+        service.tick();
+        assertThat(jdbc.queryForObject("SELECT lease_token FROM ai_review_batches WHERE id = ?", UUID.class, plan.id())).isNull();
+        service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("PAUSED");
+        verify(reviews, never()).reviewPlanned(any(), any(), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void stopDuringProviderExecutionSavesCurrentResultAndOnlyResumesUnstartedDocuments() throws Exception {
+        when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin")))
+            .thenAnswer(inv -> preview(inv.getArgument(1), inv.getArgument(1).toString(), "MISSING", null));
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        var entered = new CountDownLatch(1); var release = new CountDownLatch(1);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenAnswer(inv -> {
+                entered.countDown();
+                assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+                return result("COMPLETED", null, false);
+            });
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            var worker = executor.submit(service::tick);
+            try {
+                assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+                assertThat(service.stop(workspace, plan.id(), "admin").stopRequested()).isTrue();
+                assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("RUNNING");
+            } finally { release.countDown(); }
+            worker.get(5, TimeUnit.SECONDS);
+        }
+        var progress = service.get(workspace, plan.id(), "admin");
+        assertThat(progress.entries().get(0).resultStatus()).isEqualTo("COMPLETED");
+        assertThat(progress.stopRequested()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT lease_token FROM ai_review_batches WHERE id = ?", UUID.class, plan.id())).isNull();
+        service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("PAUSED");
+        verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+        var resumed = service.resume(workspace, plan.id(), "admin");
+        assertThat(resumed.stopRequested()).isFalse();
+        service.tick(); service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("COMPLETED");
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void stoppingAnAsynchronousReviewKeepsPollingItsResultBeforePausing() {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenReturn(result("RUNNING", null, false));
+        service.tick(); service.stop(workspace, plan.id(), "admin");
+        when(reviews.saved(workspace, first, "pdf", "admin"))
+            .thenReturn(result("RUNNING", null, true), result("COMPLETED", null, true));
+        service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("RUNNING");
+        service.tick();
+        var paused = service.get(workspace, plan.id(), "admin");
+        assertThat(paused.state()).isEqualTo("PAUSED");
+        assertThat(paused.entries().get(0).phase()).isEqualTo("DONE");
+        assertThat(paused.entries().get(0).reused()).isFalse();
+        assertThat(paused.entries().get(1).phase()).isEqualTo("PENDING");
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+        verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void stoppingTheLastDocumentAllowsNormalCompletion() {
+        var plan = service.prepare(workspace, "admin", List.of(new AiReviewBatchService.Target(first, "pdf")));
+        service.tick(); plan = service.get(workspace, plan.id(), "admin"); start(plan, "ATTENTION", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenReturn(result("RUNNING", null, false));
+        service.tick(); service.stop(workspace, plan.id(), "admin");
+        when(reviews.saved(workspace, first, "pdf", "admin")).thenReturn(result("COMPLETED", null, true));
+        service.tick();
+        var completed = service.get(workspace, plan.id(), "admin");
+        assertThat(completed.state()).isEqualTo("COMPLETED");
+        assertThat(completed.completedDocuments()).isEqualTo(1);
+        assertThat(service.stop(workspace, plan.id(), "admin").version()).isEqualTo(completed.version());
+    }
+
+    @Test void stopAfterFinalSaveReadsLatestProgressInsteadOfOverwritingIt() {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        var stale = store.find(plan.id(), workspace).orElseThrow();
+        service.tick();
+        var stopped = store.requestStop(stale);
+        assertThat(stopped.data().entries().get(0).resultStatus()).isEqualTo("COMPLETED");
+        assertThat(stopped.data().entries().get(1).phase()).isEqualTo("PENDING");
+        service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("PAUSED");
+        verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void concurrentStopPreservesTypedPreclaimFailureAndApprovedIntent() {
+        when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin")))
+            .thenAnswer(inv -> preview(inv.getArgument(1), "same-key", "CLEAN", null));
+        var plan = prepared(); start(plan, "ALL", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenAnswer(inv -> {
+                service.stop(workspace, plan.id(), "admin");
+                throw new AiReviewService.DrivePreparationFailure(Kind.FILE_ACCESS, "Typed restriction. No AI review was started.");
+            });
+        service.tick(); service.tick();
+        var paused = service.get(workspace, plan.id(), "admin");
+        assertThat(paused.state()).isEqualTo("PAUSED");
+        assertThat(paused.entries().get(0).noAiStarted()).isTrue();
+        assertThat(paused.entries().get(0).error()).contains("Typed restriction");
+        assertThat(paused.entries().get(1).rerun()).isTrue();
+        assertThat(paused.entries().get(1).phase()).isEqualTo("PENDING");
+        service.resume(workspace, plan.id(), "admin"); service.tick();
+        verify(reviews).reviewPlanned(eq(workspace), eq(second), eq("pdf"), eq("admin"), eq(false), isNull(), eq(true), eq("same-key"), any());
+    }
+
+    @Test void lateWorkerCannotMergeAStopOverAReplacementLease() {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        var owner = store.leaseNext().orElseThrow();
+        service.stop(workspace, plan.id(), "admin");
+        store.releaseLease(owner);
+        var nextOwner = store.leaseNext().orElseThrow();
+        assertThat(store.saveLeased(owner, "COMPLETED", owner.data())).isFalse();
+        store.releaseLease(owner);
+        assertThat(store.find(plan.id(), workspace).orElseThrow().leaseToken()).isEqualTo(nextOwner.leaseToken());
+    }
+
+    @Test void stoppedPayloadsRemainBackwardCompatibleAndStopIsAdministratorWorkspaceScoped() {
+        var plan = prepared();
+        var legacy = (com.fasterxml.jackson.databind.node.ObjectNode) json.valueToTree(store.find(plan.id(), workspace).orElseThrow().data());
+        legacy.remove("stopRequested");
+        jdbc.update("UPDATE ai_review_batches SET payload_json = ? WHERE id = ?", legacy.toString(), plan.id());
+        assertThat(service.get(workspace, plan.id(), "admin").stopRequested()).isFalse();
+        assertThatThrownBy(() -> service.stop(workspace, plan.id(), "admin")).isInstanceOf(ResponseStatusException.class);
+        start(service.get(workspace, plan.id(), "admin"), "ATTENTION", false);
+        assertThatThrownBy(() -> service.stop(UUID.randomUUID(), plan.id(), "admin"))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("404");
+        doThrow(new AccessDeniedException("Admin required")).when(reviews).requireAdministrator("student");
+        assertThatThrownBy(() -> service.stop(workspace, plan.id(), "student")).isInstanceOf(AccessDeniedException.class);
+        assertThat(service.get(workspace, plan.id(), "admin").stopRequested()).isFalse();
+        assertThatThrownBy(() -> service.cancelPreparation(workspace, plan.id(), "admin"))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("continues on the server");
     }
 
     private static class MutableClock extends Clock {

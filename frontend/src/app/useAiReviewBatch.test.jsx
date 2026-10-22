@@ -6,11 +6,11 @@ import { createWorkspaceResourceCache } from '../lib/workspaceResourceCache.js';
 const workspace = vi.hoisted(() => ({ session: null, resourceCache: null }));
 vi.mock('./WorkspaceSession.jsx', () => ({ useWorkspaceSession: () => workspace }));
 
-const api = vi.hoisted(() => ({ latest: vi.fn(), get: vi.fn(), prepare: vi.fn(), start: vi.fn(), resume: vi.fn(), cancel: vi.fn() }));
+const api = vi.hoisted(() => ({ latest: vi.fn(), get: vi.fn(), prepare: vi.fn(), start: vi.fn(), resume: vi.fn(), stop: vi.fn(), cancel: vi.fn() }));
 vi.mock('../lib/api.js', () => ({
   getLatestAiReviewBatch: (...args) => api.latest(...args), getAiReviewBatch: (...args) => api.get(...args),
   prepareAiReviewBatch: (...args) => api.prepare(...args), startAiReviewBatch: (...args) => api.start(...args),
-  resumeAiReviewBatch: (...args) => api.resume(...args), cancelAiReviewBatchPreparation: (...args) => api.cancel(...args)
+  resumeAiReviewBatch: (...args) => api.resume(...args), stopAiReviewBatch: (...args) => api.stop(...args), cancelAiReviewBatchPreparation: (...args) => api.cancel(...args)
 }));
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const plan = (id, state = 'READY') => ({ id, state, version: 1, entries: [] });
@@ -74,6 +74,38 @@ describe('server-owned AI batch lifecycle', () => {
     await act(async () => result.current.start(options));
     expect(api.start).toHaveBeenCalledWith('workspace', 'batch', options);
     expect(result.current.opened).toBe(false);
+  });
+
+  it('retains an in-flight preparation response after its window is closed', async () => {
+    const pending = deferred(); api.prepare.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useAiReviewBatch('workspace'));
+    let request;
+    act(() => { request = result.current.prepare([{ responseId: 'r', fieldId: 'pdf' }]); });
+    expect(result.current.opened).toBe(false);
+    act(() => result.current.close());
+    await act(async () => { pending.resolve(plan('precheck', 'PLANNING')); await request; });
+    expect(result.current.opened).toBe(false);
+    expect(result.current.batch).toMatchObject({ id: 'precheck', state: 'PLANNING' });
+    act(() => result.current.open());
+    expect(result.current.opened).toBe(false);
+    expect(api.prepare).toHaveBeenCalledTimes(1);
+    expect(api.cancel).not.toHaveBeenCalled();
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it.each(['PLANNING', 'READY'])('restores a %s precheck after navigating away without cancelling or starting AI', async (state) => {
+    api.latest.mockResolvedValue(plan('precheck', state));
+    const first = renderHook(() => useAiReviewBatch('workspace'));
+    await waitFor(() => expect(first.result.current.batch?.state).toBe(state));
+    act(() => { first.result.current.open(); first.result.current.close(); });
+    first.unmount();
+    const second = renderHook(() => useAiReviewBatch('workspace'));
+    expect(second.result.current.batch).toMatchObject({ id: 'precheck', state });
+    act(() => second.result.current.open());
+    expect(second.result.current.opened).toBe(state === 'READY');
+    expect(api.cancel).not.toHaveBeenCalled();
+    expect(api.start).not.toHaveBeenCalled();
+    expect(api.prepare).not.toHaveBeenCalled();
   });
 
   it('restores progress after leaving the page without cancelling or reposting generation', async () => {
@@ -142,6 +174,31 @@ describe('server-owned AI batch lifecycle', () => {
     await act(async () => result.current.prepare([{ responseId: 'r', fieldId: 'pdf' }]));
     await act(async () => late.resolve(null));
     expect(result.current.batch.id).toBe('new');
+  });
+
+  it('requests a graceful stop without cancelling the batch or starting more AI', async () => {
+    api.latest.mockResolvedValue(plan('batch', 'RUNNING'));
+    api.stop.mockResolvedValue({ ...plan('batch', 'RUNNING'), stopRequested: true });
+    const { result } = renderHook(() => useAiReviewBatch('workspace'));
+    await waitFor(() => expect(result.current.batch?.id).toBe('batch'));
+    await act(async () => result.current.stop());
+    expect(api.stop).toHaveBeenCalledWith('workspace', 'batch');
+    expect(result.current.batch.stopRequested).toBe(true);
+    expect(api.cancel).not.toHaveBeenCalled();
+    expect(api.start).not.toHaveBeenCalled();
+    expect(api.prepare).not.toHaveBeenCalled();
+  });
+
+  it('ignores a late stop response after the workspace changes', async () => {
+    api.latest.mockImplementation(id => Promise.resolve(id === 'one' ? plan('batch', 'RUNNING') : null));
+    const pending = deferred(); api.stop.mockReturnValue(pending.promise);
+    const { result, rerender } = renderHook(({ id }) => useAiReviewBatch(id), { initialProps: { id: 'one' } });
+    await waitFor(() => expect(result.current.batch?.id).toBe('batch'));
+    let request; act(() => { request = result.current.stop(); });
+    rerender({ id: 'two' });
+    await act(async () => { pending.resolve({ ...plan('batch', 'RUNNING'), stopRequested: true }); await request; });
+    expect(result.current.batch).toBe(null);
+    expect(result.current.busy).toBe(false);
   });
 
   it('continuing a paused batch uses resume rather than retry or generation', async () => {
