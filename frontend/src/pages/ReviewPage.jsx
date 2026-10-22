@@ -34,6 +34,7 @@ import { ReviewDeliverablesTable } from '../components/review/ReviewDeliverables
 import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
 import { ReviewSubmissionsTable } from '../components/review/ReviewSubmissionsTable.jsx';
 import { buildDeliverableReviewSummaries, filterReviewResponses, REVIEW_FILTERS } from '../lib/review.js';
+import { sortReviewResponses } from '../lib/reviewTable.js';
 import { artifactTemplatePreviewUrl } from '../lib/templatePreview.js';
 import {
   acceptResponse,
@@ -65,10 +66,7 @@ import {
 } from '../lib/workflow.js';
 
 const REVIEW_PAGE_SIZE = 50;
-const REVIEW_SORT_OPTIONS = [
-  { value: 'newest', label: 'Newest activity' },
-  { value: 'oldest', label: 'Oldest activity' }
-];
+const ALL_DELIVERABLES = '__all__';
 
 function progressPercent(completed, total) {
   return Math.round((Math.min(completed || 0, total || 0) / Math.max(total || 0, 1)) * 100);
@@ -122,7 +120,7 @@ export function ReviewPage() {
       ? linkedDeliverableId
       : ''
   ));
-  const activeDeliverableId = summaries.some((summary) => summary.deliverable.id === selectedDeliverableId)
+  const activeDeliverableId = selectedDeliverableId === ALL_DELIVERABLES || summaries.some((summary) => summary.deliverable.id === selectedDeliverableId)
     ? selectedDeliverableId
     : (summaries.find(summary => summary.needsAction > 0 || summary.unchecked > 0) || summaries.find(summary => summary.received > 0) || summaries[0])?.deliverable.id || '';
   useEffect(() => {
@@ -130,10 +128,14 @@ export function ReviewPage() {
   }, [selectedDeliverableId, activeDeliverableId]);
   const selectedSummary = summaries.find((summary) => summary.deliverable.id === activeDeliverableId) || null;
   const selectedDeliverable = selectedSummary?.deliverable || null;
+  const allDeliverables = activeDeliverableId === ALL_DELIVERABLES;
+  const scopedResponses = useMemo(() => allDeliverables
+    ? summaries.flatMap(summary => summary.responses) : selectedSummary?.responses || [],
+  [allDeliverables, summaries, selectedSummary]);
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [filter, setFilter] = useState('Pending');
   const [query, setQuery] = useState('');
-  const [sortOrder, setSortOrder] = useState('newest');
+  const [columnSort, setColumnSort] = useState({ column: 'submitted', direction: 'desc' });
   const [selectedResponseId, setSelectedResponseId] = useState(linkedResponse?.id || '');
   const [conflictStudentNumbers, setConflictStudentNumbers] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -185,17 +187,15 @@ export function ReviewPage() {
   }, [isCurrentScope, linkedResponse?.id, linkedResponse?.deliverableId]);
   const batchRunning = Boolean(batchProgress && !batchProgress.done);
 
-  const visibleResponses = useMemo(() => filterReviewResponses({
-    responses: selectedSummary?.responses || [],
-    students: state.students,
-    deliverable: selectedDeliverable,
-    filter,
-    query
-  }), [filter, query, selectedDeliverable, selectedSummary, state.students]);
-  const sortedResponses = useMemo(() => [...visibleResponses].sort((first, second) => (
-    compareReviewActivity(first, second, sortOrder)
-  )), [sortOrder, visibleResponses]);
+  const visibleResponses = useMemo(() => (allDeliverables ? summaries : selectedSummary ? [selectedSummary] : [])
+    .flatMap(summary => filterReviewResponses({ responses: summary.responses, students: state.students,
+      deliverable: summary.deliverable, filter, query })),
+  [allDeliverables, filter, query, selectedSummary, summaries, state.students]);
+  const sortedResponses = useMemo(() => sortReviewResponses(visibleResponses, state, selectedDeliverable, columnSort),
+    [columnSort, selectedDeliverable, state, visibleResponses]);
   const selectedResponse = state.attempts.find((response) => response.id === selectedResponseId) || null;
+  const selectedResponseDeliverable = selectedResponse
+    ? state.deliverables.find(item => item.id === selectedResponse.deliverableId) || null : null;
   const selectedStudent = selectedResponse
     ? findStudent(state.students, selectedResponse.studentNumber) || {
       studentNumber: selectedResponse.studentNumber,
@@ -235,10 +235,11 @@ export function ReviewPage() {
     ? artifactAiReview(aiReportDialogResponse, aiReportDialogField)
     : null;
   const aiReportDialogReport = aiReportSourceMatches ? artifactAiReportForDisplay(aiReportDialogResponse, aiReportDialogField) : null;
-  const documentCheckEnabled = deliverableUsesDocumentCheck(selectedDeliverable);
+  const documentCheckEnabled = allDeliverables
+    ? orderedDeliverables.some(deliverableUsesDocumentCheck) : deliverableUsesDocumentCheck(selectedDeliverable);
   const uncheckedDocumentTargets = useMemo(() => documentCheckEnabled
-    ? documentTargetsForResponses(selectedSummary?.responses || [], [selectedDeliverable], { onlyUnchecked: true })
-    : [], [documentCheckEnabled, selectedDeliverable, selectedSummary]);
+    ? documentTargetsForResponses(scopedResponses, state.deliverables, { onlyUnchecked: true })
+    : [], [documentCheckEnabled, scopedResponses, state.deliverables]);
   const pageCount = Math.max(1, Math.ceil(sortedResponses.length / REVIEW_PAGE_SIZE));
   const activePage = Math.min(page, pageCount);
   const pageResponses = sortedResponses.slice((activePage - 1) * REVIEW_PAGE_SIZE, activePage * REVIEW_PAGE_SIZE);
@@ -270,7 +271,12 @@ export function ReviewPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [activeDeliverableId, filter, query, sortOrder]);
+  }, [activeDeliverableId, filter, query, columnSort]);
+
+  function sortColumn(column) {
+    setColumnSort(current => ({ column, direction: current.column === column
+      ? current.direction === 'asc' ? 'desc' : 'asc' : column === 'submitted' ? 'desc' : 'asc' }));
+  }
 
   function chooseDeliverable(id) {
     setSelectedDeliverableId(id);
@@ -746,9 +752,10 @@ export function ReviewPage() {
     if (!isCurrentScope() || acceptBusy.current || !selectedIds.size) return;
     const selected = selectedResponses.map((response) => ({
       id: response.id,
+      deliverableId: response.deliverableId,
       student: findStudent(state.students, response.studentNumber)?.name
         || response.studentName || response.studentNumber || response.id,
-      skip: acceptanceSkipReason(response, activeDeliverableId, conflictStudentNumbers)
+      skip: acceptanceSkipReason(response, allDeliverables ? response.deliverableId : activeDeliverableId, conflictStudentNumbers)
     }));
     const eligible = selected.filter(item => !item.skip);
     const skipped = selected.filter(item => item.skip);
@@ -783,7 +790,7 @@ export function ReviewPage() {
       for (const item of eligible) {
         if (!isCurrentScope()) return;
         const current = reviewStateRef.current.attempts.find(response => response.id === item.id);
-        const skip = acceptanceSkipReason(current, scopedDeliverableId, conflictsRef.current);
+        const skip = acceptanceSkipReason(current, item.deliverableId, conflictsRef.current);
         if (!selectedIdsRef.current.has(item.id) || deliverableIdRef.current !== scopedDeliverableId || skip) {
           progress.skipped++;
           progress.completed++;
@@ -830,8 +837,9 @@ export function ReviewPage() {
 
       <Paper withBorder p="md"><Group justify="space-between" align="flex-end" wrap="wrap">
         <Select label="Deliverable" value={activeDeliverableId} onChange={chooseDeliverable} allowDeselect={false} searchable
-          style={{ flex: '1 1 280px', maxWidth: 520 }} data={summaries.map(summary => ({ value: summary.deliverable.id,
-            label: (summary.deliverable.shortTitle || summary.deliverable.title) + ' · ' + summary.received + ' received · ' + summary.needsAction + ' need action' }))} />
+          style={{ flex: '1 1 280px', maxWidth: 520 }} data={[{ value: ALL_DELIVERABLES, label: 'All deliverables' },
+            ...summaries.map(summary => ({ value: summary.deliverable.id,
+            label: (summary.deliverable.shortTitle || summary.deliverable.title) + ' · ' + summary.received + ' received · ' + summary.needsAction + ' need action' }))]} />
         <Group gap="xs"><Button variant="default" leftSection={<Files size={17} />} disabled={batchRunning || !allDocumentTargets.length}
           onClick={() => confirmDocumentCheckBatch(allDocumentTargets, { allDeliverables: true })}>Recheck all documents</Button>
           <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done) || !allAiTargets.length} onClick={() => requestAiReview(allAiTargets, false, {}, true)}>AI review all</Button>
@@ -953,14 +961,15 @@ export function ReviewPage() {
       </Alert> : null}
       <Collapse in={overviewOpen}><ReviewDeliverablesTable summaries={summaries} selectedId={activeDeliverableId} onSelect={chooseDeliverable} /></Collapse>
 
-      {selectedDeliverable ? (
+      {selectedDeliverable || allDeliverables && summaries.length > 0 ? (
         <Paper withBorder className="wt-review-workbench" radius="md">
           <div className="wt-review-workbench-head">
             <div>
-              <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">{selectedDeliverable.trackerColumn}</Text>
-              <Title order={2} size="h3">{selectedDeliverable.title}</Title>
+              {selectedDeliverable ? <Text size="xs" fw={750} tt="uppercase" c="wildtrackMaroon.7">{selectedDeliverable.trackerColumn}</Text> : null}
+              <Title order={2} size="h3">{allDeliverables ? 'All deliverables' : selectedDeliverable.title}</Title>
               <Text size="sm" c="dimmed">
-                {selectedSummary.received} received of {selectedSummary.expected} expected | {selectedSummary.needsAction} need action
+                {allDeliverables ? <>{scopedResponses.length} responses across {summaries.length} deliverables | {summaries.reduce((total, summary) => total + summary.needsAction, 0)} need action</>
+                  : <>{selectedSummary.received} received of {selectedSummary.expected} expected | {selectedSummary.needsAction} need action</>}
               </Text>
             </div>
             <Group gap="xs" className="wt-review-filter-group" role="group" aria-label="Review filter">
@@ -987,16 +996,6 @@ export function ReviewPage() {
               onChange={(event) => setQuery(event.currentTarget.value)}
               leftSection={<MagnifyingGlass size={17} />}
               className="wt-review-search"
-            />
-            <Select
-              aria-label="Sort by"
-              label="Sort by"
-              data={REVIEW_SORT_OPTIONS}
-              value={sortOrder}
-              onChange={(value) => setSortOrder(value || 'newest')}
-              allowDeselect={false}
-              className="wt-review-sort"
-              comboboxProps={{ withinPortal: false }}
             />
             <Group gap="sm" wrap="nowrap" className="wt-review-toolbar-actions">
               {documentCheckEnabled && uncheckedDocumentTargets.length ? (
@@ -1104,7 +1103,9 @@ export function ReviewPage() {
             responses={pageResponses}
             state={state}
             deliverable={selectedDeliverable}
-            documentCheckEnabled={documentCheckEnabled}
+            showDeliverable={allDeliverables}
+            sort={columnSort}
+            onSort={sortColumn}
             selectedResponseId={selectedResponseId}
             selectedIds={selectedIds}
             onOpen={setSelectedResponseId}
@@ -1134,12 +1135,12 @@ export function ReviewPage() {
       )}
 
       <ReviewResponseDrawer
-        opened={Boolean(selectedResponse && selectedStudent)}
+        opened={Boolean(selectedResponse && selectedStudent && selectedResponseDeliverable)}
         detailDialogOpened={Boolean(checkDialogResponse || aiReportDialogReport || aiReportDialogReview?.previousReport)}
         response={selectedResponse}
         student={selectedStudent}
         state={state}
-        deliverable={selectedDeliverable}
+        deliverable={selectedResponseDeliverable}
         checkingFields={checkingIds}
         checkingAiFields={aiRunningKeys}
         checkError={checkError?.targetKey?.startsWith(`${selectedResponse?.id}:`) ? checkError?.message : ''}
@@ -1236,19 +1237,6 @@ function withoutId(values, id) {
 
 function sameSet(first, second) {
   return first.size === second.size && [...first].every((value) => second.has(value));
-}
-
-function compareReviewActivity(first, second, sortOrder = 'newest') {
-  const firstTime = reviewActivityTime(first);
-  const secondTime = reviewActivityTime(second);
-  const direction = sortOrder === 'oldest' ? 1 : -1;
-  return direction * (firstTime - secondTime)
-    || String(first.id || '').localeCompare(String(second.id || ''), undefined, { numeric: true });
-}
-
-function reviewActivityTime(response) {
-  const timestamp = Date.parse(response?.updatedAt || response?.submittedAt || '');
-  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function artifactTargetKey(responseId, field) {

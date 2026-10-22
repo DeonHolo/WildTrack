@@ -9,23 +9,58 @@ import {
   UnstyledButton,
   VisuallyHidden
 } from '@mantine/core';
-import { WarningCircle, CaretRight } from '@phosphor-icons/react';
+import { CaretDown, CaretRight, CaretUp, CaretUpDown } from '@phosphor-icons/react';
+import { findStudent, formatDateTime } from '../../lib/workflow.js';
 import {
-  aiReviewableSubmissionFields,
-  artifactAiReviewStatus,
-  artifactDocumentCheckStatus,
-  findStudent,
-  formatDateTime,
-  reviewableSubmissionFields
-} from '../../lib/workflow.js';
+  aggregateAiStatus,
+  aggregateDocumentStatus,
+  resolveReviewDeliverable,
+  reviewDecisionStatus
+} from '../../lib/reviewTable.js';
 import { StatusIndicator } from '../ui.jsx';
+
+function SortHeader({ column, children, className, sort, onSort }) {
+  const active = sort?.column === column;
+  const ascending = sort?.direction === 'asc';
+  const nextDirection = active ? (ascending ? 'descending' : 'ascending') : (column === 'submitted' ? 'descending' : 'ascending');
+  const SortIcon = active ? (ascending ? CaretUp : CaretDown) : CaretUpDown;
+
+  return (
+    <Table.Th className={className} aria-sort={active ? (ascending ? 'ascending' : 'descending') : undefined}>
+      <UnstyledButton
+        aria-label={`Sort by ${children}`}
+        title={`Sort ${nextDirection}`}
+        data-sort-direction={active ? sort.direction : undefined}
+        onClick={() => onSort?.(column)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: className === 'wt-review-status-cell' ? 'center' : undefined,
+          gap: 5,
+          width: '100%',
+          minHeight: 32,
+          color: active ? 'var(--mantine-color-wildtrackMaroon-7)' : 'inherit',
+          fontSize: 'inherit',
+          fontWeight: 'inherit',
+          textTransform: 'inherit',
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {children}
+        <SortIcon size={14} weight={active ? 'bold' : 'regular'} aria-hidden="true" style={{ flexShrink: 0 }} />
+      </UnstyledButton>
+    </Table.Th>
+  );
+}
 
 export function ReviewSubmissionsTable({
   conflictStudentNumbers = [],
   responses,
   state,
   deliverable,
-  documentCheckEnabled,
+  showDeliverable = false,
+  sort,
+  onSort,
   selectedResponseId,
   selectedIds,
   onOpen,
@@ -34,14 +69,16 @@ export function ReviewSubmissionsTable({
 }) {
   const allVisibleSelected = responses.length > 0 && responses.every((response) => selectedIds.has(response.id));
   const someVisibleSelected = responses.some((response) => selectedIds.has(response.id));
+  const sortHeaderProps = { sort, onSort };
 
   return (
     <div className="wt-review-submissions-surface">
       {responses.length ? (
         <ScrollArea type="auto" scrollbarSize={10}>
           <Table
-            aria-label={`${deliverable.shortTitle} submissions`}
+            aria-label={showDeliverable ? 'All deliverables submissions' : `${deliverable?.shortTitle || deliverable?.title || 'Deliverable'} submissions`}
             className="wt-review-submissions-table"
+            data-all-deliverables={showDeliverable || undefined}
             verticalSpacing="xs"
             horizontalSpacing="sm"
             highlightOnHover
@@ -57,12 +94,13 @@ export function ReviewSubmissionsTable({
                     onChange={(event) => onToggleAll(event.currentTarget.checked)}
                   />
                 </Table.Th>
-                <Table.Th>Student</Table.Th>
-                <Table.Th>Team</Table.Th>
-                <Table.Th>Submitted</Table.Th>
-                <Table.Th className="wt-review-status-cell">Document Check</Table.Th>
-                <Table.Th className="wt-review-status-cell">AI Review</Table.Th>
-                <Table.Th className="wt-review-status-cell">Decision</Table.Th>
+                <SortHeader column="student" {...sortHeaderProps}>Student</SortHeader>
+                <SortHeader column="team" {...sortHeaderProps}>Team</SortHeader>
+                {showDeliverable && <SortHeader column="deliverable" {...sortHeaderProps}>Deliverable</SortHeader>}
+                <SortHeader column="submitted" {...sortHeaderProps}>Submitted</SortHeader>
+                <SortHeader column="documentCheck" className="wt-review-status-cell" {...sortHeaderProps}>Document Check</SortHeader>
+                <SortHeader column="aiReview" className="wt-review-status-cell" {...sortHeaderProps}>AI Review</SortHeader>
+                <SortHeader column="decision" className="wt-review-status-cell" {...sortHeaderProps}>Decision</SortHeader>
                 <Table.Th className="wt-review-open-cell"><VisuallyHidden>Open details</VisuallyHidden></Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -70,10 +108,9 @@ export function ReviewSubmissionsTable({
               {responses.map((response) => {
                 const student = findStudent(state.students, response.studentNumber);
                 const studentName = student?.name || response.studentName || response.studentNumber;
-                const archived = response.archiveStatus === 'Archived';
-                const decision = archived ? 'Archived' : response.reviewStatus || response.primaryStatus || 'Received';
-                const documentStatus = aggregateDocumentStatus(response, deliverable);
-                const aiStatus = aggregateAiStatus(response, deliverable);
+                const rowDeliverable = resolveReviewDeliverable(response, state, deliverable);
+                const documentStatus = aggregateDocumentStatus(response, rowDeliverable);
+                const aiStatus = aggregateAiStatus(response, rowDeliverable);
                 return (
                   <Table.Tr key={response.id} data-selected={selectedResponseId === response.id || undefined}>
                     <Table.Td className="wt-review-select-cell">
@@ -96,10 +133,13 @@ export function ReviewSubmissionsTable({
                       </UnstyledButton>
                     </Table.Td>
                     <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{student?.teamCode || response.teamCode || 'Not assigned'}</Text></Table.Td>
+                    {showDeliverable && (
+                      <Table.Td><Text size="sm" fw={650} title={rowDeliverable?.title}>{rowDeliverable?.shortTitle || rowDeliverable?.title || 'Unavailable deliverable'}</Text></Table.Td>
+                    )}
                     <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{formatDateTime(response.updatedAt || response.submittedAt)}</Text></Table.Td>
-                    <Table.Td className="wt-review-status-cell"><StatusIndicator status={documentCheckEnabled ? documentStatus : 'Not applicable'} /></Table.Td>
+                    <Table.Td className="wt-review-status-cell"><StatusIndicator status={documentStatus} /></Table.Td>
                     <Table.Td className="wt-review-status-cell"><StatusIndicator status={aiStatus} /></Table.Td>
-                    <Table.Td className="wt-review-status-cell"><StatusIndicator status={decision} /></Table.Td>
+                    <Table.Td className="wt-review-status-cell"><StatusIndicator status={reviewDecisionStatus(response)} /></Table.Td>
                     <Table.Td className="wt-review-open-cell">
                       <Tooltip label={`Review ${studentName}`}>
                         <ActionIcon variant="subtle" color="wildtrackMaroon" size="lg" aria-label={`Open ${studentName} review details`} onClick={() => onOpen(response.id)}>
@@ -116,28 +156,4 @@ export function ReviewSubmissionsTable({
       ) : null}
     </div>
   );
-}
-
-function aggregateDocumentStatus(response, deliverable) {
-  const fields = reviewableSubmissionFields(deliverable);
-  if (!fields.length) return 'Not applicable';
-  const statuses = fields.map((field) => artifactDocumentCheckStatus(response, field));
-  if (statuses.includes('Needs attention')) return 'Needs attention';
-  if (statuses.includes('Outdated')) return 'Outdated';
-  if (statuses.every((status) => status === 'Ready for review')) return 'Ready for review';
-  return 'Not checked';
-}
-
-function aggregateAiStatus(response, deliverable) {
-  const fields = aiReviewableSubmissionFields(deliverable);
-  if (!fields.length) return 'Not applicable';
-  const statuses = fields.map((field) => artifactAiReviewStatus(response, field));
-  if (statuses.includes('Retry required')) return 'Retry required';
-  if (statuses.includes('Reviewing')) return 'Reviewing';
-  if (statuses.includes('Needs manual verification')) return 'Needs manual verification';
-  if (statuses.includes('Limited review coverage')) return 'Limited review coverage';
-  if (statuses.includes('Inconclusive')) return 'Inconclusive';
-  if (statuses.includes('Outdated')) return 'Outdated';
-  if (statuses.every((status) => status === 'Reviewed')) return 'Reviewed';
-  return 'Not reviewed';
 }

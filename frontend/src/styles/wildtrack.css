@@ -2252,6 +2252,7 @@
 }
 
 .wt-review-filter-group .mantine-Button-root {
+  flex-shrink: 0;
   min-height: 40px;
   padding-inline: 13px;
 }
@@ -2342,6 +2343,31 @@
 .wt-review-submissions-table tbody tr[data-selected] {
   background: var(--mantine-color-wildtrackMaroon-0);
   box-shadow: inset 3px 0 0 var(--wt-maroon);
+}
+
+.wt-review-submissions-table[data-all-deliverables] {
+  min-width: 1280px;
+}
+
+.wt-review-submissions-table[data-all-deliverables] :is(th, td):nth-child(4) {
+  width: 160px;
+}
+
+.wt-review-submissions-table[data-all-deliverables] :is(th, td):nth-child(5) {
+  width: 190px;
+}
+
+.wt-review-submissions-table[data-all-deliverables] :is(th, td):nth-child(n + 7):nth-child(-n + 8) {
+  width: 130px;
+}
+
+.wt-review-submissions-table:not([data-all-deliverables]) {
+  min-width: 1100px;
+}
+
+.wt-review-submissions-table:not([data-all-deliverables]) :is(th, td):nth-child(5),
+.wt-review-submissions-table[data-all-deliverables] :is(th, td):nth-child(6) {
+  width: 150px;
 }
 
 .wt-review-select-cell {

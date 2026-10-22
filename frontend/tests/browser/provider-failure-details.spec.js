@@ -26,13 +26,10 @@ for (const width of [375, 820, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     const fixture = await installApiFixtures(page, { role: 'admin', submitted: true, monitoring });
     await page.goto('/review');
-    const sorter = page.getByRole('textbox', { name: 'Sort by' });
-    await expect(sorter).toHaveValue('Newest activity');
+    const sorter = page.getByRole('button', { name: 'Sort by Submitted' });
+    await expect(sorter).toHaveAttribute('data-sort-direction', 'desc');
     await sorter.click();
-    await expect(page.getByRole('option', { name: 'Oldest activity', exact: true })).toBeVisible();
-    await expect(page.getByRole('option', { name: 'Priority', exact: true })).toHaveCount(0);
-    await page.getByRole('option', { name: 'Oldest activity', exact: true }).click();
-    await expect(sorter).toHaveValue('Oldest activity');
+    await expect(sorter).toHaveAttribute('data-sort-direction', 'asc');
     await page.getByRole('button', { name: /Review DELA CRUZ/ }).click();
     const drawer = page.getByRole('dialog', { name: /Review DELA CRUZ/ });
     const gemini = drawer.getByLabel('Gemini error details');
@@ -52,6 +49,40 @@ for (const width of [375, 820, 1440]) {
     await expect(dialog.getByText('Allowed', { exact: true })).toBeVisible();
     expect(await drive.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
     await page.screenshot({ path: `test-results/provider-details-${width}.png` });
+    expect(fixture.calls.filter(call => call.method === 'POST' && /ai-reviews|file-checks/.test(call.path))).toEqual([]);
+    fixture.assertRequestsHandled();
+  });
+}
+
+for (const width of [375, 1440]) {
+  test(`sorts combined deliverables and opens each row's PDF at ${width}px without running checks`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const sddUrl = 'https://drive.google.com/file/d/browser-sdd/view';
+    const fixture = await installApiFixtures(page, { role: 'admin', submitted: true,
+      monitoring: payload => ({ ...payload, responses: [...payload.responses, {
+        ...payload.responses[0], id: 'response-sdd', deliverableId: 'deliverable-sdd',
+        valuesJson: JSON.stringify({ documentPdf: sddUrl })
+      }] }) });
+    await page.goto('/review');
+    await page.getByRole('textbox', { name: 'Deliverable', exact: true }).click();
+    await page.getByRole('option', { name: 'All deliverables', exact: true }).click();
+    const table = page.getByRole('table', { name: 'All deliverables submissions' });
+    await expect(table.getByRole('row')).toHaveCount(3);
+    const sort = table.getByRole('button', { name: 'Sort by Deliverable', exact: true });
+    await sort.click();
+    await expect(table.getByRole('row').nth(1)).toContainText('SDD');
+    await sort.click();
+    await expect(table.getByRole('row').nth(1)).toContainText('SRS');
+    expect(await table.locator('th button').evaluateAll(buttons => buttons
+      .filter(button => button.scrollWidth > button.clientWidth + 1)
+      .map(button => button.getAttribute('aria-label')))).toEqual([]);
+    expect(await page.locator('.wt-review-filter-group .mantine-Button-label').evaluateAll(labels => labels
+      .filter(label => label.scrollWidth > label.clientWidth + 1).map(label => label.textContent))).toEqual([]);
+    const row = table.getByRole('row').filter({ has: page.getByText('SDD', { exact: true }) });
+    await row.getByRole('button', { name: /Review DELA CRUZ/ }).click();
+    const drawer = page.getByRole('dialog', { name: /Review DELA CRUZ/ });
+    await expect(drawer).toContainText('SDD response');
+    await expect(drawer.getByRole('link', { name: 'Open PDF', exact: true })).toHaveAttribute('href', sddUrl);
     expect(fixture.calls.filter(call => call.method === 'POST' && /ai-reviews|file-checks/.test(call.path))).toEqual([]);
     fixture.assertRequestsHandled();
   });
