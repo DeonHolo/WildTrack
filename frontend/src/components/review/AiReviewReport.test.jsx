@@ -34,21 +34,55 @@ it('does not relabel the old review-result summary as a document overview', () =
   expect(screen.queryByRole('region', { name: 'Document overview' })).not.toBeInTheDocument();
   expect(screen.queryByText('This is not the required document.')).not.toBeInTheDocument();
 });
-it('shows a grouped artifact requirement once while preserving the individual observations and evidence', () => {
-  show({ verificationNotes: ['Add entry', 'Archive entry'].map((context, index) => ({
+it('combines diagram presence checks while retaining locations, excerpts and each requirement once', () => {
+  const value = { verificationNotes: ['Add entry', 'Archive entry'].map((context, index) => ({
     title: 'Verify Use Case Diagram',
     issue: `Text extraction could not verify 'Use Case Diagram' in transaction '${context}'. Its label was not located in the extracted transaction.`,
     source: 'OFFICIAL_TEMPLATE', requirement: 'Use Case Diagram',
-    evidence: index ? 'Archive entry has a confirmation step.' : ''
-  })) });
-  expect(screen.getByText('2 to verify')).toBeVisible();
-  fireEvent.click(screen.getByText('Original artifact observations (2)'));
-  expect(screen.getAllByText('View requirement', { exact: true })).toHaveLength(1);
-  fireEvent.click(screen.getByText('View requirement', { exact: true }));
-  expect(screen.getAllByText('Reference: Official template · Use Case Diagram')).toHaveLength(1);
-  expect(screen.getAllByText('Verify Use Case Diagram', { exact: true })).toHaveLength(2);
-  fireEvent.click(screen.getByText('View supporting text', { exact: true }));
+    evidence: index ? 'Archive entry has a confirmation step.' : '',
+    location: { page: index + 12 }
+  })) };
+  const original = JSON.stringify(value);
+  show(value);
+  expect(screen.getByText('1 to verify')).toBeVisible();
+  expect(screen.getAllByRole('heading', { name: 'Check diagrams in the PDF' })).toHaveLength(1);
+  expect(screen.queryByText(/Original artifact observations/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Text extraction could not verify/)).not.toBeInTheDocument();
+  const locations = screen.getByText('See locations to check (2)');
+  expect(screen.getByText('Archive entry')).not.toBeVisible();
+  fireEvent.click(locations);
+  expect(screen.getByText('Archive entry')).toBeVisible();
+  expect(screen.getByText('PDF page 13', { exact: false })).toBeVisible();
   expect(screen.getByRole('blockquote', { name: 'Evidence excerpt' })).toHaveTextContent('Archive entry has a confirmation step.');
+  expect(screen.queryByText('View requirement', { exact: true })).not.toBeInTheDocument();
+  expect(screen.getAllByText('Reference · Official template')).toHaveLength(1);
+  expect(screen.getAllByText('Use Case Diagram', { exact: true })).toHaveLength(1);
+  expect(JSON.stringify(value)).toBe(original);
+});
+
+it('keeps multiple diagram types in one check and a single affected location visible', () => {
+  render(<MantineProvider><AiReviewReport pdfUrl="https://drive.google.com/file/d/source/view" report={{
+    verificationNotes: ['Use Case Diagram', 'Activity Diagram', 'Wireframe'].map(artifact => ({
+      issue: `Text extraction could not verify '${artifact}' in transaction '1.3 Live tracker'. Its label is present; inspect the original PDF because text cannot establish graphical completeness.`,
+      source: 'OFFICIAL_TEMPLATE', requirement: artifact, location: { page: 20 }, evidence: `${artifact}:`
+    }))
+  }} /></MantineProvider>);
+  expect(screen.getAllByRole('heading', { name: 'Check diagrams in the PDF' })).toHaveLength(1);
+  expect(screen.getByText('1.3 Live tracker')).toBeVisible();
+  expect(screen.getByText('Use Case Diagram, Activity Diagram, Wireframe', { exact: false })).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Open PDF and check page 20' })).toHaveAttribute('href', 'https://drive.google.com/file/d/source/view');
+  expect(screen.getByText('1 to verify')).toBeVisible();
+});
+
+it('does not combine a specific diagram-content concern with automatic presence checks', () => {
+  show({ findings: [{ issue: 'The approval diagram contradicts the stated adviser role.', evidence: 'Only the student may approve.' }],
+    verificationNotes: [
+      { issue: "Text extraction could not verify 'Activity Diagram' in transaction '1.1 Submit'. Its label was not located in the extracted transaction." },
+      { title: 'Check diagram labels', issue: 'The approval arrow could not be read.', evidence: 'Approval' }
+    ] });
+  expect(screen.getByText('The approval diagram contradicts the stated adviser role.')).toBeVisible();
+  expect(screen.getByText('Check diagram labels')).toBeVisible();
+  expect(screen.getByText('1 concern · 2 to verify')).toBeVisible();
 });
 
 const checks = [

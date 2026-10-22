@@ -28,6 +28,7 @@ export function AiReviewReportDialog({ opened, onClose, report, review, document
           <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
             {pdfUrl && !validateUrl(pdfUrl) ? (
               <Button component="a" href={pdfUrl} target="_blank" rel="noreferrer" variant="default" size="xs"
+                style={{ backgroundColor: 'transparent', color: 'inherit' }}
                 leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>
                 Open PDF
               </Button>
@@ -63,11 +64,11 @@ export function AiReviewReportDialog({ opened, onClose, report, review, document
             ) : review?.lastSubstantiveGeneratedAt ? (
               <Text size="sm" className="wt-ai-review-reference">Last substantive review · {formatDateTime(review.lastSubstantiveGeneratedAt)}</Text>
             ) : null}
-            <AiReviewReport report={displayReport} deliverableTitle={deliverableTitle} />
+            <AiReviewReport report={displayReport} deliverableTitle={deliverableTitle} pdfUrl={pdfUrl && !validateUrl(pdfUrl) ? pdfUrl : ''} />
             {review?.lastSubstantiveReport && !sameReport(review.lastSubstantiveReport, displayReport) ? (
               <details className="wt-ai-review-earlier">
                 <summary>Earlier substantive review · {review.lastSubstantiveGeneratedAt ? formatDateTime(review.lastSubstantiveGeneratedAt) : 'date unavailable'}</summary>
-                <AiReviewReport report={review.lastSubstantiveReport} deliverableTitle={deliverableTitle} />
+                <AiReviewReport report={review.lastSubstantiveReport} deliverableTitle={deliverableTitle} pdfUrl={pdfUrl && !validateUrl(pdfUrl) ? pdfUrl : ''} />
               </details>
             ) : null}
             <Text size="sm" className="wt-ai-review-reference">

@@ -43,7 +43,7 @@ public class AiReviewService {
     private static final Logger LOG = LoggerFactory.getLogger(AiReviewService.class);
     // Post-validation behavior is part of the persisted review cache fingerprint.
     // Do not reuse reports generated before the named body-section evidence correction.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v23-execution-consistency";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v24-diagram-caption-normalization";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
