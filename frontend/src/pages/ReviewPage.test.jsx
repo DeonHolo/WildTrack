@@ -302,6 +302,13 @@ async function openDeliverableOverview() {
   return screen.findByRole('table', { name: 'Deliverables awaiting review' });
 }
 
+async function chooseAllDeliverables() {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  fireEvent.click(screen.getByRole('textbox', { name: 'Deliverable' }));
+  fireEvent.click(await screen.findByRole('option', { name: 'All deliverables' }));
+  return screen.getByRole('table', { name: 'All deliverables submissions' });
+}
+
 describe('deliverable-first submission review', () => {
   beforeEach(() => {
     notifications.clean();
@@ -358,19 +365,56 @@ describe('deliverable-first submission review', () => {
     expect(workflow.runAiReviews).not.toHaveBeenCalled();
   }
 
-  it('sorts submissions by latest activity by default and supports oldest activity without a priority option', async () => {
+  it('sorts newest submissions by default and reverses individual column headers', () => {
     renderPage();
     const table = screen.getByRole('table', { name: 'SRS submissions' });
     const names = () => within(table).getAllByRole('row').slice(1).map((row) => within(row).getByRole('button', { name: /Review .* response/ }).textContent);
     expect(names()[0]).toContain('Taghoy, Ron Luigi F.');
 
-    const sort = screen.getByRole('textbox', { name: 'Sort by' });
-    HTMLElement.prototype.scrollIntoView = vi.fn();
+    const sort = within(table).getByRole('button', { name: 'Sort by Submitted' });
+    expect(sort.closest('th')).toHaveAttribute('aria-sort', 'descending');
     fireEvent.click(sort);
-    fireEvent.click(await screen.findByRole('option', { name: 'Oldest activity' }));
     expect(names()[0]).toContain('Pacio, Muriel D.');
+    expect(sort.closest('th')).toHaveAttribute('aria-sort', 'ascending');
+    fireEvent.click(within(table).getByRole('button', { name: 'Sort by Student' }));
+    expect(names()[0]).toContain('Pacio, Muriel D.');
+    fireEvent.click(within(table).getByRole('button', { name: 'Sort by Student' }));
+    expect(names()[0]).toContain('Taghoy, Ron Luigi F.');
+    expect(sort.closest('th')).not.toHaveAttribute('aria-sort');
+    expectNoAiRequests();
+  });
 
-    expect(screen.queryByRole('option', { name: 'Priority' })).not.toBeInTheDocument();
+  it('combines deliverables with the correct per-row status, drawer and PDF', async () => {
+    workflow.state.deliverables[1].fields[0].documentCheckPolicy = 'OFF';
+    workflow.state.deliverables[1].fields[0].aiReviewEnabled = false;
+    renderPage();
+    const table = await chooseAllDeliverables();
+    expect(within(table).getAllByRole('row')).toHaveLength(4);
+    expect(within(table).getByRole('button', { name: 'Sort by Deliverable' })).toBeInTheDocument();
+    const sdd = within(table).getAllByRole('row').find(row => within(row).queryByText('SDD', { exact: true }));
+    expect(within(sdd).getAllByText('Not applicable')).toHaveLength(2);
+    fireEvent.click(within(sdd).getByRole('button', { name: 'Review Pacio, Muriel D. response' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Pacio, Muriel D.' });
+    expect(drawer).toHaveTextContent('SDD response');
+    expect(within(drawer).getByRole('link', { name: 'Open PDF' })).toHaveAttribute('href', 'https://drive.google.com/file/d/muriel-sdd/view');
+    expectNoAiRequests();
+  });
+
+  it('accepts only the selected response IDs across deliverables in the combined view', async () => {
+    renderPage();
+    const table = await chooseAllDeliverables();
+    const rows = within(table).getAllByRole('row').filter(row => within(row).queryByText('Pacio, Muriel D.'));
+    expect(rows).toHaveLength(2);
+    rows.forEach(row => fireEvent.click(within(row).getByRole('checkbox')));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
+    expect(confirmation).toHaveTextContent('2 selected responses: 2 eligible for acceptance, 0 skipped');
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Accept 2 eligible responses' }));
+    await screen.findByText('Selected responses accepted');
+    expect(workflow.markAccepted.mock.calls.map(call => call[0]).sort()).toEqual(['response-muriel-sdd', 'response-muriel-srs']);
+    expect(workflow.state.attempts.find(item => item.id === 'response-ron-srs').reviewStatus).toBe('Needs Review');
+    expect(workflow.archiveAttempt).not.toHaveBeenCalled();
+    expectNoAiRequests();
   });
 
   it('opens a freshly saved batch review even when its preparation snapshot was FAILED', async () => {
@@ -1177,6 +1221,10 @@ describe('deliverable-first submission review', () => {
     expect(within(table).getAllByRole('row')).toHaveLength(51);
     expect(screen.getByText('Showing 1-50 of 318')).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 7')).toBeInTheDocument();
+    fireEvent.click(within(table).getByRole('button', { name: 'Sort by Student' }));
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('Student 001');
+    fireEvent.click(within(table).getByRole('button', { name: 'Sort by Student' }));
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('Student 318');
   });
 
   it('removes an accepted response from the active queue and confirms one archive record honestly', async () => {

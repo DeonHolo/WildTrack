@@ -30,7 +30,11 @@ jobs:
         run: npm run build
       - name: Install Chromium for browser checks
         run: |
-          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+          for sources in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt; do
+            if [ -f "$sources" ]; then
+              sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' "$sources"
+            fi
+          done
           npx playwright install --with-deps chromium
       - name: Run Playwright browser checks
         run: npm run test:browser -- --workers=2
