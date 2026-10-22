@@ -59,7 +59,9 @@ for (const width of [375, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     const sddUrl = 'https://drive.google.com/file/d/browser-sdd/view';
     const fixture = await installApiFixtures(page, { role: 'admin', submitted: true,
-      monitoring: payload => ({ ...payload, responses: [...payload.responses, {
+      monitoring: payload => ({ ...payload,
+        reviewStates: { ...payload.reviewStates, 'response-sdd': { feedback: [], acceptance: null } },
+        responses: [...payload.responses, {
         ...payload.responses[0], id: 'response-sdd', deliverableId: 'deliverable-sdd',
         valuesJson: JSON.stringify({ documentPdf: sddUrl })
       }] }) });
