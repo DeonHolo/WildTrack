@@ -184,7 +184,8 @@ describe('AI batch affected PDF presentation', () => {
     const batch = { id: 'blocked', state: 'READY', entries: [blockedEntry('one'), blockedEntry('two')], totalPdfs: 2,
       preparedPdfs: 2, selectedDocuments: 0, completedDocuments: 0, pendingDocuments: 0, uniqueDocuments: 0 };
     renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
-    expect(screen.getByText('0 of 0 unique review attempts finished · 2 total PDF submissions')).toBeInTheDocument();
+    expect(screen.getByText('2 of 2 PDF submissions checked')).toBeInTheDocument();
+    expect(screen.queryByText(/AI reviews available/)).not.toBeInTheDocument();
     expect(screen.queryByText(/blocked before AI/)).not.toBeInTheDocument();
   });
 
