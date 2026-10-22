@@ -2346,7 +2346,7 @@
 }
 
 .wt-review-submissions-table[data-all-deliverables] {
-  min-width: 1280px;
+  min-width: 1300px;
 }
 
 .wt-review-submissions-table[data-all-deliverables] :is(th, td):nth-child(4) {
@@ -2362,12 +2362,12 @@
 }
 
 .wt-review-submissions-table:not([data-all-deliverables]) {
-  min-width: 1100px;
+  min-width: 1120px;
 }
 
 .wt-review-submissions-table:not([data-all-deliverables]) :is(th, td):nth-child(5),
 .wt-review-submissions-table[data-all-deliverables] :is(th, td):nth-child(6) {
-  width: 150px;
+  width: 160px;
 }
 
 .wt-review-select-cell {
