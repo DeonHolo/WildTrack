@@ -1,6 +1,40 @@
 import { expect, test } from '@playwright/test';
 import { installApiFixtures } from './api-fixtures.js';
 
+for (const width of [375, 1440]) {
+  test(`keeps repeated diagram checks concise and preserves PDF locations at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 950 });
+    const notes = ['1.1 Import class record', '1.2 Manage groups', '1.3 Live tracker'].flatMap((context, index) =>
+      ['Use Case Diagram', 'Activity Diagram', 'Wireframe'].map(artifact => ({
+        issue: `Text extraction could not verify '${artifact}' in transaction '${context}'. Its label is present; inspect the original PDF because text cannot establish graphical completeness.`,
+        title: `Verify ${artifact}`, source: 'OFFICIAL_TEMPLATE', requirement: artifact,
+        evidence: `${artifact}:`, location: { page: 12 + index * 4 }
+      })));
+    const fixture = await installApiFixtures(page, { role: 'admin', submitted: true, monitoring: payload => {
+      const saved = savedMonitoring(payload);
+      saved.aiReviewsByField['response-1'][field] = { ...review, report: { ...report, verificationNotes: notes } };
+      return saved;
+    } });
+    const calls = paidRequests(page);
+    await page.goto('/review?response=response-1');
+    await page.getByRole('button', { name: 'View AI Review', exact: true }).click();
+    const modal = page.getByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
+    await expect(modal.getByRole('heading', { name: 'Check diagrams in the PDF' })).toHaveCount(1);
+    await expect(modal.getByText('1 to verify')).toBeVisible();
+    await expect(modal.getByText(/Text extraction could not verify/)).toHaveCount(0);
+    await expect(modal.getByText('1.3 Live tracker')).not.toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`diagram-collapsed-${width}.png`) });
+    await modal.getByText('See locations to check (3)').click();
+    await expect(modal.getByText('1.3 Live tracker')).toBeVisible();
+    const location = modal.getByRole('link', { name: 'Open PDF and check page 20' });
+    await expect(location).toHaveAttribute('href', sourceUrl);
+    expect(await modal.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`diagram-expanded-${width}.png`) });
+    expect(calls).toEqual([]);
+    fixture.assertRequestsHandled();
+  });
+}
+
 const field = 'field-document-pdf';
 const sourceUrl = 'https://drive.google.com/file/d/browser-pdf/view';
 const documentOverview = { text: 'This requirements document describes a project submission service for students and advisers. It covers the intended users and the PDF submission workflow.', actualDocumentType: 'a software requirements specification', wrongDocument: false };

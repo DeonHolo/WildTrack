@@ -10,6 +10,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.capvault.backend.filecheck.PdfInspection;
+import com.capvault.backend.filecheck.PdfVisualEvidence;
 
 /**
  * Conservative structural/identity checks on provider suggestions. Text-only checking cannot
@@ -742,7 +743,7 @@ final class AiReviewGroundingPolicy {
         for (int i = labelIndex; i < Math.min(range.end(), labelIndex + 5); i++) {
             String line = document.lines().get(i);
             if (i > labelIndex && (looksLikeBodyHeading(line)
-                    || normalize(line).matches("^(?:use case (?:description|diagram)|activity diagram|wireframe)$"))) break;
+                    || isArtifactCaption(line))) break;
             if (containsExplicitPlaceholder(line) || AiReviewCompletenessPolicy.authoringInstruction(line)) return true;
         }
         return false;
@@ -893,7 +894,7 @@ final class AiReviewGroundingPolicy {
             if (!region.inBody(i)) continue;
             String line = region.lines().get(i);
             String normalized = normalize(line);
-            if (normalized.equals(normalizedExpected)) return i;
+            if (normalized.equals(normalizedExpected) || PdfVisualEvidence.matchesCaption(line, expected)) return i;
             if (artifactInlineContent(line, expected) != null) return i;
             if (explicitUseCaseFigureCaption(line, expected)) return i;
             if (line.length() <= 100 && line.split("\\s+").length <= 12
@@ -911,7 +912,8 @@ final class AiReviewGroundingPolicy {
             if (!region.inBody(i)) continue;
             String line = region.lines().get(i);
             String normalized = normalize(line);
-            if (normalized.equals(normalizedExpected)) return artifactLabelHasFollowingContent(region, i);
+            if (normalized.equals(normalizedExpected) || PdfVisualEvidence.matchesPlainCaption(line, expected))
+                return artifactLabelHasFollowingContent(region, i);
             String inline = artifactInlineContent(line, expected);
             if (inline != null) {
                 return !inline.isBlank() && !EXPLICIT_PLACEHOLDER.matcher(inline).find();
@@ -921,14 +923,16 @@ final class AiReviewGroundingPolicy {
                     && normalized.contains(normalizedExpected)
                     && !ABSENCE.matcher(line).find()
                     && !normalized.matches("(?s).*\\b(?:placeholder|todo|tbd)\\b.*")) return true;
+            if (PdfVisualEvidence.matchesCaption(line, expected) && !ABSENCE.matcher(line).find()
+                    && !EXPLICIT_PLACEHOLDER.matcher(line).find()) return true;
         }
         return false;
     }
 
     private static boolean explicitUseCaseFigureCaption(String line, String artifact) {
-        return Pattern.compile("(?i)^\\s*Figure(?:\\s+\\d+(?:[.-]\\d+)*)?\\s*[-:–—.]?\\s*"
-            + (artifact.equals("wireframe") ? "(?:(?:low|high)[- ]fidelity\\s+)?" : "")
-            + Pattern.quote(artifact) + "\\s+(?:for|of)\\s+UC(?:-[A-Z0-9]+)+\\b.{0,200}$")
+        return PdfVisualEvidence.matchesCaption(line, artifact)
+            && Pattern.compile("(?iU)^\\s*(?:Figure|Fig\\.?)(?:\\s+\\d+(?:[.-]\\d+)*)?\\s*[-:–—.]?\\s*"
+            + ".+?\\s+(?:for|of)\\s+UC(?:-[A-Z0-9]+)+\\b.{0,200}$")
             .matcher(line).matches();
     }
 
@@ -1424,7 +1428,7 @@ final class AiReviewGroundingPolicy {
             String raw = document.lines().get(i).trim();
             if (raw.isBlank()) continue;
             String line = normalize(raw);
-            if (line.matches("^(?:use case (?:description|diagram)|activity diagram|wireframe)(?: .*)?$")
+            if (isArtifactCaption(raw) || line.matches("^(?:use case (?:description|diagram)|activity diagram|wireframe)(?: .*)?$")
                     || MODULE_ONE_HEADING.matcher(raw).matches()
                     || TEMPLATE_BODY_NUMBERED_HEADING.matcher(raw).matches()
                     || looksLikeBodyHeading(raw)) return false;
@@ -1550,6 +1554,11 @@ final class AiReviewGroundingPolicy {
         return normalize(Objects.requireNonNullElse(text, "")
             .replaceFirst("^\\d+(?:\\.\\d+)*[.)]\\s*(?=\\p{L})", "")
             .replaceFirst("^(?:\\d+(?:\\.(?:\\d+|[A-Za-z]))*|[A-Z](?:\\.\\d+)*|[IVXLC]+)[.)]?\\s+", ""));
+    }
+
+    private static boolean isArtifactCaption(String text) {
+        return List.of("use case description", "use case diagram", "activity diagram", "wireframe").stream()
+            .anyMatch(label -> PdfVisualEvidence.matchesCaption(text, label));
     }
 
     private static String normalize(String text) {

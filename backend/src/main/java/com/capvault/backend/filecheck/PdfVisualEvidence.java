@@ -2,6 +2,7 @@ package com.capvault.backend.filecheck;
 
 import java.awt.geom.Point2D;
 import java.io.IOException;
+import java.text.Normalizer;
 import java.util.*;
 import java.util.regex.Pattern;
 import org.apache.pdfbox.contentstream.PDFGraphicsStreamEngine;
@@ -11,16 +12,41 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImage;
 import org.apache.pdfbox.text.*;
 
 /** Physical figure presence only; a matching image does not establish its meaning or correctness. */
-final class PdfVisualEvidence {
-    private static final Pattern LABEL = Pattern.compile(
-        "(?i)^(?:Figure(?:\\s+\\d+(?:[.-]\\d+)*)?\\s*[-:–—.]?\\s*)?"
-        + "((?:Use Case|Activity) Diagram|(?:Low[- ]Fidelity |High[- ]Fidelity )?Wireframe)(?:\\s+(?:for|of)\\b.*)?\\s*$");
+public final class PdfVisualEvidence {
+    private static final List<String> LABELS = List.of("use case diagram", "activity diagram", "wireframe");
+    private static final Pattern UNAVAILABLE = Pattern.compile(
+        "(?iU)\\b(?:(?:is|are|was|were)\\s+(?:missing|absent|not\\s+(?:included|provided|present))|todo|tbd|placeholder)\\b");
     private static final Pattern SECTION = Pattern.compile(
         "^(?:\\d+(?:\\.\\d+){0,5}|[A-Z](?:\\.\\d+){1,5})[.)]?\\s+\\p{L}.{1,150}$");
     private record Label(String name, float top) { }
     private record Image(float top, float width, float height) { }
     private record Geometry(List<Label> labels, List<Image> images, List<Float> sectionTops) { }
     private PdfVisualEvidence() { }
+
+    /** Compare caption text, not arbitrary prose; formatting is not part of an artifact's identity. */
+    public static boolean matchesCaption(String text, String expected) {
+        return text != null && text.length() <= 180 && !UNAVAILABLE.matcher(text).find() && !captionKey(expected).isEmpty()
+            && captionKey(text).equals(captionKey(expected));
+    }
+
+    public static boolean matchesPlainCaption(String text, String expected) {
+        return text != null && text.length() <= 180 && !compact(expected).isEmpty()
+            && compact(text).equals(compact(expected));
+    }
+
+    private static String captionKey(String text) {
+        String value = Normalizer.normalize(Objects.requireNonNullElse(text, ""), Normalizer.Form.NFKC).strip()
+            .replaceFirst("(?U)^\\d+(?:\\.\\d+)*[.)]?\\s+", "")
+            .replaceFirst("(?iU)^(?:figure|fig\\.?)(?:\\s*\\d+(?:[.-]\\d+)*)?\\s*[-:–—.]?\\s*", "")
+            .replaceFirst("(?iU)\\s+(?:for|of)\\b.*$", "");
+        return compact(value);
+    }
+
+    private static String compact(String text) {
+        String value = Normalizer.normalize(Objects.requireNonNullElse(text, ""), Normalizer.Form.NFKC)
+            .toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", "");
+        return value.replaceFirst("^(?:low|high)fidelity(?=wireframe$)", "");
+    }
 
     static List<PdfInspection.PageText> associate(PDDocument document, List<PdfInspection.PageText> pages) {
         try {
@@ -34,10 +60,8 @@ final class PdfVisualEvidence {
                     @Override protected void writeString(String text, List<TextPosition> positions) throws IOException {
                         if (!positions.isEmpty() && SECTION.matcher(text.trim()).matches())
                             sectionTops.add(positions.stream().map(TextPosition::getYDirAdj).min(Float::compare).orElse(0f));
-                        var matcher = LABEL.matcher(text.trim());
-                        if (matcher.matches() && !positions.isEmpty()) {
-                            String name = matcher.group(1).toLowerCase(Locale.ROOT)
-                                .replaceFirst("^(?:low|high)[- ]fidelity ", "");
+                        String name = LABELS.stream().filter(label -> matchesCaption(text, label)).findFirst().orElse(null);
+                        if (name != null && !positions.isEmpty()) {
                             labels.add(new Label(name, positions.stream().map(TextPosition::getYDirAdj).max(Float::compare).orElse(0f)));
                         }
                         super.writeString(text, positions);

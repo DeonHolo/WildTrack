@@ -7,8 +7,50 @@ import org.apache.pdfbox.pdmodel.*;
 import org.apache.pdfbox.pdmodel.font.*;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class PdfVisualEvidenceTest {
+    @Test void formattingNormalizationAppliesToEverySupportedCaption() {
+        for (String caption : new String[] { "Use Case Diagram", "Activity Diagram", "Wireframe", "Low Fidelity Wireframe" })
+            for (String separator : new String[] { "", " ", "-", "_", "\u00a0", "\u2013" })
+                for (String punctuation : new String[] { "", ":", "." }) {
+                    String variant = caption.toUpperCase(java.util.Locale.ROOT).replace(" ", separator) + punctuation;
+                    assertThat(PdfVisualEvidence.matchesCaption(variant, caption)).as(variant).isTrue();
+                }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "Use Case Diagram:", "use case diagram", "Usecase Diagram", "Use-Case Diagram",
+        "USE_CASE_DIAGRAM", "Use\u2013Case Diagram:", "Use   Case   Diagram.", "Figure 2: Usecase Diagram:",
+        "3.2. Use-Case Diagram", "Use Case Diagram for UC-LOGIN" })
+    void captionFormattingDoesNotHideARealFigure(String caption) throws Exception {
+        assertThat(captionInspection(caption, true).pages().getFirst().illustratedArtifacts())
+            .containsExactly(new PdfInspection.IllustratedArtifact("use case diagram", 1));
+        assertThat(captionInspection(caption, false).pages().getFirst().illustratedArtifacts()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "The use case diagram is discussed in section 3.",
+        "Use Case Diagram is missing.", "Use Case Diagram and Activity Diagram", "Use Case Diagram TODO",
+        "Use Case Diagram for this transaction is missing.", "Use Case Diagram for UC-LOGIN (placeholder)" })
+    void proseAndIncompleteCaptionsDoNotBorrowAnImage(String text) throws Exception {
+        assertThat(captionInspection(text, true).pages().getFirst().illustratedArtifacts()).isEmpty();
+    }
+
+    private static PdfInspection captionInspection(String caption, boolean withImage) throws Exception {
+        try (var doc = new PDDocument(); var bytes = new ByteArrayOutputStream()) {
+            var page = new PDPage(); doc.addPage(page);
+            try (var stream = new PDPageContentStream(doc, page)) {
+                text(stream, "1.1 Create account", 740);
+                text(stream, caption, 650);
+                if (withImage) image(doc, stream, 200, 250, 220, 220);
+                text(stream, "1.2 Next transaction", 100);
+            }
+            doc.save(bytes); return new PdfInspector().inspect(bytes.toByteArray());
+        }
+    }
+
     @Test void substantiveImageBelowItsLabelIsAssociated() throws Exception {
         assertThat(inspect(0).pages().getFirst().illustratedArtifacts())
             .containsExactly(new PdfInspection.IllustratedArtifact("use case diagram", 1));

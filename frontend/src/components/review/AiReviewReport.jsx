@@ -10,7 +10,7 @@ const CHECK_SOURCE_LABELS = {
 };
 const LEGACY_VERIFICATION = /^Mapped-template (?:body heading|transaction artifact)/i;
 
-export function AiReviewReport({ report, deliverableTitle = '' }) {
+export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '' }) {
   if (!report) return null;
   const originalFindings = report.findings || legacyFindings(report.flags);
   const legacyNotes = originalFindings.filter(isLegacyVerification).map(legacyVerification);
@@ -20,7 +20,9 @@ export function AiReviewReport({ report, deliverableTitle = '' }) {
     ? missing[0].source : null;
   const verificationNotes = uniqueByClaim([...(report.verificationNotes || []), ...legacyNotes]);
   const sectionNotes = verificationNotes.filter(note => sectionVerification(note));
-  const artifactNotes = groupArtifactNotes(verificationNotes.filter(note => !sectionVerification(note)));
+  const diagramNotes = verificationNotes.filter(isDiagramPresenceNote);
+  const artifactNotes = groupArtifactNotes(verificationNotes.filter(note => !sectionVerification(note) && !isDiagramPresenceNote(note)));
+  const manualCheckCount = verificationNotes.length - diagramNotes.length + (diagramNotes.length ? 1 : 0);
   const checks = verifiedAiChecks(report).filter(check => !findings.some(finding => sameCheck(finding, check)));
   const grouped = groupGlossary(findings);
   const concerns = grouped.filter(group => !group.terms);
@@ -38,7 +40,7 @@ export function AiReviewReport({ report, deliverableTitle = '' }) {
     : !concernCount && !verificationNotes.length && glossary.length ? 'Minor checks to review' : 'Issues identified';
   const summary = [
     concernCount && `${concernCount} concern${concernCount === 1 ? '' : 's'}`,
-    verificationNotes.length && `${verificationNotes.length} to verify`,
+    manualCheckCount && `${manualCheckCount} to verify`,
     glossary.length && `${glossary.length} minor check${glossary.length === 1 ? '' : 's'}`
   ].filter(Boolean).join(' · ') || `${checks.length} supported observation${checks.length === 1 ? '' : 's'}`;
 
@@ -85,6 +87,7 @@ export function AiReviewReport({ report, deliverableTitle = '' }) {
               {sharedSectionSource ? <Text className="wt-ai-review-reference" size="sm">Source: {CHECK_SOURCE_LABELS[sharedSectionSource] || sharedSectionSource}</Text> : null}
             </article></li> : null}
             {sectionNotes.length ? <li><SectionVerificationRow notes={sectionNotes} /></li> : null}
+            {diagramNotes.length ? <li><DiagramVerificationRow notes={diagramNotes} pdfUrl={pdfUrl} /></li> : null}
             {artifactNotes.map((group, index) => <li key={`note-${index}`}>{group.artifact
               ? <ArtifactVerificationRow group={group} />
               : <FindingRow finding={group.note} label="Verify in PDF" />}</li>)}
@@ -202,6 +205,53 @@ function SectionVerificationRow({ notes }) {
     <details className="wt-ai-review-originals">
       <summary>Original section observations ({notes.length})</summary>
       <Stack gap="md" mt="sm">{notes.map((note, index) => <FindingRow key={index} finding={note} />)}</Stack>
+    </details>
+  </article>;
+}
+
+function artifactObservation(note) {
+  const match = (note.explanation || note.issue || '').match(/^Text extraction could not verify ["'“]([^"'”]+)["'”] in (.+?)\. (?=Its label|No substantive|The matching label)/i);
+  return match ? { artifact: match[1], context: match[2] } : null;
+}
+
+function isDiagramPresenceNote(note) {
+  return /\b(?:diagram|wireframe)\b/i.test(artifactObservation(note)?.artifact || '');
+}
+
+function DiagramVerificationRow({ notes, pdfUrl }) {
+  const locations = [];
+  const references = [];
+  const excerpts = [];
+  for (const note of notes) {
+    const observation = artifactObservation(note);
+    const context = observation.context.replace(/^transaction ["'“](.*)["'”]$/i, '$1');
+    const key = `${context}|${note.location?.page || ''}`;
+    let location = locations.find(item => item.key === key);
+    if (!location) { location = { key, context, page: note.location?.page, artifacts: [] }; locations.push(location); }
+    if (!location.artifacts.includes(observation.artifact)) location.artifacts.push(observation.artifact);
+    const referenceKey = [note.source || '', note.requirement || ''].join('|');
+    if (note.requirement && !references.some(item => item.key === referenceKey)) references.push({ key: referenceKey, note });
+    if (note.evidence && !excerpts.includes(note.evidence)) excerpts.push(note.evidence);
+  }
+  const locationRow = location => <>
+    <Text fw={600}>{location.context}</Text>
+    <Text size="sm">{location.artifacts.join(', ')}{location.page ? <> · {pdfUrl
+      ? <a href={pdfUrl} target="_blank" rel="noreferrer" aria-label={`Open PDF and check page ${location.page}`}>PDF page {location.page}</a>
+      : `PDF page ${location.page}`}</> : null}</Text>
+  </>;
+  return <article className="wt-ai-review-row">
+    <h3>Check diagrams in the PDF</h3>
+    <Text>Confirm the diagrams at the listed locations. Image detection does not verify their content.</Text>
+    {locations.length === 1 ? locationRow(locations[0]) : null}
+    <details className="wt-ai-review-evidence">
+      <summary>{locations.length === 1 ? 'View supporting details' : `See locations to check (${locations.length})`}</summary>
+      <Stack gap="sm" mt="sm">
+        {locations.length > 1 ? <ul>{locations.map(location => <li key={location.key}>{locationRow(location)}</li>)}</ul> : null}
+        {excerpts.map(text => <Passage key={text} text={text} quote />)}
+        {references.map(({ key, note }) => <Passage key={key}
+          label={`Reference${CHECK_SOURCE_LABELS[note.source] ? ` · ${CHECK_SOURCE_LABELS[note.source]}` : ''}`}
+          text={note.requirement} />)}
+      </Stack>
     </details>
   </article>;
 }
