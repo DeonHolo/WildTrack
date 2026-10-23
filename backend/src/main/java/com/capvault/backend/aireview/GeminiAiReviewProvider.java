@@ -571,9 +571,18 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 if (!id.matches("P(?:[1-9]|1[0-9]|20)")) throw invalid("unknown_evidence_reference");
                 int index = Integer.parseInt(id.substring(1)) - 1;
                 if (index >= passages.size()) throw invalid("unknown_evidence_reference");
-                if (value.has("source") || value.has("requirement")
-                        || !value.path("documentEvidence").asText("").isBlank())
-                    throw invalid("mixed_evidence_contracts");
+                // A redundant quotation is allowed by the wire schema. Retain only
+                // citations consistent with the server-owned passage, never model text.
+                if (value.has("source") || value.has("requirement")) {
+                    LOG.info("Gemini AI review positive observation excluded: code=MIXED_EVIDENCE_CONTRACTS");
+                    continue;
+                }
+                JsonNode quotation = value.path("documentEvidence");
+                if (!quotation.isMissingNode() && (!quotation.isTextual() || quotation.asText().length() > 780
+                        || !sourceWords(passages.get(index)).contains(sourceWords(quotation.asText())))) {
+                    LOG.info("Gemini AI review positive observation excluded: code=CONFLICTING_REFERENCE_QUOTE");
+                    continue;
+                }
                 JsonNode rawAspect = value.path("aspect");
                 if (!rawAspect.isTextual() || rawAspect.asText().isBlank() || rawAspect.asText().length() > 200) {
                     LOG.info("Gemini AI review positive observation excluded: code=INVALID_REFERENCE_ASPECT");
