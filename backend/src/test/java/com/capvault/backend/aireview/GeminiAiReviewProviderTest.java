@@ -649,21 +649,84 @@ class GeminiAiReviewProviderTest {
         server.verify();
     }
 
-    @Test void unknownOrMixedReferencesCannotCreateDocumentEvidence() throws Exception {
+
+    @Test void redundantPassageQuotationUsesTheVerifiedServerPassage() throws Exception {
+        String quote = "The registration service records applications and sends them to authorized staff for a decision.";
+        String text = "1. Registration purpose\n" + quote
+            + " The staff view retains the original application so reviewers can inspect the submitted information.";
+        var passages = AiReviewGroundingPolicy.positiveEvidencePassages(text);
+        assertThat(passages).hasSize(1);
+        for (String redundantQuote : List.of(quote, quote.toUpperCase(java.util.Locale.ROOT), quote.replace(" ", "\n"))) {
+            setup();
+            var check = Map.of("aspect", "registration service records applications", "passageId", "P1",
+                "documentEvidence", redundantQuote);
+            String body = json.writeValueAsString(Map.of("summary", "Review", "findings", List.of(),
+                "missingRequiredSections", List.of(), "suggestedAction", "Inspect", "verifiedChecks", List.of(check)));
+            server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(body, "STOP"), MediaType.APPLICATION_JSON));
+            var request = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), text,
+                "Instructor review only", "SRS", "Describe the registration purpose.", "");
+            var parsed = provider.review(request);
+            assertThat(parsed.verifiedChecks()).hasSize(1);
+            assertThat(parsed.verifiedChecks().getFirst().documentEvidence()).isEqualTo(passages.getFirst());
+            assertThat(parsed.verifiedChecks().getFirst().source()).isEqualTo(AiReviewProvider.FindingSource.DOCUMENT);
+            assertThat(parsed.verifiedChecks().getFirst().requirement()).isEmpty();
+            server.verify();
+        }
+    }
+
+    @Test void conflictingMixedCitationsDoNotDiscardIndependentEvidenceOrMisalignCoverage() throws Exception {
+        String text = "1. Registration purpose\nThe registration service records applications and sends them to authorized staff for a decision."
+            + " The staff view retains the original application so reviewers can inspect the submitted information.";
+        var valid = Map.of("aspect", "registration service records applications", "passageId", "P1", "documentEvidence", "");
+        for (var invalid : List.of(
+                Map.of("aspect", "registration service records applications", "passageId", "P1", "documentEvidence", "Invented cloud deployment"),
+                Map.of("aspect", "registration service records applications", "passageId", "P1", "documentEvidence", 42),
+                Map.of("aspect", "registration service records applications", "passageId", "P1", "source", "OFFICIAL_TEMPLATE"),
+                Map.of("aspect", "registration service records applications", "passageId", "P1", "requirement", "Invented mandatory certification"))) {
+            setup();
+            var mapping = Map.of("criterionId", "C1", "verifiedCheckIndexes", List.of(0, 1), "findingIndexes", List.of(),
+                "missingSectionIndexes", List.of(), "verificationNoteIndexes", List.of());
+            String body = json.writeValueAsString(Map.of("summary", "Review", "findings", List.of(),
+                "missingRequiredSections", List.of(), "suggestedAction", "Inspect", "verifiedChecks", List.of(invalid, valid),
+                "criterionReviews", List.of(mapping)));
+            server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(body, "STOP"), MediaType.APPLICATION_JSON));
+            var request = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), text,
+                "Instructor review only", "SRS", "Describe the registration purpose.", "");
+            var parsed = provider.review(request);
+            assertThat(parsed.verifiedChecks()).hasSize(1);
+            assertThat(parsed.coverage().criteria().getFirst().verifiedCheckIndexes()).containsExactly(0);
+            assertThat(parsed.verifiedChecks().getFirst().requirement()).isEmpty();
+            server.verify();
+        }
+    }
+
+    @Test void rejectingTheOnlyConflictingCitationCannotBecomeACleanReview() throws Exception {
+        String text = "1. Registration purpose\nThe registration service records applications and sends them to authorized staff for a decision."
+            + " The staff view retains the original application so reviewers can inspect the submitted information.";
+        var invalid = Map.of("aspect", "registration service records applications", "passageId", "P1",
+            "documentEvidence", "Invented cloud deployment");
+        String body = json.writeValueAsString(Map.of("summary", "Approved", "findings", List.of(),
+            "missingRequiredSections", List.of(), "suggestedAction", "Approve", "verifiedChecks", List.of(invalid)));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(body, "STOP"), MediaType.APPLICATION_JSON));
+        var request = new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8), text,
+            "Instructor review only", "SRS", "", "");
+        var parsed = provider.review(request);
+        assertThat(parsed.verifiedChecks()).isEmpty();
+        var grounded = AiReviewService.postprocessForBenchmark(parsed, "SRS", "", "", text);
+        assertThat(grounded.outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+        server.verify();
+    }
+
+    @Test void unknownReferencesCannotCreateDocumentEvidence() throws Exception {
         for (var check : List.of(Map.of("aspect", "Unknown passage", "passageId", "P1"),
-                Map.of("aspect", "Invalid passage", "passageId", "P99"),
-                Map.of("aspect", "Mixed contracts", "passageId", "P1", "source", "OFFICIAL_TEMPLATE"))) {
+                Map.of("aspect", "Invalid passage", "passageId", "P99"))) {
             setup();
             String report = json.writeValueAsString(Map.of("summary", "Observed passages", "findings", List.of(),
                 "missingRequiredSections", List.of(), "suggestedAction", "Review", "verifiedChecks", List.of(check)));
             server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
-            var request = check.containsKey("source")
-                ? new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8),
-                    "1. Scope\nThe portal records original submitted documents and the instructor's observations before any academic decision is recorded.",
-                    "Instructor review only", "SRS", "", "") : input();
+            var request = input();
             assertThatThrownBy(() -> provider.review(request)).isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class,
-                failure -> assertThat(failure.detail).isEqualTo(check.containsKey("source")
-                    ? "mixed_evidence_contracts" : "unknown_evidence_reference"));
+                failure -> assertThat(failure.detail).isEqualTo("unknown_evidence_reference"));
             server.verify();
         }
     }
