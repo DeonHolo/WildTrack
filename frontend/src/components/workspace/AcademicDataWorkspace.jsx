@@ -539,8 +539,14 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
           <Text size="xs" ff="monospace">Column order without headers: {config.columns.map((item) => item.label).join(' · ')}</Text>
           <Textarea
             aria-label="Pasted spreadsheet rows"
-            minRows={7}
-            autosize
+            rows={8}
+            styles={{
+              input: {
+                maxHeight: 'min(32vh, 320px)',
+                overflowY: 'auto',
+                resize: 'vertical'
+              }
+            }}
             value={pasteText}
             onChange={(event) => setPasteText(event.currentTarget.value)}
             placeholder={config.columns.map((item) => item.label).join('\t')}
