@@ -590,7 +590,7 @@ export function aiReviewReportSummary(report) {
     return `Review finished with limited coverage: ${checks} supported observation${checks === 1 ? '' : 's'} recorded. This does not establish a no-issues result or mean the PDF is empty or incorrect.`;
   }
   if (status === 'Needs manual verification') {
-    return 'Review finished with checks needing manual verification. Inspect the cited areas in the original PDF before deciding whether revisions are needed.';
+    return 'Review finished with checks needing manual verification. Inspect the cited areas in the original PDF.';
   }
   return report?.summary || 'AI Review is available.';
 }
