@@ -8,7 +8,7 @@ const viewports = [
 ];
 
 for (const viewport of viewports) {
-  test(`academic data grid edits and pastes on ${viewport.label}`, async ({ page }) => {
+  test(`academic data grid edits and pastes on ${viewport.label}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     page.apiFixture = await installApiFixtures(page, { role: 'admin', connected: true });
 
@@ -80,6 +80,45 @@ for (const viewport of viewports) {
     expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))).not.toBe('Pasted spreadsheet rows');
     await paste.getByRole('button', { name: 'Apply to grid' }).click();
     await expect(table.getByRole('textbox', { name: 'Student name for 26-0002' })).toHaveValue('NEW, STUDENT');
+
+    // Keep a large roster independently editable without expanding the modal
+    // beyond the viewport on either desktop or mobile.
+    await page.getByRole('button', { name: 'Paste rows' }).click();
+    const largePaste = page.getByRole('dialog', { name: 'Paste students rows' });
+    const roster = Array.from({ length: 120 }, (_, index) =>
+      `26-${String(index + 1000).padStart(4, '0')}\tPASTED STUDENT ${index + 1}\tTEAM-01`
+    ).join('\n');
+    const largeTextarea = largePaste.getByRole('textbox', { name: 'Pasted spreadsheet rows' });
+    await largeTextarea.fill(roster);
+    expect(roster.split('\n')).toHaveLength(120);
+    expect((await largeTextarea.inputValue()).split('\n')).toHaveLength(120);
+    await largeTextarea.focus();
+    await largeTextarea.evaluate((node) => { node.scrollTop = 0; });
+    const keyboardBefore = await largeTextarea.evaluate((node) => node.scrollTop);
+    await largeTextarea.press('PageDown');
+    const textareaMetrics = await largeTextarea.evaluate((node) => ({
+      before: node.scrollTop,
+      after: node.scrollTop,
+      scrollHeight: node.scrollHeight,
+      clientHeight: node.clientHeight
+    }));
+    expect(textareaMetrics.scrollHeight).toBeGreaterThan(textareaMetrics.clientHeight);
+    expect(textareaMetrics.after).toBeGreaterThan(keyboardBefore);
+    await largeTextarea.press('Control+End');
+    await largeTextarea.press('Shift+Home');
+    await page.keyboard.insertText('26-1999\tFINAL ROW EDITED\tTEAM-01');
+    await expect(largeTextarea).toHaveValue(/26-1999\tFINAL ROW EDITED\tTEAM-01$/);
+    const modalMetrics = await largePaste.evaluate(() => ({
+      pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+    }));
+    expect(modalMetrics.pageOverflow).toBe(false);
+    await expect(largePaste.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await expect(largePaste.getByRole('button', { name: 'Apply to grid' })).toBeVisible();
+    await expect(largePaste.getByRole('button', { name: 'Cancel' })).toBeInViewport({ ratio: 1 });
+    await expect(largePaste.getByRole('button', { name: 'Apply to grid' })).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: testInfo.outputPath(`large-paste-${viewport.width}.png`) });
+    await largePaste.getByRole('button', { name: 'Cancel' }).click();
+
     await page.getByRole('button', { name: 'Save changes (1)' }).click();
     await expect.poll(() => writes.filter((item) => item.kind === 'students').length).toBe(2);
 

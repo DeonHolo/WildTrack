@@ -99,6 +99,7 @@ export function AdviserViewPage() {
   const [adviserName, setAdviserName] = useState('');
   const [query, setQuery] = useState('');
   const [selectedOutputIds, setSelectedOutputIds] = useState({});
+  const [previewOutputIds, setPreviewOutputIds] = useState({});
   const [feedback, setFeedback] = useState('');
   const [feedbackError, setFeedbackError] = useState(null);
   const [checkDialogTarget, setCheckDialogTarget] = useState(null);
@@ -128,9 +129,9 @@ export function AdviserViewPage() {
   const deliverableRows = useMemo(
     () => selectedTeam ? buildTeamDeliverableRows(state, selectedTeam).map((row) => ({
       ...row,
-      ...resolveGroupOutput(row, selectedOutputIds[outputSelectionKey(activeWorkspaceId, selectedTeamCode, row.deliverable.id)])
+      ...resolveGroupOutput(row, (isReadOnlyPreview ? previewOutputIds : selectedOutputIds)[outputSelectionKey(activeWorkspaceId, selectedTeamCode, row.deliverable.id)], isReadOnlyPreview)
     })) : [],
-    [activeWorkspaceId, selectedTeam, selectedTeamCode, selectedOutputIds, state]
+    [activeWorkspaceId, isReadOnlyPreview, previewOutputIds, selectedTeam, selectedTeamCode, selectedOutputIds, state]
   );
   const selectedRow = deliverableRows.find((row) => row.deliverable.id === requestedDeliverableId) || deliverableRows[0] || null;
   const selectedOutput = selectedRow?.currentOutput || null;
@@ -173,6 +174,7 @@ export function AdviserViewPage() {
     setCheckDialogTarget(null);
     setAiReviewDialogTarget(null);
     setSelectedOutputIds({});
+    setPreviewOutputIds({});
     setViewOtherAdviser(false);
   }, [isCurrentScope]);
 
@@ -263,7 +265,8 @@ export function AdviserViewPage() {
     const response = output && reviewResponseForOutput(output);
     if (!response || !isCurrentScope()) return;
     const key = outputSelectionKey(activeWorkspaceId, selectedTeamCode, selectedRow.deliverable.id);
-    setSelectedOutputIds((current) => ({
+    const setter = previewModeRef.current ? setPreviewOutputIds : setSelectedOutputIds;
+    setter((current) => ({
       ...current,
       [key]: { outputId, responseId: response.id, sourceResponseUpdatedAt: response.updatedAt || response.submittedAt }
     }));
@@ -566,7 +569,7 @@ export function AdviserViewPage() {
                         </Table.Td>
                         <Table.Td>
                           <Text fw={750}>{groupFileLabel(row)}</Text>
-                          <Text size="xs" c={row.requiresSelection ? 'orange.9' : 'dimmed'}>{groupSelectionLabel(row)}</Text>
+                          <Text size="xs" c={row.requiresSelection ? 'orange.9' : 'dimmed'}>{groupSelectionLabel(row, isReadOnlyPreview)}</Text>
                         </Table.Td>
                         <Table.Td className="wt-review-status-cell">
                           <StatusIndicator status={documentCheckLabel(row.currentResponse, row.deliverable)} />
@@ -696,7 +699,7 @@ function SelectedGroupOutput({
     <section className="wt-adviser-output-detail" aria-label={`${row.deliverable.shortTitle} group output details`}>
       <div className="wt-adviser-output-head">
         <div>
-          <Text className="wt-eyebrow">Selected group output</Text>
+          <Text className="wt-eyebrow">{readOnlyPreview ? 'Viewing group output' : 'Selected group output'}</Text>
           <Title order={3}>{row.deliverable.title}</Title>
           <Text size="sm" c="dimmed">{team.teamCode} | {row.receivedMemberCount} of {team.members.length} members submitted</Text>
         </div>
@@ -709,7 +712,7 @@ function SelectedGroupOutput({
         </Group>
       </div>
 
-      {row.hasConflict ? (
+      {row.hasConflict && (!readOnlyPreview || accepted) ? (
         row.requiresSelection ? (
           <Alert color="orange" variant="light" icon={<WarningCircle size={20} aria-hidden="true" />} title={row.outputs.length + ' different files were submitted'}>
             {row.acceptedOutputCount > 1
@@ -731,8 +734,8 @@ function SelectedGroupOutput({
 
       {row.outputs.length > 1 ? (
         <Select
-          label="Current group output"
-          description="Choose a submitted file to review. Feedback and decisions apply to the selected output."
+          label={readOnlyPreview ? 'View submitted file' : 'Current group output'}
+          description={readOnlyPreview ? 'Inspect each submitted file. Preview does not change review state.' : 'Choose a submitted file to review. Feedback and decisions apply to the selected output.'}
           placeholder="Choose a submitted file"
           size="md"
           searchable
@@ -1058,7 +1061,7 @@ function reviewResponseForOutput(output) {
   return output.responses.find((response) => response.reviewStatus === 'Accepted') || output.latest;
 }
 
-function resolveGroupOutput(row, selection) {
+function resolveGroupOutput(row, selection, readOnlyPreview = false) {
   const explicitOutput = row.outputs.find((output) => output.id === selection?.outputId);
   const explicitResponse = explicitOutput?.responses.find((response) => (
     response.id === selection.responseId
@@ -1067,7 +1070,7 @@ function resolveGroupOutput(row, selection) {
   const acceptedOutputs = row.outputs.filter((output) => output.responses.some((response) => response.reviewStatus === 'Accepted'));
   const currentOutput = explicitResponse ? explicitOutput
     : acceptedOutputs.length === 1 ? acceptedOutputs[0]
-      : !row.hasConflict ? row.outputs.find((output) => output.hasSubmittedValue) || row.outputs[0] || null
+      : !row.hasConflict || readOnlyPreview ? row.outputs.find((output) => output.hasSubmittedValue) || row.outputs[0] || null
         : null;
   return {
     currentOutput,
@@ -1077,12 +1080,12 @@ function resolveGroupOutput(row, selection) {
   };
 }
 
-function groupSelectionLabel(row) {
+function groupSelectionLabel(row, readOnlyPreview = false) {
   if (row.requiresSelection) return 'Selection required';
   if (!row.currentOutput) return 'No file received';
   if (!row.hasConflict) return outputOwnerLabel(row.currentOutput);
   const fileNumber = row.outputs.indexOf(row.currentOutput) + 1;
-  const status = row.currentResponse?.reviewStatus === 'Accepted' ? 'Accepted' : 'Selected';
+  const status = row.currentResponse?.reviewStatus === 'Accepted' ? 'Accepted' : readOnlyPreview ? 'Viewing' : 'Selected';
   return `${status}: File ${fileNumber} | ${outputOwnerLabel(row.currentOutput)}`;
 }
 

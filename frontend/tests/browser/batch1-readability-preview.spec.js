@@ -11,7 +11,7 @@ test(`admin can inspect another adviser as a read-only preview at ${width}px wit
   const fixture = await installApiFixtures(page, {
     role: 'admin',
     submitted: true,
-    monitoring: savedReviewMonitoring
+    monitoring: multiFileReviewMonitoring
   });
   const paidOrMutating = [];
   page.on('request', (request) => {
@@ -37,12 +37,26 @@ test(`admin can inspect another adviser as a read-only preview at ${width}px wit
   await page.getByRole('button', { name: 'Open SRS details' }).click();
 
   const output = page.getByRole('region', { name: /SRS group output details/i });
-  await expect(output).toContainText('DELA CRUZ, JUAN CARLOS M.');
+  await expect(output).toContainText('REYES, MARIA L.');
+  await expect(output).toContainText('2 of 2 members submitted');
+  await expect(output.getByRole('textbox', { name: 'Current group output', exact: true })).toHaveCount(0);
+  await expect(output.getByText('Current group output selected', { exact: true })).toHaveCount(0);
   await expect(output.getByText('Feedback for student')).toBeVisible();
   await expect(output.getByText('No student-visible feedback has been saved.')).toBeVisible();
   await expect(output.getByRole('button', { name: 'Accept group output' })).toHaveCount(0);
   await expect(output.getByRole('button', { name: 'Revoke acceptance' })).toHaveCount(0);
   await expect(output.getByRole('button', { name: /Check document|Check .*unchecked/i })).toHaveCount(0);
+  const submittedFileSelect = output.getByRole('textbox', { name: 'View submitted file' });
+  await expect(submittedFileSelect).toHaveValue(/File 1/);
+  await submittedFileSelect.click();
+  await page.getByRole('option', { name: /DELA CRUZ, JUAN CARLOS/ }).click();
+  await expect(output.getByRole('link', { name: 'Open PDF' })).toHaveAttribute('href', sourceUrl);
+  await submittedFileSelect.click();
+  await page.getByRole('option', { name: /REYES, MARIA/ }).click();
+  await expect(output.getByRole('link', { name: 'Open PDF' })).toHaveAttribute('href', /browser-pdf-second-member/);
+  await submittedFileSelect.click();
+  await page.getByRole('option', { name: /DELA CRUZ, JUAN CARLOS/ }).click();
+  await expect(output.getByRole('link', { name: 'Open PDF' })).toHaveAttribute('href', sourceUrl);
   await expect(page.getByRole('alert')).toContainText('Read-only adviser preview');
   await expect.poll(() => output.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`batch1-preview-${width}.png`) });
@@ -138,6 +152,52 @@ function savedReviewMonitoring(payload) {
     reviewStates: { [response.id]: { feedback: [], acceptance: null } },
     fileChecksByField: { [response.id]: { [field]: savedCheck(sourceUrl) } },
     aiReviewsByField: { [response.id]: { [field]: savedReview(sourceUrl) } }
+  };
+}
+
+function multiFileReviewMonitoring(payload) {
+  const baseline = savedReviewMonitoring(payload);
+  const response = payload.responses[0];
+  const secondSourceUrl = 'https://drive.google.com/file/d/browser-pdf-second-member/view';
+  const secondResponse = {
+    ...response,
+    id: 'response-2',
+    studentNumber: '22-1001-002',
+    studentName: 'REYES, MARIA L.',
+    updatedAt: '2026-04-17T10:00:00Z',
+    submittedAt: '2026-04-17T10:00:00Z',
+    valuesJson: JSON.stringify({ documentPdf: secondSourceUrl })
+  };
+  const secondStudent = {
+    ...payload.students[0],
+    id: 'student-2',
+    studentNumber: secondResponse.studentNumber,
+    studentName: secondResponse.studentName,
+    memberNumber: '2'
+  };
+  const secondTrackerRow = {
+    ...payload.trackerRows[0], id: 'tracker-row-2',
+    studentNumber: secondResponse.studentNumber,
+    studentName: secondResponse.studentName,
+    memberNumber: '2'
+  };
+  return {
+    ...baseline,
+    students: [...payload.students, secondStudent],
+    trackerRows: [...payload.trackerRows, secondTrackerRow],
+    responses: [response, secondResponse],
+    reviewStates: {
+      [response.id]: { feedback: [], acceptance: null },
+      [secondResponse.id]: { feedback: [], acceptance: null }
+    },
+    fileChecksByField: {
+      ...baseline.fileChecksByField,
+      [secondResponse.id]: { [field]: { ...savedCheck(secondSourceUrl), sourceResponseUpdatedAt: secondResponse.updatedAt } }
+    },
+    aiReviewsByField: {
+      ...baseline.aiReviewsByField,
+      [secondResponse.id]: { [field]: { ...savedReview(secondSourceUrl), sourceResponseUpdatedAt: secondResponse.updatedAt } }
+    }
   };
 }
 

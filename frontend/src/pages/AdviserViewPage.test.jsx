@@ -250,13 +250,15 @@ function groupOutputDetails(title = 'SRS') {
   return screen.getByRole('region', { name: `${title} group output details` });
 }
 
-async function chooseGroupOutput(owner) {
-  fireEvent.click(screen.getByRole('textbox', { name: 'Current group output' }));
+async function chooseGroupOutput(owner, label = 'Current group output') {
+  fireEvent.click(screen.getByRole('textbox', { name: label }));
   fireEvent.click(await screen.findByRole('option', { name: new RegExp(owner) }));
 }
 
 describe('adviser My advised teams review', () => {
   beforeEach(() => {
+    // JSDOM lacks native scrolling; the browser specs cover its real behaviour.
+    Element.prototype.scrollIntoView ||= vi.fn();
     workflow.workspaceId = 'workspace-it';
     workflow.session = { authenticated: true, email: 'adviser@school.edu' };
     workflow.staffIdentity = {
@@ -346,6 +348,30 @@ describe('adviser My advised teams review', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to my teams' }));
     expect(screen.queryByText('Read-only adviser preview')).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Feedback for student' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept group output' })).toBeInTheDocument();
+  });
+
+  it('keeps another-adviser preview focused on browsing submitted files', async () => {
+    workflow.state = createState({ conflicting: true });
+    renderPage('admin');
+    await chooseGroupOutput('BETA, BEN');
+    fireEvent.click(screen.getByRole('button', { name: 'View another adviser' }));
+
+    const outputSelect = screen.getByRole('textbox', { name: 'View submitted file' });
+    expect(outputSelect).toHaveValue('File 1 | BETA, BEN');
+    expect(screen.getByText('Viewing group output')).toBeInTheDocument();
+    expect(screen.queryByText('Current group output selected')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Accept group output' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Feedback for student' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check document' })).not.toBeInTheDocument();
+
+    await chooseGroupOutput('ALPHA, ANA', 'View submitted file');
+    expect(screen.getByRole('link', { name: 'Open PDF' })).toHaveAttribute('href', expect.stringContaining('shared-team-file'));
+    expect(workflow.markAccepted).not.toHaveBeenCalled();
+    expect(workflow.saveFeedback).not.toHaveBeenCalled();
+    expect(workflow.runDocumentCheck).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to my teams' }));
+    expect(screen.getByRole('textbox', { name: 'Current group output' })).toHaveValue('File 1 | BETA, BEN');
     expect(screen.getByRole('button', { name: 'Accept group output' })).toBeInTheDocument();
   });
 
