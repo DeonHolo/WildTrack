@@ -114,6 +114,8 @@ for (const viewport of viewports) {
     expect(modalMetrics.pageOverflow).toBe(false);
     await expect(largePaste.getByRole('button', { name: 'Cancel' })).toBeVisible();
     await expect(largePaste.getByRole('button', { name: 'Apply to grid' })).toBeVisible();
+    await expect(largePaste.getByRole('button', { name: 'Cancel' })).toBeInViewport({ ratio: 1 });
+    await expect(largePaste.getByRole('button', { name: 'Apply to grid' })).toBeInViewport({ ratio: 1 });
     await page.screenshot({ path: testInfo.outputPath(`large-paste-${viewport.width}.png`) });
     await largePaste.getByRole('button', { name: 'Cancel' }).click();
 

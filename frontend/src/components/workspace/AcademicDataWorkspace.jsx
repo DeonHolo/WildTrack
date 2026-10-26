@@ -557,7 +557,7 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
             </Alert>
           ) : null}
           {pastePreview.rows.length ? (
-            <div className="wt-paste-preview" aria-label="Paste preview">
+            <div className="wt-paste-preview" aria-label="Paste preview" style={{ maxHeight: 'min(24vh, 260px)' }}>
               {pastePreview.rows.map((row, index) => (
                 <div key={`${row.identity}-${index}`}>
                   <Badge variant="light" color={row.action === 'Update' ? 'blue' : 'green'}>{row.action}</Badge>
