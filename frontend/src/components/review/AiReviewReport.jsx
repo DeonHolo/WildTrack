@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Alert, Button, Stack, Text } from '@mantine/core';
-import { aiReviewReportStatus, isInconclusiveAiReviewReport, verifiedAiChecks } from '../../lib/workflow.js';
-import { AiReviewCoverage } from './AiReviewCoverage.jsx';
+import { aiReviewEvidenceCount, aiReviewReportStatus, isInconclusiveAiReviewReport, verifiedAiChecks } from '../../lib/workflow.js';
+import { AiReviewCoverage, assessedEvidenceIndexes, validAssessmentCriteria } from './AiReviewCoverage.jsx';
 
 const CHECK_SOURCE_LABELS = {
   DOCUMENT: 'Submitted document',
@@ -14,35 +14,45 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '' }) {
   if (!report) return null;
   const originalFindings = report.findings || legacyFindings(report.flags);
   const legacyNotes = originalFindings.filter(isLegacyVerification).map(legacyVerification);
-  const findings = uniqueByClaim(originalFindings.filter(finding => !isLegacyVerification(finding)));
-  const missing = report.missingRequiredSections || legacyMissingSections(report.missingSections);
+  const allFindings = uniqueByClaim(originalFindings.filter(finding => !isLegacyVerification(finding)));
+  const allNotes = uniqueByClaim([...(report.verificationNotes || []), ...legacyNotes]);
+  const instructionRows = validAssessmentCriteria(report);
+  const linkedEvidence = assessedEvidenceIndexes(report);
+  const findings = uniqueByClaim(originalFindings.filter((finding, index) => !isLegacyVerification(finding)
+    && !linkedEvidence.findingIndexes.has(index)));
+  const allMissing = report.missingRequiredSections || legacyMissingSections(report.missingSections);
+  const missing = allMissing.filter((item, index) => !linkedEvidence.missingSectionIndexes.has(index));
   const sharedSectionSource = missing[0]?.source && missing.every(item => item.source === missing[0].source)
     ? missing[0].source : null;
-  const verificationNotes = uniqueByClaim([...(report.verificationNotes || []), ...legacyNotes]);
+  const verificationNotes = uniqueByClaim((report.verificationNotes || []).filter((note, index) => !linkedEvidence.verificationNoteIndexes.has(index)).concat(legacyNotes));
   const sectionNotes = verificationNotes.filter(note => sectionVerification(note));
   const diagramNotes = verificationNotes.filter(isDiagramPresenceNote);
   const artifactNotes = groupArtifactNotes(verificationNotes.filter(note => !sectionVerification(note) && !isDiagramPresenceNote(note)));
-  const manualCheckCount = verificationNotes.length - diagramNotes.length + (diagramNotes.length ? 1 : 0);
+  const allDiagramNotes = allNotes.filter(isDiagramPresenceNote);
+  const manualCheckCount = allNotes.length - allDiagramNotes.length + (allDiagramNotes.length ? 1 : 0)
+    + instructionRows.filter(row => row.assessment === 'CHECK_MANUALLY'
+      && !(row.verificationNoteIndexes || []).some(index => linkedEvidence.verificationNoteIndexes.has(index))).length;
   const checks = verifiedAiChecks(report).filter(check => !findings.some(finding => sameCheck(finding, check)));
+  const evidenceCount = aiReviewEvidenceCount(report);
   const grouped = groupGlossary(findings);
   const concerns = grouped.filter(group => !group.terms);
   const glossary = grouped.filter(group => group.terms);
-  const issueCount = findings.length + missing.length;
-  const concernCount = concerns.length + missing.length;
+  const issueCount = allFindings.length + allMissing.length;
+  const concernCount = groupGlossary(allFindings).filter(group => !group.terms).length + allMissing.length;
   const inconclusive = issueCount === 0 && (
     verificationNotes.length > 0 || report.outcome === 'INCONCLUSIVE' || isInconclusiveAiReviewReport({
-      ...report, findings, verificationNotes
+      ...report, findings: allFindings, verificationNotes: allNotes
     })
   );
-  const noIssues = issueCount === 0 && !inconclusive && checks.length >= 2;
-  const reviewStatus = aiReviewReportStatus({ ...report, findings, verificationNotes });
+  const noIssues = issueCount === 0 && !inconclusive && evidenceCount >= 2;
+  const reviewStatus = aiReviewReportStatus({ ...report, findings: allFindings, verificationNotes: allNotes });
   const outcome = inconclusive ? reviewStatus : noIssues ? 'No issues in checked areas'
     : !concernCount && !verificationNotes.length && glossary.length ? 'Minor checks to review' : 'Issues identified';
   const summary = [
     concernCount && `${concernCount} concern${concernCount === 1 ? '' : 's'}`,
     manualCheckCount && `${manualCheckCount} to verify`,
     glossary.length && `${glossary.length} minor check${glossary.length === 1 ? '' : 's'}`
-  ].filter(Boolean).join(' · ') || `${checks.length} supported observation${checks.length === 1 ? '' : 's'}`;
+  ].filter(Boolean).join(' · ') || `${evidenceCount} supported observation${evidenceCount === 1 ? '' : 's'}`;
 
   return (
     <Stack gap="lg" className="wt-ai-review-report">
@@ -67,13 +77,13 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '' }) {
         </Alert>
       ) : noIssues ? (
         <Alert color="green" title="No actionable issues identified in the checked areas" role="status">
-          {checks.length} distinct observations supported by submitted PDF evidence. This is advisory feedback, not approval or a guarantee of full compliance.
+          {evidenceCount} distinct observations supported by submitted PDF evidence. This is advisory feedback, not approval or a guarantee of full compliance.
         </Alert>
       ) : null}
-      {issueCount || verificationNotes.length ? (
+      {findings.length || missing.length || verificationNotes.length || instructionRows.length || report.coverage?.omittedCriteria > 0 ? (
         <section aria-label="Review checklist">
           <Text component="h3" fw={700}>Review checklist</Text>
-          <ol className="wt-ai-review-checklist">
+          {findings.length || missing.length || verificationNotes.length ? <ol className="wt-ai-review-checklist">
             {concerns.map((group, index) => <li key={`finding-${index}`}><FindingRow finding={group.finding} label="Concern" /></li>)}
             {missing.length ? <li><article className="wt-ai-review-row">
               <Text className="wt-ai-review-item-label">Verify in PDF</Text>
@@ -92,20 +102,12 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '' }) {
               ? <ArtifactVerificationRow group={group} />
               : <FindingRow finding={group.note} label="Verify in PDF" />}</li>)}
             {glossary.map((group, index) => <li key={`glossary-${index}`}><GlossaryRow group={group} /></li>)}
-          </ol>
+          </ol> : null}
+          <AiReviewCoverage report={report} showHeading={false} />
         </section>
-      ) : null}
-      {checks.length ? (
-        <details className="wt-ai-review-secondary">
-          <summary>Other checked items ({checks.length})</summary>
-          <Stack gap="md" mt="sm">
-            {checks.map((check, index) => <CheckRow key={`check-${index}`} check={check} />)}
-          </Stack>
-        </details>
       ) : null}
       <details className="wt-ai-review-secondary">
         <summary>Review limits</summary>
-        <AiReviewCoverage report={report} />
         {report.limitations?.map((limit, index) => <Text key={index} size="sm" mt="sm">{limit}</Text>)}
       </details>
     </Stack>

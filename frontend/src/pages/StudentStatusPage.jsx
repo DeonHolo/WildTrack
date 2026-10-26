@@ -15,6 +15,7 @@ import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import {
   artifactDocumentCheck,
   artifactDocumentCheckStatus,
+  documentCheckSummary,
   findStudent,
   getActiveTrackerColumns,
   getIdentityStudents,
@@ -22,7 +23,8 @@ import {
   getPublishedDeliverables,
   getWorkspacePublicKey,
   isUsableAdviserName,
-  normalizeStudentNumber
+  normalizeStudentNumber,
+  submissionSubstanceStatus
 } from '../lib/workflow.js';
 import { emptyStudentDashboardState, loadStudentDashboard } from '../lib/studentDashboardClient.js';
 import { submissionArtifactFields } from '../lib/submissionArtifacts.js';
@@ -354,17 +356,13 @@ function getStudentFileCheck(response, artifacts = []) {
   }
   if (check) {
     const substanceState = check.submissionSubstance?.state;
+    if (submissionSubstanceStatus(check) === 'Needs attention — Sparse Content') {
+      return { label: 'Needs attention — Sparse Content', summary: documentCheckSummary(check), tone: 'warning' };
+    }
     if (substanceState === 'NEEDS_ATTENTION') {
       return {
         label: 'File needs attention',
         summary: check.submissionSubstance?.reason || check.summary || 'Review the Document Check details.',
-        tone: 'warning'
-      };
-    }
-    if (substanceState === 'COULD_NOT_DETERMINE') {
-      return {
-        label: 'Could not determine',
-        summary: check.submissionSubstance?.reason || 'Document Check could not reliably assess whether this PDF is substantially filled.',
         tone: 'warning'
       };
     }

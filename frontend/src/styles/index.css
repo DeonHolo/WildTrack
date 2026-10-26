@@ -3214,6 +3214,18 @@ textarea:not(.mantine-Input-input):focus {
 .wt-ai-review-checklist > li > .wt-ai-review-row { padding-top: 12px; }
 .wt-ai-review-checklist > li:first-child > .wt-ai-review-row { border-top: 0; padding-top: 4px; }
 .wt-ai-review-report .wt-ai-review-item-label { font-size: 0.875rem; font-weight: 700; color: var(--wt-ai-review-metadata); margin-bottom: 4px; }
+.wt-ai-review-assessment-row { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
+.wt-ai-review-assessment-summary { display: list-item; list-style-position: inside; min-height: 44px; border-radius: 4px; }
+.wt-ai-review-report .wt-ai-review-assessment-summary { color: var(--text); font-size: 1rem; font-weight: 400; padding: 8px 4px; cursor: pointer; }
+.wt-ai-review-assessment-summary:hover { background: color-mix(in srgb, currentColor 6%, transparent); }
+.wt-ai-review-assessment-summary:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.wt-ai-review-assessment-title { min-width: 0; overflow-wrap: anywhere; }
+.wt-ai-review-assessment-explanation { font-weight: 400; }
+.wt-ai-review-assessment-page { float: right; margin-left: 12px; white-space: nowrap; color: var(--wt-ai-review-metadata); }
+.wt-ai-review-assessment-details { padding: 8px 0 12px; }
+.wt-ai-review-assessment-details p { margin: 8px 0 0; }
+.wt-ai-review-assessment-details strong { font-weight: 700; }
+.wt-ai-review-positive-assessments { margin-top: 12px; }
 .wt-ai-review-evidence { margin-top: 10px; }
 .wt-ai-review-secondary,
 .wt-ai-review-earlier { border-top: 1px solid var(--border); padding-top: 16px; }

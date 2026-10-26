@@ -5,10 +5,15 @@ import {
   isInconclusiveAiReviewReport,
   aiReviewReportStatus,
   aiReviewReportSummary,
+  aiReviewEvidenceCount,
   verifiedAiChecks,
   artifactAiReview,
   artifactAiReviewStatus,
   isArtifactDocumentCheckCurrent,
+  artifactDocumentCheckStatus,
+  submissionSubstanceStatus,
+  documentCheckFlags,
+  documentCheckSummary,
   statusTone,
   dedupeDeliverables,
   findOwnedResponse,
@@ -35,6 +40,28 @@ const responses = [
     studentNumber: '22-1001-001'
   }
 ];
+
+describe('instruction assessment evidence', () => {
+  const positive = (id, quote) => ({ id, requirement: 'Describe project responsibilities.',
+    source: 'OFFICIAL_TEMPLATE', assessment: 'APPEARS_ADDRESSED',
+    explanation: 'Responsibilities are described.', documentEvidence: quote, location: { page: 4 } });
+  it('counts independent new citations beyond the old global observation list', () => {
+    const report = { outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: [],
+      coverage: { criteria: Array.from({ length: 6 }, (_, index) => positive(`C${index + 1}`, `Distinct supported body passage ${index}.`)) } };
+    expect(aiReviewEvidenceCount(report)).toBe(6);
+    expect(isInconclusiveAiReviewReport(report)).toBe(false);
+    report.coverage.criteria[5].documentEvidence = report.coverage.criteria[0].documentEvidence;
+    expect(aiReviewEvidenceCount(report)).toBe(5);
+  });
+  it('keeps unresolved new assessments manual even with two positive observations', () => {
+    const report = { outcome: 'NO_ISSUES_IN_CHECKED_AREAS',
+      coverage: { criteria: [positive('C1', 'The project manager assigns documented responsibilities.'),
+        positive('C2', 'The lead monitors the approved project schedule.'),
+        { id: 'C3', requirement: 'Explain budget controls.', source: 'OFFICIAL_TEMPLATE', assessment: 'CHECK_MANUALLY' }] } };
+    expect(aiReviewEvidenceCount(report)).toBe(2);
+    expect(aiReviewReportStatus(report)).toBe('Needs manual verification');
+  });
+});
 
 describe('Google-attributed response ownership', () => {
   it('matches an owned response by normalized Google email', () => {
@@ -119,9 +146,31 @@ describe('Document Check submission-substance status tones', () => {
   it('renders the positive and inconclusive conclusions with meaningful tones', () => {
     expect(statusTone('Looks substantially filled')).toBe('success');
     expect(statusTone('Could not determine')).toBe('warning');
+    expect(statusTone('Needs attention — Sparse Content')).toBe('warning');
     expect(statusTone('Inconclusive')).toBe('warning');
     expect(statusTone('Limited review coverage')).toBe('warning');
     expect(statusTone('Needs manual verification')).toBe('warning');
+  });
+});
+
+describe('Sparse Content presentation of saved Document Checks', () => {
+  it('groups a legacy extraction warning without mutating its saved flags or review readiness', () => {
+    const sourceUrl = 'https://drive.google.com/file/d/saved-pdf/view';
+    const report = { status: 'Current', sourceUrl, checkedAt: '2026-10-26T01:00:00Z', redFlags: ['Substance Inconclusive', 'Sparse Content'], summary: 'Original extraction warning.' };
+    const response = { values: { pdf: sourceUrl }, artifactChecks: { pdf: report } };
+    expect(submissionSubstanceStatus(report)).toBe('Needs attention — Sparse Content');
+    expect(documentCheckFlags(report)).toEqual(['Sparse Content']);
+    expect(artifactDocumentCheckStatus(response, { id: 'pdf', definitionId: 'pdf' })).toBe('Needs attention');
+    expect(report.redFlags).toEqual(['Substance Inconclusive', 'Sparse Content']);
+  });
+
+  it('does not group template-like or provider-failure reports into Sparse Content', () => {
+    const template = { submissionSubstance: { state: 'NEEDS_ATTENTION', reasonCode: 'TEMPLATE_LIKE' }, redFlags: ['Template-like'], summary: 'Template remains unfilled.' };
+    const blocked = { resultStatus: 'BLOCKED', submissionSubstance: { state: 'COULD_NOT_DETERMINE' }, summary: 'Drive access failed.' };
+    expect(submissionSubstanceStatus(template)).toBe('Needs attention');
+    expect(documentCheckFlags(template)).toEqual(['Template-like']);
+    expect(documentCheckSummary(template)).toBe(template.summary);
+    expect(documentCheckSummary(blocked)).toBe(blocked.summary);
   });
 });
 

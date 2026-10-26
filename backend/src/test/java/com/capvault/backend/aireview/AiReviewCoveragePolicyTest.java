@@ -30,7 +30,18 @@ class AiReviewCoveragePolicyTest {
             + "3. Budget (optional)\nProvide a budget only if applicable to this project.\n";
         var plan = AiReviewCoveragePolicy.plan("", template);
         assertThat(plan.criteria()).extracting(AiReviewCoveragePolicy.Criterion::requirement)
-            .contains("1. Overview", "2. Recovery").noneMatch(text -> text.contains("...") || text.contains("Budget"));
+            .contains("Describe the intended users and their operating context.",
+                "Describe recovery behavior after an interrupted request.")
+            .noneMatch(text -> text.contains("...") || text.contains("Budget"));
+    }
+
+    @Test void parentAndChildBodyDirectivesAreBothExtractedWithoutHeadingRows() {
+        String template = "1. Overview\nDescribe the project boundaries and intended deliverables.\n"
+            + "1.1 Purpose\nIdentify the intended users and operating context.\n";
+        assertThat(AiReviewCoveragePolicy.plan("", template).criteria())
+            .extracting(AiReviewCoveragePolicy.Criterion::requirement)
+            .containsExactly("Describe the project boundaries and intended deliverables.",
+                "Identify the intended users and operating context.");
     }
 
     @Test void reviewGuidanceAndNounsDoNotBecomeStudentContentObligations() {
@@ -53,7 +64,10 @@ class AiReviewCoveragePolicyTest {
             + "12 weeks are allocated to the sample project.\n";
         assertThat(AiReviewCoveragePolicy.plan("", template).criteria())
             .extracting(AiReviewCoveragePolicy.Criterion::requirement)
-            .containsExactly("1. Scope", "2. Resources", "3. Schedule");
+            .containsExactly(
+                "Describe the project boundary, intended deliverables and excluded work. Explain the operating context so that the planning basis is clear to the reader.",
+                "Describe the accountable roles and the resources assigned to each work package.",
+                "Explain the work dependencies and planned milestones.");
     }
 
     @Test void boundedPlanCountsOmittedAreasWithoutClaimingTheirCoverage() {
@@ -123,6 +137,65 @@ class AiReviewCoveragePolicyTest {
             """, Result.class);
         assertThat(saved.coverage()).isNull();
         assertThat(saved.outcome()).isEqualTo(ReviewOutcome.INCONCLUSIVE);
+    }
+
+    @Test void explicitInstructionAssessmentsRemainIndependentOfGlobalPositiveChecks() {
+        String instructions = IntStream.rangeClosed(1, 8)
+            .mapToObj(i -> "Describe requirement area " + i + " with concrete project evidence.")
+            .reduce("", (a, b) -> a + "\n" + b);
+        String quote = "The project evidence describes the requirement area with concrete implementation details.";
+        var rows = IntStream.rangeClosed(1, 8).mapToObj(i -> new CriterionAssessment("C" + i, "", null,
+            CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
+            CriterionAssessmentLabel.APPEARS_ADDRESSED, "Evidence supports this area.", quote, null)).toList();
+        var raw = with(List.of(), rows);
+        var accepted = result(List.of());
+        var coverage = AiReviewCoveragePolicy.grounded(raw, accepted, instructions, "", quote,
+            List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(3, quote, false)));
+        assertThat(coverage.criteria()).hasSize(8).allSatisfy(row -> {
+            assertThat(row.assessment()).isEqualTo(CriterionAssessmentLabel.APPEARS_ADDRESSED);
+            assertThat(row.location().page()).isEqualTo(3);
+        });
+    }
+
+    @Test void headingOnlyQuoteCannotUpgradeAppearsAddressed() {
+        String requirement = "Describe the project boundary and intended deliverables.";
+        String quote = "1. Overview";
+        var row = new CriterionAssessment("C1", "", null, CoverageStatus.NOT_CHECKED,
+            List.of(), List.of(), List.of(), List.of(), CriterionAssessmentLabel.APPEARS_ADDRESSED,
+            "Looks addressed.", quote, null);
+        var coverage = AiReviewCoveragePolicy.grounded(with(List.of(), List.of(row)), result(List.of()),
+            requirement, "", quote, List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(1, quote, false)));
+        assertThat(coverage.criteria().getFirst().assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(coverage.criteria().getFirst().documentEvidence()).isNull();
+    }
+
+    @Test void instructionEvidenceControlsFinalOutcomeWithoutChangingLegacyRows() {
+        var checks = List.of(
+            new VerifiedCheck("Area one", FindingSource.DOCUMENT, "Body evidence for area one is present.", ""),
+            new VerifiedCheck("Area two", FindingSource.DOCUMENT, "Body evidence for area two is present.", ""));
+        var accepted = new Result("Review", List.of(), List.of(), List.of(), "Inspect", checks,
+            List.of(), ReviewOutcome.INCONCLUSIVE);
+        var positiveRows = List.of(
+            new CriterionAssessment("C1", "Area one", FindingSource.DELIVERABLE_REQUIREMENTS,
+                CoverageStatus.EVIDENCE_RECORDED, List.of(), List.of(), List.of(), List.of(),
+                CriterionAssessmentLabel.APPEARS_ADDRESSED, "Observed.", checks.get(0).documentEvidence(), null),
+            new CriterionAssessment("C2", "Area two", FindingSource.DELIVERABLE_REQUIREMENTS,
+                CoverageStatus.EVIDENCE_RECORDED, List.of(), List.of(), List.of(), List.of(),
+                CriterionAssessmentLabel.APPEARS_ADDRESSED, "Observed.", checks.get(1).documentEvidence(), null));
+        assertThat(AiReviewService.instructionOutcome(accepted,
+            new ReviewCoverage(positiveRows, 0, 1, null, null)))
+            .isEqualTo(ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS);
+        var manual = new CriterionAssessment("C1", "Area one", FindingSource.DELIVERABLE_REQUIREMENTS,
+            CoverageStatus.NEEDS_VERIFICATION, List.of(), List.of(), List.of(), List.of(),
+            CriterionAssessmentLabel.CHECK_MANUALLY, "Verify manually.", null, null);
+        assertThat(AiReviewService.instructionOutcome(accepted,
+            new ReviewCoverage(List.of(manual), 0, 1, null, null)))
+            .isEqualTo(ReviewOutcome.INCONCLUSIVE);
+        var legacy = new CriterionAssessment("C1", "Area one", FindingSource.DELIVERABLE_REQUIREMENTS,
+            CoverageStatus.EVIDENCE_RECORDED, List.of(), List.of(), List.of(), List.of());
+        assertThat(AiReviewService.instructionOutcome(accepted,
+            new ReviewCoverage(List.of(legacy), 0, 1, null, null)))
+            .isEqualTo(ReviewOutcome.INCONCLUSIVE);
     }
 
     private static CriterionAssessment mapping(String id, List<Integer> checks) {

@@ -241,36 +241,28 @@ describe('DocumentCheck submission substance', () => {
     expect(within(dialog).getByText('File validation')).toBeVisible();
   });
 
-  it('shows a concise Needs attention reason without opening detailed evidence', () => {
-    const reason = 'The PDF contains too little extractable text across its pages to look substantially filled.';
-    show({ documentCheck: report('NEEDS_ATTENTION', reason, {
-      redFlags: ['Sparse Content'],
-      submissionSubstance: {
-        state: 'NEEDS_ATTENTION', reason, reasonCode: 'SPARSE_CONTENT',
-        evidence: { templateAvailable: false, textPageRatio: 1, charactersPerTextBearingPage: 120 }
-      },
+  it.each([
+    ['staff', 'NEEDS_ATTENTION', 'SPARSE_CONTENT', 'Sparse Content'],
+    ['student', 'NEEDS_ATTENTION', 'SPARSE_CONTENT', 'Sparse Content'],
+    ['staff', 'COULD_NOT_DETERMINE', 'INSUFFICIENT_TEXT_EXTRACTION', 'Substance Inconclusive'],
+    ['student', 'COULD_NOT_DETERMINE', 'INSUFFICIENT_TEXT_EXTRACTION', 'Substance Inconclusive']
+  ])('groups saved %s %s results under Sparse Content without changing their evidence', (audience, state, reasonCode, flag) => {
+    const reason = 'Original saved extraction-specific explanation.';
+    const current = report(state, reason, {
+      redFlags: [flag],
+      submissionSubstance: { state, reason, reasonCode },
       templateComparison: { available: false }
-    }) });
+    });
+    show({ audience, documentCheck: current });
     const dialog = screen.getByRole('dialog');
-
-    expect(within(dialog).getByText('Needs attention')).toBeInTheDocument();
-    expect(within(dialog).getByText(reason)).toBeInTheDocument();
-    expect(within(dialog).queryByText('View details')).not.toBeInTheDocument();
-    expect(within(dialog).getByText('File validation')).toBeVisible();
-  });
-
-  it('separates extraction uncertainty from a sparse submission', () => {
-    const reason = 'The PDF opens, but there is not enough extractable text to assess whether it is substantially filled.';
-    show({ documentCheck: report('COULD_NOT_DETERMINE', reason, {
-      redFlags: ['Substance Inconclusive'],
-      submissionSubstance: {
-        state: 'COULD_NOT_DETERMINE', reason, reasonCode: 'INSUFFICIENT_TEXT_EXTRACTION',
-        evidence: { templateAvailable: false, textPageRatio: 0, charactersPerTextBearingPage: 0 }
-      },
-      templateComparison: { available: false }
-    }) });
-
-    expect(within(screen.getByRole('dialog')).getByText('Could not determine')).toBeInTheDocument();
+    expect(within(dialog).getByText('Needs attention — Sparse Content')).toBeVisible();
+    expect(within(dialog).getByText('WildTrack could not confirm that this PDF is substantially filled from its readable text. Open the PDF to check its content.')).toBeVisible();
+    expect(within(dialog).getByText('Sparse Content', { exact: true })).toBeVisible();
+    expect(dialog).not.toHaveTextContent('Could not determine');
+    expect(dialog).not.toHaveTextContent('Substance Inconclusive');
+    expect(dialog).not.toHaveTextContent(reason);
+    expect(current.submissionSubstance).toEqual({ state, reason, reasonCode });
+    expect(current.redFlags).toEqual([flag]);
   });
 
   it('keeps legacy saved reports on the old flag and missing-section fallback', () => {

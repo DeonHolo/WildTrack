@@ -28,6 +28,8 @@ import {
   aiReviewReportSummary,
   artifactDocumentCheck,
   artifactDocumentCheckStatus,
+  documentCheckFlags,
+  documentCheckSummary,
   formatDateTime,
   getProjectMetadata,
   isArtifactAiReviewCurrent,
@@ -219,10 +221,10 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
             </div>
             {report ? (
               <Stack gap={3}>
-                <Text size="sm">{report.summary || 'Document Check completed.'}</Text>
+                <Text size="sm">{documentCheckSummary(report, 'Document Check completed.')}</Text>
                 {(report.resultStatus || report.status) === 'BLOCKED' && String(report.sourceUrl || '').trim() === value
                   ? <ProviderFailureDetails service="Google Drive" diagnostic={report.failureDetails} /> : null}
-                {report.redFlags?.length ? <Group gap="xs">{report.redFlags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}</Group> : null}
+                {documentCheckFlags(report).length ? <Group gap="xs">{documentCheckFlags(report).map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}</Group> : null}
                 {missingPreview ? <Text size="xs" c="dimmed">Template headings not detected: {missingPreview}</Text> : null}
               </Stack>
             ) : <Text size="xs" c="dimmed">No Document Check result is available for this PDF yet.</Text>}

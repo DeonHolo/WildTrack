@@ -122,17 +122,28 @@ it('puts manual questions in the visible checklist and does not turn them into a
   expect(screen.getByRole('status')).not.toHaveTextContent('No actionable issues');
 });
 
-it('keeps supported observations optional and preserves the approval limit', () => {
+it('does not render an arbitrary checked-items list for legacy reports', () => {
   show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks });
   expect(screen.getByRole('status')).toHaveTextContent('No actionable issues identified in the checked areas');
-  expect(screen.getByText('Scope: students and advisers.')).not.toBeVisible();
-  fireEvent.click(screen.getByText('Other checked items (2)'));
-  expect(screen.getByText('Scope identifies users')).toBeVisible();
-  expect(screen.getByText('Scope: students and advisers.')).not.toBeVisible();
-  openSupportingText();
-  expect(screen.getByText('Scope: students and advisers.')).toBeVisible();
-  expect(screen.queryByText('Review coverage')).not.toBeInTheDocument();
-  expect(screen.queryByText(/Checks with supporting excerpts/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Other checked items/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Template and instruction assessment' })).not.toBeInTheDocument();
+});
+
+it('renders a valid assessed finding once through the instruction row', () => {
+  const finding = { issue: 'Retry rule needs a final-state decision.', source: 'OFFICIAL_TEMPLATE', evidence: 'Retry is available.', requirement: 'Describe retry behavior.' };
+  show({ findings: [finding], coverage: { criteria: [{ id: 'C1', requirement: 'Describe retry behavior.', source: 'OFFICIAL_TEMPLATE', assessment: 'NEEDS_ATTENTION', explanation: 'The final state is not specified.', documentEvidence: finding.evidence, location: { page: 8 }, findingIndexes: [0] }] } });
+  expect(screen.getAllByText('Retry is available.')).toHaveLength(1);
+  expect(screen.getAllByText('The final state is not specified.', { exact: false }).find(element => element.closest('summary'))).toBeVisible();
+  expect(screen.getByText('1 concern')).toBeVisible();
+  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+  expect(screen.getByText('Retry rule needs a final-state decision.')).not.toBeVisible();
+});
+
+it('does not hide a global finding when an assessment reference is out of bounds or mismatched', () => {
+  const finding = { issue: 'Untrusted linked concern remains visible.', source: 'OFFICIAL_TEMPLATE', evidence: 'Original concern quote.', requirement: 'Different requirement.' };
+  show({ findings: [finding], coverage: { criteria: [{ id: 'C1', requirement: 'Canonical requirement.', source: 'OFFICIAL_TEMPLATE', assessment: 'NEEDS_ATTENTION', explanation: 'Review the canonical requirement.', documentEvidence: 'Assessment quote.', location: { page: 8 }, findingIndexes: [9] }] } });
+  expect(screen.getByText('Untrusted linked concern remains visible.')).toBeVisible();
+  expect(screen.getAllByText('Canonical requirement.').length).toBeGreaterThanOrEqual(1);
 });
 
 it('deduplicates repeated findings while keeping the full evidence once', () => {
@@ -230,7 +241,7 @@ it('does not claim a clean result from an empty or sparse saved review', () => {
     verifiedChecks: [{ ...checks[0], location: { page: 12 } }] });
   expect(screen.getByRole('status')).toHaveTextContent('Limited review coverage');
   expect(screen.getByRole('status')).toHaveTextContent('This does not mean the PDF is empty or incorrect.');
-  expect(screen.getByText('Other checked items (1)')).toBeVisible();
-  expect(screen.getByText('View supporting text · PDF page 12')).toBeInTheDocument();
+  expect(screen.queryByText(/Other checked items/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Template and instruction assessment' })).not.toBeInTheDocument();
   expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
 });

@@ -43,7 +43,7 @@ public class AiReviewService {
     private static final Logger LOG = LoggerFactory.getLogger(AiReviewService.class);
     // Post-validation behavior is part of the persisted review cache fingerprint.
     // Do not reuse reports generated before the named body-section evidence correction.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v24-diagram-caption-normalization";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v26-instruction-assessments";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -999,8 +999,49 @@ public class AiReviewService {
         var accepted = new AiReviewProvider.Result(summary, groundedFindings, groundedMissing, groundedLimitations,
             action, verifiedChecks, verificationNotes, outcome, null,
             groundDocumentOverview(result.documentOverview(), documentText, groundedFindings));
-        return AiReviewCoveragePolicy.withCoverage(accepted,
-            AiReviewCoveragePolicy.grounded(result, accepted, context.instructions(), context.template()));
+        var coverage = AiReviewCoveragePolicy.grounded(result, accepted, context.instructions(), context.template(), documentText, pages);
+        var finalOutcome = instructionOutcome(accepted, coverage);
+        if (finalOutcome != outcome) {
+            String finalSummary = switch (finalOutcome) {
+                case ISSUES_IDENTIFIED -> "AI Review identified grounded issues requiring attention.";
+                case INCONCLUSIVE -> "AI Review is inconclusive. Some instruction areas still need manual verification.";
+                case NO_ISSUES_IN_CHECKED_AREAS -> "AI Review found no grounded issues in the checked areas; this is not a whole-document compliance decision.";
+            };
+            String finalAction = switch (finalOutcome) {
+                case ISSUES_IDENTIFIED -> "Review the grounded findings and cited requirements before revising.";
+                case INCONCLUSIVE -> "Verify the remaining instruction areas in the original PDF before deciding whether a revision is needed.";
+                case NO_ISSUES_IN_CHECKED_AREAS -> "No further action is suggested for the checked areas; review any omitted or manual areas directly.";
+            };
+            accepted = new AiReviewProvider.Result(accepted.summary(), accepted.findings(), accepted.missingRequiredSections(),
+                accepted.limitations(), accepted.suggestedAction(), accepted.verifiedChecks(), accepted.verificationNotes(),
+                finalOutcome, null, accepted.documentOverview());
+            accepted = new AiReviewProvider.Result(finalSummary, accepted.findings(), accepted.missingRequiredSections(),
+                accepted.limitations(), finalAction, accepted.verifiedChecks(), accepted.verificationNotes(),
+                finalOutcome, null, accepted.documentOverview());
+        }
+        return AiReviewCoveragePolicy.withCoverage(accepted, coverage);
+    }
+
+    static AiReviewProvider.ReviewOutcome instructionOutcome(AiReviewProvider.Result accepted,
+            AiReviewProvider.ReviewCoverage coverage) {
+        if (coverage == null || coverage.criteria().stream().noneMatch(row -> row.assessment() != null)) return accepted.outcome();
+        if (!accepted.findings().isEmpty() || !accepted.missingRequiredSections().isEmpty())
+            return AiReviewProvider.ReviewOutcome.ISSUES_IDENTIFIED;
+        if (!accepted.verificationNotes().isEmpty() || coverage.criteria().stream()
+                .anyMatch(row -> row.assessment() == AiReviewProvider.CriterionAssessmentLabel.CHECK_MANUALLY))
+            return AiReviewProvider.ReviewOutcome.INCONCLUSIVE;
+        var quotes = new java.util.HashSet<String>();
+        accepted.verifiedChecks().stream().map(AiReviewProvider.VerifiedCheck::documentEvidence)
+            .filter(java.util.Objects::nonNull).map(AiReviewService::normalizeOutcomeQuote).filter(q -> !q.isBlank()).forEach(quotes::add);
+        coverage.criteria().stream().filter(row -> row.assessment() == AiReviewProvider.CriterionAssessmentLabel.APPEARS_ADDRESSED)
+            .map(AiReviewProvider.CriterionAssessment::documentEvidence).map(AiReviewService::normalizeOutcomeQuote)
+            .filter(q -> !q.isBlank()).forEach(quotes::add);
+        return quotes.size() >= 2 ? AiReviewProvider.ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS : AiReviewProvider.ReviewOutcome.INCONCLUSIVE;
+    }
+
+    private static String normalizeOutcomeQuote(String value) {
+        return java.util.Objects.requireNonNullElse(value, "").toLowerCase(java.util.Locale.ROOT)
+            .replaceAll("\\s+", " ").strip();
     }
 
     static AiReviewProvider.DocumentOverview groundDocumentOverview(AiReviewProvider.DocumentOverview overview,

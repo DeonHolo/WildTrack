@@ -72,6 +72,11 @@ class GeminiAiReviewProviderTest {
                 assertThat(indexes.has("maxItems")).isFalse();
                 assertThat(indexes.path("items").path("maximum").asInt()).isEqualTo(49);
             }
+            var itemProperties = coverage.path("items").path("properties");
+            assertThat(itemProperties.path("assessment").path("enum").toString())
+                .contains("APPEARS_ADDRESSED", "NEEDS_ATTENTION", "CHECK_MANUALLY");
+            assertThat(itemProperties.path("explanation").path("maxLength").asInt()).isEqualTo(240);
+            assertThat(itemProperties.path("documentEvidence").path("maxLength").asInt()).isEqualTo(780);
             assertThat(properties.path("verifiedChecks").path("maxItems").asInt()).isEqualTo(5);
             assertThat(properties.path("findings").path("maxItems").asInt()).isEqualTo(8);
         }
@@ -717,18 +722,38 @@ class GeminiAiReviewProviderTest {
         server.verify();
     }
 
-    @Test void unknownReferencesCannotCreateDocumentEvidence() throws Exception {
+    @Test void unknownOrMixedReferencesCannotCreateDocumentEvidence() throws Exception {
         for (var check : List.of(Map.of("aspect", "Unknown passage", "passageId", "P1"),
-                Map.of("aspect", "Invalid passage", "passageId", "P99"))) {
+                Map.of("aspect", "Invalid passage", "passageId", "P99"),
+                Map.of("aspect", "Mixed contracts", "passageId", "P1", "source", "OFFICIAL_TEMPLATE"))) {
             setup();
             String report = json.writeValueAsString(Map.of("summary", "Observed passages", "findings", List.of(),
                 "missingRequiredSections", List.of(), "suggestedAction", "Review", "verifiedChecks", List.of(check)));
             server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report, "STOP"), MediaType.APPLICATION_JSON));
-            var request = input();
-            assertThatThrownBy(() -> provider.review(request)).isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class,
+            var request = check.containsKey("source")
+                ? new AiReviewProvider.Input("claim", "%PDF-test".getBytes(StandardCharsets.UTF_8),
+                    "1. Scope\nThe portal records original submitted documents and the instructor's observations before any academic decision is recorded.",
+                    "Instructor review only", "SRS", "", "") : input();
+            if(check.containsKey("source"))assertThat(provider.review(request).verifiedChecks()).isEmpty();
+            else assertThatThrownBy(() -> provider.review(request)).isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class,
                 failure -> assertThat(failure.detail).isEqualTo("unknown_evidence_reference"));
             server.verify();
         }
+    }
+
+    @Test void aMixedPositiveCitationCannotDiscardAnIndependentFinding() throws Exception {
+        String document="1. Scope\nThe portal records original submitted documents and the instructor's observations before any academic decision is recorded.\n2. Test results\nThe request was denied but the verdict says PASS.";
+        var mixed=Map.of("aspect","submitted documents","passageId","P1","documentEvidence","The portal records submitted documents for staff review.");
+        var finding=Map.of("issue","The recorded verdict contradicts the actual result.","source","DOCUMENT",
+            "evidence","The request was denied but the verdict says PASS.","requirement","");
+        String report=json.writeValueAsString(Map.of("summary","A test verdict needs review.","findings",List.of(finding),
+            "missingRequiredSections",List.of(),"suggestedAction","Review the verdict.","verifiedChecks",List.of(mixed)));
+        server.expect(requestTo(GENERATE)).andRespond(withSuccess(response(report,"STOP"),MediaType.APPLICATION_JSON));
+        var request=new AiReviewProvider.Input("mixed","%PDF-test".getBytes(StandardCharsets.UTF_8),document,"Review","STD","","");
+        var result=provider.review(request);
+        assertThat(result.verifiedChecks()).isEmpty();
+        assertThat(result.findings()).singleElement().satisfies(f->assertThat(f.evidence()).contains("denied"));
+        server.verify();
     }
 
     @Test void oneUnusablePositiveCheckDoesNotDiscardIndependentVerifiedEvidence() throws Exception {

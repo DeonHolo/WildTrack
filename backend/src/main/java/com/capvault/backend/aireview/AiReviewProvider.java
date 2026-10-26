@@ -50,14 +50,34 @@ public interface AiReviewProvider {
         }
     }
     enum CoverageStatus { EVIDENCE_RECORDED, ISSUE_RECORDED, NEEDS_VERIFICATION, NOT_CHECKED }
+    /** A compact, advisory assessment for one server-owned criterion. */
+    enum CriterionAssessmentLabel { APPEARS_ADDRESSED, NEEDS_ATTENTION, CHECK_MANUALLY }
     record CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
                                List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
+                               List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes,
+                               CriterionAssessmentLabel assessment, String explanation, String documentEvidence,
+                               EvidenceLocation location, String title) {
+        public CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
+                               List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
                                List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes) {
+            this(id, requirement, source, status, verifiedCheckIndexes, findingIndexes, missingSectionIndexes,
+                verificationNoteIndexes, null, null, null, null, null);
+        }
+        public CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
+                               List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
+                               List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes,
+                               CriterionAssessmentLabel assessment, String explanation, String documentEvidence,
+                               EvidenceLocation location) {
+            this(id, requirement, source, status, verifiedCheckIndexes, findingIndexes, missingSectionIndexes,
+                verificationNoteIndexes, assessment, explanation, documentEvidence, location, null);
+        }
         public CriterionAssessment {
             verifiedCheckIndexes = verifiedCheckIndexes == null ? List.of() : List.copyOf(verifiedCheckIndexes);
             findingIndexes = findingIndexes == null ? List.of() : List.copyOf(findingIndexes);
             missingSectionIndexes = missingSectionIndexes == null ? List.of() : List.copyOf(missingSectionIndexes);
             verificationNoteIndexes = verificationNoteIndexes == null ? List.of() : List.copyOf(verificationNoteIndexes);
+            if (explanation != null && explanation.length() > 240) explanation = explanation.substring(0, 240);
+            if (documentEvidence != null && documentEvidence.length() > 780) documentEvidence = documentEvidence.substring(0, 780);
         }
     }
     record ReviewCoverage(List<CriterionAssessment> criteria, int omittedCriteria, int completedPasses,

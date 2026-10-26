@@ -2,7 +2,7 @@ import { ActionIcon, Alert, Badge, Modal, Tabs, Tooltip } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { ArrowSquareOut, CheckCircle, Info, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
 import { Button, StatusIndicator } from '../ui.jsx';
-import { formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../../lib/workflow.js';
+import { documentCheckFlags, documentCheckSummary, formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../../lib/workflow.js';
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
 import { DriveIdentityValue } from './DriveIdentityValue.jsx';
 import { DocumentChangeNotice } from './DocumentChangeNotice.jsx';
@@ -32,6 +32,7 @@ export function DocumentCheckDialog({
   }, [open, initialTab, response?.id, historyTarget?.fieldId]);
   if (!response) return null;
   const report = documentCheck || response.documentCheck;
+  const flags = documentCheckFlags(report);
   const studentView = audience === 'student';
   const showResult = !historyOnly;
   const historyAvailable = Boolean(historyTarget && fileLink) || Boolean(observedHistory);
@@ -108,7 +109,7 @@ export function DocumentCheckDialog({
             <div>
               <StatusIndicator status={studentView ? studentDocumentCheckStatus(effectiveResponse, fileLink) : currentStatus} />
               <p>{outdated ? 'This saved check belongs to an earlier submission. Check again to refresh it.'
-                : studentView ? studentSummary(report, effectiveResponse) : report?.summary || effectiveResponse.checkSummary || 'No Document Check result is available.'}</p>
+                : studentView ? studentSummary(report, effectiveResponse) : documentCheckSummary(report, effectiveResponse.checkSummary || 'No Document Check result is available.')}</p>
             </div>
           </div>
 
@@ -188,11 +189,11 @@ export function DocumentCheckDialog({
               )}
             </section>
 
-            {report?.redFlags?.length ? (
+            {flags.length ? (
               <section className="document-check-section">
                 <h3>{studentView ? 'What needs attention' : 'Findings'}</h3>
                 <div className="status-strip stable">
-                  {report.redFlags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}
+                  {flags.map((flag) => <Badge key={flag} color="orange" variant="light" radius="sm">{flag}</Badge>)}
                 </div>
                 <p>{studentView ? 'Review the items above and update your submitted PDF link if needed.' : report.suggestedAction}</p>
               </section>
@@ -289,6 +290,7 @@ function studentSummary(report, response) {
   if (['Unavailable', 'Error'].includes(report?.status)) {
     return 'Document Check could not read this PDF right now. Please try again later or update the submitted link if the file is unavailable.';
   }
+  if (submissionSubstanceStatus(report) === 'Needs attention — Sparse Content') return documentCheckSummary(report);
   if (report?.submissionSubstance?.reason) return report.submissionSubstance.reason;
   if (report?.redFlags?.length || report?.missingSections?.length) {
     return 'Document Check found items that may need your attention. Review the details below.';

@@ -1,78 +1,95 @@
-import { Text } from '@mantine/core';
-import { verifiedAiChecks } from '../../lib/workflow.js';
+import { Text, VisuallyHidden } from '@mantine/core';
 
-const SOURCES = {
-  DELIVERABLE_REQUIREMENTS: 'Deliverable requirements',
-  OFFICIAL_TEMPLATE: 'Official template'
-};
+const SOURCES = { DOCUMENT: 'Submitted document', DELIVERABLE_REQUIREMENTS: 'Deliverable requirements', OFFICIAL_TEMPLATE: 'Official template' };
+const ASSESSMENTS = new Set(['APPEARS_ADDRESSED', 'NEEDS_ATTENTION', 'CHECK_MANUALLY']);
+const STATUS_LABELS = { APPEARS_ADDRESSED: 'Appears addressed', NEEDS_ATTENTION: 'Needs attention', CHECK_MANUALLY: 'Check manually' };
 const hasText = value => typeof value === 'string' && value.trim().length > 0;
-const authority = item => item?.source === 'DOCUMENT'
-  || Boolean(SOURCES[item?.source] && hasText(item?.requirement));
+const validPage = location => Number.isInteger(location?.page) && location.page > 0;
 
-// Coverage references the original saved arrays, before presentation grouping or
-// deduplication. Invalid references must never make an area look checked.
-function references(indexes, items, validItem) {
-  if (!Array.isArray(indexes) || !Array.isArray(items)) return { valid: false, items: [] };
-  const unique = new Set(indexes);
-  if (unique.size !== indexes.length || indexes.some(index => !Number.isInteger(index)
-      || index < 0 || index >= items.length || !validItem(items[index]))) {
-    return { valid: false, items: [] };
-  }
-  return { valid: true, items: indexes.map(index => items[index]) };
-}
-
-function coverageRows(report) {
-  const criteria = report.coverage.criteria;
-  const validChecks = new Set(verifiedAiChecks(report));
-  const usedChecks = new Set();
+export function validAssessmentCriteria(report) {
+  const criteria = report?.coverage?.criteria;
+  if (!Array.isArray(criteria)) return [];
   const ids = criteria.map(item => item?.id);
   return criteria.map((item, index) => {
-    const validIdentity = /^C[1-9]\d*$/.test(item?.id || '') && ids.indexOf(item.id) === ids.lastIndexOf(item.id)
-      && hasText(item.requirement) && Boolean(SOURCES[item.source]);
-    const checks = references(item?.verifiedCheckIndexes, report.verifiedChecks || [], check => validChecks.has(check));
-    const findings = references(item?.findingIndexes, report.findings || [], finding =>
-      hasText(finding?.issue) && hasText(finding?.evidence) && authority(finding));
-    const missing = references(item?.missingSectionIndexes, report.missingRequiredSections || [], section =>
-      hasText(section?.section) && Boolean(SOURCES[section?.source]) && hasText(section?.requirement));
-    const notes = references(item?.verificationNoteIndexes, report.verificationNotes || [], note =>
-      hasText(note?.issue) && authority(note) && (hasText(note?.evidence) || Boolean(SOURCES[note?.source])));
-    const valid = validIdentity && !checks.items.some(check => usedChecks.has(check))
-      && [checks, findings, missing, notes].every(refs => refs.valid);
-    const supportedState = findings.items.length || missing.items.length ? 'ISSUE_RECORDED'
-      : notes.items.length ? 'NEEDS_VERIFICATION' : checks.items.length ? 'EVIDENCE_RECORDED' : 'NOT_CHECKED';
-    const status = valid && item.status === supportedState ? supportedState : 'NOT_CHECKED';
-    if (status !== 'NOT_CHECKED') checks.items.forEach(check => usedChecks.add(check));
-    return {
-      key: `${item?.id || 'unknown'}-${index}`,
-      requirement: hasText(item?.requirement) ? item.requirement : 'Review area details unavailable',
-      source: SOURCES[item?.source], status,
-      invalid: !valid || item?.status !== supportedState,
-      checks: status !== 'NOT_CHECKED' ? checks.items : [],
-      findings: status !== 'NOT_CHECKED' ? findings.items : [],
-      missing: status !== 'NOT_CHECKED' ? missing.items : [],
-      notes: status !== 'NOT_CHECKED' ? notes.items : []
-    };
-  });
+    const assessment = item?.assessment;
+    const valid = /^C[1-9]\d*$/.test(item?.id || '') && ids.indexOf(item.id) === ids.lastIndexOf(item.id)
+      && hasText(item.requirement) && Object.hasOwn(SOURCES, item.source) && item.source !== 'DOCUMENT'
+      && ASSESSMENTS.has(assessment) && hasText(item.explanation) && item.explanation.length <= 240
+      && (assessment !== 'APPEARS_ADDRESSED' || (hasText(item.documentEvidence) && validPage(item.location)));
+    return valid ? { ...item, key: `${item.id}-${index}` } : null;
+  }).filter(Boolean);
 }
 
-export function AiReviewCoverage({ report }) {
-  const coverage = report?.coverage;
-  const hasChecklist = Array.isArray(coverage?.criteria);
-  const rows = hasChecklist ? coverageRows(report) : [];
-  const unchecked = rows.filter(row => row.status === 'NOT_CHECKED');
-  const omitted = Number.isInteger(coverage?.omittedCriteria) && coverage.omittedCriteria > 0
-    ? coverage.omittedCriteria : 0;
-  return <section aria-label="Saved review scope">
-    <Text size="sm" mt="sm">This is a first-pass summary of selected checks, not a check of every PDF section or an approval.</Text>
-    {!hasChecklist ? <Text size="sm" mt="sm">A requirement checklist was not recorded for this saved review.</Text>
-      : !rows.length && !omitted ? <Text size="sm" mt="sm">No applicable requirement checklist was available for this review.</Text> : null}
-    {unchecked.length ? <>
-      <Text size="sm" mt="sm">No supporting record was saved for these selected template or instruction items:</Text>
-      <ul>{unchecked.map(row => <li key={row.key}>{row.requirement}</li>)}</ul>
-    </> : null}
-    {rows.some(row => row.invalid) ? <Text size="sm" mt="sm">Some saved checklist references could not be matched to this report.</Text> : null}
-    {omitted ? <Text size="sm" mt="sm">{omitted} additional template or instruction {omitted === 1 ? 'item was' : 'items were'} outside the saved checklist.</Text> : null}
-    {[1, 2].includes(coverage?.completedPasses) && hasText(coverage?.followupNotice)
-      ? <Text size="sm" mt="sm">{coverage.followupNotice}</Text> : null}
+export function assessedEvidenceIndexes(report) {
+  const linked = { findingIndexes: new Set(), verificationNoteIndexes: new Set(), missingSectionIndexes: new Set() };
+  for (const criterion of validAssessmentCriteria(report)) {
+    for (const key of Object.keys(linked)) {
+      const indexes = criterion[key];
+      const items = key === 'findingIndexes' ? report.findings
+        : key === 'missingSectionIndexes' ? report.missingRequiredSections : report.verificationNotes;
+      if (!Array.isArray(indexes) || !Array.isArray(items) || new Set(indexes).size !== indexes.length) continue;
+      indexes.filter(index => Number.isInteger(index) && index >= 0 && index < items.length
+        && items[index]?.source === criterion.source
+        && String(items[index]?.requirement || '').trim() === String(criterion.requirement).trim())
+        .forEach(index => linked[key].add(index));
+    }
+  }
+  return linked;
+}
+
+function compactRequirement(requirement) {
+  const words = requirement.trim().split(/\s+/);
+  return words.length > 10 ? `${words.slice(0, 10).join(' ')}…` : requirement;
+}
+
+function AssessmentRow({ row, report }) {
+  const page = validPage(row.location) ? `p. ${row.location.page}` : '';
+  const label = hasText(row.title) ? row.title : compactRequirement(row.requirement);
+  const linkedFindings = Array.isArray(row.findingIndexes) && Array.isArray(report?.findings)
+    ? row.findingIndexes.filter(index => Number.isInteger(index) && index >= 0 && index < report.findings.length)
+      .map(index => report.findings[index]).filter(finding => finding?.source === row.source
+        && String(finding.requirement || '').trim() === String(row.requirement).trim()) : [];
+  const linkedNotes = (Array.isArray(row.verificationNoteIndexes) ? row.verificationNoteIndexes : []).map(index => report?.verificationNotes?.[index])
+    .filter(note => note?.source === row.source && String(note.requirement || '').trim() === String(row.requirement).trim());
+  const linkedMissing = (Array.isArray(row.missingSectionIndexes) ? row.missingSectionIndexes : []).map(index => report?.missingRequiredSections?.[index])
+    .filter(item => item?.source === row.source && String(item.requirement || '').trim() === String(row.requirement).trim());
+  return <details className="wt-ai-review-assessment-row">
+    <summary className="wt-ai-review-assessment-summary">
+      <VisuallyHidden>{STATUS_LABELS[row.assessment]}. </VisuallyHidden>
+      {page ? <span className="wt-ai-review-assessment-page">{page}</span> : null}
+      <span className="wt-ai-review-assessment-title">{label} <span className="wt-ai-review-assessment-explanation">— {row.explanation}</span></span>
+    </summary>
+    <div className="wt-ai-review-assessment-details">
+      <Text component="p"><strong>{STATUS_LABELS[row.assessment]}</strong></Text>
+      <Text component="p"><strong>Instruction:</strong> {row.requirement}</Text>
+      <Text component="p"><strong>Assessment:</strong> {row.explanation}</Text>
+      <Text component="p" className="wt-ai-review-reference"><strong>Source:</strong> {SOURCES[row.source]}</Text>
+      {row.location?.section ? <Text component="p" className="wt-ai-review-reference"><strong>Section:</strong> {row.location.section}</Text> : null}
+      {linkedFindings.map((finding, index) => <Text key={index} component="p"><strong>Linked concern:</strong> {finding.issue || finding.explanation || 'Review the linked finding.'}</Text>)}
+      {linkedFindings.map((finding, index) => hasText(finding.evidence) && finding.evidence !== row.documentEvidence ? <Text key={`evidence-${index}`} component="blockquote" className="wt-ai-review-passage" aria-label="Linked evidence excerpt">{finding.evidence}</Text> : null)}
+      {linkedNotes.map((note, index) => <div key={`note-${index}`}><Text>{note.issue}</Text>{hasText(note.evidence) && note.evidence !== row.documentEvidence ? <Text component="blockquote" className="wt-ai-review-passage">{note.evidence}</Text> : null}</div>)}
+      {linkedMissing.map((item, index) => <Text key={`missing-${index}`}>Confirm the required section: {item.section}</Text>)}
+      {hasText(row.documentEvidence) ? <Text component="blockquote" className="wt-ai-review-passage" aria-label="Evidence excerpt">{row.documentEvidence}</Text> : null}
+    </div>
+  </details>;
+}
+
+export function AiReviewCoverage({ report, showHeading = true }) {
+  const criteria = report?.coverage?.criteria;
+  if (!Array.isArray(criteria)) return null;
+  const rows = validAssessmentCriteria(report);
+  const newFormat = criteria.some(item => ASSESSMENTS.has(item?.assessment));
+  const missing = newFormat ? criteria.filter(item => hasText(item?.requirement) && !ASSESSMENTS.has(item?.assessment)) : [];
+  const actionable = rows.filter(row => row.assessment !== 'APPEARS_ADDRESSED');
+  const positive = rows.filter(row => row.assessment === 'APPEARS_ADDRESSED');
+  const omitted = Number.isInteger(report.coverage.omittedCriteria) && report.coverage.omittedCriteria > 0 ? report.coverage.omittedCriteria : 0;
+  if (!rows.length && !missing.length && !omitted) return null;
+  return <section aria-label="Template and instruction assessment">
+    {showHeading ? <Text component="h3" fw={700}>Review checklist</Text> : null}
+    {actionable.map(row => <AssessmentRow key={row.key} row={row} report={report} />)}
+    {missing.map((item, index) => <AssessmentRow key={`missing-${index}`} row={{ ...item, key: `missing-${index}`, assessment: 'CHECK_MANUALLY', explanation: 'No explicit assessment was saved for this instruction.' }} report={report} />)}
+    {positive.length ? <details className="wt-ai-review-secondary wt-ai-review-positive-assessments"><summary>Appears addressed ({positive.length})</summary>
+      {positive.map(row => <AssessmentRow key={row.key} row={row} report={report} />)}</details> : null}
+    {omitted ? <Text mt="sm">{omitted} additional template or instruction {omitted === 1 ? 'item was' : 'items were'} outside the saved checklist.</Text> : null}
   </section>;
 }

@@ -476,17 +476,40 @@ export function artifactDocumentCheckStatus(response, field) {
   if (!isArtifactDocumentCheckCurrent(response, field)) return 'Outdated';
   const substanceStatus = submissionSubstanceStatus(report);
   if (substanceStatus === 'Looks substantially filled') return 'Ready for review';
-  if (substanceStatus === 'Needs attention' || substanceStatus === 'Could not determine') return 'Needs attention';
+  if (substanceStatus) return 'Needs attention';
   if (report.redFlags?.length || report.missingSections?.length || report.attentionRequired) return 'Needs attention';
   return 'Ready for review';
 }
 
 export function submissionSubstanceStatus(report) {
+  if (isSparseDocumentCheck(report)) return 'Needs attention — Sparse Content';
   const state = report?.submissionSubstance?.state;
   if (state === 'LOOKS_SUBSTANTIALLY_FILLED') return 'Looks substantially filled';
   if (state === 'NEEDS_ATTENTION') return 'Needs attention';
-  if (state === 'COULD_NOT_DETERMINE') return 'Could not determine';
   return '';
+}
+
+function isSparseDocumentCheck(report) {
+  const result = String(report?.resultStatus || report?.status || '').toUpperCase();
+  if (['BLOCKED', 'FAILED', 'ERROR', 'UNAVAILABLE'].includes(result)) return false;
+  const substance = report?.submissionSubstance;
+  if (substance?.state === 'LOOKS_SUBSTANTIALLY_FILLED' || substance?.reasonCode === 'TEMPLATE_LIKE') return false;
+  return substance?.state === 'COULD_NOT_DETERMINE'
+    || ['SPARSE_CONTENT', 'INSUFFICIENT_TEXT_EXTRACTION'].includes(substance?.reasonCode)
+    || (report?.redFlags || []).some(flag => ['Sparse Content', 'Substance Inconclusive'].includes(flag));
+}
+
+export function documentCheckSummary(report, fallback = '') {
+  if (isSparseDocumentCheck(report)) {
+    return 'WildTrack could not confirm that this PDF is substantially filled from its readable text. Open the PDF to check its content.';
+  }
+  return report?.summary || fallback;
+}
+
+export function documentCheckFlags(report) {
+  const flags = (report?.redFlags || []).map(flag => flag === 'Substance Inconclusive' ? 'Sparse Content' : flag);
+  if (isSparseDocumentCheck(report)) flags.push('Sparse Content');
+  return [...new Set(flags)];
 }
 
 export function isDocumentCheckUnavailable(response) {
@@ -518,31 +541,52 @@ export function verifiedAiChecks(report) {
   });
 }
 
+export function aiReviewEvidenceCount(report) {
+  const criteria = Array.isArray(report?.coverage?.criteria) ? report.coverage.criteria : [];
+  const quotes = verifiedAiChecks(report).map(check => check.documentEvidence);
+  for (const item of criteria) {
+    if (item?.assessment !== 'APPEARS_ADDRESSED' || !/^C[1-9]\d*$/.test(item.id || '')
+        || criteria.filter(other => other?.id === item.id).length !== 1
+        || !['OFFICIAL_TEMPLATE', 'DELIVERABLE_REQUIREMENTS'].includes(item.source)
+        || !String(item.requirement || '').trim() || !String(item.explanation || '').trim()
+        || !String(item.documentEvidence || '').trim()
+        || !Number.isInteger(item.location?.page) || item.location.page < 1) continue;
+    quotes.push(item.documentEvidence);
+  }
+  return new Set(quotes.map(quote => String(quote).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim())).size;
+}
+
+function hasUnresolvedInstructionAssessments(report) {
+  const criteria = report?.coverage?.criteria;
+  return Array.isArray(criteria) && criteria.some(item => ['CHECK_MANUALLY', 'NEEDS_ATTENTION'].includes(item?.assessment));
+}
+
 // Old zero-evidence completed reports can be empty or claim a clean result in
 // prose. Two distinct grounded observations are required before the UI may
 // report no actionable issues in the checked areas.
 export function isInconclusiveAiReviewReport(report) {
   if (!report) return true;
-  if (Array.isArray(report.verificationNotes) && report.verificationNotes.length
+  if ((report.verificationNotes?.length || hasUnresolvedInstructionAssessments(report))
       && !(report.outcome === 'ISSUES_IDENTIFIED' || (report.findings || report.flags || []).length
         || (report.missingRequiredSections || report.missingSections || []).length)) return true;
   if (report.outcome === 'INCONCLUSIVE') return true;
   if (report.outcome === 'ISSUES_IDENTIFIED') return false;
-  if (report.outcome === 'NO_ISSUES_IN_CHECKED_AREAS') return verifiedAiChecks(report).length < 2;
+  if (report.outcome === 'NO_ISSUES_IN_CHECKED_AREAS') return aiReviewEvidenceCount(report) < 2;
   return !((report.findings || report.flags || []).length
     || (report.missingRequiredSections || report.missingSections || []).length)
-    && verifiedAiChecks(report).length < 2;
+    && aiReviewEvidenceCount(report) < 2;
 }
 
 export function aiReviewReportStatus(report) {
   if (!isInconclusiveAiReviewReport(report)) return 'Reviewed';
-  return report?.verificationNotes?.length ? 'Needs manual verification' : 'Limited review coverage';
+  return report?.verificationNotes?.length || hasUnresolvedInstructionAssessments(report)
+    ? 'Needs manual verification' : 'Limited review coverage';
 }
 
 export function aiReviewReportSummary(report) {
   const status = aiReviewReportStatus(report);
   if (status === 'Limited review coverage') {
-    const checks = verifiedAiChecks(report).length;
+    const checks = aiReviewEvidenceCount(report);
     return `Review finished with limited coverage: ${checks} supported observation${checks === 1 ? '' : 's'} recorded. This does not establish a no-issues result or mean the PDF is empty or incorrect.`;
   }
   if (status === 'Needs manual verification') {
@@ -730,7 +774,7 @@ export function statusTone(status) {
   if (/^\d+\s+days?\s+late$/.test(key)) return 'warning';
   if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'looks substantially filled', 'connected', 'imported', 'published', 'submitted', 'file accessible'].includes(key)) return 'success';
   if (['archived', 'reviewed'].includes(key)) return 'maroon';
-  if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'outdated', 'starter data', 'late', 'needs attention', 'could not determine'].includes(key)) return 'warning';
+  if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'outdated', 'starter data', 'late', 'needs attention', 'needs attention — sparse content', 'could not determine'].includes(key)) return 'warning';
   if (['not pdf', 'editable link', 'inaccessible', 'blocked', 'could not check', 'no file link'].includes(key)) return 'danger';
   if (['checked', 'checking', 'received'].includes(key)) return 'info';
   return 'neutral';

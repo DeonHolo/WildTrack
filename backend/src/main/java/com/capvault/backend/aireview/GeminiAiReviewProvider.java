@@ -75,6 +75,10 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         evidence, infer a mandatory requirement from conventions, or add generic checks to fill a quota. Return
         an empty verifiedChecks array when nothing can be substantiated.
         Always return criterionReviews, using only the request-local C identifiers in reviewCriteria.
+        Each criterionReview may include assessment APPEARS_ADDRESSED, NEEDS_ATTENTION, or CHECK_MANUALLY,
+        plus a short explanation (240 characters maximum) and an exact body quotation (780 characters maximum).
+        These are advisory inputs only: WildTrack derives the final label, exact authority requirement, and PDF
+        page location from retained grounded records. Never invent or rephrase a reviewCriteria title.
         For each supplied review area, link zero-based indexes of the relevant proposed verifiedChecks,
         findings, missingRequiredSections or verificationNotes. Leave all four arrays empty when you did not
         examine that area or cannot substantiate an observation. Do not use one observation for several areas.
@@ -651,11 +655,27 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                         || notes.stream().anyMatch(index -> index >= report.path("verificationNotes").size())) continue;
                 var checks = proposedChecks.stream()
                     .map(parsedCheckIndexes::indexOf).filter(index -> index >= 0).toList();
+                CriterionAssessmentLabel assessment = criterionAssessmentLabel(mapping);
+                String explanation = safeCriterionText(mapping, "explanation", 240);
+                String evidence = safeCriterionText(mapping, "documentEvidence", 780);
                 rows.add(new CriterionAssessment(id, "", null, CoverageStatus.NOT_CHECKED, checks,
-                    findings, missing, notes));
+                    findings, missing, notes, assessment, explanation, evidence, null));
             }
         }
         return AiReviewCoveragePolicy.proposed(plan, rows);
+    }
+
+    private static CriterionAssessmentLabel criterionAssessmentLabel(JsonNode value) {
+        JsonNode raw = value.path("assessment");
+        if (!raw.isTextual() || raw.asText().isBlank()) return null;
+        try { return CriterionAssessmentLabel.valueOf(raw.asText()); }
+        catch (IllegalArgumentException invalid) { return null; }
+    }
+
+    /** A malformed optional assessment must only lose that criterion's advisory metadata. */
+    private static String safeCriterionText(JsonNode value, String field, int max) {
+        try { return optionalTextValue(value, field, max); }
+        catch (RuntimeException invalid) { return null; }
     }
 
     private static List<Integer> indexList(JsonNode values) {
@@ -754,7 +774,10 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             "properties", Map.of("criterionId", Map.of("type", "string", "enum",
                     java.util.stream.IntStream.rangeClosed(1, Math.max(1, criterionCount)).mapToObj(i -> "C" + i).toList()),
                 "verifiedCheckIndexes", indexes, "findingIndexes", indexes,
-                "missingSectionIndexes", indexes, "verificationNoteIndexes", indexes),
+                "missingSectionIndexes", indexes, "verificationNoteIndexes", indexes,
+                "assessment", Map.of("type", "string", "enum", List.of("APPEARS_ADDRESSED", "NEEDS_ATTENTION", "CHECK_MANUALLY")),
+                "explanation", Map.of("type", "string", "maxLength", 240),
+                "documentEvidence", Map.of("type", "string", "maxLength", 780)),
             "required", List.of("criterionId", "verifiedCheckIndexes", "findingIndexes", "missingSectionIndexes", "verificationNoteIndexes"));
         var overview = Map.of("type", "object", "additionalProperties", false,
             "properties", Map.of("text", string, "actualDocumentType", string,

@@ -6,6 +6,26 @@ import { ReviewResponseDrawer } from './ReviewResponseDrawer.jsx';
 
 describe('ReviewResponseDrawer submission artifacts', () => {
   it.each([
+    ['NEEDS_ATTENTION', 'SPARSE_CONTENT', 'Sparse Content'],
+    ['COULD_NOT_DETERMINE', 'INSUFFICIENT_TEXT_EXTRACTION', 'Substance Inconclusive']
+  ])('groups the saved %s artifact under Sparse Content', (state, reasonCode, flag) => {
+    const url = 'https://drive.google.com/file/d/saved-pdf/view';
+    const report = { status: 'Current', sourceUrl: url, checkedAt: '2026-10-26T01:00:00Z', summary: 'Original extraction-specific reason.',
+      submissionSubstance: { state, reasonCode }, redFlags: [flag] };
+    render(<MantineProvider theme={wildTrackTheme} forceColorScheme="light">
+      <ReviewResponseDrawer opened response={{ id: 'response-1', studentNumber: '26-0001',
+        values: { pdf: url }, artifactChecks: { pdf: report } }}
+        student={{ name: 'DOE, JANE', studentNumber: '26-0001' }} state={{ projectMetadata: [] }}
+        deliverable={{ fields: [{ id: 'pdf', definitionId: 'pdf', label: 'PDF', type: 'drive', pdfRequired: true, documentCheckPolicy: 'MANUAL' }] }}
+        onClose={vi.fn()} />
+    </MantineProvider>);
+    expect(screen.getByText('Sparse Content', { exact: true })).toBeVisible();
+    expect(screen.getByText('WildTrack could not confirm that this PDF is substantially filled from its readable text. Open the PDF to check its content.')).toBeVisible();
+    expect(screen.queryByText('Substance Inconclusive')).not.toBeInTheDocument();
+    expect(screen.queryByText(report.summary)).not.toBeInTheDocument();
+  });
+
+  it.each([
     [{ outcome: 'INCONCLUSIVE', summary: 'AI Review is inconclusive. Only one independent source-backed check was recorded.',
       verifiedChecks: [{ aspect: 'Scope identifies students', source: 'DOCUMENT', documentEvidence: 'Students submit project documentation.' }] },
       'Limited review coverage', 'Review finished with limited coverage: 1 supported observation recorded.'],

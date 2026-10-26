@@ -404,6 +404,28 @@ describe('student dashboard', () => {
     expect(document.body).not.toHaveTextContent('teammate-private-response');
   });
 
+  it.each([
+    ['NEEDS_ATTENTION', 'SPARSE_CONTENT', 'Sparse Content'],
+    ['COULD_NOT_DETERMINE', 'INSUFFICIENT_TEXT_EXTRACTION', 'Substance Inconclusive']
+  ])('shows the same Sparse Content guidance for the student saved %s result', async (state, reasonCode, flag) => {
+    associateAccount();
+    const ownedSrs = workflow.state.attempts.find((response) => response.id === 'owned-srs');
+    Object.assign(ownedSrs.documentCheck, {
+      submissionSubstance: { state, reasonCode, reason: 'Original extraction-specific reason.' },
+      redFlags: [flag]
+    });
+    renderDashboard();
+    const srs = within(screen.getByRole('list', { name: 'Your deliverables' })).getByText('SRS').closest('article');
+    expect(srs).toHaveTextContent('Needs attention — Sparse Content');
+    expect(srs).not.toHaveTextContent('Could not determine');
+    expect(srs).not.toHaveTextContent('Substance Inconclusive');
+    fireEvent.click(within(srs).getByRole('button', { name: 'View Document Check' }));
+    const dialog = await screen.findByRole('dialog', { name: /Document Check/i });
+    expect(dialog).toHaveTextContent('Needs attention — Sparse Content');
+    expect(dialog).toHaveTextContent('Open the PDF to check its content.');
+    expect(dialog).not.toHaveTextContent('Substance Inconclusive');
+  });
+
   it('does not repeat successful PDF read or staff-only template guidance beside File accessible', () => {
     associateAccount();
     const ownedSrs = workflow.state.attempts.find((response) => response.id === 'owned-srs');

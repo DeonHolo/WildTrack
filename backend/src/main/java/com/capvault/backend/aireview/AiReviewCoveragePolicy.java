@@ -11,6 +11,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.function.BiPredicate;
 import java.util.regex.Pattern;
+import com.capvault.backend.filecheck.PdfInspection;
 
 /** Request-local review areas and links to evidence that survived the existing grounding rules. */
 final class AiReviewCoveragePolicy {
@@ -22,7 +23,9 @@ final class AiReviewCoveragePolicy {
     private static final String SCOPE = "Review areas were derived from explicit content instructions and recognizable body headings in the mapped template. Ambiguous prose, optional/example sections and submission-only requests are not treated as mandatory checks. Recorded evidence is not a compliance decision.";
     private AiReviewCoveragePolicy() { }
 
-    record Criterion(String id, String requirement, FindingSource source) { }
+    record Criterion(String id, String requirement, FindingSource source, String title) {
+        Criterion(String id, String requirement, FindingSource source) { this(id, requirement, source, requirement); }
+    }
     record Plan(List<Criterion> criteria, int omittedCriteria, String scopeNote) { }
 
     static Plan plan(String instructions, String template) {
@@ -35,7 +38,7 @@ final class AiReviewCoveragePolicy {
             String normalized = key(text);
             if (normalized.matches(".*\\b(?:sharing permissions|anyone with the link|google drive folder|file naming|filename)\\b.*")
                     && !normalized.matches(".*\\b(?:section|diagram|schedule|risk|test|evidence|results|functional|architecture)\\b.*")) continue;
-            candidates.putIfAbsent(normalized, new Criterion("", text, FindingSource.DELIVERABLE_REQUIREMENTS));
+            candidates.putIfAbsent(normalized, new Criterion("", text, FindingSource.DELIVERABLE_REQUIREMENTS, text));
         }
         List<String> lines = Objects.requireNonNullElse(template, "").lines().map(String::strip).toList();
         for (int i = 0; i < lines.size(); i++) {
@@ -49,20 +52,41 @@ final class AiReviewCoveragePolicy {
                     || titleKey.matches(".*\\b(?:table of contents|revision history|change history|approval|references|appendices)\\b.*")
                     || !AiReviewGroundingPolicy.templateHasNumberedBodyHeading(template, name)
                     || AiReviewGroundingPolicy.optionalTemplateSection(name, template, instructions)) continue;
-            // Prefer the named subsections over counting both their parent and the same child area.
-            boolean hasChild = false;
-            for (int n = i + 1; n < lines.size(); n++) {
-                var next = HEADING.matcher(lines.get(n));
-                if (!next.matches()) continue;
-                hasChild = next.group(1).startsWith(number + ".");
-                break;
+            {
+                // A heading is navigation, not an instruction. Only prose beneath it can
+                // create a criterion; this also prevents TOC/heading-only templates from
+                // promising coverage that the submitted document never had to satisfy.
+                var bodyText = new StringBuilder();
+                for (int body = i + 1; body < lines.size(); body++) {
+                    String bodyLine = lines.get(body);
+                    if (HEADING.matcher(bodyLine).matches()) break;
+                    if (!bodyLine.isBlank()) bodyText.append(bodyText.isEmpty() ? "" : " ").append(bodyLine);
+                }
+                var directives = new ArrayList<String>();
+                for (String sentence : bodyText.toString().split("(?<=[.!?])\\s+")) {
+                        String requirement = sentence.strip();
+                        if (requirement.length() < 10 || requirement.length() > 1500
+                                || CONDITIONAL.matcher(requirement).find()
+                                || !DIRECTIVE.matcher(requirement).find()
+                                || REVIEW_GUIDANCE.matcher(requirement).find()
+                                || AiReviewEvidencePolicy.submissionOnlyAuthority(requirement)) continue;
+                        directives.add(requirement);
+                    }
+                for (int d = 0; d < directives.size();) {
+                    StringBuilder grouped = new StringBuilder();
+                    while (d < directives.size() && grouped.length() + directives.get(d).length() + 1 <= 1500) {
+                        if (!grouped.isEmpty()) grouped.append(' ');
+                        grouped.append(directives.get(d++));
+                    }
+                    String requirement = grouped.toString();
+                    candidates.putIfAbsent(key(requirement), new Criterion("", requirement, FindingSource.OFFICIAL_TEMPLATE, name));
+                }
             }
-            if (!hasChild) candidates.putIfAbsent(titleKey, new Criterion("", text, FindingSource.OFFICIAL_TEMPLATE));
         }
         var selected = new ArrayList<Criterion>();
         for (var item : candidates.values()) {
             if (selected.size() == MAX_CRITERIA) break;
-            selected.add(new Criterion("C" + (selected.size() + 1), item.requirement(), item.source()));
+            selected.add(new Criterion("C" + (selected.size() + 1), item.requirement(), item.source(), item.title()));
         }
         return new Plan(List.copyOf(selected), Math.max(0, candidates.size() - selected.size()), selected.isEmpty()
             ? "No applicable content checklist could be derived from the supplied instructions or mapped official template. Document observations are still shown; this is not a whole-document compliance assessment."
@@ -73,16 +97,26 @@ final class AiReviewCoveragePolicy {
         var byId = uniqueMappings(mappings);
         var rows = plan.criteria().stream().map(criterion -> {
             var mapping = byId.get(criterion.id());
+            boolean missingAssessment = mapping == null || mapping.assessment() == null;
             return new CriterionAssessment(criterion.id(), criterion.requirement(), criterion.source(), CoverageStatus.NOT_CHECKED,
                 mapping == null ? List.of() : mapping.verifiedCheckIndexes(),
                 mapping == null ? List.of() : mapping.findingIndexes(),
                 mapping == null ? List.of() : mapping.missingSectionIndexes(),
-                mapping == null ? List.of() : mapping.verificationNoteIndexes());
+                mapping == null ? List.of() : mapping.verificationNoteIndexes(),
+                missingAssessment ? CriterionAssessmentLabel.CHECK_MANUALLY : mapping.assessment(),
+                missingAssessment ? "The criterion needs manual verification in the original PDF." : mapping.explanation(),
+                missingAssessment ? null : mapping.documentEvidence(),
+                null, criterion.title());
         }).toList();
         return new ReviewCoverage(rows, plan.omittedCriteria(), 1, null, plan.scopeNote());
     }
 
     static ReviewCoverage grounded(Result raw, Result accepted, String instructions, String template) {
+        return grounded(raw, accepted, instructions, template, "", List.of());
+    }
+
+    static ReviewCoverage grounded(Result raw, Result accepted, String instructions, String template,
+            String documentText, List<PdfInspection.PageText> pages) {
         var plan = plan(instructions, template);
         var byId = uniqueMappings(raw.coverage() == null ? List.of() : raw.coverage().criteria());
         var usedChecks = new HashSet<Integer>();
@@ -104,10 +138,70 @@ final class AiReviewCoveragePolicy {
                 var note = accepted.verificationNotes().get(index);
                 if (note.source() == criterion.source() && key(note.requirement()).equals(key(criterion.requirement())) && !notes.contains(index)) notes.add(index);
             }
-            return row(criterion,
-                checks, findings, missing, List.copyOf(notes));
+            // New assessment metadata is opt-in. Legacy 8-argument rows must never be
+            // upgraded merely because an unrelated global positive check was linked.
+            boolean explicit = mapping.assessment() != null;
+            CriterionAssessmentLabel label = explicit ? mapping.assessment() : null;
+            String evidence = explicit ? mapping.documentEvidence() : null;
+            EvidenceLocation location = null;
+            String explanation = explicit ? mapping.explanation() : null;
+            if (explicit && label == CriterionAssessmentLabel.NEEDS_ATTENTION && !findings.isEmpty()) {
+                var finding = accepted.findings().get(findings.get(0));
+                if (validDirectQuote(finding.evidence(), documentText)) {
+                    evidence = finding.evidence();
+                    location = sourceLocation(evidence, pages);
+                } else { evidence = null; location = null; }
+            } else if (explicit && label != null && !validDirectQuote(evidence, documentText)) {
+                evidence = null;
+                location = null;
+            }
+            if (explicit && evidence != null) {
+                location = sourceLocation(evidence, pages);
+                if (location == null) evidence = null;
+            }
+            if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
+                    && (!findings.isEmpty() || !missing.isEmpty())) {
+                label = CriterionAssessmentLabel.NEEDS_ATTENTION;
+                explanation = "A retained requirement finding needs attention.";
+                evidence = null;
+            } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
+                    && !notes.isEmpty()) {
+                label = CriterionAssessmentLabel.CHECK_MANUALLY;
+                explanation = "The criterion needs manual verification in the original PDF.";
+                evidence = null;
+            } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
+                    && evidence == null) {
+                label = CriterionAssessmentLabel.CHECK_MANUALLY;
+                explanation = "The criterion needs manual verification in the original PDF.";
+                evidence = null;
+            } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED) {
+                location = sourceLocation(evidence, pages);
+                if (location == null) { label = CriterionAssessmentLabel.CHECK_MANUALLY;
+                    explanation = "The criterion needs manual verification in the original PDF."; evidence = null; }
+            } else if (explicit && label == CriterionAssessmentLabel.NEEDS_ATTENTION
+                    && findings.isEmpty() && missing.isEmpty()) {
+                label = CriterionAssessmentLabel.CHECK_MANUALLY;
+                explanation = "The criterion needs manual verification in the original PDF.";
+                evidence = null;
+            }
+            if (evidence == null) location = null;
+            return row(criterion, checks, findings, missing, List.copyOf(notes), label,
+                explanation, evidence, location);
         }).toList();
         return new ReviewCoverage(rows, plan.omittedCriteria(), 1, null, plan.scopeNote());
+    }
+
+    private static boolean validDirectQuote(String quote, String documentText) {
+        if (quote == null || quote.isBlank() || documentText == null || documentText.isBlank()) return false;
+        return AiReviewGroundingPolicy.positiveQuoteOccursInBody(documentText, quote)
+            && key(quote).length() >= 20 && key(quote).split(" ").length >= 4;
+    }
+
+    private static EvidenceLocation sourceLocation(String quote, List<PdfInspection.PageText> pages) {
+        if (quote == null || pages == null) return null;
+        String q = key(quote);
+        for (var page : pages) if (key(page.text()).contains(q)) return new EvidenceLocation(page.pageNumber(), null);
+        return null;
     }
 
     static Result withCoverage(Result result, ReviewCoverage coverage) {
@@ -157,11 +251,18 @@ final class AiReviewCoveragePolicy {
         var merged = a.criteria().stream().map(item -> {
             var other = secondRows.get(item.id());
             if (other == null) return item;
-            return row(new Criterion(item.id(), item.requirement(), item.source()),
+            var mergedRow = row(new Criterion(item.id(), item.requirement(), item.source()),
                 union(item.verifiedCheckIndexes(), other.verifiedCheckIndexes()),
                 union(item.findingIndexes(), other.findingIndexes()),
                 union(item.missingSectionIndexes(), other.missingSectionIndexes()),
                 union(item.verificationNoteIndexes(), other.verificationNoteIndexes()));
+            var selectedMetadata = other.assessment() != null ? other : item.assessment() != null ? item : null;
+            return new CriterionAssessment(mergedRow.id(), mergedRow.requirement(), mergedRow.source(), mergedRow.status(),
+                mergedRow.verifiedCheckIndexes(), mergedRow.findingIndexes(), mergedRow.missingSectionIndexes(),
+                mergedRow.verificationNoteIndexes(), selectedMetadata == null ? null : selectedMetadata.assessment(),
+                selectedMetadata == null ? null : selectedMetadata.explanation(),
+                selectedMetadata == null ? null : selectedMetadata.documentEvidence(),
+                selectedMetadata == null ? null : selectedMetadata.location(), item.title());
         }).toList();
         return withCoverage(combined, new ReviewCoverage(merged, a.omittedCriteria(), 2, null, a.scopeNote()));
     }
@@ -195,7 +296,17 @@ final class AiReviewCoveragePolicy {
             : !notes.isEmpty() ? CoverageStatus.NEEDS_VERIFICATION
             : !checks.isEmpty() ? CoverageStatus.EVIDENCE_RECORDED : CoverageStatus.NOT_CHECKED;
         return new CriterionAssessment(criterion.id(), criterion.requirement(), criterion.source(), status,
-            checks, findings, missing, notes);
+            checks, findings, missing, notes, null, null, null, null, criterion.title());
+    }
+
+    private static CriterionAssessment row(Criterion criterion, List<Integer> checks, List<Integer> findings,
+            List<Integer> missing, List<Integer> notes, CriterionAssessmentLabel label, String explanation,
+            String evidence, EvidenceLocation location) {
+        CoverageStatus status = !findings.isEmpty() || !missing.isEmpty() ? CoverageStatus.ISSUE_RECORDED
+            : !notes.isEmpty() ? CoverageStatus.NEEDS_VERIFICATION
+            : !checks.isEmpty() ? CoverageStatus.EVIDENCE_RECORDED : CoverageStatus.NOT_CHECKED;
+        return new CriterionAssessment(criterion.id(), criterion.requirement(), criterion.source(), status,
+            checks, findings, missing, notes, label, explanation, evidence, location, criterion.title());
     }
 
     private static <T> List<Integer> remap(List<Integer> indexes, List<T> before, List<T> after, BiPredicate<T, T> same) {
