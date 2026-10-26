@@ -68,10 +68,16 @@ for (const viewport of viewports) {
 
     await page.getByRole('button', { name: 'Paste rows' }).click();
     const paste = page.getByRole('dialog', { name: 'Paste students rows' });
-    await paste.getByRole('textbox', { name: 'Pasted spreadsheet rows' }).fill(
+    const pasteInput = paste.getByRole('textbox', { name: 'Pasted spreadsheet rows' });
+    await expect(paste).toContainText('Select spreadsheet cells, copy them, then paste here');
+    await expect(paste).toContainText('Required columns: Student Number, Student name, Team code');
+    await expect(paste).toContainText('Recognized column headers can be in any order');
+    await pasteInput.fill(
       'Team code\tStudent Number\tStudent name\nTEAM-02\t26-0002\tNEW, STUDENT'
     );
     await expect(paste.locator('.wt-paste-preview').getByText('26-0002', { exact: true })).toBeVisible();
+    await pasteInput.press('Tab');
+    expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))).not.toBe('Pasted spreadsheet rows');
     await paste.getByRole('button', { name: 'Apply to grid' }).click();
     await expect(table.getByRole('textbox', { name: 'Student name for 26-0002' })).toHaveValue('NEW, STUDENT');
     await page.getByRole('button', { name: 'Save changes (1)' }).click();

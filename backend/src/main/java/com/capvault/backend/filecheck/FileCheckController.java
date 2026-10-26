@@ -143,8 +143,10 @@ public class FileCheckController {
     @ResponseStatus(HttpStatus.CREATED)
     public FileCheckResponse check(
         @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
-        @Valid @RequestBody FileCheckRequest request
+        @Valid @RequestBody FileCheckRequest request,
+        HttpServletRequest http
     ) {
+        requireResponseAccess(workspaceId, request.responseId(), http);
         return service.check(workspaceId, request);
     }
 
@@ -152,8 +154,10 @@ public class FileCheckController {
     public ResponseEntity<FileCheckResponse> latest(
         @PathVariable String responseId,
         @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
-        @RequestParam(required = false) String fieldId
+        @RequestParam(required = false) String fieldId,
+        HttpServletRequest http
     ) {
+        requireResponseAccess(workspaceId, responseId, http);
         return ResponseEntity.of(service.findLatest(workspaceId, responseId, fieldId));
     }
 
@@ -161,8 +165,34 @@ public class FileCheckController {
     public List<FileCheckResponse> history(
         @PathVariable String responseId,
         @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
-        @RequestParam(required = false) String fieldId
+        @RequestParam(required = false) String fieldId,
+        HttpServletRequest http
     ) {
+        requireResponseAccess(workspaceId, responseId, http);
         return service.history(workspaceId, responseId, fieldId);
+    }
+
+    /** Resolve adviser access from the persisted response and workspace. */
+    private void requireResponseAccess(UUID workspaceId, String responseId, HttpServletRequest http) {
+        var session = security.requireSession(http);
+        var roles = security.activeRoles(http);
+        if (!roles.contains(StaffRole.ADMIN) && !roles.contains(StaffRole.ADVISER)) {
+            throw new AccessDeniedException("Staff authorization required.");
+        }
+        if (roles.contains(StaffRole.ADMIN)) return;
+
+        UUID persistedResponseId;
+        try {
+            persistedResponseId = UUID.fromString(responseId);
+        } catch (RuntimeException invalidId) {
+            throw new AccessDeniedException("Submission is unavailable.");
+        }
+        var response = responses.findById(persistedResponseId)
+            .filter(saved -> workspaceId.equals(saved.getWorkspaceId()))
+            .orElseThrow(() -> new AccessDeniedException("Submission is unavailable."));
+        if (!Set.copyOf(staff.assignedTeams(session.googleSubject(), workspaceId))
+                .contains(response.getTeamCode())) {
+            throw new AccessDeniedException("Submission is outside your assigned teams.");
+        }
     }
 }

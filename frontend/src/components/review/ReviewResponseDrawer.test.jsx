@@ -31,7 +31,7 @@ describe('ReviewResponseDrawer submission artifacts', () => {
       'Limited review coverage', 'Review finished with limited coverage: 1 supported observation recorded.'],
     [{ outcome: 'INCONCLUSIVE', summary: 'AI Review is inconclusive. Unresolved verification requires review of the original PDF.',
       verificationNotes: [{ issue: 'Verify the diagram in the original PDF.' }] },
-      'Needs manual verification', 'Review finished with checks needing manual verification.']
+      'Check in PDF', 'Review finished with checks needing manual verification.']
   ])('explains current completed assessment warnings without generic inconclusive copy', async (report, label, summary) => {
     const url = 'https://drive.google.com/file/d/current/view';
     const response = { id: 'response-1', studentName: 'DOE, JANE', studentNumber: '26-0001',

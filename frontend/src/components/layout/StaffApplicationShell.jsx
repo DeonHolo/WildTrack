@@ -163,7 +163,7 @@ export function StaffApplicationShell({ children }) {
         <Box className="wt-navbar-brand">
           <WildTrackBrand
             to={isAdviser ? '/adviser' : '/'}
-            subtitle={isAdviser ? 'Adviser workspace' : 'Capstone operations'}
+            subtitle={isAdviser ? 'Adviser workspace' : null}
           />
         </Box>
         <Box className="wt-navbar-context" aria-label="Active workspace">
@@ -203,10 +203,12 @@ export function StaffApplicationShell({ children }) {
             ))}
           </Stack>
         </ScrollArea>
-        <Box className="wt-navbar-footer">
-          <Text size="xs" c="dimmed">{accountRole} access</Text>
-          <Text size="xs">{isAdviser ? 'Assigned teams only' : 'Institution-wide workspace'}</Text>
-        </Box>
+        {isAdviser ? (
+          <Box className="wt-navbar-footer">
+            <Text size="xs" c="dimmed">Adviser access</Text>
+            <Text size="xs">Assigned teams only</Text>
+          </Box>
+        ) : null}
       </MantineAppShell.Navbar>
 
       <MantineAppShell.Main id="wildtrack-main">

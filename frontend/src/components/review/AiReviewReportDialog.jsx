@@ -11,6 +11,11 @@ export function AiReviewReportDialog({ opened, onClose, report, review, document
   const pdfUrl = makeDriveViewUrl(fileLink);
   const inconclusive = previous && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED', 'INSUFFICIENT_REVIEW_EVIDENCE']
     .includes(review?.failureCode);
+  const previousDate = review?.previousGeneratedAt || review?.lastSubstantiveGeneratedAt;
+  const reviewedOn = previous
+    ? `Previously saved AI Review · ${previousDate ? formatDateTime(previousDate) : 'date unavailable'}`
+    : review?.generatedAt ? `Reviewed on ${formatDateTime(review.generatedAt)}`
+      : review?.lastSubstantiveGeneratedAt ? `Last substantive review · ${formatDateTime(review.lastSubstantiveGeneratedAt)}` : '';
 
   return (
     <Modal.Root
@@ -56,15 +61,7 @@ export function AiReviewReportDialog({ opened, onClose, report, review, document
             ) : null}
             {review?.status === 'UNCERTAIN'
               ? <ProviderFailureDetails diagnostic={review.failureDiagnostics} failureCode={review.failureCode} /> : null}
-            {previous ? (
-              <Text size="sm" fw={700}>Previously saved AI Review{(review?.previousGeneratedAt || review?.lastSubstantiveGeneratedAt)
-                ? ` · ${formatDateTime(review.previousGeneratedAt || review.lastSubstantiveGeneratedAt)}` : ' · date unavailable'}</Text>
-            ) : review?.generatedAt ? (
-              <Text size="sm" className="wt-ai-review-reference">Reviewed {formatDateTime(review.generatedAt)}</Text>
-            ) : review?.lastSubstantiveGeneratedAt ? (
-              <Text size="sm" className="wt-ai-review-reference">Last substantive review · {formatDateTime(review.lastSubstantiveGeneratedAt)}</Text>
-            ) : null}
-            <AiReviewReport report={displayReport} deliverableTitle={deliverableTitle} pdfUrl={pdfUrl && !validateUrl(pdfUrl) ? pdfUrl : ''} />
+            <AiReviewReport report={displayReport} deliverableTitle={deliverableTitle} reviewedOn={reviewedOn} pdfUrl={pdfUrl && !validateUrl(pdfUrl) ? pdfUrl : ''} />
             {review?.lastSubstantiveReport && !sameReport(review.lastSubstantiveReport, displayReport) ? (
               <details className="wt-ai-review-earlier">
                 <summary>Earlier substantive review · {review.lastSubstantiveGeneratedAt ? formatDateTime(review.lastSubstantiveGeneratedAt) : 'date unavailable'}</summary>

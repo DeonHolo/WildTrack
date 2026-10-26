@@ -1,7 +1,7 @@
 import { useStaffIdentity } from '../app/StaffIdentity.jsx';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { ResponseTimingSummary } from '../components/ResponseTimingSummary.jsx';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ActionIcon,
@@ -95,6 +95,7 @@ export function AdviserViewPage() {
   const { data: staffIdentity, status: identityStatus, error: identityError, reload: reloadIdentity } = useStaffIdentity();
   const [searchParams, setSearchParams] = useSearchParams();
   const [viewOtherAdviser, setViewOtherAdviser] = useState(false);
+  const isReadOnlyPreview = isAdmin && viewOtherAdviser;
   const [adviserName, setAdviserName] = useState('');
   const [query, setQuery] = useState('');
   const [selectedOutputIds, setSelectedOutputIds] = useState({});
@@ -104,6 +105,9 @@ export function AdviserViewPage() {
   const [aiReviewDialogTarget, setAiReviewDialogTarget] = useState(null);
   const [batchProgress, setBatchProgress] = useState(null);
   const [checkingIds, setCheckingIds] = useState(new Set());
+  const previewModeRef = useRef(isReadOnlyPreview);
+  previewModeRef.current = isReadOnlyPreview;
+  const batchGenerationRef = useRef(0);
 
   const allTeams = useMemo(
     () => buildAdviserTeams(state, isAdmin && viewOtherAdviser ? adviserName : null, '')
@@ -171,6 +175,16 @@ export function AdviserViewPage() {
     setSelectedOutputIds({});
     setViewOtherAdviser(false);
   }, [isCurrentScope]);
+
+  useEffect(() => {
+    batchGenerationRef.current += 1;
+    if (!isReadOnlyPreview) return;
+    setBatchProgress(null);
+    setCheckingIds(new Set());
+    setFeedbackError(null);
+    setCheckDialogTarget(null);
+    setAiReviewDialogTarget(null);
+  }, [isReadOnlyPreview]);
 
   useEffect(() => {
     if (!viewOtherAdviser || reviewStatus !== 'ready' || adviserOptions.includes(adviserName)) return;
@@ -259,6 +273,7 @@ export function AdviserViewPage() {
 
   async function submitFeedback(event) {
     event.preventDefault();
+    if (previewModeRef.current) return;
     const note = feedback.trim();
     if (!selectedResponse || !note || !isCurrentScope()) return;
     setFeedbackError(null);
@@ -277,6 +292,12 @@ export function AdviserViewPage() {
 
   async function openDocumentCheck(field) {
     if (!selectedResponse || !field) return;
+    if (previewModeRef.current) {
+      if (isArtifactDocumentCheckCurrent(selectedResponse, field) && isCurrentScope()) {
+        setCheckDialogTarget({ responseId: selectedResponse.id, targetKey: artifactTargetKey(selectedResponse.id, field) });
+      }
+      return;
+    }
     if (!isArtifactDocumentCheckCurrent(selectedResponse, field)) {
       const result = await runDocumentCheck(selectedResponse.id, field);
       if (!result.ok) return;
@@ -299,7 +320,13 @@ export function AdviserViewPage() {
   }
 
   async function checkPendingResponses() {
-    if (!selectedRow || !isCurrentScope()) return;
+    if (previewModeRef.current || !selectedRow || !isCurrentScope()) return;
+    const batchGeneration = batchGenerationRef.current;
+    const shouldContinueBatch = () => (
+      !previewModeRef.current
+      && batchGenerationRef.current === batchGeneration
+      && isCurrentScope()
+    );
     const candidates = selectedRow.responses.flatMap((response) => (
       reviewableSubmissionFields(selectedRow.deliverable)
         .filter((field) => String(response.values?.[field.id] || '').trim())
@@ -310,12 +337,12 @@ export function AdviserViewPage() {
     if (!candidates.length) return;
     setBatchProgress({ completed: 0, total: candidates.length, failed: 0, done: false });
     const result = await runReviewDocumentChecks(activeWorkspaceId, candidates, state.deliverables, {
-      shouldContinue: isCurrentScope,
+      shouldContinue: shouldContinueBatch,
       onProgress: ({ completed, total }) => {
-        if (isCurrentScope()) setBatchProgress((current) => ({ ...current, completed, total }));
+        if (shouldContinueBatch()) setBatchProgress((current) => ({ ...current, completed, total }));
       }
     });
-    if (!isCurrentScope()) return;
+    if (!shouldContinueBatch()) return;
     setState((current) => ({
       ...current,
       attempts: current.attempts.map((attempt) => {
@@ -346,7 +373,7 @@ export function AdviserViewPage() {
   }
 
   function confirmAccept() {
-    if (!selectedResponse) return;
+    if (previewModeRef.current || !selectedResponse) return;
     modals.openConfirmModal({
       title: 'Accept this group output?',
       children: (
@@ -361,7 +388,7 @@ export function AdviserViewPage() {
   }
 
   function confirmRevoke() {
-    if (!selectedResponse) return;
+    if (previewModeRef.current || !selectedResponse) return;
     modals.openConfirmModal({
       title: 'Revoke this acceptance?',
       children: <Text size="sm">The selected group output returns to the review queue. Its member responses and feedback remain recorded.</Text>,
@@ -372,6 +399,7 @@ export function AdviserViewPage() {
   }
 
   async function runDocumentCheck(responseId, field = null) {
+    if (previewModeRef.current) return { ok: false };
     const response = state.attempts.find((item) => item.id === responseId);
     if (!response) return { ok: false, error: 'The selected response was not found.' };
     const deliverable = state.deliverables.find((item) => item.id === response.deliverableId);
@@ -423,6 +451,15 @@ export function AdviserViewPage() {
         />
       </Group>
 
+      {isReadOnlyPreview ? (
+        <Alert color="blue" variant="light" title="Read-only adviser preview">
+          <Text size="sm">You are viewing another adviser&apos;s teams. Existing submissions, checks, history, and AI results are available, but no review changes or checks can be run here.</Text>
+          <Group mt="sm">
+            <Button size="sm" variant="outline" color="blue" onClick={() => setViewOtherAdviser(false)}>Back to my teams</Button>
+          </Group>
+        </Alert>
+      ) : null}
+
       <ResourceBoundary status={identityStatus !== 'ready' ? identityStatus : reviewStatus} error={identityError || reviewError} onRetry={() => { reload(); reloadIdentity?.(); }}>
       {feedbackError?.responseId === selectedResponse?.id && feedbackError?.workspaceId === activeWorkspaceId ? (
         <Alert color="red" role="alert">{feedbackError.message}</Alert>
@@ -447,8 +484,8 @@ export function AdviserViewPage() {
               </div>
             )}
             <Text size="xs" c="dimmed">{teams.length} assigned team{teams.length === 1 ? '' : 's'}</Text>
-            {isAdmin ? <Button size="compact-xs" variant="subtle" mt="xs" onClick={() => setViewOtherAdviser(value => !value)}>
-              {viewOtherAdviser ? 'Back to my teams' : 'View another adviser'}</Button> : null}
+            {isAdmin && !isReadOnlyPreview ? <Button size="compact-xs" variant="subtle" mt="xs" onClick={() => setViewOtherAdviser(true)}>
+              View another adviser</Button> : null}
           </div>
 
           <ScrollArea className="wt-adviser-team-scroll" type="auto" offsetScrollbars>
@@ -576,6 +613,7 @@ export function AdviserViewPage() {
                   onCheckPending={checkPendingResponses}
                   onAccept={confirmAccept}
                   onRevoke={confirmRevoke}
+                  readOnlyPreview={isReadOnlyPreview}
                 />
               ) : null}
             </>
@@ -610,6 +648,7 @@ export function AdviserViewPage() {
         error={checkDialogField && feedbackError?.targetKey === artifactTargetKey(checkDialogResponse?.id, checkDialogField) ? feedbackError?.message : ''}
         onClose={() => setCheckDialogTarget(null)}
         onRecheck={() => runDocumentCheck(checkDialogResponse.id, checkDialogField)}
+        allowRecheck={!isReadOnlyPreview}
       />
       <AiReviewReportDialog
         opened={Boolean(aiReviewDialogResponse && aiReviewDialogField && (aiReviewDialogReport || aiReviewDialogReview?.previousReport || aiReviewDialogReview?.lastSubstantiveReport))}
@@ -642,7 +681,8 @@ function SelectedGroupOutput({
   onOpenAiReview,
   onCheckPending,
   onAccept,
-  onRevoke
+  onRevoke,
+  readOnlyPreview = false
 }) {
   const currentFeedback = response?.feedback?.find((item) => item.visibility !== 'Staff') || null;
   const pendingChecks = row.responses.flatMap((item) => (
@@ -661,11 +701,11 @@ function SelectedGroupOutput({
           <Text size="sm" c="dimmed">{team.teamCode} | {row.receivedMemberCount} of {team.members.length} members submitted</Text>
         </div>
         <Group gap="xs" wrap="wrap">
-          {accepted ? (
+          {!readOnlyPreview && (accepted ? (
             <Button color="red" variant="light" leftSection={<XCircle size={17} aria-hidden="true" />} onClick={onRevoke}>Revoke acceptance</Button>
           ) : (
             <Button color="wildtrackMaroon" leftSection={<CheckCircle size={17} aria-hidden="true" />} disabled={!response} onClick={onAccept}>Accept group output</Button>
-          )}
+          ))}
         </Group>
       </div>
 
@@ -751,6 +791,7 @@ function SelectedGroupOutput({
                   field={field}
                   response={response}
                   checking={checkingFields.has(artifactTargetKey(response.id, field))}
+                  readOnlyPreview={readOnlyPreview}
                   onOpenDocumentCheck={() => onOpenDocumentCheck(field)}
                   onOpenFileHistory={() => onOpenFileHistory(field)}
                   onOpenAiReview={() => onOpenAiReview(field)}
@@ -758,7 +799,7 @@ function SelectedGroupOutput({
               ))}
             </Stack>
           </section>
-          {pendingChecks.length ? (
+          {!readOnlyPreview && pendingChecks.length ? (
             <Button variant="subtle" size="sm" leftSection={<Files size={16} />} onClick={onCheckPending} disabled={Boolean(batchProgress && !batchProgress.done)}>
               {pendingCheckLabel(row.deliverable, pendingChecks.length)}
             </Button>
@@ -777,7 +818,13 @@ function SelectedGroupOutput({
 
       <Divider />
 
-      <div className="wt-adviser-feedback-editor">
+      {readOnlyPreview ? (
+        <div className="wt-adviser-feedback-editor" aria-label="Saved feedback">
+          <Text fw={800}>Feedback for student</Text>
+          {currentFeedback ? <Text mt="xs">{currentFeedback.note}</Text> : <Text size="sm" c="dimmed" mt="xs">No student-visible feedback has been saved.</Text>}
+          {currentFeedback ? <Text size="xs" c="dimmed" mt="sm">Last updated {formatDateTime(currentFeedback.updatedAt || currentFeedback.createdAt)} by {currentFeedback.author}.</Text> : null}
+        </div>
+      ) : <div className="wt-adviser-feedback-editor">
         <form onSubmit={onSubmitFeedback}>
           <Textarea
             label="Feedback for student"
@@ -806,12 +853,12 @@ function SelectedGroupOutput({
             {currentFeedback ? 'Update feedback' : 'Save feedback'}
           </Button>
         </form>
-      </div>
+      </div>}
     </section>
   );
 }
 
-function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpenFileHistory, onOpenAiReview }) {
+function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpenFileHistory, onOpenAiReview, readOnlyPreview = false }) {
   const value = String(response.values?.[field.id] || '').trim();
   const isLink = /^https?:\/\//i.test(value);
   const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
@@ -856,12 +903,12 @@ function AdviserArtifact({ field, response, checking, onOpenDocumentCheck, onOpe
         {reviewablePdf ? (
           <>
             <Group gap="xs" wrap="wrap" className="wt-review-artifact-actions">
-              <Button variant="light" color="wildtrackMaroon" size="xs"
+              {(!readOnlyPreview || isArtifactDocumentCheckCurrent(response, field)) ? <Button variant="light" color="wildtrackMaroon" size="xs"
                 loading={checking} disabled={!value}
                 leftSection={<MagnifyingGlass size={15} aria-hidden="true" />}
                 onClick={onOpenDocumentCheck}>
                 {isArtifactDocumentCheckCurrent(response, field) ? 'View Document Check' : 'Check document'}
-              </Button>
+              </Button> : <Text size="xs" c="dimmed">Document Check is not available in read-only preview.</Text>}
               {aiEnabled && aiReportForDisplay ? (
                 <Button variant="light" color="wildtrackMaroon" size="xs"
                   leftSection={<Eye size={15} aria-hidden="true" />} onClick={onOpenAiReview}>

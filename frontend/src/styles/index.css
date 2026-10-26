@@ -3199,6 +3199,9 @@ textarea:not(.mantine-Input-input):focus {
 .wt-ai-review-report { line-height: 1.65; overflow-wrap: anywhere; }
 .wt-ai-review-report .mantine-Text-root { font-size: 1rem; line-height: 1.6; }
 .wt-ai-review-report h3 { font-family: inherit; font-size: 1.125rem; line-height: 1.4; font-weight: 700; margin: 0 0 8px; }
+.wt-ai-review-overview-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; margin-bottom: 8px; }
+.wt-ai-review-overview-heading h3 { margin-bottom: 0; }
+.wt-ai-review-overview-heading .wt-ai-review-date { flex: 0 1 auto; margin-left: auto; text-align: right; }
 .wt-ai-review-report .wt-ai-review-reference,
 .wt-ai-review-outcome .mantine-Text-root:last-child,
 .wt-ai-review-dialog .wt-ai-review-reference { font-size: 0.875rem; color: var(--wt-ai-review-metadata); }

@@ -76,7 +76,7 @@ describe('ReviewSubmissionsTable AI Review status', () => {
 
   it('keeps specific manual-verification questions visible ahead of limited coverage', () => {
     const manual = { status: 'COMPLETED', report: { outcome: 'INCONCLUSIVE', verificationNotes: [{ issue: 'Check the original diagram.' }] } };
-    expect(renderAiStatus([savedInconclusive, manual, savedReviewed])).toHaveTextContent(/^Needs manual verification$/);
+    expect(renderAiStatus([savedInconclusive, manual, savedReviewed])).toHaveTextContent(/^Check in PDF$/);
   });
 
   it('does not present an inconclusive report for a replaced PDF as current', () => {
@@ -176,7 +176,7 @@ describe('ReviewSubmissionsTable sortable headers', () => {
     expect(screen.getByRole('table', { name: 'All deliverables submissions' })).toBeInTheDocument();
     const stdRow = screen.getByRole('button', { name: 'Review Example Student response' }).closest('tr');
     expect(within(stdRow).getByText('STD')).toHaveAttribute('title', 'Software Test Document');
-    expect(within(stdRow).getByText('Ready for review')).toBeInTheDocument();
+    expect(within(stdRow).getByText('Looks filled')).toBeInTheDocument();
     expect(within(stdRow).getByText('Reviewed')).toBeInTheDocument();
     const proposalRow = screen.getByRole('button', { name: 'Review Second Student response' }).closest('tr');
     expect(within(proposalRow).getByText('Proposal')).toHaveAttribute('title', 'Project Proposal');

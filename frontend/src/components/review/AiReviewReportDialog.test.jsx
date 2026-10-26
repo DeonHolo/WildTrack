@@ -38,6 +38,18 @@ it.each(['', 'javascript:alert(1)'])('omits the PDF link when it is missing or i
   expect(within(await screen.findByRole('dialog')).queryByRole('link', { name: 'Open PDF' })).not.toBeInTheDocument();
 });
 
+it('places the current review date with the document overview heading', async () => {
+  show({ status: 'COMPLETED', generatedAt: '2026-09-22T08:00:00Z' }, {
+    ...previousReport,
+    documentOverview: { text: 'The submitted document describes a project management plan.', wrongDocument: false }
+  });
+  const overview = await screen.findByRole('region', { name: 'Document overview' });
+  const heading = within(overview).getByRole('heading', { name: 'Document overview' });
+  const date = within(overview).getByText(/^Reviewed on Sep 22, 2026/);
+  expect(heading.parentElement).toContainElement(date);
+  expect(screen.getAllByText(/^Reviewed on /)).toHaveLength(1);
+});
+
 it('warns above a saved report after Document Check detects changed content', async () => {
   show({ status: 'COMPLETED', generatedAt: '2026-10-13T14:55:20Z' }, previousReport, { changeType: 'CONTENT_CHANGED' });
   const dialog = await screen.findByRole('dialog');
@@ -81,7 +93,7 @@ it('marks a historical generic fallback inconclusive rather than treating it as 
 it('shows a current substantive report as current rather than historical', async () => {
   show({ status: 'COMPLETED', generatedAt: '2026-09-22T08:00:00Z', report: previousReport }, previousReport);
   const dialog = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
-  expect(dialog).toHaveTextContent('Reviewed Sep 22, 2026');
+  expect(dialog).toHaveTextContent('Reviewed on Sep 22, 2026');
   expect(dialog).not.toHaveTextContent('Previously saved AI Review');
   expect(dialog).not.toHaveTextContent('Latest AI Review inconclusive');
 });
@@ -111,7 +123,7 @@ it('shows a saved zero-issue report with two verified SRS checks and a clear app
   show({ status: 'COMPLETED', generatedAt: '2026-09-22T08:00:00Z', report: verifiedReport }, verifiedReport);
   const dialog = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
 
-  expect(dialog).toHaveTextContent('Reviewed Sep 22, 2026');
+  expect(dialog).toHaveTextContent('Reviewed on Sep 22, 2026');
   expect(dialog).toHaveTextContent('No actionable issues identified in the checked areas');
   expect(dialog).toHaveTextContent('2 distinct observations supported by submitted PDF evidence');
   expect(within(dialog).queryByText(/Other checked items/)).not.toBeInTheDocument();

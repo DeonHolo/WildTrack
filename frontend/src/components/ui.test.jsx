@@ -13,6 +13,19 @@ function renderStatus(status) {
 }
 
 describe('shared status indicator', () => {
+  it.each([
+    ['Ready for review', 'Looks filled', 'success'],
+    ['Looks substantially filled', 'Looks filled', 'success'],
+    ['Looks filled', 'Looks filled', 'success'],
+    ['Needs manual verification', 'Check in PDF', 'warning'],
+    ['Check in PDF', 'Check in PDF', 'warning'],
+    ['Retry required', 'Retry required', 'warning']
+  ])('displays %s as %s without changing its meaning or tone', (status, label, tone) => {
+    renderStatus(status);
+    expect(screen.getByText(label).parentElement).toHaveAttribute('data-tone', tone);
+    if (status !== label) expect(screen.queryByText(status)).not.toBeInTheDocument();
+  });
+
   it('shows a complete status with text and a non-verbal semantic marker', () => {
     const { container } = renderStatus('Published');
 

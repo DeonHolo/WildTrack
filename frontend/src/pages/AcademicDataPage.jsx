@@ -9,7 +9,7 @@ export function AcademicDataPage() {
     <div className="page-stack wt-academic-data-page">
       <PageHeader
         title="Academic data"
-        description="Edit WildTrack's imported academic records in a spreadsheet-style grid. Changes stay inside WildTrack and never write back to Google Sheets."
+        description="Edit WildTrack's imported academic records in a spreadsheet-style grid."
       />
       <AcademicDataWorkspace workspaceId={activeWorkspaceId} cacheScope={session?.authenticated ? session.googleSubject || session.email : null} />
     </div>

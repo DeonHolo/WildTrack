@@ -233,7 +233,7 @@ describe('DocumentCheck submission substance', () => {
     show({ documentCheck: current });
     const dialog = screen.getByRole('dialog');
 
-    expect(within(dialog).getByText('Looks substantially filled')).toBeInTheDocument();
+    expect(within(dialog).getByText('Looks filled')).toBeInTheDocument();
     expect(within(dialog).getByText(reason)).toBeInTheDocument();
     expect(documentCheckStatus({ ...response, documentCheck: current })).toBe('Looks substantially filled');
     expect(within(dialog).queryByText('View details')).not.toBeInTheDocument();
@@ -280,7 +280,7 @@ describe('DocumentCheck saved-source freshness', () => {
     show({ response: changedResponse, audience });
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).queryByText(/outdated/i)).not.toBeInTheDocument();
-    expect(within(dialog).getByText(audience === 'student' ? 'Check complete' : 'Ready for review')).toBeVisible();
+    expect(within(dialog).getByText(audience === 'student' ? 'Check complete' : 'Looks filled')).toBeVisible();
     expect(documentCheckStatus(changedResponse, ` ${fileLink} `)).toBe('Ready for review');
   });
 
@@ -297,7 +297,7 @@ describe('DocumentCheck saved-source freshness', () => {
           sourceResponseUpdatedAt: changedResponse.updatedAt }} open onClose={vi.fn()} />
     </MantineProvider>);
     expect(screen.queryByText('Outdated')).not.toBeInTheDocument();
-    expect(screen.getByText('Ready for review')).toBeVisible();
+    expect(screen.getByText('Looks filled')).toBeVisible();
   });
 
   it('retains timestamp checks for legacy reports without a saved file URL', () => {

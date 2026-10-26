@@ -20,7 +20,7 @@ for (const width of [375, 1440]) {
     await page.getByRole('button', { name: 'View AI Review', exact: true }).click();
     const modal = page.getByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
     await expect(modal.getByRole('heading', { name: 'Check diagrams in the PDF' })).toHaveCount(1);
-    await expect(modal.getByText('1 to verify')).toBeVisible();
+    await expect(modal.getByText('1 item to check')).toBeVisible();
     await expect(modal.getByText(/Text extraction could not verify/)).toHaveCount(0);
     await expect(modal.getByText('1.3 Live tracker')).not.toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`diagram-collapsed-${width}.png`) });
