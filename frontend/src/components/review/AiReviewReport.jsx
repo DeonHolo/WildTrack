@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Alert, Button, Stack, Text } from '@mantine/core';
-import { aiReviewEvidenceCount, aiReviewReportStatus, isInconclusiveAiReviewReport, verifiedAiChecks } from '../../lib/workflow.js';
+import { aiReviewEvidenceCount, aiReviewReportStatus, isInconclusiveAiReviewReport, statusDisplayLabel, verifiedAiChecks } from '../../lib/workflow.js';
 import { AiReviewCoverage, assessedEvidenceIndexes, validAssessmentCriteria } from './AiReviewCoverage.jsx';
 
 const CHECK_SOURCE_LABELS = {
@@ -10,7 +10,7 @@ const CHECK_SOURCE_LABELS = {
 };
 const LEGACY_VERIFICATION = /^Mapped-template (?:body heading|transaction artifact)/i;
 
-export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '' }) {
+export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', reviewedOn = '' }) {
   if (!report) return null;
   const originalFindings = report.findings || legacyFindings(report.flags);
   const legacyNotes = originalFindings.filter(isLegacyVerification).map(legacyVerification);
@@ -46,33 +46,36 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '' }) {
   );
   const noIssues = issueCount === 0 && !inconclusive && evidenceCount >= 2;
   const reviewStatus = aiReviewReportStatus({ ...report, findings: allFindings, verificationNotes: allNotes });
-  const outcome = inconclusive ? reviewStatus : noIssues ? 'No issues in checked areas'
+  const outcome = inconclusive ? statusDisplayLabel(reviewStatus) : noIssues ? 'No issues in checked areas'
     : !concernCount && !verificationNotes.length && glossary.length ? 'Minor checks to review' : 'Issues identified';
   const summary = [
     concernCount && `${concernCount} concern${concernCount === 1 ? '' : 's'}`,
-    manualCheckCount && `${manualCheckCount} to verify`,
+    manualCheckCount && `${manualCheckCount} item${manualCheckCount === 1 ? '' : 's'} to check`,
     glossary.length && `${glossary.length} minor check${glossary.length === 1 ? '' : 's'}`
   ].filter(Boolean).join(' · ') || `${evidenceCount} supported observation${evidenceCount === 1 ? '' : 's'}`;
 
   return (
     <Stack gap="lg" className="wt-ai-review-report">
       {report.documentOverview?.text ? <section aria-label="Document overview">
-        <Text component="h3" fw={700}>Document overview</Text>
+        <div className="wt-ai-review-overview-heading">
+          <Text component="h3" fw={700}>Document overview</Text>
+          {reviewedOn ? <Text className="wt-ai-review-reference wt-ai-review-date">{reviewedOn}</Text> : null}
+        </div>
         {report.documentOverview.wrongDocument === true && report.documentOverview.actualDocumentType ? (
           <Alert color="orange" role="status" mb="sm">
             This is {report.documentOverview.actualDocumentType}, <strong>NOT</strong> the required {deliverableTitle || 'document'}.
           </Alert>
         ) : null}
         <Text>{report.documentOverview.text}</Text>
-      </section> : null}
+      </section> : reviewedOn ? <Text className="wt-ai-review-reference wt-ai-review-date">{reviewedOn}</Text> : null}
       <div className="wt-ai-review-outcome">
         <Text fw={700}>{outcome}</Text>
         <Text mt={4} size="sm">{summary}</Text>
       </div>
       {inconclusive ? (
-        <Alert color="orange" title={reviewStatus} role="status">
+        <Alert color="orange" title={statusDisplayLabel(reviewStatus)} role="status">
           {reviewStatus === 'Needs manual verification'
-            ? 'Confirm the items in the review checklist in the original PDF before requesting a revision.'
+            ? 'Confirm the items in the review checklist in the original PDF.'
             : 'Too little supported evidence was recorded for a no-issues conclusion. This does not mean the PDF is empty or incorrect.'}
         </Alert>
       ) : noIssues ? (
@@ -86,9 +89,9 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '' }) {
           {findings.length || missing.length || verificationNotes.length ? <ol className="wt-ai-review-checklist">
             {concerns.map((group, index) => <li key={`finding-${index}`}><FindingRow finding={group.finding} label="Concern" /></li>)}
             {missing.length ? <li><article className="wt-ai-review-row">
-              <Text className="wt-ai-review-item-label">Verify in PDF</Text>
+              <Text className="wt-ai-review-item-label">Check in PDF</Text>
               <h3>Check section coverage</h3>
-              <Text>Confirm these sections or equivalent headings in the PDF before requesting changes.</Text>
+              <Text>Confirm these sections or equivalent headings in the original PDF.</Text>
               <ul>{missing.map((item, index) => <li key={index}>{item.section || 'Unnamed required section'}
                 {item.requirement && referenceKey(item.requirement) !== referenceKey(item.section)
                   ? <Evidence finding={{ requirement: item.requirement, source: item.source }} /> : null}
@@ -100,7 +103,7 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '' }) {
             {diagramNotes.length ? <li><DiagramVerificationRow notes={diagramNotes} pdfUrl={pdfUrl} /></li> : null}
             {artifactNotes.map((group, index) => <li key={`note-${index}`}>{group.artifact
               ? <ArtifactVerificationRow group={group} />
-              : <FindingRow finding={group.note} label="Verify in PDF" />}</li>)}
+              : <FindingRow finding={group.note} label="Check in PDF" />}</li>)}
             {glossary.map((group, index) => <li key={`glossary-${index}`}><GlossaryRow group={group} /></li>)}
           </ol> : null}
           <AiReviewCoverage report={report} showHeading={false} />
@@ -198,7 +201,7 @@ function SectionVerificationRow({ notes }) {
   const sharedSource = notes[0].source && notes.every(note => note.source === notes[0].source) ? notes[0].source : null;
   return <article className="wt-ai-review-row">
     <h3>Verify section coverage in the PDF</h3>
-    <Text>The saved report could not locate these headings. Check the original PDF, including equivalent headings, before requesting changes.</Text>
+    <Text>The saved report could not locate these headings. Check the original PDF, including equivalent headings.</Text>
     <ul>{notes.map((note, index) => <li key={index}>
       {sectionVerification(note)}
       {note.source && !sharedSource ? <span className="wt-ai-review-reference"> — {CHECK_SOURCE_LABELS[note.source] || note.source}</span> : null}
@@ -276,7 +279,7 @@ function groupArtifactNotes(notes) {
 function ArtifactVerificationRow({ group }) {
   return <article className="wt-ai-review-row">
     <h3>Verify {group.artifact} in the PDF</h3>
-    <Text>The saved report could not confirm this artifact in the following locations. Check them in the original PDF before requesting changes.</Text>
+    <Text>The saved report could not confirm this artifact in the following locations. Check them in the original PDF.</Text>
     <ul>{group.contexts.map(context => <li key={context}>{context}</li>)}</ul>
     <Evidence finding={{ requirement: group.notes[0].requirement, source: group.notes[0].source }} />
     <details className="wt-ai-review-originals">
@@ -319,7 +322,7 @@ function legacyVerification(finding) {
     ...finding, title: quoted ? `Verify ${quoted[1]}` : 'Verify template comparison',
     sectionCheck: /^Mapped-template body heading/i.test(finding.issue || '') ? quoted?.[1] : null,
     issue: 'This older text-based comparison requires confirmation in the original PDF.',
-    nextAction: 'Confirm section applicability, equivalent headings, and graphical content before requesting a revision.',
+    nextAction: 'Confirm section applicability, equivalent headings, and graphical content in the original PDF.',
     evidence: templateEvidence ? '' : finding.evidence,
     requirement: finding.requirement || (templateEvidence ? finding.evidence : '')
   };

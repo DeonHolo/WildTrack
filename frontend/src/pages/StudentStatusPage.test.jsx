@@ -561,7 +561,7 @@ describe('student dashboard', () => {
     const framework = within(artifacts).getByRole('group', { name: 'Framework / Model artifact' });
     const highlights = within(artifacts).getByRole('group', { name: 'MVP Validation Highlights artifact' });
     expect(framework).toHaveTextContent('Google Drive PDF');
-    expect(framework).toHaveTextContent('Ready for review');
+    expect(framework).toHaveTextContent('Looks filled');
     expect(framework).toHaveTextContent('Framework PDF is readable and accessible.');
     expect(within(framework).getByRole('button', { name: 'View Document Check' })).toBeInTheDocument();
     expect(highlights).toHaveTextContent('Google Drive PDF');

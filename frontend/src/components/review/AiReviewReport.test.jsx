@@ -44,7 +44,7 @@ it('combines diagram presence checks while retaining locations, excerpts and eac
   })) };
   const original = JSON.stringify(value);
   show(value);
-  expect(screen.getByText('1 to verify')).toBeVisible();
+  expect(screen.getByText('1 item to check')).toBeVisible();
   expect(screen.getAllByRole('heading', { name: 'Check diagrams in the PDF' })).toHaveLength(1);
   expect(screen.queryByText(/Original artifact observations/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Text extraction could not verify/)).not.toBeInTheDocument();
@@ -71,7 +71,7 @@ it('keeps multiple diagram types in one check and a single affected location vis
   expect(screen.getByText('1.3 Live tracker')).toBeVisible();
   expect(screen.getByText('Use Case Diagram, Activity Diagram, Wireframe', { exact: false })).toBeVisible();
   expect(screen.getByRole('link', { name: 'Open PDF and check page 20' })).toHaveAttribute('href', 'https://drive.google.com/file/d/source/view');
-  expect(screen.getByText('1 to verify')).toBeVisible();
+  expect(screen.getByText('1 item to check')).toBeVisible();
 });
 
 it('does not combine a specific diagram-content concern with automatic presence checks', () => {
@@ -82,7 +82,7 @@ it('does not combine a specific diagram-content concern with automatic presence 
     ] });
   expect(screen.getByText('The approval diagram contradicts the stated adviser role.')).toBeVisible();
   expect(screen.getByText('Check diagram labels')).toBeVisible();
-  expect(screen.getByText('1 concern · 2 to verify')).toBeVisible();
+  expect(screen.getByText('1 concern · 2 items to check')).toBeVisible();
 });
 
 const checks = [
@@ -117,8 +117,8 @@ it('keeps full long quotes available without filling the initial checklist with 
 it('puts manual questions in the visible checklist and does not turn them into a green approval', () => {
   show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks, verificationNotes: [{ title: 'Check the sequence diagram', issue: 'Image-only diagram cannot be verified.', evidence: 'Page 8 image', requirement: 'Diagram requirement' }] });
   expect(screen.getByText('Check the sequence diagram')).toBeVisible();
-  expect(screen.getByText('Verify in PDF')).toBeVisible();
-  expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
+  expect(screen.getByText('Check in PDF', { selector: '.wt-ai-review-item-label' })).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent('Check in PDF');
   expect(screen.getByRole('status')).not.toHaveTextContent('No actionable issues');
 });
 
@@ -203,8 +203,8 @@ it('preserves uncertain section evidence without counting it as a supported conc
     { issue: 'The required section “1. Introduction” could not be located.', requirement: '1. Introduction', source: 'OFFICIAL_TEMPLATE', evidence: 'Original introduction observation' },
     { issue: 'The required section “2. Overall Description” could not be located.', requirement: '2. Overall Description', source: 'OFFICIAL_TEMPLATE', evidence: 'Original context observation' }
   ] });
-  expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
-  expect(screen.getByText('2 to verify')).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent('Check in PDF');
+  expect(screen.getByText('2 items to check')).toBeVisible();
   expect(screen.getByText('Original introduction observation')).toBeInTheDocument();
   expect(screen.getByText('Original context observation')).toBeInTheDocument();
 });
@@ -221,7 +221,7 @@ it('groups repeated artifact locations and preserves their supporting details', 
     issue: `Text extraction could not verify 'Use Case Description' in transaction '${context}'. Its label was not located in the extracted transaction.`,
     source: 'OFFICIAL_TEMPLATE', requirement: 'Use Case Description', evidence: `${context} original observation`
   })) });
-  expect(screen.getByRole('status')).toHaveTextContent('Needs manual verification');
+  expect(screen.getByRole('status')).toHaveTextContent('Check in PDF');
   expect(screen.getAllByRole('heading', { name: 'Verify Use Case Description in the PDF' })).toHaveLength(1);
   expect(screen.getByText("transaction '1.2 Upload receipt'")).toBeVisible();
   expect(screen.getByText('1.2 Upload receipt original observation')).toBeInTheDocument();

@@ -534,9 +534,9 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
       <Modal opened={pasteOpened} onClose={() => setPasteOpened(false)} title={`Paste ${config.label.toLowerCase()} rows`} size="xl" centered>
         <Stack gap="md">
           <Text size="sm" c="dimmed">
-            Paste tab-separated spreadsheet rows. You can include a header row in any column order. Preview is local until you apply it to the grid, and Save changes commits the edited rows as one backend transaction.
+            Select spreadsheet cells, copy them, then paste here (Ctrl/Cmd+V). Required columns: {config.columns.filter((item) => item.required).map((item) => item.label).join(', ')}. Recognized column headers can be in any order; you can also paste rows without headers using the column order shown below.
           </Text>
-          <Text size="xs" ff="monospace">{config.columns.map((item) => item.label).join(' · ')}</Text>
+          <Text size="xs" ff="monospace">Column order without headers: {config.columns.map((item) => item.label).join(' · ')}</Text>
           <Textarea
             aria-label="Pasted spreadsheet rows"
             minRows={7}

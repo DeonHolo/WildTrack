@@ -8,7 +8,7 @@ export function WildTrackBrand({ compact = false, to = '/', subtitle = 'Capstone
       <WildTrackMark className="wt-brand-mark" size={compact ? 36 : 40} />
       <Group gap={0} className="wt-brand-copy">
         <Text component="strong" fw={800}>WildTrack</Text>
-        {!compact ? <Text component="small" size="xs">{subtitle}</Text> : null}
+        {!compact && subtitle ? <Text component="small" size="xs">{subtitle}</Text> : null}
       </Group>
     </Link>
   );

@@ -129,6 +129,9 @@ describe('AcademicDataWorkspace', () => {
     await openStudents();
     fireEvent.click(screen.getByRole('button', { name: 'Paste rows' }));
     const dialog = await screen.findByRole('dialog', { name: 'Paste students rows' });
+    expect(dialog).toHaveTextContent(/select spreadsheet cells, copy them, then paste here/i);
+    expect(dialog).toHaveTextContent(/required columns: student number, student name, team code/i);
+    expect(dialog).toHaveTextContent(/recognized column headers can be in any order/i);
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Pasted spreadsheet rows' }), {
       target: { value: 'Team code\tStudent name\tStudent Number\nTEAM-01\tDOE, JANE UPDATED\t26-0001\nTEAM-02\tNEW, STUDENT\t26-0002' }
     });

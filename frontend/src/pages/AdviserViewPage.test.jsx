@@ -286,6 +286,26 @@ describe('adviser My advised teams review', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  it('stops pending batch checks and progress when entering adviser preview', async () => {
+    let finish, progress, shouldContinue;
+    workflow.runDocumentChecks.mockImplementation((_workspace, _responses, _deliverables, options) => {
+      progress = options.onProgress;
+      shouldContinue = options.shouldContinue;
+      return new Promise(resolve => { finish = resolve; });
+    });
+    renderPage('admin');
+    fireEvent.click(screen.getByRole('button', { name: /Check .*unchecked member response/ }));
+    expect(shouldContinue()).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'View another adviser' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Read-only adviser preview');
+    expect(shouldContinue()).toBe(false);
+    await act(async () => {
+      progress({ completed: 1, total: 2 });
+      finish({ completed: 2, total: 2, failed: 0 });
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('limits a regular adviser to assigned teams and groups equivalent member submissions', () => {
     renderPage();
 
@@ -298,6 +318,35 @@ describe('adviser My advised teams review', () => {
     screen.getAllByText('Not checked').forEach((label) => {
       expect(label.closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'neutral');
     });
+  });
+
+  it('keeps another-adviser preview read-only while preserving saved review reads', async () => {
+    workflow.state.attempts.find((response) => response.id === 'response-b1').documentCheck = {
+      status: 'Current', checkedAt: '2026-04-17T12:05:00+08:00',
+      sourceResponseUpdatedAt: '2026-04-17T12:00:00+08:00', summary: 'Readable PDF.'
+    };
+    renderPage('admin');
+    localStorage.setItem('wildtrack.v2.preview-adviser', 'Prof. Adrian Flores');
+    fireEvent.click(screen.getByRole('button', { name: 'View another adviser' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Read-only adviser preview');
+    expect(await screen.findByRole('button', { name: new RegExp(TEAM_B) })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Feedback for student' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Accept group output' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revoke acceptance' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Check document|Check .*unchecked/i })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'View Document Check' }));
+    const dialog = await screen.findByRole('dialog', { name: /Document Check/i });
+    expect(within(dialog).queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Close/i }));
+    expect(workflow.runDocumentCheck).not.toHaveBeenCalled();
+    expect(workflow.runDocumentChecks).not.toHaveBeenCalled();
+    expect(workflow.saveFeedback).not.toHaveBeenCalled();
+    expect(workflow.markAccepted).not.toHaveBeenCalled();
+    expect(workflow.revokeAcceptance).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to my teams' }));
+    expect(screen.queryByText('Read-only adviser preview')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Feedback for student' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept group output' })).toBeInTheDocument();
   });
 
   it('shows conflicting member files and lets the adviser choose the current group output', async () => {

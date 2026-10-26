@@ -13,7 +13,7 @@ import {
 } from '@mantine/core';
 import { MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
 import { useId } from 'react';
-import { statusTone } from '../lib/workflow.js';
+import { statusDisplayLabel, statusTone } from '../lib/workflow.js';
 
 export { DevelopmentRolePreview as GlobalDevPreview } from './layout/DevelopmentRolePreview.jsx';
 
@@ -53,7 +53,7 @@ export function StatusIndicator({ status, className = '' }) {
   return (
     <span className={`wt-status-indicator ${className}`.trim()} data-tone={tone}>
       <span className="wt-status-indicator-dot" aria-hidden="true" />
-      <span className="wt-status-indicator-label">{status}</span>
+      <span className="wt-status-indicator-label">{statusDisplayLabel(status)}</span>
     </span>
   );
 }

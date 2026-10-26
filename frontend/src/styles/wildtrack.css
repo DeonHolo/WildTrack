@@ -1123,9 +1123,8 @@
   min-width: 0;
   align-items: center;
   padding: 8px 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .wt-tracker-table-region {
@@ -2417,13 +2416,15 @@
   display: inline-flex;
   min-width: 0;
   flex: 0 0 auto;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-start;
   gap: 7px;
   color: #4f4649;
   font-size: 0.75rem;
   font-weight: 700;
-  white-space: nowrap;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .wt-review-status-cell {
@@ -2434,12 +2435,14 @@
 
 .wt-review-status-cell .wt-status-indicator {
   justify-content: center;
+  max-width: 100%;
 }
 
 .wt-status-indicator-dot {
   width: 7px;
   height: 7px;
   flex: 0 0 7px;
+  margin-top: calc(0.75em - 3.5px);
   border-radius: 50%;
   background: #9b9296;
 }
