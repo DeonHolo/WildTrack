@@ -64,6 +64,8 @@ class GeminiAiReviewProviderTest {
             var properties = json.valueToTree(method.invoke(null, 20, count)).path("properties");
             var coverage = properties.path("criterionReviews");
             assertThat(coverage.has("maxItems")).isFalse();
+            assertThat(coverage.path("items").path("required").toString())
+                .contains("criterionId", "assessment", "explanation", "documentEvidence");
             assertThat(coverage.path("items").path("properties").path("criterionId").path("enum").size())
                 .isEqualTo(Math.max(1, count));
             for (String field : List.of("verifiedCheckIndexes", "findingIndexes",
@@ -292,7 +294,7 @@ class GeminiAiReviewProviderTest {
         assertThat(result.verifiedChecks()).isEmpty();
         assertThat(result.limitations()).isEmpty();
         assertThat(provider.cacheVersion()).contains("gemini-3.5-flash-lite", "rest-pdf-v7", "thinking-minimal", "output-8192",
-            "schema-structured-review-v11-document-overview");
+            "schema-structured-review-v12-instruction-assessments");
         assertThat(provider.cacheVersion()).doesNotContain("temperature-0.2");
         server.verify();
     }

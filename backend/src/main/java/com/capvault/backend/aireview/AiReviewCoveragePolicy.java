@@ -270,11 +270,12 @@ final class AiReviewCoveragePolicy {
     private static ReviewCoverage mergeCoverage(Result from, Result into) {
         if (from.coverage() == null) return null;
         return new ReviewCoverage(from.coverage().criteria().stream().map(item -> row(
-            new Criterion(item.id(), item.requirement(), item.source()),
+            new Criterion(item.id(), item.requirement(), item.source(), item.title()),
             remap(item.verifiedCheckIndexes(), from.verifiedChecks(), into.verifiedChecks(), AiReviewCoveragePolicy::sameCheck),
             remap(item.findingIndexes(), from.findings(), into.findings(), AiReviewCoveragePolicy::sameFinding),
             remap(item.missingSectionIndexes(), from.missingRequiredSections(), into.missingRequiredSections(), AiReviewCoveragePolicy::sameMissing),
-            remap(item.verificationNoteIndexes(), from.verificationNotes(), into.verificationNotes(), AiReviewCoveragePolicy::sameFinding))).toList(),
+            remap(item.verificationNoteIndexes(), from.verificationNotes(), into.verificationNotes(), AiReviewCoveragePolicy::sameFinding),
+            item.assessment(), item.explanation(), item.documentEvidence(), item.location())).toList(),
             from.coverage().omittedCriteria(), 2, null, from.coverage().scopeNote());
     }
 

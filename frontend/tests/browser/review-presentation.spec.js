@@ -41,7 +41,10 @@ const documentOverview = { text: 'This requirements document describes a project
 const report = { documentOverview, outcome: 'NO_ISSUES_IN_CHECKED_AREAS', findings: [], verifiedChecks: [
   { aspect: 'Scope identifies users', source: 'DELIVERABLE_REQUIREMENTS', documentEvidence: 'Scope: students and advisers.', requirement: 'Identify intended users.' },
   { aspect: 'Submission workflow described', source: 'OFFICIAL_TEMPLATE', documentEvidence: 'FR-01: submit a PDF.', requirement: 'Functional requirements' }
-] };
+] , coverage: { criteria: [
+  { id: 'C1', title: 'Scope and users', requirement: 'Identify intended users.', source: 'DELIVERABLE_REQUIREMENTS', assessment: 'APPEARS_ADDRESSED', explanation: 'The submitted document names students and advisers.', documentEvidence: 'Scope: students and advisers.', location: { page: 3, section: '1.3 Users' } },
+  { id: 'C2', title: 'Functional requirements', requirement: 'Describe the submission workflow.', source: 'OFFICIAL_TEMPLATE', assessment: 'APPEARS_ADDRESSED', explanation: 'The workflow is described with a PDF submission step.', documentEvidence: 'FR-01: submit a PDF.', location: { page: 6, section: '3.2 Functional requirements' } }
+] } };
 const review = { status: 'COMPLETED', sourceUrl, generatedAt: '2026-10-14T11:22:46Z', report };
 const check = { fieldId: field, sourceUrl, status: 'COMPLETED', checkedAt: '2026-10-14T11:20:00Z',
   summary: 'Readable PDF.', metadata: { name: 'Submitted PDF.pdf', mimeType: 'application/pdf', canDownload: true },
@@ -134,10 +137,14 @@ test('opens the saved successful result and quoted PDF evidence without another 
   await expect(ai.getByRole('link', { name: 'Open PDF', exact: true })).toHaveAttribute('target', '_blank');
   await expect(ai.getByText(documentOverview.text, { exact: true })).toBeVisible();
   await expect(ai.getByText(/This is not the required document/)).toHaveCount(0);
-  await ai.getByText('Other checked items (2)', { exact: true }).click();
-  await expect(ai.getByText('Scope identifies users', { exact: true })).toBeVisible();
+  await expect(ai.getByRole('region', { name: 'Template and instruction assessment' })).toBeVisible();
+  await expect(ai.getByText('Appears addressed (2)', { exact: true })).toBeVisible();
+  await expect(ai.getByText(/Other checked items/)).toHaveCount(0);
+  await ai.getByText('Appears addressed (2)', { exact: true }).click();
+  const scopeSummary = ai.locator('.wt-ai-review-assessment-summary').filter({ hasText: 'Scope and users' });
+  await expect(scopeSummary).toBeVisible();
   await expect(ai.locator('blockquote').first()).not.toBeVisible();
-  await ai.getByText('View supporting text', { exact: true }).first().click();
+  await scopeSummary.click();
   await expect(ai.locator('blockquote').first()).toBeVisible();
   await expect(ai.locator('blockquote').first()).toHaveText('Scope: students and advisers.');
   await expect(ai.getByText('PDF excerpt', { exact: true })).toHaveCount(0);

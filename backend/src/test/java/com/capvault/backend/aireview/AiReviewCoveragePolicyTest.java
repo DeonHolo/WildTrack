@@ -198,6 +198,40 @@ class AiReviewCoveragePolicyTest {
             .isEqualTo(ReviewOutcome.INCONCLUSIVE);
     }
 
+    @Test void combiningPassesRetainsDirectAssessmentWhenTheOtherPassHasOnlyLegacyMetadata() {
+        var location = new EvidenceLocation(7, null);
+        var first = new CriterionAssessment("C1", "Describe project roles.", FindingSource.OFFICIAL_TEMPLATE,
+            CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
+            CriterionAssessmentLabel.APPEARS_ADDRESSED, "The named members have assigned responsibilities.",
+            "The project lead coordinates the assigned implementation and review responsibilities.", location, "Project roles");
+        var combined = AiReviewCoveragePolicy.combine(with(List.of(), List.of(first)),
+            with(List.of(), List.of(mapping("C1", List.of()))));
+        var row = combined.coverage().criteria().getFirst();
+        assertThat(row.assessment()).isEqualTo(first.assessment());
+        assertThat(row.explanation()).isEqualTo(first.explanation());
+        assertThat(row.documentEvidence()).isEqualTo(first.documentEvidence());
+        assertThat(row.location()).isEqualTo(location);
+        assertThat(row.title()).isEqualTo("Project roles");
+    }
+
+    @Test void combiningPassesKeepsTheSelectedAssessmentAndItsEvidenceTogether() {
+        var first = new CriterionAssessment("C1", "Describe project roles.", FindingSource.OFFICIAL_TEMPLATE,
+            CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
+            CriterionAssessmentLabel.APPEARS_ADDRESSED, "Roles are described.",
+            "The project lead coordinates the assigned implementation responsibilities.", new EvidenceLocation(7, null), "Project roles");
+        var second = new CriterionAssessment("C1", "Describe project roles.", FindingSource.OFFICIAL_TEMPLATE,
+            CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
+            CriterionAssessmentLabel.CHECK_MANUALLY, "Confirm the overlapping approval responsibilities.",
+            null, null, "Project roles");
+        var combined = AiReviewCoveragePolicy.combine(with(List.of(), List.of(first)), with(List.of(), List.of(second)));
+        var row = combined.coverage().criteria().getFirst();
+        assertThat(row.assessment()).isEqualTo(second.assessment());
+        assertThat(row.explanation()).isEqualTo(second.explanation());
+        assertThat(row.documentEvidence()).isNull();
+        assertThat(row.location()).isNull();
+        assertThat(row.title()).isEqualTo("Project roles");
+    }
+
     private static CriterionAssessment mapping(String id, List<Integer> checks) {
         return new CriterionAssessment(id, "", null, CoverageStatus.NOT_CHECKED, checks, List.of(), List.of(), List.of());
     }
