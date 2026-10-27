@@ -267,6 +267,62 @@ class TemplateComparatorTest {
     }
 
     @Test
+    void pdfDottedLeadersWithoutSpacesAreNotRequiredHeadingText() {
+        String template = """
+            Table of Contents
+            Change History................................2
+            Table of Contents.............................3
+            1. Introduction...............................4
+            3.1.1. Hardware interfaces.....................6
+            3.4 Non-functional requirements................7
+            Performance...................................8
+            Module 1......................................8
+            1. Introduction
+            Overview of this project.
+            3.1.1.Hardware interfaces
+            Device interfaces.
+            3.4Non-functional requirements
+            Performance
+            Response time limits.
+            """;
+
+        var result = comparator.compare(template, template);
+
+        assertThat(result.expectedTemplateHeadings()).containsExactly(
+            "Introduction", "Hardware interfaces", "Non-functional requirements", "Performance");
+        assertThat(result.detectedTemplateHeadings()).containsExactlyElementsOf(result.expectedTemplateHeadings());
+        assertThat(result.missingTemplateHeadings()).isEmpty();
+        assertThat(comparator.compare(template, "1. Introduction\nA completed introduction.").missingTemplateHeadings())
+            .containsExactly("Hardware interfaces", "Non-functional requirements", "Performance");
+    }
+
+    @Test
+    void numericTitlePrefixesArePreservedWhenTheyAreNotSectionNumbers() {
+        String template = "Table of Contents\n3D models................4\n3D models\nModel details.";
+        var result = comparator.compare(template, template);
+        assertThat(result.expectedTemplateHeadings()).containsExactly("3D models");
+        assertThat(result.detectedTemplateHeadings()).containsExactly("3D models");
+    }
+
+    @Test
+    void dottedTocSuffixDoesNotConsumeNumbersWithinSectionTitles() {
+        String template = "Table of Contents\n1. Section 1......4\n2. Section 2......5\n1.Section 1\n2.Section 2";
+        var result = comparator.compare(template, template);
+        assertThat(result.expectedTemplateHeadings()).containsExactly("Section 1", "Section 2");
+        assertThat(result.detectedTemplateHeadings()).containsExactly("Section 1", "Section 2");
+    }
+
+    @Test
+    void dottedLeadersBetweenSectionNumbersAndTitlesAreNotBodyHeadings() {
+        String contents = "Table of Contents\n1........Introduction 4\n2........Test Plan 5\n3........Test Cases 6";
+        String body = "1.Introduction\nOverview.\n2.Test Plan\nPlan.\n3.Test Cases\nCases.";
+        var result = comparator.compare(contents + "\n" + body, contents + "\n" + body);
+        assertThat(result.expectedTemplateHeadings()).containsExactly("Introduction", "Test Plan", "Test Cases");
+        assertThat(result.detectedTemplateHeadings()).containsExactlyElementsOf(result.expectedTemplateHeadings());
+        assertThat(comparator.compare(contents, contents).detectedTemplateHeadings()).isEmpty();
+    }
+
+    @Test
     void templatePlaceholderBranchesAreNotFixedRequiredSections() {
         String template = """
             Table of Contents
