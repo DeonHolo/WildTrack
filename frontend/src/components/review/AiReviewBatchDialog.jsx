@@ -1,9 +1,10 @@
-import { TemplateChecklistNotices } from './TemplateChecklistNotices.jsx';
 import { useState } from 'react';
-import { Alert, Button, Checkbox, Group, Radio, Stack, Text } from '@mantine/core';
+import { Alert, Checkbox, Radio, Stack, Text } from '@mantine/core';
+import { AiBatchActions, AiBatchSelectionSummary } from './AiBatchPresentation.jsx';
 import { aiBatchUpdatedDocuments, aiBatchSelection } from '../../lib/aiReviewBatch.js';
 import { formatDateTime } from '../../lib/workflow.js';
 import { AiReviewBatchFailures } from './AiReviewBatchFailures.jsx';
+import { TemplateChecklistNotices } from './TemplateChecklistNotices.jsx';
 
 export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
   const [mode, setMode] = useState('ATTENTION');
@@ -17,10 +18,8 @@ export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
   return <Stack gap="md">
     {error ? <Alert color="red" role="alert">{error}</Alert> : null}
     <>
-      <div aria-live="polite">
-        <Text fw={700} size="lg">{counts.unique} unique {counts.unique === 1 ? 'review' : 'reviews'} to run</Text>
-        <Text size="sm">{plan.totalPdfs} total PDF submissions · {counts.artifacts} submissions in this selection</Text>
-      </div>
+      <AiBatchSelectionSummary summary={`${counts.unique} unique ${counts.unique === 1 ? 'review' : 'reviews'} to run`}
+        detail={`${plan.totalPdfs} total PDF submissions · ${counts.artifacts} submissions in this selection`} />
       <Radio.Group label="Which documents should AI Review check?" value={mode} onChange={setMode}>
         <Stack gap="sm" mt="xs">
           <Radio value="ATTENTION" label="Documents needing attention"
@@ -61,10 +60,7 @@ export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
         description="Previous attempts may already have used tokens. These retries can use additional tokens or incur charges." /> : null}
       <Text size="sm">The batch runs on the server. You can navigate away and return to its saved progress. AI feedback remains advisory.</Text>
     </>
-    <Group justify="flex-end" gap="sm">
-      <Button variant="default" onClick={onCancel}>Close</Button>
-      <Button loading={busy} disabled={!ready || !counts.unique || counts.retries > 0 && !retryAcknowledged}
-        onClick={() => onStart({ version: plan.version, mode, includeOutdated, retryAcknowledged })}>Start review</Button>
-    </Group>
+    <AiBatchActions onCancel={onCancel} busy={busy} disabled={!ready || !counts.unique || counts.retries > 0 && !retryAcknowledged}
+      confirmLabel="Start review" onConfirm={() => onStart({ version: plan.version, mode, includeOutdated, retryAcknowledged })} />
   </Stack>;
 }

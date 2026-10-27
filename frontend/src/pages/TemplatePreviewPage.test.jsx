@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TemplatePreviewPage } from './TemplatePreviewPage.jsx';
@@ -74,6 +74,30 @@ describe('official template browser preview', () => {
     expect(api.checklist).not.toHaveBeenCalled();
   });
 
+  it('confirms removal and saves it only when the draft is saved', async () => {
+    const items = ['Purpose', 'Scope'].map(title => ({ title, instruction: 'Explain the scope', sourceQuote: 'Scope', section: 'Introduction', page: 1, applicability: 'REQUIRED', condition: '' }));
+    api.checklist.mockResolvedValue({ versionId: 'version-1', revision: 2, state: 'DRAFT', pdfPages: 7, items });
+    api.save.mockImplementation((_ws, _id, payload) => Promise.resolve({ versionId: 'version-1', revision: 3, state: 'DRAFT', pdfPages: 7, items: payload.items }));
+    render(tree());
+    fireEvent.click(await screen.findByRole('button', { name: 'Purpose', exact: true }));
+    const remove = screen.getByRole('button', { name: 'Remove item', exact: true });
+    expect(remove.querySelector('svg')).toBeInTheDocument();
+    fireEvent.click(remove);
+    let dialog = screen.getByRole('dialog', { name: 'Remove checklist item?' });
+    expect(within(dialog).getByText(/There is no Undo/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Purpose', exact: true })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel', exact: true }));
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+    fireEvent.click(remove);
+    dialog = screen.getByRole('dialog', { name: 'Remove checklist item?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove item', exact: true }));
+    expect(screen.queryByRole('button', { name: 'Purpose', exact: true })).not.toBeInTheDocument();
+    expect(api.save).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(api.save).toHaveBeenCalled());
+    expect(api.save.mock.calls[0][2].items.map(item => item.title)).toEqual(['Scope']);
+  });
+
   it('requires confirmation before requesting an AI draft', async () => {
     api.prepare.mockResolvedValue({ versionId: 'version-1', revision: 1, state: 'QUEUED', pdfPages: 7, items: [] });
     render(tree());
@@ -98,7 +122,7 @@ describe('official template browser preview', () => {
     api.checklist.mockResolvedValue({ versionId: 'version-1', revision: 2, state: 'DRAFT', pdfPages: 7, items: [{ title: 'Purpose', instruction: 'Explain purpose', sourceQuote: 'Purpose', section: 'Introduction', page: 1, applicability: 'REQUIRED', condition: '' }] });
     api.save.mockRejectedValue(Object.assign(new Error('Revision changed'), { status: 409 }));
     render(tree());
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Purpose', exact: true }));
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Edited purpose' } });
     expect(screen.getByRole('button', { name: 'Approve checklist' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
@@ -113,7 +137,7 @@ describe('official template browser preview', () => {
     api.save.mockImplementation(async (_w, _t, payload) => ({ versionId: 'version-1', revision: 4, state: 'DRAFT', pdfPages: 7, items: payload.items }));
     render(tree());
     expect(await screen.findByRole('button', { name: 'Item 30' })).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Item 1', exact: true }));
     fireEvent.click(screen.getByRole('textbox', { name: 'Applicability' }));
     fireEvent.click(await screen.findByRole('option', { name: 'Optional' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
@@ -145,16 +169,54 @@ describe('official template browser preview', () => {
     const item = { title: 'Purpose', instruction: 'Explain', sourceQuote: 'Purpose', section: '', page: 1, applicability: 'REQUIRED', condition: '' };
     api.checklist.mockResolvedValue({ versionId: 'version-1', revision: 2, state: 'DRAFT', pdfPages: 7, items: [item] });
     const mounted = render(tree());
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Purpose', exact: true }));
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Unsaved title' } });
     mounted.unmount();
     api.checklist.mockResolvedValue({ versionId: 'version-1', revision: 3, state: 'DRAFT', pdfPages: 7, items: [item] });
     render(tree());
     expect(await screen.findByText(/unsaved edits have been restored/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Unsaved title', exact: true }));
     expect(screen.getByLabelText('Title')).toHaveValue('Unsaved title');
     expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Reload checklist' })).toBeInTheDocument();
+  });
+
+  it('shows one disclosure and a read-only source while preserving the original excerpt on save', async () => {
+    const item = { title: 'Purpose', instruction: 'Explain the document purpose.', sourceQuote: 'Original source wording', section: '1.1 Purpose', page: 2, applicability: 'REQUIRED', condition: '' };
+    api.checklist.mockResolvedValue({ versionId: 'version-1', revision: 2, state: 'DRAFT', pdfPages: 7, items: [item] });
+    api.save.mockImplementation(async (_w, _t, payload) => ({ versionId: 'version-1', revision: 3, state: 'DRAFT', pdfPages: 7, items: payload.items }));
+    render(tree());
+    const toggle = await screen.findByRole('button', { name: 'Purpose', exact: true });
+    expect(screen.queryByRole('button', { name: 'Edit', exact: true })).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Source: 1.1 Purpose · PDF page 2')).toBeInTheDocument();
+    expect(screen.queryByText('Source details')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Source quote')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Template excerpt')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Instruction'), { target: { value: 'Explain the purpose of this document, including its audience.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(api.save).toHaveBeenCalled());
+    expect(api.save.mock.calls[0][2].items).toEqual([{ ...item, instruction: 'Explain the purpose of this document, including its audience.' }]);
+  });
+
+  it('collects a source for a new manual item without sending UI bookkeeping to the server', async () => {
+    api.save.mockImplementation(async (_w, _t, payload) => ({ versionId: 'version-1', revision: 1, state: 'DRAFT', pdfPages: 7, items: payload.items }));
+    render(tree());
+    fireEvent.click(await screen.findByRole('button', { name: 'Add item' }));
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Project scope' } });
+    fireEvent.change(screen.getByLabelText('Instruction'), { target: { value: 'Describe the project scope.' } });
+    fireEvent.change(screen.getByLabelText('PDF page'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    expect(api.save).not.toHaveBeenCalled();
+    expect(screen.getByText('Enter the source quote.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Template excerpt'), { target: { value: 'Describe the project scope.' } });
+    fireEvent.change(screen.getByLabelText('Source section (optional)'), { target: { value: '1.2 Scope' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(api.save).toHaveBeenCalled());
+    expect(api.save.mock.calls[0][2].items).toEqual([{ title: 'Project scope', instruction: 'Describe the project scope.', sourceQuote: 'Describe the project scope.', section: '1.2 Scope', page: 2, applicability: 'REQUIRED', condition: '' }]);
+    expect(await screen.findByText('Source: 1.2 Scope · PDF page 2')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Template excerpt')).not.toBeInTheDocument();
   });
 
   it('lists each detected heading once and keeps missing expectations separate', async () => {

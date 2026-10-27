@@ -449,6 +449,12 @@ export function retryDocumentTemplatePdf(workspaceId, templateId, versionId) {
 export function getDocumentTemplateChecklist(workspaceId, templateId) {
   return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist`, workspaceId));
 }
+export function getTemplateChecklistBatch(workspaceId) {
+  return request(withWorkspace('/templates/checklists', workspaceId));
+}
+export function prepareTemplateChecklistBatch(workspaceId, selected) {
+  return request(withWorkspace('/templates/checklists/prepare', workspaceId), { method: 'POST', body: selected });
+}
 export function prepareDocumentTemplateChecklist(workspaceId, templateId, payload) {
   return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist/prepare`, workspaceId), { method: 'POST', body: payload });
 }

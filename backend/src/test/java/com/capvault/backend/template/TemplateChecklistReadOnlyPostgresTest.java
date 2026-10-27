@@ -28,6 +28,12 @@ class TemplateChecklistReadOnlyPostgresTest {
             var template = UUID.randomUUID();
             var version = UUID.randomUUID();
             db.update("""
+                INSERT INTO academic_document_templates
+                    (id,workspace_id,deliverable_key,display_name,original_filename,content_type,
+                     storage_path,sha256,extracted_text,extracted_character_count,created_at,updated_at)
+                VALUES (?,?,'BATCH_READ_ONLY','Test','Test.pdf','application/pdf','test','source','Test',4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                """, template, workspace);
+            db.update("""
                 INSERT INTO academic_document_template_versions
                     (id,template_id,workspace_id,deliverable_key,display_name,original_filename,
                      source_content_type,source_sha256,pdf_state,pdf_bytes,pdf_sha256,pdf_pages)
@@ -41,6 +47,7 @@ class TemplateChecklistReadOnlyPostgresTest {
             readOnly.executeWithoutResult(transaction -> {
                 assertThat(db.queryForObject("SHOW transaction_read_only", String.class)).isEqualTo("on");
                 assertThat(service.get(workspace, template).state()).isEqualTo("UNPREPARED");
+                assertThat(service.batch(workspace).stream().filter(item -> item.templateId().equals(template)).findFirst().orElseThrow().state()).isEqualTo("UNPREPARED");
                 assertThat(service.fingerprint(workspace, template)).hasSize(64);
             });
             String previous = service.fingerprint(workspace, template);
@@ -53,6 +60,7 @@ class TemplateChecklistReadOnlyPostgresTest {
                     """, version, state);
                 String current = readOnly.execute(transaction -> {
                     assertThat(service.get(workspace, template).state()).isEqualTo(state);
+                    assertThat(service.batch(workspace).stream().filter(item -> item.templateId().equals(template)).findFirst().orElseThrow().state()).isEqualTo(state);
                     return service.fingerprint(workspace, template);
                 });
                 assertThat(current).isNotEqualTo(previous);

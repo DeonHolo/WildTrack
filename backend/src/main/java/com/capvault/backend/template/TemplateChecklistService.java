@@ -23,6 +23,32 @@ public class TemplateChecklistService {
     }
     public record View(UUID versionId,long revision,String state,Integer pdfPages,List<TemplateInstructionProtocol.Draft> items,Instant approvedAt,String error) {}
     public record Approved(UUID versionId,String pdfSha256,byte[] pdf,List<TemplateInstructionPreparation.Instruction> instructions,String fingerprint) {}
+    public record BatchItem(UUID templateId,UUID versionId,long revision,String title,String state,String pdfState,String error) {}
+    public record BatchRequest(UUID templateId,UUID versionId,long expectedRevision) {}
+    @Transactional(readOnly = true)
+    public List<BatchItem> batch(UUID workspace) {
+        return store.database().query("""
+            SELECT t.id,v.id,COALESCE(c.revision,0),t.display_name,
+                   COALESCE(c.state,'UNPREPARED'),COALESCE(v.pdf_state,'UNAVAILABLE'),c.error
+            FROM academic_document_templates t
+            LEFT JOIN academic_document_template_versions v ON v.template_id=t.id
+                AND v.workspace_id=t.workspace_id AND v.source_sha256=t.sha256
+            LEFT JOIN template_checklists c ON c.version_id=v.id
+            WHERE t.workspace_id=? ORDER BY t.deliverable_key,t.id
+            """, (rs,n) -> new BatchItem(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),
+                rs.getLong(3),rs.getString(4),rs.getString(5),rs.getString(6),rs.getString(7)),workspace);
+    }
+    @Transactional
+    public List<BatchItem> requestBatch(UUID workspace,List<BatchRequest> selected) {
+        if (selected==null || selected.isEmpty() || selected.stream().anyMatch(item -> item==null
+            || item.templateId()==null || item.versionId()==null || item.expectedRevision()<0)
+            || selected.stream().map(BatchRequest::templateId).distinct().count()!=selected.size())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Select valid templates to prepare.");
+        // One transaction queues the whole selection; stable lock order avoids batch deadlocks.
+        for (var item:selected.stream().sorted(java.util.Comparator.comparing(BatchRequest::templateId)).toList())
+            requestPreparation(workspace,item.templateId(),item.versionId(),item.expectedRevision());
+        return batch(workspace);
+    }
     private ResponseStatusException conflict() { return new ResponseStatusException(HttpStatus.CONFLICT,"The template or checklist changed. Reload and try again."); }
     private TemplatePdfStore.Status current(UUID workspace, UUID id, UUID version) {
         var current=pdfs.current(workspace,id);

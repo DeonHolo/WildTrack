@@ -107,17 +107,47 @@ for (const width of [390, 1440]) {
   });
 }
 
-for (const width of [390, 1440]) {
+for (const width of [390, 1024, 1440]) {
   test(`an admin can inspect, correct and approve a long checklist beside its PDF at ${width}px`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width, height: 950 });
+    await page.setViewportSize({ width, height: width === 1024 ? 760 : 950 });
     const items = Array.from({ length: 33 }, (_, index) => ({ title: `Describe project activity ${index + 1}`,
       instruction: 'Describe the project scope, users, roles and schedule.', sourceQuote: 'Describe the project scope, users, roles and schedule.',
       section: 'Project planning', page: 1, applicability: 'REQUIRED', condition: '' }));
+    items[0].instruction = Array.from({ length: 14 }, (_, i) => `Requirement ${i + 1}: Describe the project scope, users, roles and schedule.`).join('\n');
     const fixture = await installTemplate(page, { checklist: { versionId, revision: 2, state: 'DRAFT', pdfPages: 2, items } });
     await page.goto(previewUrl);
     const editor = page.locator('.template-checklist');
     await expect(editor.getByRole('button', { name: 'Describe project activity 33', exact: true })).toBeAttached();
+    await page.evaluate(() => document.fonts.ready);
+    expect(await page.evaluate(() => [...document.fonts].some(font => font.family.includes('Manrope') && font.status === 'loaded'))).toBe(true);
+    await expect(editor.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
     await editor.getByRole('button', { name: 'Describe project activity 1', exact: true }).click();
+    const instruction = editor.getByRole('textbox', { name: 'Instruction', exact: true });
+    await expect.poll(() => instruction.evaluate(node => node.clientHeight >= node.scrollHeight - 2)).toBe(true);
+    expect(await instruction.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(16);
+    await expect(editor.getByText('Source: Project planning · PDF page 1')).toBeVisible();
+    await expect(editor.getByText('Source details', { exact: true })).toHaveCount(0);
+    if (width >= 992) {
+      const left = await page.locator('.template-pdf-panel').boundingBox();
+      const right = await editor.boundingBox();
+      expect(Math.abs(left.y - right.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(left.height - right.height)).toBeLessThanOrEqual(1);
+      const actions = await editor.locator('.template-checklist-actions').boundingBox();
+      const layout = await editor.evaluate(el => [el, ...el.querySelectorAll('.template-checklist-body,.template-checklist-items')].map(node => ({
+        class: node.className, height: node.clientHeight, scroll: node.scrollHeight,
+        display: getComputedStyle(node).display, flex: getComputedStyle(node).flex, overflow: getComputedStyle(node).overflow, minHeight: getComputedStyle(node).minHeight
+      })));
+      expect(actions.y + actions.height, JSON.stringify(layout)).toBeLessThanOrEqual(right.y + right.height);
+    }
+    await editor.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`checklist-long-instruction-${width}.png`), fullPage: true });
+    await editor.getByRole('button', { name: 'Remove item', exact: true }).click();
+    const removal = page.getByRole('dialog', { name: 'Remove checklist item?' });
+    await expect(removal.getByText(/permanently removed when you save the draft. There is no Undo/)).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`checklist-remove-confirm-${width}.png`) });
+    await removal.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(editor.getByRole('button', { name: 'Describe project activity 1', exact: true })).toBeAttached();
+    expect(fixture.templateCalls.filter(call => call.method !== 'GET')).toEqual([]);
     await editor.getByRole('textbox', { name: 'Instruction', exact: true }).fill('Describe the project scope and identify its users.');
     await expect(editor.getByRole('button', { name: 'Approve checklist', exact: true })).toBeDisabled();
     await editor.getByRole('button', { name: 'Save draft', exact: true }).click();

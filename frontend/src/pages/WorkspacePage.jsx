@@ -37,6 +37,7 @@ import {
 } from '../lib/workspaceAdminClient.js';
 import { StaffManagementPanel } from '../components/workspace/StaffManagementPanel.jsx';
 import { MonitorSettingsDialog } from '../components/workspace/MonitorSettingsDialog.jsx';
+import { TemplateChecklistBatch } from '../components/workspace/TemplateChecklistBatch.jsx';
 
 const SOURCE_CONFIG = [
   {
@@ -791,13 +792,9 @@ export function WorkspacePage() {
       </section>
 
       <section className="panel wt-template-section">
-        <div className="panel-header">
-          <div>
-            <h2>Official templates</h2>
-            <p>Maintain one comparison template per checkable PDF artifact. Replacing a template keeps its deliverable and artifact mapping.</p>
-          </div>
+        <TemplateChecklistBatch workspaceId={activeWorkspaceId}>
           <Button type="button" icon={PlusCircle} onClick={() => openTemplateModal()}>Add official template</Button>
-        </div>
+        </TemplateChecklistBatch>
         <div className="table-wrap">
           <table aria-label="Official document templates" className="wt-template-table">
             <thead><tr><th>Deliverable</th><th>Artifact</th><th>Template</th><th>Source</th><th>Updated</th><th>Actions</th></tr></thead>
