@@ -27,7 +27,7 @@ public class TemplateChecklistStore {
         db.query("SELECT id FROM academic_document_templates WHERE workspace_id = ? AND id = ? FOR UPDATE", rs -> {}, workspace, template);
     }
     public Optional<Row> find(UUID version) {
-        expire();
+        // Monitoring reads run in read-only transactions. The worker expires leases in claim().
         return db.query("SELECT revision,state,items_json,approved_at,approval_hash,error,claim_token,retry_token FROM template_checklists WHERE version_id = ?",
             (rs, n) -> new Row(version, rs.getLong(1), rs.getString(2), decode(rs.getString(3)),
                 rs.getTimestamp(4) == null ? null : rs.getTimestamp(4).toInstant(), rs.getString(5), rs.getString(6),

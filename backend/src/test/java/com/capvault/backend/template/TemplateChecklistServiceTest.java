@@ -102,6 +102,8 @@ class TemplateChecklistServiceTest {
         var job = store.claim().orElseThrow();
         assertThat(store.claim()).isEmpty();
         db.update("UPDATE template_checklists SET lease_until=CURRENT_TIMESTAMP - INTERVAL '1' MINUTE WHERE version_id=?", version);
+        assertThat(service.get(WORKSPACE, id).state()).isEqualTo("PREPARING");
+        assertThat(store.claim()).isEmpty();
         assertThat(service.get(WORKSPACE, id).state()).isEqualTo("FAILED");
         assertThat(service.get(WORKSPACE, id).error()).isEqualTo("OUTCOME_UNKNOWN");
         assertThat(store.claim()).isEmpty();
