@@ -1,10 +1,12 @@
-import { useCallback } from 'react';
-import { Alert, Anchor, Button, Group, Paper, Stack, Text, Title } from '@mantine/core';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Anchor, Button, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
-import { getDocumentTemplateFileUrl, getDocumentTemplateStructure } from '../lib/api.js';
+import { TemplateChecklistEditor } from '../components/workspace/TemplateChecklistEditor.jsx';
+import { getDocumentTemplateFileUrl, getDocumentTemplateStructure, getDocumentTemplatePdfState,
+  getDocumentTemplatePdfUrl, retryDocumentTemplatePdf } from '../lib/api.js';
 
 const emptyTemplate = () => null;
 
@@ -14,9 +16,20 @@ export function TemplatePreviewPage() {
   const { activeWorkspaceId, session } = useWorkspaceSession();
   const adviserOnly = session?.roles?.includes('ADVISER') && !session.roles.includes('ADMIN');
   const workspaceId = query.get('workspaceId') || activeWorkspaceId;
-  const load = useCallback(id => getDocumentTemplateStructure(id, templateId), [templateId]);
+  const load = useCallback(async id => {
+    const [structure, pdf] = await Promise.all([
+      getDocumentTemplateStructure(id, templateId), getDocumentTemplatePdfState(id, templateId)
+    ]);
+    if (structure.sha256 !== pdf.sourceSha256) return { templateChanged: true };
+    return { ...structure, pdf };
+  }, [templateId]);
   const { data, status, error, reload } = useWorkspaceResource(workspaceId, load, emptyTemplate);
-  return <Stack gap="lg" maw={960} mx="auto" p="lg">
+  useEffect(() => {
+    if (!['PENDING', 'PROCESSING'].includes(data?.pdf?.state)) return undefined;
+    const timer = setTimeout(() => reload({ background: true }), 3000);
+    return () => clearTimeout(timer);
+  }, [data, error, reload]);
+  return <Stack gap="lg" maw={session?.roles?.includes('ADMIN') ? 1600 : 960} mx="auto" p="lg">
     <Group justify="space-between" align="flex-start">
       <div><Text size="sm" c="dimmed">Official template</Text>
         <Title order={1}>{data?.originalFilename || data?.displayName || 'Template preview'}</Title>
@@ -25,7 +38,11 @@ export function TemplatePreviewPage() {
       <Anchor href={adviserOnly ? '/adviser' : '/workspace'}>{adviserOnly ? 'Back to my teams' : 'Back to workspace'}</Anchor>
     </Group>
     <ResourceBoundary status={status} error={error} onRetry={reload}>
-      {data ? <>
+      {data?.templateChanged ? <Alert color="orange" title="Template changed">
+        <Stack gap="sm"><Text>The template changed while loading. Reload to view its current PDF.</Text>
+          <Button variant="default" onClick={() => reload()} style={{ alignSelf: 'flex-start' }}>Reload template</Button>
+        </Stack>
+      </Alert> : data ? <>
         <Paper withBorder p="md">
           <Stack gap="md">
             <Title order={2} size="h3">Template headings</Title>
@@ -39,17 +56,49 @@ export function TemplatePreviewPage() {
             </section> : null}
           </Stack>
         </Paper>
-        <Paper withBorder p="lg">
-          <Group justify="space-between"><Title order={2} size="h3">Template content</Title>
-            <Button component="a" variant="default" href={getDocumentTemplateFileUrl(workspaceId, templateId)} target="_blank" rel="noopener noreferrer">Original file</Button>
-          </Group>
-          <Text size="sm" c="dimmed" mt="xs">Formatting may differ in this text preview.</Text>
-          {data.extractedText ? <Text component="div" mt="md" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{data.extractedText}</Text>
-            : <Alert color="orange" mt="md">No readable text was extracted. Open the original file to inspect it.</Alert>}
-        </Paper>
+        <div className="template-review-layout">
+          <TemplatePdfView key={`${workspaceId}:${templateId}:${data.pdf.versionId}`} workspaceId={workspaceId} templateId={templateId}
+            pdf={data.pdf} canRetry={session?.roles?.includes('ADMIN') && data.pdf.retryable !== false} onReload={reload} />
+          {session?.roles?.includes('ADMIN') && data.pdf.state === 'READY' ? <TemplateChecklistEditor key={`checklist:${workspaceId}:${templateId}:${data.pdf.versionId}`} workspaceId={workspaceId} templateId={templateId} versionId={data.pdf.versionId} /> : null}
+        </div>
       </> : null}
     </ResourceBoundary>
   </Stack>;
+}
+
+function TemplatePdfView({ workspaceId, templateId, pdf, canRetry, onReload }) {
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState('');
+  const url = getDocumentTemplatePdfUrl(workspaceId, templateId, pdf.versionId);
+  const retry = async () => {
+    setRetrying(true);
+    setRetryError('');
+    try {
+      await retryDocumentTemplatePdf(workspaceId, templateId, pdf.versionId);
+      await onReload();
+    } catch (error) {
+      setRetryError(error?.message || 'PDF preparation could not be restarted.');
+    } finally {
+      setRetrying(false);
+    }
+  };
+  return <Paper withBorder p="lg">
+    <Group justify="space-between" wrap="wrap" gap="sm">
+      <Title order={2} size="h3">Template PDF</Title>
+      <Group gap="sm">
+        {pdf.state === 'READY' ? <Button component="a" variant="default" href={url} target="_blank" rel="noopener noreferrer">Open PDF</Button> : null}
+        {pdf.originalAvailable ? <Button component="a" variant="default" href={getDocumentTemplateFileUrl(workspaceId, templateId)} target="_blank" rel="noopener noreferrer">Original file</Button> : null}
+      </Group>
+    </Group>
+    {pdf.state === 'READY' ? <iframe title="Official template PDF" src={url}
+      style={{ display: 'block', width: '100%', height: 'min(78vh, 960px)', minHeight: 360, border: 0, marginTop: 16 }} />
+      : pdf.state === 'FAILED' ? <Alert color="orange" title="Template PDF unavailable" mt="md">
+        <Stack gap="sm"><Text>{pdf.error || 'The template PDF could not be prepared.'}</Text>
+          {canRetry && pdf.originalAvailable ? <Button variant="default" loading={retrying} onClick={retry} style={{ alignSelf: 'flex-start' }}>Retry PDF preparation</Button> : null}
+        </Stack>
+      </Alert> : <Alert color="blue" mt="md"><Group gap="sm"><Loader size="sm" /><Text>Preparing template PDF…</Text></Group></Alert>}
+    {retryError ? <Alert color="red" role="alert" mt="md">{retryError}</Alert> : null}
+  </Paper>;
 }
 
 function HeadingList({ headings, empty }) {

@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -18,11 +20,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,6 +65,7 @@ import com.capvault.backend.deliverable.DocumentCheckPolicy;
 @TestPropertySource(properties = "capvault.templates.storage-path=target/test-templates")
 class DocumentTemplateControllerTest {
 
+    private static final String PDF_MIME = "application/pdf";
     private static final String DOCX_MIME =
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -85,7 +94,7 @@ class DocumentTemplateControllerTest {
 
     @Test
     void uploadsReplacesListsOpensAndDeletesTemplate() throws Exception {
-        String firstId = upload("SRS template", "Initial official SRS template instructions").replaceAll(
+        String firstId = upload("SRS template", "Initial official SRS template instructions and required document sections").replaceAll(
             ".*\"id\":\"([^\"]+)\".*",
             "$1"
         );
@@ -96,14 +105,12 @@ class DocumentTemplateControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].displayName").value("Updated SRS template"))
-            .andExpect(jsonPath("$[0].originalFilename").value("template.docx"));
+            .andExpect(jsonPath("$[0].originalFilename").value("template.pdf"));
 
         mockMvc.perform(get("/api/templates/" + firstId + "/file").with(session()))
             .andExpect(status().isOk())
-            .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"template.docx\""))
-            .andExpect(content().contentType(
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            ));
+            .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"template.pdf\""))
+            .andExpect(content().contentType(PDF_MIME));
 
         mockMvc.perform(delete("/api/templates/" + firstId).with(adminSession()))
             .andExpect(status().isNoContent());
@@ -123,7 +130,7 @@ class DocumentTemplateControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.templateId").value(id))
             .andExpect(jsonPath("$.displayName").value("Official STD"))
-            .andExpect(jsonPath("$.originalFilename").value("template.docx"))
+            .andExpect(jsonPath("$.originalFilename").value("template.pdf"))
             .andExpect(jsonPath("$.extractedText").value(org.hamcrest.Matchers.containsString("Overview instructions")))
             .andExpect(jsonPath("$.expectedHeadings", hasItems("Introduction", "Test Plan", "Test Cases")))
             .andExpect(jsonPath("$.detectedHeadings", hasItems("Introduction", "Test Plan", "Test Cases")));
@@ -146,13 +153,13 @@ class DocumentTemplateControllerTest {
 
     @Test
     void downloadsAndStoresDriveLinkedTemplate() throws Exception {
-        byte[] bytes = docx("Official Drive template instructions and expected SRS sections");
+        byte[] bytes = pdf("Official Drive template instructions and expected SRS sections");
         DriveFileReference reference = new DriveFileReference("drive-template-id", null);
         when(driveGateway.isConfigured()).thenReturn(true);
         when(driveGateway.getMetadata(reference)).thenReturn(new DriveFileMetadata(
             "drive-template-id",
-            "Official SRS Template.docx",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "Official SRS Template.pdf",
+            PDF_MIME,
             1024L,
             "https://drive.google.com/file/d/drive-template-id/view",
             java.time.OffsetDateTime.parse("2026-08-24T00:00:00Z"),
@@ -171,7 +178,7 @@ class DocumentTemplateControllerTest {
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.deliverableKey").value("SRS"))
             .andExpect(jsonPath("$.displayName").value("Official SRS Template"))
-            .andExpect(jsonPath("$.originalFilename").value("Official SRS Template.docx"))
+            .andExpect(jsonPath("$.originalFilename").value("Official SRS Template.pdf"))
             .andReturn()
             .getResponse()
             .getContentAsString();
@@ -184,13 +191,13 @@ class DocumentTemplateControllerTest {
 
     @Test
     void supportsUnicodeCharactersInFilename() throws Exception {
-        byte[] bytes = docx("Project Proposal Official Capstone Template instructions and rubric details");
+        byte[] bytes = pdf("Project Proposal Official Capstone Template instructions and rubric details");
         DriveFileReference reference = new DriveFileReference("unicode-doc-id", null);
         when(driveGateway.isConfigured()).thenReturn(true);
         when(driveGateway.getMetadata(reference)).thenReturn(new DriveFileMetadata(
             "unicode-doc-id",
-            "Project Proposal (Weeks 7–8).docx",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "Project Proposal (Weeks 7–8).pdf",
+            PDF_MIME,
             1024L,
             "https://drive.google.com/file/d/unicode-doc-id/view",
             java.time.OffsetDateTime.parse("2026-08-24T00:00:00Z"),
@@ -207,8 +214,76 @@ class DocumentTemplateControllerTest {
                     }
                     """))
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.originalFilename").value("Project Proposal (Weeks 7–8).docx"));
+            .andExpect(jsonPath("$.originalFilename").value("Project Proposal (Weeks 7–8).pdf"));
     }
+
+    @Test
+    void rejectsDocxUploadWithoutReplacingTheCurrentPdf() throws Exception {
+        String id = responseId(upload("Current PDF template", "Official PDF template instructions with sufficient readable content."));
+        byte[] original = repository.findById(UUID.fromString(id)).orElseThrow().getContentBytes();
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "template.docx", DOCX_MIME, docx("A Word template must be exported as a PDF before it can replace the current template."));
+
+        mockMvc.perform(multipart("/api/templates").file(file).with(adminSession())
+                .param("deliverableKey", "SRS").param("displayName", "Rejected DOCX"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("Upload the official template as a PDF file."));
+
+        assertEquals(1L, repository.count());
+        mockMvc.perform(get("/api/templates/" + id + "/file").with(session()))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(PDF_MIME))
+            .andExpect(content().bytes(original));
+    }
+
+    @Test
+    void rejectsNonPdfBytesEvenWithPdfFilenameAndContentType() throws Exception {
+        byte[][] invalidFiles = {
+            docx("Renaming a Word document does not make its bytes a PDF template."),
+            "%PDF-1.7\nThis file has no valid PDF catalog or pages.".getBytes(StandardCharsets.UTF_8)
+        };
+        for (byte[] bytes : invalidFiles) {
+            MockMultipartFile file = new MockMultipartFile("file", "template.pdf", PDF_MIME, bytes);
+            mockMvc.perform(multipart("/api/templates").file(file).with(adminSession())
+                    .param("deliverableKey", "SRS").param("displayName", "Invalid PDF"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("valid, unencrypted PDF")));
+        }
+        assertEquals(0L, repository.count());
+    }
+
+    @Test
+    void rejectsDocxAndInvalidPdfDriveImportsWithoutReplacingTheCurrentPdf() throws Exception {
+        String id = responseId(upload("Current PDF template", "Official PDF template instructions with sufficient readable content."));
+        byte[] original = repository.findById(UUID.fromString(id)).orElseThrow().getContentBytes();
+        DriveFileReference reference = configureDriveTemplate(
+            "unsupported.docx", DOCX_MIME, docx("A Drive Word document must be exported as PDF before import."));
+        String request = """
+            {
+              "deliverableKey": "SRS",
+              "driveUrl": "https://drive.google.com/file/d/rejected-drive-template/view"
+            }
+            """;
+
+        mockMvc.perform(post("/api/templates/from-drive").with(adminSession())
+                .contentType(MediaType.APPLICATION_JSON).content(request))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("Upload the official template as a PDF file."));
+        verify(driveGateway, never()).download(reference);
+
+        configureDriveTemplate("invalid.pdf", PDF_MIME, "Not a PDF document".getBytes(StandardCharsets.UTF_8));
+        mockMvc.perform(post("/api/templates/from-drive").with(adminSession())
+                .contentType(MediaType.APPLICATION_JSON).content(request))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("valid, unencrypted PDF")));
+
+        assertEquals(1L, repository.count());
+        mockMvc.perform(get("/api/templates/" + id + "/file").with(session()))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(PDF_MIME))
+            .andExpect(content().bytes(original));
+    }
+
 
     @Test
     void keepsTemplatesIndependentPerArtifactFieldAndNeverFallsBackToAnotherTemplate() throws Exception {
@@ -295,7 +370,7 @@ class DocumentTemplateControllerTest {
             pdfField(otherId, other, "otherPdf", "Other PDF", 0)
         ));
         MockMultipartFile file = new MockMultipartFile(
-            "file", "template.docx", DOCX_MIME, docx("VALIDATION TEMPLATE CONTENT WITH ENOUGH READABLE TEXT"));
+            "file", "template.pdf", PDF_MIME, pdf("VALIDATION TEMPLATE CONTENT WITH ENOUGH READABLE TEXT"));
 
         var crossDeliverable = assertThrows(IllegalArgumentException.class,
             () -> service.save(workspaceId, mvpKey, otherId, "Wrong field", file));
@@ -316,9 +391,9 @@ class DocumentTemplateControllerTest {
     private String upload(String deliverableKey, String fieldId, String displayName, String text) throws Exception {
         MockMultipartFile file = new MockMultipartFile(
             "file",
-            "template.docx",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            docx(text)
+            "template.pdf",
+            PDF_MIME,
+            pdf(text)
         );
         var request = multipart("/api/templates")
             .file(file)
@@ -360,6 +435,39 @@ class DocumentTemplateControllerTest {
     private static String responseId(String response) {
         return response.replaceAll(".*\"id\":\"([^\"]+)\".*", "$1");
     }
+
+    private DriveFileReference configureDriveTemplate(String filename, String contentType, byte[] bytes) {
+        DriveFileReference reference = new DriveFileReference("rejected-drive-template", null);
+        when(driveGateway.isConfigured()).thenReturn(true);
+        when(driveGateway.getMetadata(reference)).thenReturn(new DriveFileMetadata(
+            "rejected-drive-template", filename, contentType, (long) bytes.length,
+            "https://drive.google.com/file/d/rejected-drive-template/view",
+            OffsetDateTime.parse("2026-08-24T00:00:00Z"), true,
+            "https://drive.google.com/uc?id=rejected-drive-template"));
+        when(driveGateway.download(reference)).thenReturn(bytes);
+        return reference;
+    }
+
+    private static byte[] pdf(String text) throws Exception {
+        try (PDDocument document = new PDDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+            try (PDPageContentStream stream = new PDPageContentStream(document, page)) {
+                stream.beginText();
+                stream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 10);
+                stream.setLeading(14);
+                stream.newLineAtOffset(30, 740);
+                for (String line : text.split("\\R", -1)) {
+                    stream.showText(line.replace("\t", "    "));
+                    stream.newLine();
+                }
+                stream.endText();
+            }
+            document.save(output);
+            return output.toByteArray();
+        }
+    }
+
 
     private static byte[] docx(String text) throws Exception {
         try (XWPFDocument document = new XWPFDocument();

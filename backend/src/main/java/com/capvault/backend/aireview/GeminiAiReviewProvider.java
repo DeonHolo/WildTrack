@@ -154,6 +154,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     private final long intervalMillis;
     private final String thinkingLevel;
     private final int maxOutputTokens;
+    private final com.capvault.backend.template.TemplateProviderFileStore templateFiles;
     private long nextRequestAt;
     private long quotaBlockedUntil;
 
@@ -168,6 +169,12 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
 
     GeminiAiReviewProvider(String key, RestClient http, ObjectMapper json, int minimumIntervalSeconds,
             String thinkingLevel, int maxOutputTokens) {
+        this(key, http, json, minimumIntervalSeconds, thinkingLevel, maxOutputTokens, null);
+    }
+
+    GeminiAiReviewProvider(String key, RestClient http, ObjectMapper json, int minimumIntervalSeconds,
+            String thinkingLevel, int maxOutputTokens,
+            com.capvault.backend.template.TemplateProviderFileStore templateFiles) {
         this.key = Objects.requireNonNullElse(key, "").trim();
         this.http = http;
         this.json = json;
@@ -181,6 +188,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             throw new IllegalArgumentException("Unsupported Gemini max output token limit");
         }
         this.maxOutputTokens = maxOutputTokens;
+        this.templateFiles = templateFiles;
     }
 
     @Override public boolean isConfigured() { return !key.isBlank(); }
@@ -189,7 +197,200 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         return MODEL + ":rest-pdf-v7:thinking-" + thinkingLevel.toLowerCase(Locale.ROOT)
             + ":output-" + maxOutputTokens
             + ":schema-" + RESPONSE_SCHEMA_VERSION
+            + ":template-" + com.capvault.backend.template.TemplateInstructionProtocol.VERSION
+            + ":template-thinking-high"
+            + ":assessment-" + AiReviewInstructionProtocol.VERSION
             + ":" + AiReviewService.sha256(GUIDANCE.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    @Override public boolean supportsTemplateInstructions() { return templateFiles != null; }
+
+    @Override public synchronized Result assessInstructions(InstructionInput input) {
+        if (!isConfigured()) throw new Failure("NOT_CONFIGURED");
+        if (input.instructions().size() > 16) throw new Failure("REQUIREMENTS_TOO_LARGE");
+        if (input.review().pdf() == null || input.review().pdf().length == 0
+                || input.review().pdf().length > 26_214_400) throw new Failure("DOCUMENT_TOO_LARGE");
+        if (input.review().instructions().length() > 250_000) throw new Failure("REQUIREMENTS_TOO_LARGE");
+        if (System.currentTimeMillis() < quotaBlockedUntil) throw new Failure("RATE_LIMITED");
+        long started = System.nanoTime();
+        String stage = "template_file";
+        String submissionFile = null;
+        try {
+            if (!AiReviewService.sha256(input.template().pdf()).equals(input.template().pdfSha256()))
+                throw invalid("template_hash_mismatch");
+            int combinedPages;
+            try (var student = org.apache.pdfbox.Loader.loadPDF(input.review().pdf());
+                 var template = org.apache.pdfbox.Loader.loadPDF(input.template().pdf())) {
+                combinedPages = student.getNumberOfPages() + template.getNumberOfPages();
+            }
+            if (combinedPages > 1000) throw new Failure("COMBINED_PDF_LIMIT");
+            var template = sharedTemplateFile(input.template().versionId(), input.template().pdf(), input.template().pdfSha256());
+            Map<String, Object> submission;
+            if (input.review().pdf().length <= INLINE_LIMIT) {
+                submission = Map.of("inlineData", Map.of("mimeType", "application/pdf",
+                    "data", Base64.getEncoder().encodeToString(input.review().pdf())));
+            } else {
+                stage = "submission_file";
+                var uploaded = upload(input.review().pdf());
+                submissionFile = uploaded.path("name").asText();
+                validateFileName(submissionFile);
+                uploaded = awaitActive(uploaded, submissionFile);
+                String uri = uploaded.path("uri").asText();
+                trustedGoogleUri(uri);
+                submission = Map.of("fileData", Map.of("mimeType", "application/pdf", "fileUri", uri));
+            }
+            var parts = List.of(
+                Map.of("text", "OFFICIAL TEMPLATE PDF: authority for the fixed instructions below, not the student's output."),
+                Map.of("fileData", Map.of("mimeType", "application/pdf", "fileUri", template.uri())),
+                Map.of("text", "SUBMITTED STUDENT PDF: assess this complete PDF, using absolute page numbers within this PDF."),
+                submission,
+                Map.of("text", json.writeValueAsString(Map.of("requestedDeliverable", input.review().deliverableTitle(),
+                    "deliverableInstructions", input.review().instructions(), "instructions", input.instructions(),
+                    "includeOverview", input.includeOverview()))));
+            pause(Math.max(0, nextRequestAt - System.currentTimeMillis()));
+            nextRequestAt = System.currentTimeMillis() + intervalMillis;
+            stage = "instruction_assessment";
+            var payload = Map.of("systemInstruction", Map.of("parts", List.of(Map.of("text", AiReviewInstructionProtocol.GUIDANCE))),
+                "contents", List.of(Map.of("role", "user", "parts", parts)),
+                "generationConfig", Map.of("maxOutputTokens", Math.min(32768, Math.max(8192, 4096 + input.instructions().size() * 1400)),
+                    "thinkingConfig", Map.of("thinkingLevel", thinkingLevel), "responseMimeType", "application/json",
+                    "responseJsonSchema", wireSchema(AiReviewInstructionProtocol.schema())));
+            JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
+                .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON).body(payload).retrieve().body(JsonNode.class);
+            stage = "instruction_validation";
+            return AiReviewInstructionProtocol.parse(report(response, 200_000), input.template(), input.instructions(), input.includeOverview());
+        } catch (RestClientResponseException rejected) {
+            int status = rejected.getStatusCode().value();
+            if (status == 429) quotaBlockedUntil = System.currentTimeMillis() + 60_000;
+            Failure failure = status == 400 ? rejectedRequest(rejected) : new Failure(status == 429 ? "RATE_LIMITED"
+                : status == 401 || status == 403 ? "API_KEY_REJECTED" : "PROVIDER_OUTCOME_UNKNOWN", "http_" + status)
+                .withHttpStatus(status, requestId(rejected));
+            throw failure.withContext(stage, started);
+        } catch (Failure failure) { throw failure.withContext(stage, started);
+        } catch (RestClientException failure) { throw classifyClientFailure(failure).withContext(stage, started);
+        } catch (Exception failure) { throw invalid("invalid_instruction_assessment").withContext(stage, started);
+        } finally {
+            if (submissionFile != null) {
+                try { http.delete().uri("/v1beta/" + submissionFile).header("x-goog-api-key", key).retrieve().toBodilessEntity(); }
+                catch (RestClientException ignored) { /* Shared template files have a separate lifecycle. */ }
+            }
+        }
+    }
+
+    @Override public synchronized List<com.capvault.backend.template.TemplateInstructionProtocol.Draft> prepareInstructions(
+            com.capvault.backend.template.TemplateInstructionGateway.Input input) {
+        if (!isConfigured()) throw new Failure("NOT_CONFIGURED");
+        if (input.pdf() == null || input.pdf().length == 0 || input.pdf().length > 26_214_400)
+            throw new Failure("DOCUMENT_TOO_LARGE");
+        if (!AiReviewService.sha256(input.pdf()).equals(input.pdfSha256())) throw invalid("template_hash_mismatch");
+        if (System.currentTimeMillis() < quotaBlockedUntil) throw new Failure("RATE_LIMITED");
+        long started = System.nanoTime();
+        String stage = "template_file";
+        try {
+            String sourceBlocks = json.writeValueAsString(com.capvault.backend.template.TemplateInstructionProtocol
+                .sourceBlocks(input.pageTexts(), input.firstPage(), input.lastPage()));
+            // Application payload budget, not a promise about the provider's token count.
+            // Validate before uploading a file or dispatching a generation; never clip source context.
+            if (sourceBlocks.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 2_000_000)
+                throw new Failure("DOCUMENT_TOO_LARGE", "template_source_context_too_large");
+            var template = sharedTemplateFile(input.versionId(), input.pdf(), input.pdfSha256());
+            pause(Math.max(0, nextRequestAt - System.currentTimeMillis()));
+            nextRequestAt = System.currentTimeMillis() + intervalMillis;
+            stage = "template_instructions";
+            var payload = Map.of(
+                "systemInstruction", Map.of("parts", List.of(Map.of("text",
+                    com.capvault.backend.template.TemplateInstructionProtocol.GUIDANCE))),
+                "contents", List.of(Map.of("role", "user", "parts", List.of(
+                    Map.of("text", "This is the OFFICIAL TEMPLATE, not a student submission. Build the full checklist including named blank body sections, response fields, tables and diagram placeholders whose source begins on PDF pages "
+                        + input.firstPage() + " through " + input.lastPage()
+                        + " inclusive. Inspect adjacent pages for continuation and context. Use absolute PDF page numbers."),
+                    Map.of("fileData", Map.of("mimeType", "application/pdf", "fileUri", template.uri())),
+                    Map.of("text", "SOURCE BLOCKS: select IDs without rewriting text. Use the PDF for layout and interpretation.\n"
+                        + sourceBlocks)))),
+                "generationConfig", Map.of("maxOutputTokens", 32768,
+                    "thinkingConfig", Map.of("thinkingLevel", "HIGH"), "responseMimeType", "application/json",
+                    "responseJsonSchema", wireSchema(com.capvault.backend.template.TemplateInstructionProtocol.schema())));
+            JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
+                .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON)
+                .body(payload).retrieve().body(JsonNode.class);
+            stage = "template_validation";
+            JsonNode proposed = report(response, 500_000);
+            return com.capvault.backend.template.TemplateInstructionProtocol.parseDraft(proposed, input.pageTexts(), input.firstPage(), input.lastPage());
+        } catch (RestClientResponseException rejected) {
+            int status = rejected.getStatusCode().value();
+            if (status == 429) quotaBlockedUntil = System.currentTimeMillis() + 60_000;
+            Failure failure = status == 400 ? rejectedRequest(rejected)
+                : new Failure(status == 429 ? "RATE_LIMITED" : status == 401 || status == 403 ? "API_KEY_REJECTED"
+                    : "PROVIDER_OUTCOME_UNKNOWN", "http_" + status).withHttpStatus(status, requestId(rejected));
+            throw failure.withContext(stage, started);
+        } catch (Failure failure) {
+            if ("OUTPUT_TRUNCATED".equals(failure.code))
+                throw new com.capvault.backend.template.TemplateInstructionGateway.OutputLimit();
+            throw failure.withContext(stage, started);
+        } catch (com.capvault.backend.template.TemplateInstructionGateway.OutputLimit limit) {
+            throw limit;
+        } catch (RestClientException failure) {
+            throw classifyClientFailure(failure).withContext(stage, started);
+        } catch (Exception failure) {
+            throw invalid("invalid_template_instruction_response").withContext(stage, started);
+        }
+    }
+
+    private JsonNode wireSchema(Map<String, Object> schema) {
+        JsonNode value = json.valueToTree(schema);
+        stripWireBounds(value);
+        return value;
+    }
+
+    private static void stripWireBounds(JsonNode value) {
+        // These bounds together caused a real Google HTTP 400 for the nested
+        // checklist schema. The strict protocol parser still enforces them.
+        if (value instanceof com.fasterxml.jackson.databind.node.ObjectNode object) {
+            object.remove(List.of("maxItems", "maxLength", "minimum"));
+        }
+        if (value.isContainerNode()) value.forEach(GeminiAiReviewProvider::stripWireBounds);
+    }
+
+    private com.capvault.backend.template.TemplateProviderFileStore.File sharedTemplateFile(
+            java.util.UUID versionId, byte[] pdf, String hash) {
+        if (templateFiles == null) throw new Failure("NOT_CONFIGURED");
+        String context = AiReviewService.sha256(("gemini-files-v1\n" + key)
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var cached = templateFiles.find(versionId, context, hash);
+        if (cached.isPresent()) {
+            var file = cached.get();
+            validateFileName(file.name());
+            trustedGoogleUri(file.uri());
+            try {
+                var remote = http.get().uri("/v1beta/" + file.name()).header("x-goog-api-key", key)
+                    .retrieve().body(JsonNode.class);
+                if (remote != null && "ACTIVE".equals(remote.path("state").asText())
+                        && file.uri().equals(remote.path("uri").asText())) return file;
+            } catch (RestClientResponseException unavailable) {
+                if (unavailable.getStatusCode().value() != 404 && unavailable.getStatusCode().value() != 403) throw unavailable;
+            }
+            templateFiles.invalidate(versionId, context, file.name());
+        }
+        var token = templateFiles.claim(versionId, context, hash)
+            .orElseThrow(() -> new Failure("TEMPLATE_FILE_BUSY"));
+        try {
+            // Another instance may have completed the upload before this claim.
+            var ready = templateFiles.find(versionId, context, hash);
+            if (ready.isPresent()) return ready.get();
+            JsonNode uploaded = upload(pdf);
+            String name = uploaded.path("name").asText();
+            validateFileName(name);
+            uploaded = awaitActive(uploaded, name);
+            String uri = uploaded.path("uri").asText();
+            trustedGoogleUri(uri);
+            Instant expiry = Instant.parse(uploaded.path("expirationTime").asText());
+            if (!expiry.isAfter(Instant.now().plusSeconds(300))) throw invalid("template_file_expired");
+            var file = new com.capvault.backend.template.TemplateProviderFileStore.File(name, uri, expiry);
+            if (!templateFiles.complete(versionId, context, token, file)) throw new Failure("TEMPLATE_FILE_BUSY");
+            return file;
+        } finally {
+            templateFiles.release(versionId, context, token);
+        }
     }
 
     // One in-flight request per backend instance. Persistent job claims deduplicate across instances.
@@ -323,6 +524,37 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         }
         if (!"ACTIVE".equals(file.path("state").asText())) throw new Failure("FILE_PROCESSING_FAILED");
         return file;
+    }
+
+    private JsonNode report(JsonNode response) throws java.io.IOException {
+        return report(response, MAX_JSON_CHARS);
+    }
+
+    private JsonNode report(JsonNode response, int maximumJsonChars) throws java.io.IOException {
+        if (response == null || !response.isObject()) throw invalid("missing_response");
+        if (response.path("promptFeedback").hasNonNull("blockReason")) throw new Failure("CONTENT_BLOCKED", "prompt_blocked");
+        JsonNode candidate = response.path("candidates").path(0);
+        if (!candidate.isObject()) throw invalid("missing_candidate");
+        String finish = candidate.path("finishReason").asText("");
+        if (!"STOP".equals(finish)) throw finishFailure(finish);
+        JsonNode parts = candidate.path("content").path("parts");
+        if (!parts.isArray() || parts.isEmpty()) throw invalid("missing_content_parts");
+        StringBuilder text = new StringBuilder();
+        for (JsonNode part : parts) {
+            if (!part.path("thought").asBoolean() && part.path("text").isTextual()) text.append(part.path("text").asText());
+        }
+        if (text.isEmpty()) throw invalid("missing_json_text");
+        if (text.length() > maximumJsonChars) throw invalid("oversized_json_text");
+        JsonNode report;
+        try {
+            report = json.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                .with(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
+                .readTree(text.toString());
+        } catch (JsonProcessingException malformed) {
+            throw invalid("malformed_json");
+        }
+        if (report == null || !report.isObject()) throw invalid("invalid_json_root");
+        return report;
     }
 
     private Result parse(JsonNode response, Input input, List<String> passages, AiReviewCoveragePolicy.Plan plan) throws java.io.IOException {
@@ -637,7 +869,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             List<Integer> parsedCheckIndexes) {
         JsonNode mappings = report.path("criterionReviews");
         var rows = new ArrayList<CriterionAssessment>();
-        if (mappings.isArray() && mappings.size() <= AiReviewCoveragePolicy.MAX_CRITERIA * 2) {
+        if (mappings.isArray() && mappings.size() <= plan.criteria().size() * 2) {
             var seen = new java.util.HashSet<String>();
             var duplicates = new java.util.HashSet<String>();
             for (JsonNode mapping : mappings) {
@@ -646,7 +878,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             }
             for (JsonNode mapping : mappings) {
                 String id = mapping.path("criterionId").asText("");
-                if (!id.matches("C[1-9][0-9]?") || duplicates.contains(id)) continue;
+                if (!id.matches("C[1-9][0-9]*") || duplicates.contains(id)) continue;
                 var proposedChecks = indexList(mapping.path("verifiedCheckIndexes"));
                 var findings = indexList(mapping.path("findingIndexes"));
                 var missing = indexList(mapping.path("missingSectionIndexes"));

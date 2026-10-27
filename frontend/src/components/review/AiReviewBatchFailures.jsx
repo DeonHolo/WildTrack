@@ -2,10 +2,12 @@ import { useRef } from 'react';
 import { ActionIcon, Anchor, Group, Stack, Text } from '@mantine/core';
 import { Warning } from '@phosphor-icons/react';
 import { aiBatchFailureGroups, isAiBatchAccessRestriction } from '../../lib/aiReviewBatch.js';
+import { TemplateChecklistNotices } from './TemplateChecklistNotices.jsx';
 
 export function AiReviewBatchFailures({ entries }) {
   return <Stack gap="sm">
-    {aiBatchFailureGroups(entries).map(group => <FailureGroup key={group.message} group={group} />)}
+    <TemplateChecklistNotices entries={entries} />
+    {aiBatchFailureGroups(entries.filter(entry => entry.resultStatus !== 'TEMPLATE_APPROVAL_REQUIRED')).map(group => <FailureGroup key={group.message} group={group} />)}
   </Stack>;
 }
 

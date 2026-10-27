@@ -4,6 +4,17 @@ import { expect, it } from 'vitest';
 import { AiReviewReport } from './AiReviewReport.jsx';
 
 function show(report) { render(<MantineProvider><AiReviewReport report={report} /></MantineProvider>); }
+
+it('summarizes a completed one-instruction template without an artificial coverage warning', () => {
+  show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', findings: [], verificationNotes: [], verifiedChecks: [],
+    coverage: { omittedCriteria: 0, criteria: [{ id: 'T1', title: 'Describe project responsibilities',
+      requirement: 'Describe project responsibilities.', source: 'OFFICIAL_TEMPLATE', assessment: 'APPEARS_ADDRESSED',
+      explanation: 'The manager assigns responsibilities to team members.',
+      documentEvidence: 'The project manager assigns and tracks team responsibilities.', location: { page: 4 } }] } });
+  expect(screen.getByRole('status')).toHaveTextContent('1 template instruction assessed');
+  expect(screen.queryByText(/Too little supported evidence/)).not.toBeInTheDocument();
+  expect(screen.getByText('Appears addressed (1)')).toBeVisible();
+});
 function openSupportingText() {
   screen.getAllByText(/View supporting text/).forEach(item => fireEvent.click(item));
 }

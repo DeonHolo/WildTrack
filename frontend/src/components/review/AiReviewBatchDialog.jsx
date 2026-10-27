@@ -1,3 +1,4 @@
+import { TemplateChecklistNotices } from './TemplateChecklistNotices.jsx';
 import { useState } from 'react';
 import { Alert, Button, Checkbox, Group, Radio, Stack, Text } from '@mantine/core';
 import { aiBatchUpdatedDocuments, aiBatchSelection } from '../../lib/aiReviewBatch.js';
@@ -51,9 +52,10 @@ export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
         <AiReviewBatchFailures entries={unverified} />
         <Text size="sm" mt="xs">These submissions are excluded from the review count because their contents could not be verified.</Text>
       </Alert> : null}
+      <TemplateChecklistNotices entries={plan?.entries} />
       <Text size="sm">Identical PDFs in the same team, deliverable and artifact field share one review. The count uses verified file contents and current review settings.</Text>
       <Text size="sm">New and repeated reviews send PDF contents to Gemini and use AI tokens.{counts.reruns ? ` ${counts.reruns} completed ${counts.reruns === 1 ? 'review will' : 'reviews will'} be rerun.` : ''}{counts.running ? ` ${counts.running} already-running ${counts.running === 1 ? 'review will' : 'reviews will'} be followed without another AI request.` : ''}</Text>
-      <Text size="sm">If the first feedback is too limited, WildTrack may ask Gemini once more to check additional content. Each new review uses at most two Gemini requests and their tokens.</Text>
+      <Text size="sm">WildTrack uses the approved template checklist and deliverable instructions. Longer checklists use several Gemini requests. Requests use AI tokens; saved progress is reused when continuing a failed review.</Text>
       {counts.retries ? <Checkbox checked={retryAcknowledged} onChange={e => setRetryAcknowledged(e.currentTarget.checked)}
         label={`I agree to retry ${counts.retries} uncertain ${counts.retries === 1 ? 'review' : 'reviews'}`}
         description="Previous attempts may already have used tokens. These retries can use additional tokens or incur charges." /> : null}

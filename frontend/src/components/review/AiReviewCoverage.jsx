@@ -1,20 +1,21 @@
 import { Text, VisuallyHidden } from '@mantine/core';
 
 const SOURCES = { DOCUMENT: 'Submitted document', DELIVERABLE_REQUIREMENTS: 'Deliverable requirements', OFFICIAL_TEMPLATE: 'Official template' };
-const ASSESSMENTS = new Set(['APPEARS_ADDRESSED', 'NEEDS_ATTENTION', 'CHECK_MANUALLY']);
-const STATUS_LABELS = { APPEARS_ADDRESSED: 'Appears addressed', NEEDS_ATTENTION: 'Needs attention', CHECK_MANUALLY: 'Check manually' };
+const ASSESSMENTS = new Set(['APPEARS_ADDRESSED', 'NEEDS_ATTENTION', 'CHECK_MANUALLY', 'NOT_APPLICABLE']);
+const STATUS_LABELS = { APPEARS_ADDRESSED: 'Appears addressed', NEEDS_ATTENTION: 'Needs attention', CHECK_MANUALLY: 'Check in PDF', NOT_APPLICABLE: 'Not applicable' };
 const hasText = value => typeof value === 'string' && value.trim().length > 0;
 const validPage = location => Number.isInteger(location?.page) && location.page > 0;
 
 export function validAssessmentCriteria(report) {
   const criteria = report?.coverage?.criteria;
   if (!Array.isArray(criteria)) return [];
-  const ids = criteria.map(item => item?.id);
+  const counts = new Map();
+  for (const item of criteria) counts.set(item?.id, (counts.get(item?.id) || 0) + 1);
   return criteria.map((item, index) => {
     const assessment = item?.assessment;
-    const valid = /^C[1-9]\d*$/.test(item?.id || '') && ids.indexOf(item.id) === ids.lastIndexOf(item.id)
+    const valid = /^[CT][1-9]\d*$/.test(item?.id || '') && counts.get(item.id) === 1
       && hasText(item.requirement) && Object.hasOwn(SOURCES, item.source) && item.source !== 'DOCUMENT'
-      && ASSESSMENTS.has(assessment) && hasText(item.explanation) && item.explanation.length <= 240
+      && ASSESSMENTS.has(assessment) && hasText(item.explanation) && item.explanation.length <= 400
       && (assessment !== 'APPEARS_ADDRESSED' || (hasText(item.documentEvidence) && validPage(item.location)));
     return valid ? { ...item, key: `${item.id}-${index}` } : null;
   }).filter(Boolean);
@@ -80,8 +81,9 @@ export function AiReviewCoverage({ report, showHeading = true }) {
   const rows = validAssessmentCriteria(report);
   const newFormat = criteria.some(item => ASSESSMENTS.has(item?.assessment));
   const missing = newFormat ? criteria.filter(item => hasText(item?.requirement) && !ASSESSMENTS.has(item?.assessment)) : [];
-  const actionable = rows.filter(row => row.assessment !== 'APPEARS_ADDRESSED');
+  const actionable = rows.filter(row => ['NEEDS_ATTENTION', 'CHECK_MANUALLY'].includes(row.assessment));
   const positive = rows.filter(row => row.assessment === 'APPEARS_ADDRESSED');
+  const notApplicable = rows.filter(row => row.assessment === 'NOT_APPLICABLE');
   const omitted = Number.isInteger(report.coverage.omittedCriteria) && report.coverage.omittedCriteria > 0 ? report.coverage.omittedCriteria : 0;
   if (!rows.length && !missing.length && !omitted) return null;
   return <section aria-label="Template and instruction assessment">
@@ -90,6 +92,8 @@ export function AiReviewCoverage({ report, showHeading = true }) {
     {missing.map((item, index) => <AssessmentRow key={`missing-${index}`} row={{ ...item, key: `missing-${index}`, assessment: 'CHECK_MANUALLY', explanation: 'No explicit assessment was saved for this instruction.' }} report={report} />)}
     {positive.length ? <details className="wt-ai-review-secondary wt-ai-review-positive-assessments"><summary>Appears addressed ({positive.length})</summary>
       {positive.map(row => <AssessmentRow key={row.key} row={row} report={report} />)}</details> : null}
+    {notApplicable.length ? <details className="wt-ai-review-secondary"><summary>Not applicable ({notApplicable.length})</summary>
+      {notApplicable.map(row => <AssessmentRow key={row.key} row={row} report={report} />)}</details> : null}
     {omitted ? <Text mt="sm">{omitted} additional template or instruction {omitted === 1 ? 'item was' : 'items were'} outside the saved checklist.</Text> : null}
   </section>;
 }

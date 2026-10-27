@@ -741,7 +741,7 @@ describe('workspace operations', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add official template' }));
     const dialog = await screen.findByRole('form', { name: 'Add official template' });
 
-    const file = new File(['template'], 'SRS Official Template.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const file = new File(['template'], 'SRS Official Template.pdf', { type: 'application/pdf' });
     fireEvent.change(within(dialog).getByLabelText('Template file'), { target: { files: [file] } });
     expect(within(dialog).getByLabelText('Template name')).toHaveValue('SRS Official Template');
 
@@ -756,6 +756,20 @@ describe('workspace operations', () => {
     })));
   });
 
+  it('rejects a non-PDF template without sending an upload', async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Add official template' }));
+    const dialog = await screen.findByRole('form', { name: 'Add official template' });
+    const input = within(dialog).getByLabelText('Template file');
+    expect(input).toHaveAttribute('accept', '.pdf,application/pdf');
+    fireEvent.change(input, { target: { files: [new File(['template'], 'Template.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    })] } });
+    fireEvent.submit(dialog);
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Upload the official template as a PDF file.');
+    expect(workflow.saveTemplate).not.toHaveBeenCalled();
+  });
+
   it('unmounts inactive template source fields so browser validation cannot block Save template', async () => {
     workflow.saveTemplate.mockResolvedValue({ ok: true, template: { name: 'SRS Official Template' } });
     renderPage();
@@ -763,7 +777,7 @@ describe('workspace operations', () => {
     const dialog = await screen.findByRole('form', { name: 'Add official template' });
 
     expect(within(dialog).queryByRole('textbox', { name: 'Google Drive link' })).not.toBeInTheDocument();
-    const file = new File(['template'], 'SRS Official Template.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const file = new File(['template'], 'SRS Official Template.pdf', { type: 'application/pdf' });
     fireEvent.change(within(dialog).getByLabelText('Template file'), { target: { files: [file] } });
     fireEvent.submit(dialog);
 

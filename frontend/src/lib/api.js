@@ -434,6 +434,31 @@ export function getDocumentTemplateStructure(workspaceId, templateId) {
   return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/structure`, workspaceId));
 }
 
+export function getDocumentTemplatePdfState(workspaceId, templateId) {
+  return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/pdf-state`, workspaceId));
+}
+
+export function getDocumentTemplatePdfUrl(workspaceId, templateId, versionId) {
+  return `${API_BASE_URL}${withWorkspace(`/templates/${encodeURIComponent(templateId)}/pdf`, workspaceId)}&versionId=${encodeURIComponent(versionId)}`;
+}
+
+export function retryDocumentTemplatePdf(workspaceId, templateId, versionId) {
+  return request(`${withWorkspace(`/templates/${encodeURIComponent(templateId)}/pdf/retry`, workspaceId)}&versionId=${encodeURIComponent(versionId)}`, { method: 'POST' });
+}
+
+export function getDocumentTemplateChecklist(workspaceId, templateId) {
+  return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist`, workspaceId));
+}
+export function prepareDocumentTemplateChecklist(workspaceId, templateId, payload) {
+  return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist/prepare`, workspaceId), { method: 'POST', body: payload });
+}
+export function saveDocumentTemplateChecklist(workspaceId, templateId, payload) {
+  return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist`, workspaceId), { method: 'PUT', body: payload });
+}
+export function approveDocumentTemplateChecklist(workspaceId, templateId, payload) {
+  return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist/approve`, workspaceId), { method: 'POST', body: payload });
+}
+
 export function getDocumentTemplatePreviewUrl(workspaceId, templateId) {
   return `/templates/${encodeURIComponent(templateId)}/preview?workspaceId=${encodeURIComponent(workspaceId)}`;
 }

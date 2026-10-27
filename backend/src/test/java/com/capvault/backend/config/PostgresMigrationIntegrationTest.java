@@ -27,7 +27,7 @@ class PostgresMigrationIntegrationTest {
             MigrateResult firstMigration = flyway.migrate();
 
             assertThat(firstMigration.migrationsExecuted).isPositive();
-            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("33");
+            assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("43");
             assertThat(tableExists(dataSource, "domain_audit_events")).isTrue();
             assertThat(tableExists(dataSource, "response_tracker_outbox")).isTrue();
             assertThat(tableExists(dataSource, "archive_records")).isTrue();
@@ -72,6 +72,23 @@ class PostgresMigrationIntegrationTest {
             assertThat(indexExists(dataSource, "academic_deliverable_fields", "idx_deliverable_fields_deliverable")).isTrue();
             assertThat(indexExists(dataSource, "academic_file_check_reports", "idx_file_check_response_field")).isTrue();
             assertThat(indexExists(dataSource, "ai_review_field_links", "idx_ai_review_field_links_cache")).isTrue();
+
+            assertThat(tableExists(dataSource, "academic_document_template_versions")).isTrue();
+            assertThat(columnExists(dataSource, "academic_document_templates", "row_version")).isTrue();
+            assertThat(columnExists(dataSource, "academic_document_template_versions", "source_bytes")).isTrue();
+            assertThat(columnExists(dataSource, "academic_document_template_versions", "pdf_bytes")).isTrue();
+            assertThat(constraintExists(dataSource, "academic_document_template_versions", "ck_template_pdf_ready")).isTrue();
+            assertThat(tableExists(dataSource, "template_instruction_sets")).isTrue();
+            assertThat(columnExists(dataSource, "template_instruction_sets", "completed_page")).isTrue();
+            assertThat(tableExists(dataSource, "template_provider_files")).isTrue();
+            assertThat(columnExists(dataSource, "template_provider_files", "expires_at")).isTrue();
+            assertThat(columnExists(dataSource, "ai_review_jobs", "heartbeat_at")).isTrue();
+            assertThat(tableExists(dataSource, "ai_review_instruction_passes")).isTrue();
+            assertThat(tableExists(dataSource, "template_checklists")).isTrue();
+            assertThat(tableExists(dataSource, "template_checklist_approvals")).isTrue();
+            assertThat(columnExists(dataSource, "template_checklist_approvals", "actor")).isTrue();
+            assertThat(columnExists(dataSource, "ai_review_instruction_passes", "input_sha256")).isTrue();
+            assertThat(columnExists(dataSource, "ai_review_instruction_passes", "report_json")).isTrue();
 
             MigrateResult secondMigration = flyway.migrate();
             assertThat(secondMigration.migrationsExecuted).isZero();

@@ -43,7 +43,8 @@ class DocumentTemplateProjectionTest {
     void prepareService() {
         service = new DocumentTemplateService(repository, mock(DocumentTextExtractor.class),
             new TemplateStorageProperties("unused", 15_728_640), mock(GoogleDriveGateway.class),
-            mock(DeliverableRepository.class), mock(DeliverableFieldRepository.class), mock(TemplateComparator.class));
+            mock(DeliverableRepository.class), mock(DeliverableFieldRepository.class), mock(TemplateComparator.class),
+            mock(TemplatePdfStore.class));
         queries.clear();
     }
 
@@ -72,11 +73,11 @@ class DocumentTemplateProjectionTest {
         clearPersistenceContext();
 
         assertThat(service.findText(workspace, "mvp validation", " framework "))
-            .isEqualTo(new DocumentTemplateText(text, framework.getSha256()));
+            .isEqualTo(new DocumentTemplateText(framework.getId(), text, framework.getSha256()));
         assertThat(service.findText(workspace, "MVP VALIDATION", null))
-            .isEqualTo(new DocumentTemplateText(legacy.getExtractedText(), legacy.getSha256()));
+            .isEqualTo(new DocumentTemplateText(legacy.getId(), legacy.getExtractedText(), legacy.getSha256()));
         assertThat(service.findText(workspace, "MVP Validation", "   "))
-            .isEqualTo(new DocumentTemplateText(legacy.getExtractedText(), legacy.getSha256()));
+            .isEqualTo(new DocumentTemplateText(legacy.getId(), legacy.getExtractedText(), legacy.getSha256()));
         assertThat(service.findText(workspace, "MVP Validation", "missing-field")).isNull();
         assertThat(service.findText(UUID.randomUUID(), "MVP Validation", "framework")).isNull();
         assertThat(queries.selects()).hasSize(5).allSatisfy(sql -> {

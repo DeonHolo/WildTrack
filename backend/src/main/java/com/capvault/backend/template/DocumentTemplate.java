@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "academic_document_templates")
@@ -16,6 +17,10 @@ public class DocumentTemplate {
 
     @Id
     private UUID id;
+
+    @Version
+    @Column(name = "row_version", nullable = false)
+    private long rowVersion;
 
     @Column(name = "workspace_id", nullable = false)
     private UUID workspaceId;

@@ -16,6 +16,7 @@ public class AiReviewConfiguration {
     @Bean
     @ConditionalOnMissingBean(AiReviewProvider.class)
     AiReviewProvider geminiAiReviewProvider(ObjectMapper json,
+            com.capvault.backend.template.TemplateProviderFileStore templateFiles,
             @Value("${wildtrack.gemini.api-key:}") String key,
             @Value("${wildtrack.gemini.minimum-interval-seconds:15}") int interval) {
         // Status/read-only pages must not initialize provider transport. Besides avoiding
@@ -27,7 +28,8 @@ public class AiReviewConfiguration {
             return transport;
         });
         return new GeminiAiReviewProvider(key, RestClient.builder()
-            .baseUrl("https://generativelanguage.googleapis.com").requestFactory(factory).build(), json, interval);
+            .baseUrl("https://generativelanguage.googleapis.com").requestFactory(factory).build(), json, interval,
+            "MINIMAL", 8192, templateFiles);
     }
     static org.springframework.http.client.ClientHttpRequestFactory lazyRequestFactory(
             java.util.function.Supplier<org.springframework.http.client.ClientHttpRequestFactory> create) {

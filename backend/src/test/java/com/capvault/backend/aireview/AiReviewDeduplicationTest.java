@@ -86,7 +86,8 @@ class AiReviewDeduplicationTest {
             )
             """);
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V37__ai_review_source_verification_time.sql"),
-            new ClassPathResource("db/migration/V39__durable_ai_review_failure_diagnostics.sql")).execute(datasource);
+            new ClassPathResource("db/migration/V39__durable_ai_review_failure_diagnostics.sql"),
+            new ClassPathResource("db/migration/V42__ai_review_instruction_passes.sql")).execute(datasource);
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", workspace);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", deliverableId);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(datasource), Clock.systemUTC());

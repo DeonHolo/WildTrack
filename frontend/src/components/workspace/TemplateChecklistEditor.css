@@ -1,0 +1,8 @@
+.template-review-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+.template-checklist { min-width: 0; }
+.template-checklist-items { max-height: 70vh; overflow-y: auto; overscroll-behavior: contain; padding: 2px; }
+.checklist-disclosure { min-width: 0; flex: 1; justify-content: flex-start; height: auto; min-height: 44px; }
+.checklist-disclosure .mantine-Button-label { white-space: normal; text-align: left; }
+.checklist-disclosure .mantine-Button-inner { justify-content: flex-start; }
+.template-checklist input, .template-checklist textarea, .template-checklist button, .template-checklist summary { font-size: 1rem; }
+@media (min-width: 992px) { .template-review-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }

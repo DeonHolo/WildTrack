@@ -78,11 +78,15 @@ public class SecurityConfig {
                     "/api/deliverables/unpublish-all",
                     "/api/templates",
                     "/api/templates/from-drive",
+                    "/api/templates/*/pdf/retry",
+                    "/api/templates/*/checklist/prepare",
+                    "/api/templates/*/checklist/approve",
                     "/api/tracker/writebacks").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT,
                     "/api/workspaces/**",
                     "/api/deliverables/**",
                     "/api/workspace/sources/**").hasRole("ADMIN")
+                .requestMatchers("/api/templates/*/checklist", "/api/templates/*/checklist/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/templates/**").hasRole("ADMIN")
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll())
@@ -99,7 +103,15 @@ public class SecurityConfig {
                     response.sendError(HttpStatus.UNAUTHORIZED.value());
                 }))
             .headers(headers -> headers
-                .frameOptions(frame -> frame.deny())
+                .frameOptions(frame -> frame.disable())
+                .addHeaderWriter((request, response) -> {
+                    String path = request.getRequestURI().substring(request.getContextPath().length());
+                    boolean templatePdf = "GET".equals(request.getMethod())
+                        && path.matches("/api/templates/[0-9a-fA-F-]{36}/pdf")
+                        && response.getStatus() == 200
+                        && "application/pdf".equals(response.getContentType());
+                    response.setHeader("X-Frame-Options", templatePdf ? "SAMEORIGIN" : "DENY");
+                })
                 .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
                 .permissionsPolicy(permissions -> permissions.policy("camera=(), microphone=(), geolocation=()")))
             .addFilterBefore(signInThrottle(SIGN_IN_WINDOWS), CsrfFilter.class)

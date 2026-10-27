@@ -10,5 +10,6 @@ public record DocumentTemplateStructureResponse(
     String contentType,
     String extractedText,
     List<String> expectedHeadings,
-    List<String> detectedHeadings
+    List<String> detectedHeadings,
+    String sha256
 ) {}
