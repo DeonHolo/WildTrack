@@ -17,6 +17,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)
+    ResponseEntity<ApiErrorResponse> handleConcurrentUpdate() {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiErrorResponse.of(
+            HttpStatus.CONFLICT.value(), "This record changed while it was being saved. Reload and try again."));
+    }
+
     @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
     ResponseEntity<ApiErrorResponse> handleStatus(org.springframework.web.server.ResponseStatusException exception) {
         return ResponseEntity.status(exception.getStatusCode()).body(ApiErrorResponse.of(

@@ -94,6 +94,25 @@ class AiReviewBatchLifecycleTest {
         verify(reviews, never()).reviewPlanned(any(), any(), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
     }
 
+    @Test void missingChecklistApprovalIsSetupWorkRatherThanAnInaccessiblePdf() {
+        UUID template = UUID.randomUUID();
+        when(reviews.preview(workspace, first, "pdf", "admin"))
+            .thenThrow(new AiReviewService.TemplateChecklistApprovalRequired(workspace, template));
+        var plan = prepared();
+        var entry = plan.entries().getFirst();
+        assertThat(entry.phase()).isEqualTo("SETUP_REQUIRED");
+        assertThat(entry.resultStatus()).isEqualTo("TEMPLATE_APPROVAL_REQUIRED");
+        assertThat(entry.noAiStarted()).isTrue();
+        assertThat(entry.templateChecklistUrl()).isEqualTo("/templates/" + template + "/preview?workspaceId=" + workspace);
+        assertThat(plan.uniqueDocuments()).isEqualTo(1);
+        start(plan, "ATTENTION", false);
+        service.tick(); service.tick(); service.tick();
+        var finished = service.get(workspace, plan.id(), "admin");
+        assertThat(finished.entries().getFirst().templateChecklistUrl()).isEqualTo(entry.templateChecklistUrl());
+        assertThat(finished.message()).contains("Saved results are available");
+        verify(reviews, never()).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
     @Test void successfulReviewsAreExcludedByDefaultAndAllModeRerunsOnlyOneLeader() {
         when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin"))).thenAnswer(inv -> preview(inv.getArgument(1), "same-key", "CLEAN", null));
         var plan = prepared();

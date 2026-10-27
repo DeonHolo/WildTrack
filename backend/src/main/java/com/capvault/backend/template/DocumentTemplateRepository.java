@@ -22,7 +22,7 @@ public interface DocumentTemplateRepository extends JpaRepository<DocumentTempla
         @Param("workspaceId") UUID workspaceId);
 
     @Query("""
-        select new com.capvault.backend.template.DocumentTemplateText(t.extractedText, t.sha256)
+        select new com.capvault.backend.template.DocumentTemplateText(t.id, t.extractedText, t.sha256)
         from DocumentTemplate t
         where t.workspaceId = :workspaceId
           and upper(t.deliverableKey) = upper(:deliverableKey)
@@ -33,7 +33,7 @@ public interface DocumentTemplateRepository extends JpaRepository<DocumentTempla
         @Param("fieldId") String fieldId);
 
     @Query("""
-        select new com.capvault.backend.template.DocumentTemplateText(t.extractedText, t.sha256)
+        select new com.capvault.backend.template.DocumentTemplateText(t.id, t.extractedText, t.sha256)
         from DocumentTemplate t
         where t.workspaceId = :workspaceId
           and upper(t.deliverableKey) = upper(:deliverableKey)

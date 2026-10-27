@@ -8,10 +8,15 @@ import java.util.List;
  * Make one bounded provider request per call (no automatic retries after ambiguous failures).
  * The idempotency key may also be forwarded if the provider supports it.
  */
-public interface AiReviewProvider {
+public interface AiReviewProvider extends com.capvault.backend.template.TemplateInstructionGateway {
     boolean isConfigured();
     String cacheVersion();
     Result review(Input input);
+    default Result assessInstructions(InstructionInput input) {
+        throw new UnsupportedOperationException("Instruction assessment is unavailable.");
+    }
+    record InstructionInput(Input review, com.capvault.backend.template.TemplateInstructionPreparation.Prepared template,
+        List<com.capvault.backend.template.TemplateInstructionPreparation.Instruction> instructions, boolean includeOverview) { }
 
     record FailureDiagnostic(String provider, String stage, Integer httpStatus, String providerStatus,
                              String reasonCode, List<String> parameterFields, String explanation,
@@ -51,7 +56,7 @@ public interface AiReviewProvider {
     }
     enum CoverageStatus { EVIDENCE_RECORDED, ISSUE_RECORDED, NEEDS_VERIFICATION, NOT_CHECKED }
     /** A compact, advisory assessment for one server-owned criterion. */
-    enum CriterionAssessmentLabel { APPEARS_ADDRESSED, NEEDS_ATTENTION, CHECK_MANUALLY }
+    enum CriterionAssessmentLabel { APPEARS_ADDRESSED, NEEDS_ATTENTION, CHECK_MANUALLY, NOT_APPLICABLE }
     record CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
                                List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
                                List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes,
@@ -76,8 +81,8 @@ public interface AiReviewProvider {
             findingIndexes = findingIndexes == null ? List.of() : List.copyOf(findingIndexes);
             missingSectionIndexes = missingSectionIndexes == null ? List.of() : List.copyOf(missingSectionIndexes);
             verificationNoteIndexes = verificationNoteIndexes == null ? List.of() : List.copyOf(verificationNoteIndexes);
-            if (explanation != null && explanation.length() > 240) explanation = explanation.substring(0, 240);
-            if (documentEvidence != null && documentEvidence.length() > 780) documentEvidence = documentEvidence.substring(0, 780);
+            if (explanation != null && explanation.length() > 400) throw new IllegalArgumentException("Assessment explanation exceeds its limit.");
+            if (documentEvidence != null && documentEvidence.length() > 1600) throw new IllegalArgumentException("Assessment evidence exceeds its limit.");
         }
     }
     record ReviewCoverage(List<CriterionAssessment> criteria, int omittedCriteria, int completedPasses,

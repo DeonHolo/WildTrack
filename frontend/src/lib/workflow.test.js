@@ -45,6 +45,24 @@ describe('instruction assessment evidence', () => {
   const positive = (id, quote) => ({ id, requirement: 'Describe project responsibilities.',
     source: 'OFFICIAL_TEMPLATE', assessment: 'APPEARS_ADDRESSED',
     explanation: 'Responsibilities are described.', documentEvidence: quote, location: { page: 4 } });
+  it('uses the complete fixed checklist instead of requiring two arbitrary observations', () => {
+    const report = { outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: [],
+      coverage: { omittedCriteria: 0, criteria: [positive('T1', 'The manager assigns project responsibilities.')] } };
+    expect(aiReviewEvidenceCount(report)).toBe(1);
+    expect(isInconclusiveAiReviewReport(report)).toBe(false);
+    report.coverage.criteria.push({ ...positive('T2', ''), assessment: 'NOT_APPLICABLE',
+      explanation: 'External staffing does not apply to this student team.', location: null });
+    expect(isInconclusiveAiReviewReport(report)).toBe(false);
+    report.coverage.criteria[1].assessment = 'CHECK_MANUALLY';
+    expect(isInconclusiveAiReviewReport(report)).toBe(true);
+  });
+  it('keeps incomplete fixed and single-observation historical reports inconclusive', () => {
+    const report = { outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: [],
+      coverage: { omittedCriteria: 0, criteria: [positive('T2', 'The manager assigns project responsibilities.')] } };
+    expect(isInconclusiveAiReviewReport(report)).toBe(true);
+    report.coverage.criteria[0].id = 'C1';
+    expect(isInconclusiveAiReviewReport(report)).toBe(true);
+  });
   it('counts independent new citations beyond the old global observation list', () => {
     const report = { outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: [],
       coverage: { criteria: Array.from({ length: 6 }, (_, index) => positive(`C${index + 1}`, `Distinct supported body passage ${index}.`)) } };

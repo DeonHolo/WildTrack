@@ -24,7 +24,14 @@ public class AiReviewBatchService {
     public record Entry(Target target, AiReviewService.Preview preview, String phase, boolean selected,
                         boolean rerun, UUID retryToken, String checkedAt, boolean newerHistory,
                         String resultStatus, boolean reused, String error, boolean noAiStarted,
-                        AiReviewService.DisplayIdentity identity) {
+                        AiReviewService.DisplayIdentity identity, String templateChecklistUrl) {
+        public Entry(Target target, AiReviewService.Preview preview, String phase, boolean selected,
+                     boolean rerun, UUID retryToken, String checkedAt, boolean newerHistory,
+                     String resultStatus, boolean reused, String error, boolean noAiStarted,
+                     AiReviewService.DisplayIdentity identity) {
+            this(target, preview, phase, selected, rerun, retryToken, checkedAt, newerHistory,
+                resultStatus, reused, error, noAiStarted, identity, null);
+        }
         public Entry(Target target, AiReviewService.Preview preview, String phase, boolean selected,
                      boolean rerun, UUID retryToken, String checkedAt, boolean newerHistory,
                      String resultStatus, boolean reused, String error, boolean noAiStarted) {
@@ -36,11 +43,11 @@ public class AiReviewBatchService {
         }
         Entry selected(boolean value, boolean rerunValue, UUID retry) {
             return new Entry(target, preview, value ? "PENDING" : phase, value, rerunValue, retry,
-                checkedAt, newerHistory, resultStatus, reused, error, noAiStarted, identity);
+                checkedAt, newerHistory, resultStatus, reused, error, noAiStarted, identity, templateChecklistUrl);
         }
         Entry phase(String next) {
             return new Entry(target, preview, next, selected, rerun, retryToken, checkedAt, newerHistory,
-                resultStatus, reused, error, noAiStarted, identity);
+                resultStatus, reused, error, noAiStarted, identity, templateChecklistUrl);
         }
         Entry result(AiReviewService.View review, String message) {
             // A status read is always reused; keep the original claim's billing/reuse fact.
@@ -48,15 +55,15 @@ public class AiReviewBatchService {
             String status = "COMPLETED".equals(review.status()) && review.report() == null ? "FAILED" : review.status();
             return new Entry(target, preview, "RUNNING".equals(status) ? "WAITING" : "DONE", selected,
                 rerun, review.retryToken(), checkedAt, newerHistory, status, claimReused, message,
-                "UNAVAILABLE".equals(status) || "QUEUE_FULL".equals(review.failureCode()), identity);
+                "UNAVAILABLE".equals(status) || "QUEUE_FULL".equals(review.failureCode()), identity, templateChecklistUrl);
         }
         Entry failed(String message, boolean notStarted) {
             return new Entry(target, preview, "DONE", selected, rerun, retryToken, checkedAt, newerHistory,
-                "FAILED", false, message, notStarted, identity);
+                "FAILED", false, message, notStarted, identity, templateChecklistUrl);
         }
         Entry identity(AiReviewService.DisplayIdentity value) {
             return new Entry(target, preview, phase, selected, rerun, retryToken, checkedAt, newerHistory,
-                resultStatus, reused, error, noAiStarted, value);
+                resultStatus, reused, error, noAiStarted, value, templateChecklistUrl);
         }
     }
     public record Data(List<Entry> entries, String mode, boolean includeOutdated, boolean retryAcknowledged, String message,
@@ -76,7 +83,10 @@ public class AiReviewBatchService {
     private final ObjectMapper json;
     private final Clock clock;
     private static final Set<String> PAUSE_CODES = Set.of("RATE_LIMITED", "API_KEY_REJECTED", "NOT_CONFIGURED",
-        "QUEUE_FULL", "PROVIDER_TIMEOUT", "PROVIDER_CONNECTION_FAILED", "MODEL_UNAVAILABLE");
+        "QUEUE_FULL", "PROVIDER_TIMEOUT", "PROVIDER_CONNECTION_FAILED", "MODEL_UNAVAILABLE",
+        "TEMPLATE_PREPARATION_FAILED", "TEMPLATE_PREPARATION_BUSY", "TEMPLATE_FILE_BUSY", "TEMPLATE_PDF_NOT_READY",
+        "PREPARATION_TIME_BUDGET", "PREPARATION_FAILED", "INVALID_TEMPLATE_INSTRUCTIONS", "REVIEW_WORK_BUDGET",
+        "TEMPLATE_INSTRUCTION_PAGE_TOO_LARGE", "TEMPLATE_CHECKLIST_CHANGED");
 
     public AiReviewBatchService(AiReviewBatchStore store, AiReviewService reviews, FileCheckReportRepository checks,
                                ObjectMapper json, Clock clock) {
@@ -206,6 +216,9 @@ public class AiReviewBatchService {
                 } catch (Exception ignored) { /* Unavailable legacy metadata cannot prove a file update. */ }
             }
             entries.set(index, new Entry(entry.target(), p, "PREPARED", false, false, null, checkedAt, gap, null, false, "", true));
+        } catch (AiReviewService.TemplateChecklistApprovalRequired required) {
+            entries.set(index, new Entry(entry.target(), null, "SETUP_REQUIRED", false, false, null, null,
+                false, "TEMPLATE_APPROVAL_REQUIRED", false, required.getReason(), true, identity, required.templateUrl()));
         } catch (ResponseStatusException denied) {
             if (denied instanceof AiReviewService.DrivePreparationFailure drive && drive.identity() != null) identity = drive.identity();
             entries.set(index, new Entry(entry.target(), null, "UNVERIFIED", false, false, null, null, false, null, false,
@@ -319,6 +332,7 @@ public class AiReviewBatchService {
     }
 
     private static boolean technicalFailure(Entry entry) {
+        if ("TEMPLATE_APPROVAL_REQUIRED".equals(entry.resultStatus())) return false;
         // Completion describes execution; an assessment notice is not a failed request.
         if ("COMPLETED".equals(entry.resultStatus())) return false;
         if ("UNCERTAIN".equals(entry.resultStatus())) return true;

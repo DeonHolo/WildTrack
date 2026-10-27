@@ -68,7 +68,7 @@ export function TrackerPage() {
         title="Tracker"
         description={role === APPLICATION_ROLES.ADVISER
           ? 'Read-only progress for your assigned teams. WildTrack submissions are reflected here without changing the Google Sheet.'
-          : 'Imported class-record values stay visible, while WildTrack submissions are reflected locally without Google Sheet writeback.'}
+          : 'Imported class-record values stay visible alongside WildTrack submissions.'}
 
       />
 

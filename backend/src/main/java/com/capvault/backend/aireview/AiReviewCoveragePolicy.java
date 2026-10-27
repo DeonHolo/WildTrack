@@ -15,7 +15,6 @@ import com.capvault.backend.filecheck.PdfInspection;
 
 /** Request-local review areas and links to evidence that survived the existing grounding rules. */
 final class AiReviewCoveragePolicy {
-    static final int MAX_CRITERIA = 24;
     private static final Pattern HEADING = Pattern.compile("^(\\d+(?:\\.\\d+)*)(?:[.)])?\\s+([\\p{L}].{2,150})$");
     private static final Pattern CONDITIONAL = Pattern.compile("(?i)\\b(?:optional|if applicable|when applicable|where applicable|as needed|example|sample|illustrative|e\\.g\\.|for instance|not required|need not)\\b");
     private static final Pattern DIRECTIVE = Pattern.compile("(?i)(?:^(?:[-*•]\\s*)?(?:\\d+[.)]\\s*)?(?:include|provide|describe|specify|identify|list|document|explain|show|discuss|evaluate|justify|report|contain|define|compare|address)\\b|\\b(?:must|shall|required|mandatory)\\b)");
@@ -85,7 +84,6 @@ final class AiReviewCoveragePolicy {
         }
         var selected = new ArrayList<Criterion>();
         for (var item : candidates.values()) {
-            if (selected.size() == MAX_CRITERIA) break;
             selected.add(new Criterion("C" + (selected.size() + 1), item.requirement(), item.source(), item.title()));
         }
         return new Plan(List.copyOf(selected), Math.max(0, candidates.size() - selected.size()), selected.isEmpty()
@@ -117,7 +115,11 @@ final class AiReviewCoveragePolicy {
 
     static ReviewCoverage grounded(Result raw, Result accepted, String instructions, String template,
             String documentText, List<PdfInspection.PageText> pages) {
-        var plan = plan(instructions, template);
+        return grounded(raw, accepted, plan(instructions, template), documentText, pages);
+    }
+
+    static ReviewCoverage grounded(Result raw, Result accepted, Plan plan,
+            String documentText, List<PdfInspection.PageText> pages) {
         var byId = uniqueMappings(raw.coverage() == null ? List.of() : raw.coverage().criteria());
         var usedChecks = new HashSet<Integer>();
         var rows = plan.criteria().stream().map(criterion -> {
@@ -133,8 +135,9 @@ final class AiReviewCoveragePolicy {
                 .stream().filter(index -> related(criterion, accepted.missingRequiredSections().get(index).source(), accepted.missingRequiredSections().get(index).requirement())).toList();
             var notes = new ArrayList<>(remap(mapping.verificationNoteIndexes(), raw.verificationNotes(), accepted.verificationNotes(), AiReviewCoveragePolicy::sameFinding)
                 .stream().filter(index -> related(criterion, accepted.verificationNotes().get(index).source(), accepted.verificationNotes().get(index).requirement())).toList());
-            // Deterministic template crosschecks are already grounded, but have no model-array index.
-            for (int index = 0; index < accepted.verificationNotes().size(); index++) {
+            // Legacy crosschecks have no model index. Fixed instructions already
+            // have exact links: two instructions may share one authority quotation.
+            for (int index = 0; !criterion.id().startsWith("T") && index < accepted.verificationNotes().size(); index++) {
                 var note = accepted.verificationNotes().get(index);
                 if (note.source() == criterion.source() && key(note.requirement()).equals(key(criterion.requirement())) && !notes.contains(index)) notes.add(index);
             }
@@ -165,23 +168,23 @@ final class AiReviewCoveragePolicy {
                 explanation = "A retained requirement finding needs attention.";
                 evidence = null;
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
-                    && !notes.isEmpty()) {
+                    && (!notes.isEmpty() || (criterion.id().startsWith("T") && checks.isEmpty()))) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = "The criterion needs manual verification in the original PDF.";
+                explanation = "The assessment could not be confirmed from its supporting evidence. Check this instruction in the PDF.";
                 evidence = null;
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
                     && evidence == null) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = "The criterion needs manual verification in the original PDF.";
+                explanation = "The cited supporting text could not be verified in the PDF. Check this instruction there.";
                 evidence = null;
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED) {
                 location = sourceLocation(evidence, pages);
                 if (location == null) { label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                    explanation = "The criterion needs manual verification in the original PDF."; evidence = null; }
+                    explanation = "The cited supporting text could not be located on a PDF page. Check this instruction there."; evidence = null; }
             } else if (explicit && label == CriterionAssessmentLabel.NEEDS_ATTENTION
                     && findings.isEmpty() && missing.isEmpty()) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = "The criterion needs manual verification in the original PDF.";
+                explanation = "The reported concern could not be confirmed from its cited evidence. Check this instruction in the PDF.";
                 evidence = null;
             }
             if (evidence == null) location = null;
@@ -282,7 +285,7 @@ final class AiReviewCoveragePolicy {
     private static HashMap<String, CriterionAssessment> uniqueMappings(List<CriterionAssessment> mappings) {
         var result = new HashMap<String, CriterionAssessment>();
         var duplicates = new HashSet<String>();
-        if (mappings == null || mappings.size() > MAX_CRITERIA * 2) return result;
+        if (mappings == null) return result;
         for (var mapping : mappings) {
             if (mapping == null || mapping.id() == null) continue;
             if (result.putIfAbsent(mapping.id(), mapping) != null) duplicates.add(mapping.id());

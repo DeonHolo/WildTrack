@@ -86,7 +86,7 @@ public class AiReviewStore {
             }
             existing = find(key).orElseThrow();
         }
-        boolean abandoned = existing.state().equals("RUNNING") && existing.startedAt().isBefore(clock.instant().minus(ABANDONED_AFTER));
+        boolean abandoned = abandoned(existing);
         // Deliberate rerun is different from reusing an identical completed PDF
         // and from retrying an uncertain request. The CAS claim gives all five
         // students sharing this context ONE in-flight provider call across nodes.
@@ -95,7 +95,7 @@ public class AiReviewStore {
             Job prior = existing;
             int changed = tx.execute(status -> jdbc.update("""
                 UPDATE ai_review_jobs SET state = 'RUNNING', claim_token = ?, started_at = ?,
-                    failure_code = NULL, failure_diagnostic_json = NULL
+                    failure_code = NULL, failure_diagnostic_json = NULL, heartbeat_at = NULL
                 WHERE cache_key = ? AND claim_token = ? AND state = 'COMPLETED'
                 """, token, Timestamp.from(clock.instant()), key, prior.token()));
             if (changed == 1) return new Claim(find(key).orElseThrow(), true);
@@ -105,9 +105,11 @@ public class AiReviewStore {
             Job prior = existing;
             int changed = tx.execute(status -> jdbc.update("""
                 UPDATE ai_review_jobs SET state = 'RUNNING', claim_token = ?, started_at = ?,
-                    failure_code = NULL, failure_diagnostic_json = NULL
+                    failure_code = NULL, failure_diagnostic_json = NULL, heartbeat_at = NULL
                 WHERE cache_key = ? AND claim_token = ? AND state = ?
-                """, token, Timestamp.from(clock.instant()), key, prior.token(), prior.state()));
+                  AND (state <> 'RUNNING' OR COALESCE(heartbeat_at, started_at) < ?)
+                """, token, Timestamp.from(clock.instant()), key, prior.token(), prior.state(),
+                    Timestamp.from(clock.instant().minus(ABANDONED_AFTER))));
             if (changed == 1) return new Claim(find(key).orElseThrow(), true);
         }
         return new Claim(find(key).orElseThrow(), false);
@@ -131,6 +133,20 @@ public class AiReviewStore {
             """, previous.reportJson(), previous.completedAt() == null ? null : Timestamp.from(previous.completedAt()),
             latest, latestAt == null ? null : Timestamp.from(latestAt), claimed.key(), claimed.token(),
             previous.workspaceId(), previous.deliverableId(), previous.teamCode(), previous.key()));
+    }
+
+    boolean abandoned(Job job) {
+        if (!"RUNNING".equals(job.state())) return false;
+        var times = jdbc.query("SELECT heartbeat_at FROM ai_review_jobs WHERE cache_key = ? AND claim_token = ?",
+            (rs, row) -> rs.getTimestamp(1), job.key(), job.token());
+        var heartbeat = times.isEmpty() || times.get(0) == null ? job.startedAt() : times.get(0).toInstant();
+        return heartbeat.isBefore(clock.instant().minus(ABANDONED_AFTER));
+    }
+
+    void heartbeat(Job job) {
+        int changed = jdbc.update("UPDATE ai_review_jobs SET heartbeat_at = ? WHERE cache_key = ? AND claim_token = ? AND state = 'RUNNING'",
+            Timestamp.from(clock.instant()), job.key(), job.token());
+        if (changed != 1) throw new IllegalStateException("This AI review no longer owns its claim.");
     }
 
     public void complete(Job job, String report) {
@@ -301,8 +317,7 @@ public class AiReviewStore {
     }
 
     public String displayState(Job job) {
-        return job.state().equals("RUNNING") && job.startedAt().isBefore(clock.instant().minus(ABANDONED_AFTER))
-            ? "UNCERTAIN" : job.state();
+        return abandoned(job) ? "UNCERTAIN" : job.state();
     }
 
     public Instant sourceVerifiedAt(UUID responseId, String fieldId, String key, boolean legacy) {

@@ -20,6 +20,8 @@ public class TemplateComparator {
         Pattern.compile("^\\d+[.)]?\\s+.+");
     private static final Pattern PLAIN_TOC_ENTRY =
         Pattern.compile("^.*[A-Za-z].*\\s+\\d+\\s*$");
+    private static final Pattern PAGE_COUNTER =
+        Pattern.compile("(?i)^(?:page\\s*)?\\d+(?:\\s*(?:of|/)\\s*\\d+)?$");
 
     private final FileCheckProperties properties;
 
@@ -107,6 +109,7 @@ public class TemplateComparator {
         return java.util.stream.IntStream.range(0, lines.size())
             .filter(index -> !entries.containsKey(index))
             .mapToObj(lines::get)
+            .filter(line -> !PAGE_COUNTER.matcher(line).matches())
             .filter(line -> line.length() >= 3 && line.length() <= 100)
             .filter(line -> TOP_LEVEL_HEADING.matcher(line).matches())
             .filter(line -> !isTocEntry(line))
@@ -137,6 +140,8 @@ public class TemplateComparator {
         int lastEntryIndex = -1;
         for (int index = tocStart; index < lines.size() && index < tocStart + 180; index++) {
             String line = lines.get(index);
+            // Preserve line positions for evidence, but never parse page furniture as a TOC title.
+            if (PAGE_COUNTER.matcher(line).matches()) continue;
             // DOCX extraction flattens TOC tab stops into spaces. Only accept plain
             // page suffixes inside a TOC, and stop when a listed body heading begins.
             if (!isTocEntry(line) && titles.contains(canonicalHeadingLine(line))) break;

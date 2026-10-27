@@ -60,7 +60,7 @@ class GeminiAiReviewProviderTest {
     @Test void maximumCoverageSchemaAvoidsRepeatedBoundedArrays() throws Exception {
         var method = GeminiAiReviewProvider.class.getDeclaredMethod("schema", int.class, int.class);
         method.setAccessible(true);
-        for (int count : new int[]{0, 6, AiReviewCoveragePolicy.MAX_CRITERIA}) {
+        for (int count : new int[]{0, 6, 110}) {
             var properties = json.valueToTree(method.invoke(null, 20, count)).path("properties");
             var coverage = properties.path("criterionReviews");
             assertThat(coverage.has("maxItems")).isFalse();

@@ -1,23 +1,34 @@
 package com.capvault.backend.template;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.ByteArrayOutputStream;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.sql.Connection;
 import java.util.UUID;
 
 import javax.sql.DataSource;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * Durable template storage contract: bytes live in PostgreSQL, survive a
- * restart, and rows migrated from the local-storage era are explicitly
- * unavailable rather than falsely successful.
+ * Durable template storage contract: bytes live in PostgreSQL, can be reloaded,
+ * and rows migrated from the local-storage era are explicitly unavailable
+ * rather than falsely successful.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -36,33 +47,49 @@ class DurableTemplateStorageTest {
     private Flyway flyway;
 
     @Test
-    void templateBytesAreStoredInPostgresAndSurviveARestartCycle() {
-        byte[] bytes = "template-content-for-durability-check".getBytes();
-        DocumentTemplate saved = repository.save(new DocumentTemplate(
-            UUID.fromString("11111111-1111-1111-1111-111111111111"),
-            "SRS",
-            "SRS official template",
-            "srs.docx",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            bytes,
-            null,
-            "a".repeat(64),
-            "x".repeat(60)
-        ));
+    void pdfTemplateBytesAreStoredDurablyAndCanBeReloaded() throws Exception {
+        UUID workspaceId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        byte[] bytes = pdf("Official SRS template instructions remain available after the durable record is reloaded.");
+        DocumentTemplateResponse saved = service.save(workspaceId, "SRS", "SRS official template",
+            new MockMultipartFile("file", "srs.pdf", "application/pdf", bytes));
 
-        DocumentTemplateService.TemplateFile file = service.readFile(
-            saved.getWorkspaceId(), saved.getId());
-
+        DocumentTemplateService.TemplateFile file = service.readFile(workspaceId, saved.id());
         assertThat(file.bytes()).isEqualTo(bytes);
-        assertThat(file.filename()).isEqualTo("srs.docx");
+        assertThat(file.filename()).isEqualTo("srs.pdf");
+        assertThat(file.contentType()).isEqualTo("application/pdf");
 
-        // Simulate a restart: detach and re-read through the repository.
-        DocumentTemplate reloaded = repository.findById(saved.getId()).orElseThrow();
+        DocumentTemplate reloaded = repository.findById(saved.id()).orElseThrow();
         assertThat(reloaded.getContentBytes()).isEqualTo(bytes);
         assertThat(reloaded.isBytesAvailable()).isTrue();
 
         repository.delete(reloaded);
     }
+
+    @Test
+    void legacyDocxOriginalBytesRemainAvailableWithoutReuploadOrConversion() throws Exception {
+        String text = "Legacy official SRS instructions remain readable in their retained original Word file.";
+        byte[] bytes;
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            document.createParagraph().createRun().setText(text);
+            document.write(output);
+            bytes = output.toByteArray();
+        }
+        DocumentTemplate saved = repository.save(new DocumentTemplate(
+            UUID.fromString("11111111-1111-1111-1111-111111111111"), "LEGACY-DURABLE-SRS",
+            "Legacy SRS official template", "legacy-srs.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            bytes, null, HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)), text));
+
+        DocumentTemplate reloaded = repository.findById(saved.getId()).orElseThrow();
+        DocumentTemplateService.TemplateFile file = service.readFile(reloaded.getWorkspaceId(), reloaded.getId());
+        assertThat(file.bytes()).isEqualTo(bytes);
+        assertThat(file.filename()).isEqualTo("legacy-srs.docx");
+        assertThat(file.contentType()).isEqualTo("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        assertThat(reloaded.isBytesAvailable()).isTrue();
+
+        repository.delete(reloaded);
+    }
+
 
     @Test
     void migratedLocalEraRowsAreExplicitlyUnavailableInsteadOfFalseSuccess() {
@@ -75,11 +102,10 @@ class DurableTemplateStorageTest {
 
         var legacy = repository.findByWorkspaceIdAndDeliverableKeyIgnoreCase(workspaceId, "SDD").orElseThrow();
 
-        try {
-            service.readFile(workspaceId, legacy.getId());
-        } catch (IllegalStateException expected) {
-            assertThat(expected.getMessage()).contains("no longer available", "Replace the template");
-        }
+        assertThatThrownBy(() -> service.readFile(workspaceId, legacy.getId()))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("no longer available")
+            .hasMessageContaining("Replace the template");
 
         assertThat(legacy.isBytesAvailable()).isFalse();
         jdbcTemplate.update("DELETE FROM academic_document_templates WHERE id = ?", legacy.getId());
@@ -101,4 +127,21 @@ class DurableTemplateStorageTest {
             assertThat(hasFlag).isTrue();
         }
     }
+    private static byte[] pdf(String text) throws Exception {
+        try (PDDocument document = new PDDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+            try (PDPageContentStream stream = new PDPageContentStream(document, page)) {
+                stream.beginText();
+                stream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 10);
+                stream.newLineAtOffset(30, 700);
+                stream.showText(text);
+                stream.endText();
+            }
+            document.save(output);
+            return output.toByteArray();
+        }
+    }
+
+
 }

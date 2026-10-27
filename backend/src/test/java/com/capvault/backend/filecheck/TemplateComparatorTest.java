@@ -225,6 +225,30 @@ class TemplateComparatorTest {
     }
 
     @Test
+    void pageCountersDoNotBecomeTocTitlesOrHideRealEntries() {
+        for (String counter : java.util.List.of("Page 4 of 7", "Page4of7", "4 of 7", "4 / 7", "Page 4", "4")) {
+            String template = "Table of Contents\n1. Introduction ........ 4\n" + counter
+                + "\n2. Test Plan 5\n" + counter
+                + "\n1. Introduction\nOverview text.\n2. Test Plan\nPlan text.";
+
+            var result = comparator.compare(template, "1. Introduction\nA written overview.");
+
+            assertThat(result.expectedTemplateHeadings()).as(counter).containsExactly("Introduction", "Test Plan");
+            assertThat(result.detectedTemplateHeadings()).as(counter).containsExactly("Introduction");
+            assertThat(result.missingTemplateHeadings()).as(counter).containsExactly("Test Plan");
+        }
+    }
+
+    @Test
+    void pageCountersAreNotNumberedBodyHeadingsWithoutAToc() {
+        var result = comparator.compare("1. Introduction\n4 of 7\n2. Test Plan\nPage 5 of 7",
+            "1. Introduction\nOverview text.\n2. Test Plan\nPlan text.");
+
+        assertThat(result.expectedTemplateHeadings()).containsExactly("Introduction", "Test Plan");
+        assertThat(result.missingTemplateHeadings()).isEmpty();
+    }
+
+    @Test
     void literalNumbersInBodyHeadingNamesRemainSignificant() {
         var result = comparator.compare("1. Section 1\n2. Section 2", "1. Section 1\nSection text");
 

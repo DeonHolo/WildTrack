@@ -37,7 +37,7 @@ it('keeps retries explicit with short footer labels and a visible cost explanati
   expect(confirm).not.toHaveBeenCalled();
   expect(screen.getByText(/Previous attempts may already have used tokens/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
-  expect(screen.getByText(/A new review uses at most two Gemini requests and their tokens/)).toBeInTheDocument();
+  expect(screen.getByText(/Longer checklists use several Gemini requests/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Retry reviews' }));
   expect(confirm).toHaveBeenCalledWith(['active', 'archived']);
 });

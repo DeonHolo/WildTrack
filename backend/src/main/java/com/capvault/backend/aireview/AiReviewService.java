@@ -43,7 +43,7 @@ public class AiReviewService {
     private static final Logger LOG = LoggerFactory.getLogger(AiReviewService.class);
     // Post-validation behavior is part of the persisted review cache fingerprint.
     // Do not reuse reports generated before the named body-section evidence correction.
-    static final String PROMPT_VERSION = "wildtrack-academic-review-v26-instruction-assessments";
+    static final String PROMPT_VERSION = "wildtrack-academic-review-v27-pdf-template-complete-instructions";
     static final String SYSTEM_INSTRUCTION = """
         Review this capstone PDF using only the authority hierarchy supplied by WildTrack.
         The requested deliverable title identifies which document was requested. Deliverable Instructions and
@@ -120,6 +120,10 @@ public class AiReviewService {
     private final ObjectMapper json;
     private final Executor executor;
     private final VerifiedPdfSnapshotCache verifiedPdfSnapshots;
+    @org.springframework.beans.factory.annotation.Autowired
+    private AiReviewInstructionsWorkflow instructionWorkflow;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.capvault.backend.template.TemplateChecklistService templateChecklists;
 
     public AiReviewService(AiReviewProvider provider, AiReviewStore store, FormResponseRepository responses,
             DeliverableRepository deliverables, DeliverableFieldRepository fields, DocumentTemplateService templates, GoogleDriveGateway drive,
@@ -162,7 +166,12 @@ public class AiReviewService {
                 lastSubstantiveReport, lastSubstantiveGeneratedAt, instantText(value), failureDiagnostics);
         }
     }
-    private record Context(String hash, String title, String instructions, String template) { }
+    private record Context(String hash, String title, String instructions, String template, UUID templateId, String templateHash,
+                           AiReviewCoveragePolicy.Plan plan, String approvedAuthority) {
+        Context(String hash, String title, String instructions, String template, UUID templateId, String templateHash,
+                AiReviewCoveragePolicy.Plan plan) { this(hash, title, instructions, template, templateId, templateHash, plan, null); }
+        Context(String hash, String title, String instructions, String template) { this(hash, title, instructions, template, null, null, null); }
+    }
     private record ReviewTarget(String fieldId, String fieldKey, String label, String sourceUrl, boolean legacyStore) { }
     record Preview(UUID responseId, String fieldId, String key, String category, boolean outdated,
                    String deliverableTitle, String artifactLabel, String studentName, String sourceUrl,
@@ -227,6 +236,7 @@ public class AiReviewService {
         requireAdministrator(subject);
         var target = target(response, fieldId);
         var context = context(response, target);
+        requireApprovedChecklist(workspaceId, context);
         var prepared = prepare(response, target, context);
         var current = store.find(prepared.key()).orElse(null);
         var prior = linked(response, target).orElse(null);
@@ -362,6 +372,7 @@ public class AiReviewService {
             throw new IllegalArgumentException("Reload the uncertain review before confirming a retry.");
         ReviewTarget target = target(response, fieldId);
         Context context = context(response, target);
+        requireApprovedChecklist(workspaceId, context);
         String source = target.sourceUrl();
         var prepared = prepare(response, target, context);
         byte[] bytes = prepared.bytes();
@@ -392,13 +403,16 @@ public class AiReviewService {
                         assertCurrent(response, target, context, subject);
                         if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Administrator access changed.");
                         stage = "provider";
-                        var result = reviewWithCoverage(provider,
-                            new AiReviewProvider.Input(key + ":" + claim.job().token(), bytes, inspection.extractedText(),
-                                SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template()),
-                            inspection, () -> {
+                        var input = new AiReviewProvider.Input(key + ":" + claim.job().token(), bytes, inspection.extractedText(),
+                            SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template());
+                        Runnable validate = () -> {
                                 assertCurrent(response, target, context, subject);
                                 if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Administrator access changed.");
-                            });
+                            };
+                        var result = provider.supportsTemplateInstructions() && context.templateId() != null
+                            ? instructionWorkflow.review(claim.job(), retryAcknowledged ? expectedRetryToken : null, response.getWorkspaceId(),
+                                context.templateId(), context.templateHash(), input, inspection, validate)
+                            : reviewWithCoverage(provider, input, inspection, validate);
                         // Every valid result is saved; only a substantive result replaces report history.
                         stage = "persistence";
                         store.complete(claim.job(), json.writeValueAsString(result),
@@ -407,7 +421,8 @@ public class AiReviewService {
                         assertCurrent(response, target, context, subject);
                     } catch (Exception failure) {
                         String failureCode = failure instanceof GeminiAiReviewProvider.Failure gemini
-                            ? gemini.code : failure instanceof InconclusiveReviewResult inconclusive
+                            ? gemini.code : failure instanceof com.capvault.backend.template.TemplateInstructionPreparation.Failure templateFailure
+                                ? templateFailure.code() : failure instanceof InconclusiveReviewResult inconclusive
                                 ? inconclusive.code : failure instanceof InvalidReviewResult
                                     ? "INVALID_RESPONSE" : "PROVIDER_OUTCOME_UNKNOWN";
                         // Fixed labels/types only: exception messages and provider details can contain private data.
@@ -565,9 +580,32 @@ public class AiReviewService {
         String text = template == null ? "" : Objects.requireNonNullElse(template.extractedText(), "");
         String version = provider.cacheVersion();
         if (version == null || version.isBlank()) throw new IllegalStateException("AI provider must declare its model/settings version.");
-        String hash = digest(List.of(PROMPT_VERSION, SYSTEM_INSTRUCTION, version, title, instructions,
-            template == null ? "none" : template.sha256(), text));
-        return new Context(hash, title, instructions, text);
+        var requirements = new java.util.ArrayList<>(List.of(PROMPT_VERSION, SYSTEM_INSTRUCTION, version,
+            title, instructions, template == null ? "none" : template.sha256(), text));
+        if (template != null && provider.supportsTemplateInstructions())
+            requirements.add(templateChecklists.fingerprint(response.getWorkspaceId(), template.id()));
+        String hash = digest(requirements);
+        return new Context(hash, title, instructions, text, template == null ? null : template.id(),
+            template == null ? null : template.sha256(), null);
+    }
+
+    private void requireApprovedChecklist(UUID workspaceId, Context context) {
+        if (context.templateId() != null && provider.supportsTemplateInstructions()
+                && !"APPROVED".equals(templateChecklists.get(workspaceId, context.templateId()).state()))
+            throw new TemplateChecklistApprovalRequired(workspaceId, context.templateId());
+    }
+
+    static final class TemplateChecklistApprovalRequired extends ResponseStatusException {
+        private final UUID workspaceId;
+        private final UUID templateId;
+        TemplateChecklistApprovalRequired(UUID workspaceId, UUID templateId) {
+            super(HttpStatus.CONFLICT, "Approve the template checklist from Workspace before starting AI Review. No AI review was started.");
+            this.workspaceId = workspaceId;
+            this.templateId = templateId;
+        }
+        String templateUrl() {
+            return "/templates/" + templateId + "/preview?workspaceId=" + workspaceId;
+        }
     }
 
     private void assertCurrent(FormResponse original, ReviewTarget originalTarget, Context originalContext, String subject) {
@@ -700,6 +738,13 @@ public class AiReviewService {
             case "NOT_CONFIGURED" -> "The Gemini API key is not configured.";
             case "QUEUE_FULL" -> "The AI review queue is full. No Gemini request was sent for this attempt. Try again after current reviews finish.";
             case "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE" -> "The document or review requirements exceed the supported size. Nothing was silently truncated.";
+            case "COMBINED_PDF_LIMIT" -> "The submitted PDF and official template together exceed the supported 1,000 PDF pages. Neither file was truncated.";
+            case "TEMPLATE_PDF_NOT_READY" -> "The official template PDF is not ready. Open the template to check its preparation status.";
+            case "TEMPLATE_INSTRUCTION_PAGE_TOO_LARGE" -> "One template page contains more instructions than Gemini could return in a complete response. Saved preparation progress remains available.";
+            case "TEMPLATE_PREPARATION_FAILED", "PREPARATION_FAILED", "INVALID_TEMPLATE_INSTRUCTIONS" -> "The official template instruction list could not be completed. Saved preparation progress remains available for a confirmed retry.";
+            case "TEMPLATE_PREPARATION_BUSY", "TEMPLATE_FILE_BUSY" -> "The official template is being prepared by another review. Wait before retrying this document.";
+            case "PREPARATION_TIME_BUDGET", "REVIEW_WORK_BUDGET" -> "This attempt reached its request or time allowance. Completed instruction groups were saved; a confirmed retry can continue the remaining work.";
+            case "TEMPLATE_CHANGED" -> "The official template changed during this review. Reload before starting a review against its current version.";
             case "REQUEST_REJECTED" -> "Gemini rejected WildTrack's AI request (HTTP 400). No review was generated.";
             case "REQUEST_SCHEMA_REJECTED" -> "Gemini rejected WildTrack's response schema. The AI request configuration needs correction.";
             case "REQUEST_PARAMETER_REJECTED" -> "Gemini rejected a WildTrack AI request setting (HTTP 400). The request configuration needs correction.";
@@ -807,6 +852,21 @@ public class AiReviewService {
         return result;
     }
 
+    static AiReviewProvider.Result groundInstructions(AiReviewProvider.Result raw, AiReviewProvider.Input input,
+            PdfInspection inspection, List<com.capvault.backend.template.TemplateInstructionPreparation.Instruction> group) {
+        if (raw == null || raw.coverage() == null || !raw.coverage().criteria().stream().map(AiReviewProvider.CriterionAssessment::id).toList()
+                .equals(group.stream().map(com.capvault.backend.template.TemplateInstructionPreparation.Instruction::id).toList()))
+            throw invalidReview();
+        var plan = new AiReviewCoveragePolicy.Plan(group.stream().map(item -> new AiReviewCoveragePolicy.Criterion(
+            item.id(), item.source().instruction(), AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE, item.source().title())).toList(),
+            0, "Assessment uses fixed instructions from the official template PDF.");
+        String authority = String.join("\n\n", group.stream().map(item -> item.source().instruction()).toList());
+        var context = new Context("", input.deliverableTitle(), input.instructions(), input.templateText(), null, null, plan, authority);
+        var result = groundPass(raw, context, inspection, 1);
+        if (result.coverage().criteria().stream().anyMatch(row -> row.assessment() == null)) throw invalidReview();
+        return result;
+    }
+
 
     private static AiReviewProvider.Result groundAndValidate(AiReviewProvider.Result result, Context context, String documentText) {
         return groundAndValidate(result, context, documentText, List.of());
@@ -845,35 +905,35 @@ public class AiReviewService {
             authorityCheckedFindings.stream().filter(finding ->
                 !AiReviewGroundingPolicy.uncertainExtractionObservation(finding, documentText)).toList(),
             context.title(), documentText, context.template()));
-        for (var unresolved : AiReviewCompletenessPolicy.unresolvedInstructions(documentText)) {
+        for (var unresolved : context.plan() == null ? AiReviewCompletenessPolicy.unresolvedInstructions(documentText) : List.<AiReviewProvider.Finding>of()) {
             if (validatedFindings.size() >= 50) break;
             if (validatedFindings.stream().noneMatch(existing ->
                     normalizeAuthorityText(existing.evidence()).contains(normalizeAuthorityText(unresolved.evidence())))) {
                 validatedFindings.add(unresolved);
             }
         }
-        for (var contradiction : AiReviewGroundingPolicy.internalNumericContradictions(documentText)) {
+        for (var contradiction : context.plan() == null ? AiReviewGroundingPolicy.internalNumericContradictions(documentText) : List.<AiReviewProvider.Finding>of()) {
             if (validatedFindings.stream().noneMatch(existing ->
                     normalizeAuthorityText(existing.evidence()).equals(normalizeAuthorityText(contradiction.evidence())))) {
                 validatedFindings.add(contradiction);
             }
         }
-        for (var contradiction : AiReviewExecutionConsistencyPolicy.findings(documentText)) {
+        for (var contradiction : context.plan() == null ? AiReviewExecutionConsistencyPolicy.findings(documentText) : List.<AiReviewProvider.Finding>of()) {
             if (validatedFindings.size() >= 50) break;
             if (validatedFindings.stream().noneMatch(existing ->
                     sameExecutionContradiction(existing, contradiction, documentText))) {
                 validatedFindings.add(contradiction);
             }
         }
-        for (var undefinedAcronym : AiReviewGroundingPolicy.undefinedAcronymsRequiredByTemplate(
-                documentText, context.template())) {
+        for (var undefinedAcronym : context.plan() == null ? AiReviewGroundingPolicy.undefinedAcronymsRequiredByTemplate(
+                documentText, context.template()) : List.<AiReviewProvider.Finding>of()) {
             if (validatedFindings.stream().noneMatch(existing ->
                     normalizeAuthorityText(existing.issue()).equals(normalizeAuthorityText(undefinedAcronym.issue())))) {
                 validatedFindings.add(undefinedAcronym);
             }
         }
-        for (var unlistedReference : AiReviewGroundingPolicy.unlistedReferencesRequiredByTemplate(
-                documentText, context.template())) {
+        for (var unlistedReference : context.plan() == null ? AiReviewGroundingPolicy.unlistedReferencesRequiredByTemplate(
+                documentText, context.template()) : List.<AiReviewProvider.Finding>of()) {
             if (validatedFindings.size() >= 50) break;
             if (validatedFindings.stream().noneMatch(existing ->
                     normalizeAuthorityText(existing.issue()).equals(normalizeAuthorityText(unlistedReference.issue())))) {
@@ -893,7 +953,7 @@ public class AiReviewService {
                     context.template(), context.instructions()))
             .filter(missing -> !AiReviewGroundingPolicy.containsBodyHeading(documentText, missing.section()))
             .toList());
-        for (var missing : explicitInstructionBodyRequirements(context.instructions(), documentText)) {
+        for (var missing : context.plan() == null ? explicitInstructionBodyRequirements(context.instructions(), documentText) : List.<AiReviewProvider.MissingRequiredSection>of()) {
             String section = normalizeAuthorityText(missing.section());
             if (groundedMissing.stream().noneMatch(existing ->
                     normalizeAuthorityText(existing.section()).equals(section))) {
@@ -901,13 +961,13 @@ public class AiReviewService {
             }
         }
         groundedMissing = new java.util.ArrayList<>(deduplicateMissingSections(groundedMissing));
-        var crosscheck = AiReviewGroundingPolicy.templateBodyCrosscheck(context.template(), documentText,
+        var crosscheck = context.plan() != null ? List.<AiReviewProvider.Finding>of() : AiReviewGroundingPolicy.templateBodyCrosscheck(context.template(), documentText,
             context.instructions(), validatedFindings, groundedMissing, pages).stream()
             .limit(Math.max(0, 50 - validatedFindings.size())).toList();
         var groundedFindings = new java.util.ArrayList<AiReviewProvider.Finding>();
         var verificationNotes = new java.util.ArrayList<>(authorityCheckedNotes);
-        verificationNotes.addAll(AiReviewCompletenessPolicy.documentTypeNotes(context.title(), pages));
-        if (authorityCheckedNotes.size() < result.verificationNotes().size()) {
+        if (context.plan() == null) verificationNotes.addAll(AiReviewCompletenessPolicy.documentTypeNotes(context.title(), pages));
+        if (context.plan() == null && authorityCheckedNotes.size() < result.verificationNotes().size()) {
             verificationNotes.add(new AiReviewProvider.Finding(
                 "Some provider observations could not be linked to submitted-document evidence.",
                 AiReviewProvider.FindingSource.DOCUMENT, "", "",
@@ -959,7 +1019,7 @@ public class AiReviewService {
                 if (rejection == null) {
                     String excerpt = normalizeAuthorityText(check.documentEvidence());
                     int start = normalizedDocument.indexOf(excerpt), end = start + excerpt.length();
-                    if (seenEvidenceSpans.stream().anyMatch(span -> start < span[1] && end > span[0]))
+                    if (context.plan() == null && seenEvidenceSpans.stream().anyMatch(span -> start < span[1] && end > span[0]))
                         rejection = CheckRejection.DUPLICATE_EVIDENCE;
                     else seenEvidenceSpans.add(new int[]{start, end});
                 }
@@ -971,7 +1031,7 @@ public class AiReviewService {
                 .replaceFirst("(?i)\\s*\\(pages?\\s+\\d+(?:\\s*[-–]\\s*\\d+)?\\)\\.?\\s*$", ""), check.source(),
                 check.documentEvidence(), check.requirement(),
                 validatedLocation(check.location(), check.documentEvidence(), documentText, pages)))
-            .limit(10).toList();
+            .limit(context.plan() == null ? 10 : context.plan().criteria().size()).toList();
         var groundedLimitations = new java.util.ArrayList<>(limitations(context));
         if (pages.stream().anyMatch(PdfInspection.PageText::hasVisualContent)) groundedLimitations.add(
             "Graphical content is present. Text-based structural checks do not establish the meaning or correctness "
@@ -999,7 +1059,9 @@ public class AiReviewService {
         var accepted = new AiReviewProvider.Result(summary, groundedFindings, groundedMissing, groundedLimitations,
             action, verifiedChecks, verificationNotes, outcome, null,
             groundDocumentOverview(result.documentOverview(), documentText, groundedFindings));
-        var coverage = AiReviewCoveragePolicy.grounded(result, accepted, context.instructions(), context.template(), documentText, pages);
+        var coverage = context.plan() == null
+            ? AiReviewCoveragePolicy.grounded(result, accepted, context.instructions(), context.template(), documentText, pages)
+            : AiReviewCoveragePolicy.grounded(result, accepted, context.plan(), documentText, pages);
         var finalOutcome = instructionOutcome(accepted, coverage);
         if (finalOutcome != outcome) {
             String finalSummary = switch (finalOutcome) {
@@ -1098,8 +1160,8 @@ public class AiReviewService {
     private static CheckRejection verifiedCheckRejection(AiReviewProvider.VerifiedCheck check,
             Context context, String documentText) {
         if (check == null || check.source() == null || invalidText(check.aspect(), 200)
-                || invalidText(check.documentEvidence(), 1000) || check.requirement() == null
-                || check.requirement().length() > 2000) return CheckRejection.MALFORMED_CHECK;
+                || invalidText(check.documentEvidence(), context.plan() == null ? 1000 : 1600) || check.requirement() == null
+                || check.requirement().length() > (context.approvedAuthority() != null ? 32000 : context.plan() == null ? 2000 : 4000)) return CheckRejection.MALFORMED_CHECK;
         String aspect = normalizeAuthorityText(check.aspect());
         if (aspect.matches("(?s).*(?:all|every|everything|entire|whole|fully|completely|perfectly)\\s+"
                 + ".*(?:compliant|correct|valid|complete|pass|satisf|meet|fulfill|verif).*")) return CheckRejection.BLANKET_CLAIM;
@@ -1107,6 +1169,8 @@ public class AiReviewService {
                 && AiReviewGroundingPolicy.sampleNameConfusion(
                     check.aspect() + " " + check.documentEvidence(), documentText, context.template())) return CheckRejection.TEMPLATE_SAMPLE_IDENTITY;
         if (check.source() == AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE
+                && (context.approvedAuthority() == null || AiReviewGroundingPolicy.sampleNameConfusion(
+                    check.aspect() + " " + check.documentEvidence(), documentText, context.template()))
                 && AiReviewGroundingPolicy.unsupportedTemplateSampleIdentityClaim(
                     check.aspect() + " " + check.documentEvidence(), check.requirement(),
                     documentText, context.template())) return CheckRejection.TEMPLATE_SAMPLE_IDENTITY;
@@ -1147,7 +1211,7 @@ public class AiReviewService {
     private static boolean validateFinding(AiReviewProvider.Finding finding, Context context) {
         if (finding == null || finding.source() == null || invalidText(finding.issue(), 2000)
                 || invalidText(finding.evidence(), 2000) || finding.requirement() == null
-                || finding.requirement().length() > 2000)
+                || finding.requirement().length() > (context.approvedAuthority() != null ? 32000 : context.plan() == null ? 2000 : 4000))
             throw invalidReview();
         if (finding.source() == AiReviewProvider.FindingSource.DOCUMENT) {
             if (!finding.requirement().isBlank()) throw invalidReview();
@@ -1205,7 +1269,7 @@ public class AiReviewService {
     private static String authorityText(AiReviewProvider.FindingSource source, Context context) {
         return switch (source) {
             case DELIVERABLE_REQUIREMENTS -> context.instructions();
-            case OFFICIAL_TEMPLATE -> context.template();
+            case OFFICIAL_TEMPLATE -> context.approvedAuthority() == null ? context.template() : context.approvedAuthority();
             case DOCUMENT -> "";
         };
     }

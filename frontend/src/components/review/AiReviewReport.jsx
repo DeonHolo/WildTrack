@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Alert, Button, Stack, Text } from '@mantine/core';
-import { aiReviewEvidenceCount, aiReviewReportStatus, isInconclusiveAiReviewReport, statusDisplayLabel, verifiedAiChecks } from '../../lib/workflow.js';
+import { aiReviewEvidenceCount, aiReviewReportStatus, hasCompletedTemplateChecklist, isInconclusiveAiReviewReport, statusDisplayLabel, verifiedAiChecks } from '../../lib/workflow.js';
 import { AiReviewCoverage, assessedEvidenceIndexes, validAssessmentCriteria } from './AiReviewCoverage.jsx';
 
 const CHECK_SOURCE_LABELS = {
@@ -44,7 +44,8 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
       ...report, findings: allFindings, verificationNotes: allNotes
     })
   );
-  const noIssues = issueCount === 0 && !inconclusive && evidenceCount >= 2;
+  const fixedChecklistComplete = hasCompletedTemplateChecklist(report);
+  const noIssues = issueCount === 0 && !inconclusive && (fixedChecklistComplete || evidenceCount >= 2);
   const reviewStatus = aiReviewReportStatus({ ...report, findings: allFindings, verificationNotes: allNotes });
   const outcome = inconclusive ? statusDisplayLabel(reviewStatus) : noIssues ? 'No issues in checked areas'
     : !concernCount && !verificationNotes.length && glossary.length ? 'Minor checks to review' : 'Issues identified';
@@ -52,7 +53,9 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
     concernCount && `${concernCount} concern${concernCount === 1 ? '' : 's'}`,
     manualCheckCount && `${manualCheckCount} item${manualCheckCount === 1 ? '' : 's'} to check`,
     glossary.length && `${glossary.length} minor check${glossary.length === 1 ? '' : 's'}`
-  ].filter(Boolean).join(' · ') || `${evidenceCount} supported observation${evidenceCount === 1 ? '' : 's'}`;
+  ].filter(Boolean).join(' · ') || (fixedChecklistComplete
+    ? `${instructionRows.length} template instruction${instructionRows.length === 1 ? '' : 's'} assessed`
+    : `${evidenceCount} supported observation${evidenceCount === 1 ? '' : 's'}`);
 
   return (
     <Stack gap="lg" className="wt-ai-review-report">
@@ -80,7 +83,9 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
         </Alert>
       ) : noIssues ? (
         <Alert color="green" title="No actionable issues identified in the checked areas" role="status">
-          {evidenceCount} distinct observations supported by submitted PDF evidence. This is advisory feedback, not approval or a guarantee of full compliance.
+          {fixedChecklistComplete ? `${instructionRows.length} template instruction${instructionRows.length === 1 ? '' : 's'} assessed. `
+            : `${evidenceCount} distinct observations supported by submitted PDF evidence. `}
+          This is advisory feedback, not approval or a guarantee of full compliance.
         </Alert>
       ) : null}
       {findings.length || missing.length || verificationNotes.length || instructionRows.length || report.coverage?.omittedCriteria > 0 ? (

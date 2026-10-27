@@ -70,6 +70,7 @@ export function isAiBatchReviewAdvisory(entry) {
 }
 
 export function isAiBatchTechnicalFailure(entry) {
+  if (entry.resultStatus === 'TEMPLATE_APPROVAL_REQUIRED') return false;
   if (entry.resultStatus === 'UNCERTAIN') return true;
   if (isAiBatchAccessRestriction(entry)) return false;
   if (entry.resultStatus === 'FAILED') return true;

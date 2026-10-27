@@ -37,6 +37,7 @@ import com.capvault.backend.staff.StaffAccessResolver;
 import com.capvault.backend.staff.StaffRole;
 import com.capvault.backend.template.DocumentTemplateService;
 import com.capvault.backend.template.DocumentTemplateText;
+import com.capvault.backend.template.TemplateChecklistService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -151,6 +152,39 @@ class AiReviewVerifiedSnapshotTest {
         assertThat(input.getValue().pdf()).containsExactly(bytes);
         assertThat(store.linkedFor(List.of(response.getId())).get(response.getId()).sourceVerifiedAt().toEpochMilli())
             .isEqualTo(CAPTURED_AT.toEpochMilli());
+    }
+
+    @Test void unapprovedTemplateStopsPrecheckBeforeAnyDriveOrProviderRequest() {
+        UUID template = UUID.randomUUID(), version = UUID.randomUUID();
+        var checklist = mock(TemplateChecklistService.class);
+        ReflectionTestUtils.setField(service, "templateChecklists", checklist);
+        when(provider.supportsTemplateInstructions()).thenReturn(true);
+        when(templates.findText(any(), any(), any())).thenReturn(new DocumentTemplateText(template, "Instructions", "template-hash"));
+        when(checklist.fingerprint(WORKSPACE, template)).thenReturn("draft-1");
+        when(checklist.get(WORKSPACE, template)).thenReturn(new TemplateChecklistService.View(version, 1, "DRAFT", 1, List.of(), null, null));
+        assertThatThrownBy(() -> service.preview(WORKSPACE, response.getId(), null, "admin"))
+            .isInstanceOf(AiReviewService.TemplateChecklistApprovalRequired.class);
+        verifyNoInteractions(drive);
+        verify(provider, never()).review(any());
+        verify(provider, never()).assessInstructions(any());
+    }
+
+    @Test void aChangedApprovedRevisionInvalidatesThePreparedReviewKey() {
+        UUID template = UUID.randomUUID(), version = UUID.randomUUID();
+        var checklist = mock(TemplateChecklistService.class);
+        ReflectionTestUtils.setField(service, "templateChecklists", checklist);
+        when(provider.supportsTemplateInstructions()).thenReturn(true);
+        when(templates.findText(any(), any(), any())).thenReturn(new DocumentTemplateText(template, "Instructions", "template-hash"));
+        when(checklist.get(WORKSPACE, template)).thenReturn(new TemplateChecklistService.View(version, 2, "APPROVED", 1, List.of(), CAPTURED_AT, null));
+        when(checklist.fingerprint(WORKSPACE, template)).thenReturn("approved-revision-2");
+        var first = service.preview(WORKSPACE, response.getId(), null, "admin");
+        when(checklist.fingerprint(WORKSPACE, template)).thenReturn("approved-revision-4");
+        var next = service.preview(WORKSPACE, response.getId(), null, "admin");
+        assertThat(next.key()).isNotEqualTo(first.key());
+        assertThatThrownBy(() -> service.reviewPlanned(WORKSPACE, response.getId(), null, "admin", false, null, false, first.key(), null))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("changed after preparation");
+        verify(provider, never()).review(any());
+        verify(provider, never()).assessInstructions(any());
     }
 
     @Test void plannedKeyOrContextMismatchBlocksProviderAfterSnapshotReuse() {

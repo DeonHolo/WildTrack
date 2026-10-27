@@ -24,6 +24,7 @@ import com.capvault.backend.deliverable.DeliverableFieldType;
 import com.capvault.backend.deliverable.DeliverableRepository;
 import com.capvault.backend.deliverable.DocumentCheckPolicy;
 import com.capvault.backend.filecheck.TemplateComparator;
+import org.apache.pdfbox.Loader;
 
 /**
  * Official templates are stored durably in PostgreSQL. The legacy local
@@ -35,8 +36,6 @@ import com.capvault.backend.filecheck.TemplateComparator;
 public class DocumentTemplateService {
 
     private static final String PDF_CONTENT_TYPE = "application/pdf";
-    private static final String DOCX_CONTENT_TYPE =
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
     private final DocumentTemplateRepository repository;
     private final DocumentTextExtractor textExtractor;
@@ -45,6 +44,7 @@ public class DocumentTemplateService {
     private final DeliverableRepository deliverableRepository;
     private final DeliverableFieldRepository fieldRepository;
     private final TemplateComparator comparator;
+    private final TemplatePdfStore pdfStore;
 
     public DocumentTemplateService(
         DocumentTemplateRepository repository,
@@ -53,7 +53,8 @@ public class DocumentTemplateService {
         GoogleDriveGateway driveGateway,
         DeliverableRepository deliverableRepository,
         DeliverableFieldRepository fieldRepository,
-        TemplateComparator comparator
+        TemplateComparator comparator,
+        TemplatePdfStore pdfStore
     ) {
         this.repository = repository;
         this.textExtractor = textExtractor;
@@ -62,6 +63,7 @@ public class DocumentTemplateService {
         this.deliverableRepository = deliverableRepository;
         this.fieldRepository = fieldRepository;
         this.comparator = comparator;
+        this.pdfStore = pdfStore;
     }
 
     @Transactional(readOnly = true)
@@ -90,7 +92,7 @@ public class DocumentTemplateService {
         validateCommon(workspaceId, deliverableKey, displayName);
         validateFieldAssociation(workspaceId, deliverableKey, fieldId);
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("Choose a DOCX or PDF template file.");
+            throw new IllegalArgumentException("Choose a PDF template file.");
         }
         if (file.getSize() > properties.maximumFileSizeBytes()) {
             throw new IllegalArgumentException("The template exceeds the 15 MB upload limit.");
@@ -188,12 +190,11 @@ public class DocumentTemplateService {
     @Transactional(readOnly = true)
     public DocumentTemplateStructureResponse readStructure(UUID workspaceId, UUID templateId) {
         DocumentTemplate template = findById(workspaceId, templateId);
-        TemplateFile file = readFile(workspaceId, templateId);
-        String text = textExtractor.extract(file.bytes(), file.filename(), file.contentType());
+        String text = template.getExtractedText();
         var comparison = comparator.compare(text, text);
         return new DocumentTemplateStructureResponse(template.getId(), template.getDisplayName(),
-            file.filename(), file.contentType(), text,
-            comparison.expectedTemplateHeadings(), comparison.detectedTemplateHeadings());
+            template.getOriginalFilename(), template.getContentType(), text,
+            comparison.expectedTemplateHeadings(), comparison.detectedTemplateHeadings(), template.getSha256());
     }
 
     @Transactional
@@ -238,6 +239,7 @@ public class DocumentTemplateService {
         byte[] bytes,
         String provenance
     ) {
+        validatePdf(bytes);
         String extractedText = textExtractor.extract(bytes, originalFilename, contentType);
         if (extractedText.length() < 50) {
             throw new IllegalArgumentException(
@@ -265,6 +267,7 @@ public class DocumentTemplateService {
                 extractedText
             );
         } else {
+            pdfStore.capture(existing);
             existing.replace(
                 displayName.trim(),
                 originalFilename,
@@ -277,7 +280,9 @@ public class DocumentTemplateService {
             template = existing;
         }
 
-        return DocumentTemplateResponse.from(repository.save(template));
+        DocumentTemplate saved = repository.saveAndFlush(template);
+        pdfStore.capture(saved);
+        return DocumentTemplateResponse.from(saved);
     }
 
     private DocumentTemplate findById(UUID workspaceId, UUID templateId) {
@@ -330,11 +335,21 @@ public class DocumentTemplateService {
 
     private void validateFileType(String filename, String contentType) {
         String lowerName = filename.toLowerCase(Locale.ROOT);
-        boolean supportedName = lowerName.endsWith(".pdf") || lowerName.endsWith(".docx");
-        boolean supportedType = PDF_CONTENT_TYPE.equalsIgnoreCase(contentType)
-            || DOCX_CONTENT_TYPE.equalsIgnoreCase(contentType);
-        if (!supportedName && !supportedType) {
-            throw new IllegalArgumentException("Use a DOCX or PDF template.");
+        if (!lowerName.endsWith(".pdf") || !PDF_CONTENT_TYPE.equalsIgnoreCase(contentType)) {
+            throw new IllegalArgumentException("Upload the official template as a PDF file.");
+        }
+    }
+
+    private static void validatePdf(byte[] bytes) {
+        try (var document = Loader.loadPDF(bytes)) {
+            if (document.isEncrypted()) {
+                throw new IllegalArgumentException("Password-protected template PDFs are not supported.");
+            }
+            if (document.getNumberOfPages() < 1 || document.getNumberOfPages() > 1000) {
+                throw new IllegalArgumentException("Use a template PDF containing 1 to 1,000 pages.");
+            }
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("The template could not be read. Upload a valid, unencrypted PDF file.");
         }
     }
 
@@ -350,7 +365,7 @@ public class DocumentTemplateService {
         if (contentType != null && !contentType.isBlank() && !"application/octet-stream".equalsIgnoreCase(contentType)) {
             return contentType;
         }
-        return filename.toLowerCase(Locale.ROOT).endsWith(".pdf") ? PDF_CONTENT_TYPE : DOCX_CONTENT_TYPE;
+        return filename.toLowerCase(Locale.ROOT).endsWith(".pdf") ? PDF_CONTENT_TYPE : "application/octet-stream";
     }
 
     private static String filenameToDisplayName(String filename) {
@@ -361,7 +376,7 @@ public class DocumentTemplateService {
 
     private static String safeFilename(String filename) {
         if (filename == null || filename.isBlank()) {
-            return "template.docx";
+            return "template.pdf";
         }
         String clean = filename.replace('\\', '/');
         int lastSlash = clean.lastIndexOf('/');
@@ -369,7 +384,7 @@ public class DocumentTemplateService {
             clean = clean.substring(lastSlash + 1);
         }
         clean = clean.trim();
-        return clean.isBlank() ? "template.docx" : clean;
+        return clean.isBlank() ? "template.pdf" : clean;
     }
 
     private static String normalizeNullable(String value) {

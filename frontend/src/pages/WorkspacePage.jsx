@@ -381,6 +381,7 @@ export function WorkspacePage() {
   }
 
   function selectTemplateFile(file) {
+    setTemplateError(file && !/\.pdf$/i.test(file.name) ? 'Upload the official template as a PDF file.' : '');
     setTemplate((current) => ({
       ...current,
       file,
@@ -391,6 +392,10 @@ export function WorkspacePage() {
   async function submitTemplate(event) {
     event.preventDefault();
     setTemplateError('');
+    if (template.sourceType === 'upload' && template.file && !/\.pdf$/i.test(template.file.name)) {
+      setTemplateError('Upload the official template as a PDF file.');
+      return;
+    }
     const needsUpload = template.sourceType === 'upload' && !template.file;
     const needsDriveLink = template.sourceType === 'drive' && !template.driveUrl.trim();
     const needsName = template.sourceType === 'upload' && !template.name.trim();
@@ -908,12 +913,12 @@ export function WorkspacePage() {
               <Tabs.Tab value="drive" leftSection={<LinkSimple aria-hidden="true" />}>Google Drive link</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="upload" pt="md">
-              <Input.Wrapper label="Template file" description="DOCX or PDF, up to 15 MB" required>
+              <Input.Wrapper label="Template file" description="PDF, up to 15 MB" required>
                 <input
                   className="wt-file-input"
                   aria-label="Template file"
                   type="file"
-                  accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  accept=".pdf,application/pdf"
                   onChange={(event) => selectTemplateFile(event.currentTarget.files?.[0] || null)}
                 />
               </Input.Wrapper>
@@ -921,7 +926,7 @@ export function WorkspacePage() {
             <Tabs.Panel value="drive" pt="md">
               <TextInput
                 label="Google Drive link"
-                description="The file must be shared as Anyone with the link - Viewer and allow downloads."
+                description="Use a PDF shared as Anyone with the link - Viewer and allow downloads."
                 required={template.sourceType === 'drive'}
                 aria-label="Google Drive link"
                 value={template.driveUrl}

@@ -16,3 +16,5 @@ logging:
 capvault:
   templates:
     storage-path: ./target/test-template-storage
+    pdf-preparation-enabled: false
+    checklist-preparation-enabled: false

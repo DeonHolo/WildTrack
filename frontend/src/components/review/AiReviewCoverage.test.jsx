@@ -9,11 +9,27 @@ const criterion = (assessment, extra = {}) => ({ id: extra.id || 'C1', title: 'D
   location: { page: 8, section: 'Recovery' }, ...extra });
 function show(report) { render(<MantineProvider><AiReviewCoverage report={report} /></MantineProvider>); }
 
+it('keeps all 113 fixed instructions and distinguishes inapplicable items without warnings', () => {
+  const criteria = Array.from({ length: 113 }, (_, index) => criterion('APPEARS_ADDRESSED', {
+    id: `T${index + 1}`, title: `Instruction ${index + 1}`
+  }));
+  criteria[112] = { ...criteria[112], assessment: 'NOT_APPLICABLE', documentEvidence: '', location: null,
+    explanation: 'External procurement is optional and the project uses existing equipment.' };
+  show({ coverage: { criteria, omittedCriteria: 0 } });
+  expect(screen.getByText('Appears addressed (112)')).toBeVisible();
+  expect(screen.getByText('Not applicable (1)')).toBeVisible();
+  expect(document.querySelectorAll('.wt-ai-review-assessment-row')).toHaveLength(113);
+  fireEvent.click(screen.getByText('Not applicable (1)'));
+  expect(screen.getByText('Instruction 113')).toBeVisible();
+  expect(screen.getByText('Instruction 112')).not.toBeVisible();
+  expect(screen.queryByText(/outside the saved checklist/)).not.toBeInTheDocument();
+});
+
 it('renders explicit concern and manual assessments as compact labeled rows with evidence disclosure', () => {
   show({ coverage: { criteria: [criterion('NEEDS_ATTENTION'), criterion('CHECK_MANUALLY', { id: 'C2', title: 'Confirm diagram semantics' })] } });
   const region = screen.getByRole('region', { name: 'Template and instruction assessment' });
   expect(region).toHaveTextContent('Needs attention');
-  expect(region).toHaveTextContent('Check manually');
+  expect(region).toHaveTextContent('Check in PDF');
   expect(region).toHaveTextContent('Official template');
   expect(region).toHaveTextContent('p. 8');
   expect(region).not.toHaveTextContent('Appears addressed');

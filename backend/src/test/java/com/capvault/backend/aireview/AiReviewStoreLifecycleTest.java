@@ -26,7 +26,8 @@ class AiReviewStoreLifecycleTest {
         jdbc.execute("CREATE TABLE form_responses(id UUID PRIMARY KEY)");
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__deduplicated_ai_reviews.sql"),
             new ClassPathResource("db/migration/V33__ai_review_attempt_history.sql"),
-            new ClassPathResource("db/migration/V39__durable_ai_review_failure_diagnostics.sql")).execute(ds);
+            new ClassPathResource("db/migration/V39__durable_ai_review_failure_diagnostics.sql"),
+            new ClassPathResource("db/migration/V42__ai_review_instruction_passes.sql")).execute(ds);
         jdbc.execute("ALTER TABLE ai_review_response_links ADD COLUMN source_verified_at TIMESTAMP WITH TIME ZONE");
         jdbc.execute("""
             CREATE TABLE ai_review_field_links(

@@ -39,7 +39,9 @@ class ProductionProfileContractTest {
         assertThat(production.getProperty("spring.datasource.password"))
             .isEqualTo("${SPRING_DATASOURCE_PASSWORD}");
         assertThat(production.getProperty("spring.datasource.hikari.maximum-pool-size"))
-            .isEqualTo("${WILDTRACK_DB_MAX_POOL_SIZE:10}");
+            .isEqualTo("${WILDTRACK_DB_MAX_POOL_SIZE:6}");
+        assertThat(production.getProperty("spring.datasource.hikari.minimum-idle"))
+            .isEqualTo("${WILDTRACK_DB_MIN_IDLE:1}");
         assertThat(production.getProperty("spring.h2.console.enabled")).isEqualTo(false);
         assertThat(production.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         assertThat(production.getProperty("spring.flyway.enabled")).isEqualTo(true);

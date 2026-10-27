@@ -70,13 +70,52 @@ class AiReviewCoveragePolicyTest {
                 "Explain the work dependencies and planned milestones.");
     }
 
-    @Test void boundedPlanCountsOmittedAreasWithoutClaimingTheirCoverage() {
-        String instructions = IntStream.rangeClosed(1, 31)
+    @Test void planPreservesEveryExplicitInstructionBeyondTheOldAndTwoDigitLimits() {
+        String instructions = IntStream.rangeClosed(1, 110)
             .mapToObj(i -> "Describe the documented review scenario number " + i + ".").reduce("", (a, b) -> a + "\n" + b);
         var plan = AiReviewCoveragePolicy.plan(instructions, "");
-        assertThat(plan.criteria()).hasSize(24);
-        assertThat(plan.omittedCriteria()).isEqualTo(7);
+        assertThat(plan.criteria()).hasSize(110);
+        assertThat(plan.omittedCriteria()).isZero();
         assertThat(plan.criteria()).extracting(AiReviewCoveragePolicy.Criterion::id).doesNotHaveDuplicates();
+    }
+
+    @Test void fixedInstructionsSharingAnAuthorityQuoteKeepTheirOwnVerdicts() {
+        String authority = "Describe the project schedule and budget.";
+        String quote = "The project manager reviews progress at the weekly milestone meeting.";
+        var note = new Finding("The budget allocation is unclear.", FindingSource.OFFICIAL_TEMPLATE, "", authority);
+        var check = new VerifiedCheck("Schedule", FindingSource.OFFICIAL_TEMPLATE, quote, authority);
+        var rows = List.of(new CriterionAssessment("T1", authority, FindingSource.OFFICIAL_TEMPLATE,
+                CoverageStatus.EVIDENCE_RECORDED, List.of(0), List.of(), List.of(), List.of(),
+                CriterionAssessmentLabel.APPEARS_ADDRESSED, "Weekly milestone reviews are described.", quote, null),
+            new CriterionAssessment("T2", authority, FindingSource.OFFICIAL_TEMPLATE,
+                CoverageStatus.ISSUE_RECORDED, List.of(), List.of(), List.of(), List.of(0),
+                CriterionAssessmentLabel.CHECK_MANUALLY, "The budget allocation is unclear.", "", null));
+        var raw = new Result("Review", List.of(), List.of(), List.of(), "Inspect", List.of(check), List.of(note), null,
+            new ReviewCoverage(rows, 0, 1, null, null));
+        var plan = new AiReviewCoveragePolicy.Plan(List.of(
+            new AiReviewCoveragePolicy.Criterion("T1", authority, FindingSource.OFFICIAL_TEMPLATE, "Schedule"),
+            new AiReviewCoveragePolicy.Criterion("T2", authority, FindingSource.OFFICIAL_TEMPLATE, "Budget")), 0, "Fixed instructions");
+        var coverage = AiReviewCoveragePolicy.grounded(raw, raw, plan, quote,
+            List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(3, quote, false)));
+        assertThat(coverage.criteria()).extracting(CriterionAssessment::assessment)
+            .containsExactly(CriterionAssessmentLabel.APPEARS_ADDRESSED, CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(coverage.criteria().getFirst().verificationNoteIndexes()).isEmpty();
+    }
+
+    @Test void rejectedFixedInstructionEvidenceCannotKeepAnAppearsAddressedVerdict() {
+        String authority = "Describe the project schedule and milestones.";
+        String quote = "TODO: Describe the project schedule and milestones before submitting this document.";
+        var check = new VerifiedCheck("Schedule", FindingSource.OFFICIAL_TEMPLATE, quote, authority);
+        var row = new CriterionAssessment("T1", authority, FindingSource.OFFICIAL_TEMPLATE,
+            CoverageStatus.EVIDENCE_RECORDED, List.of(0), List.of(), List.of(), List.of(),
+            CriterionAssessmentLabel.APPEARS_ADDRESSED, "The schedule is described.", quote, null);
+        var raw = with(List.of(check), List.of(row));
+        var plan = new AiReviewCoveragePolicy.Plan(List.of(
+            new AiReviewCoveragePolicy.Criterion("T1", authority, FindingSource.OFFICIAL_TEMPLATE, "Schedule")), 0, "Fixed instructions");
+        var coverage = AiReviewCoveragePolicy.grounded(raw, result(List.of()), plan, quote,
+            List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(3, quote, false)));
+        assertThat(coverage.criteria().getFirst().assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(coverage.criteria().getFirst().documentEvidence()).isNull();
     }
 
     @Test void unsupportedEvidenceAndUnknownIdsCannotCreateCheckedAreas() {

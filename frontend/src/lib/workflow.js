@@ -543,10 +543,12 @@ export function verifiedAiChecks(report) {
 
 export function aiReviewEvidenceCount(report) {
   const criteria = Array.isArray(report?.coverage?.criteria) ? report.coverage.criteria : [];
+  const counts = new Map();
+  for (const item of criteria) counts.set(item?.id, (counts.get(item?.id) || 0) + 1);
   const quotes = verifiedAiChecks(report).map(check => check.documentEvidence);
   for (const item of criteria) {
-    if (item?.assessment !== 'APPEARS_ADDRESSED' || !/^C[1-9]\d*$/.test(item.id || '')
-        || criteria.filter(other => other?.id === item.id).length !== 1
+    if (item?.assessment !== 'APPEARS_ADDRESSED' || !/^[CT][1-9]\d*$/.test(item.id || '')
+        || counts.get(item.id) !== 1
         || !['OFFICIAL_TEMPLATE', 'DELIVERABLE_REQUIREMENTS'].includes(item.source)
         || !String(item.requirement || '').trim() || !String(item.explanation || '').trim()
         || !String(item.documentEvidence || '').trim()
@@ -554,6 +556,16 @@ export function aiReviewEvidenceCount(report) {
     quotes.push(item.documentEvidence);
   }
   return new Set(quotes.map(quote => String(quote).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim())).size;
+}
+
+export function hasCompletedTemplateChecklist(report) {
+  const rows = report?.coverage?.criteria;
+  return report?.outcome === 'NO_ISSUES_IN_CHECKED_AREAS' && Array.isArray(rows) && rows.length > 0
+    && report.coverage.omittedCriteria === 0 && rows.every((row, index) => row?.id === `T${index + 1}`
+      && row.source === 'OFFICIAL_TEMPLATE' && String(row.requirement || '').trim()
+      && String(row.explanation || '').trim() && row.explanation.length <= 400
+      && (row.assessment === 'NOT_APPLICABLE' || (row.assessment === 'APPEARS_ADDRESSED'
+        && String(row.documentEvidence || '').trim() && Number.isInteger(row.location?.page) && row.location.page > 0)));
 }
 
 function hasUnresolvedInstructionAssessments(report) {
@@ -571,7 +583,7 @@ export function isInconclusiveAiReviewReport(report) {
         || (report.missingRequiredSections || report.missingSections || []).length)) return true;
   if (report.outcome === 'INCONCLUSIVE') return true;
   if (report.outcome === 'ISSUES_IDENTIFIED') return false;
-  if (report.outcome === 'NO_ISSUES_IN_CHECKED_AREAS') return aiReviewEvidenceCount(report) < 2;
+  if (report.outcome === 'NO_ISSUES_IN_CHECKED_AREAS') return !hasCompletedTemplateChecklist(report) && aiReviewEvidenceCount(report) < 2;
   return !((report.findings || report.flags || []).length
     || (report.missingRequiredSections || report.missingSections || []).length)
     && aiReviewEvidenceCount(report) < 2;
