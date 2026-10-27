@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { installApiFixtures } from './api-fixtures.js';
 import { documentChangeAcknowledgementKey } from '../../src/lib/documentChangeAcknowledgement.js';
+import { templatePdf } from './template-pdf-fixture.js';
 
 const workspaceId = '11111111-1111-1111-1111-111111111111';
 const fieldId = 'field-document-pdf';
@@ -91,9 +92,14 @@ test('an Adviser can open the official template from their own Document Check', 
     if (path === '/api/workspaces') return route.fulfill({ json: [{ id: workspaceId, name: 'IT Capstone', active: true }] });
     if (path === '/api/templates/template-one/structure') {
       expect(new URL(route.request().url()).searchParams.get('workspaceId')).toBe(workspaceId);
-      return route.fulfill({ json: { originalFilename: 'Official SRS.pdf', displayName: 'SRS template',
+      return route.fulfill({ json: { originalFilename: 'Official SRS.pdf', displayName: 'SRS template', sha256: 'template-source',
         expectedHeadings: ['Introduction'], detectedHeadings: ['Introduction'], extractedText: 'Official template body.' } });
     }
+    if (path === '/api/templates/template-one/pdf-state') return route.fulfill({ json: {
+      templateId: 'template-one', versionId: 'template-version', sourceSha256: 'template-source',
+      state: 'READY', pages: 1, originalAvailable: true } });
+    if (path === '/api/templates/template-one/pdf') return route.fulfill({
+      contentType: 'application/pdf', body: templatePdf() });
     throw new Error('Unexpected Adviser template request: ' + path);
   });
   const popupPromise = page.waitForEvent('popup');
@@ -103,6 +109,10 @@ test('an Adviser can open the official template from their own Document Check', 
   await expect(popup.getByRole('link', { name: 'Back to my teams' })).toHaveAttribute('href', '/adviser');
   await expect(popup.getByRole('link', { name: 'Original file' })).toHaveAttribute('href',
     '/api/templates/template-one/file?workspaceId=' + workspaceId);
+  await expect(popup.getByRole('link', { name: 'Open PDF', exact: true })).toHaveAttribute('href',
+    '/api/templates/template-one/pdf?workspaceId=' + workspaceId + '&versionId=template-version');
+  await expect(popup.getByRole('button', { name: 'Prepare AI draft', exact: true })).toHaveCount(0);
+  await expect(popup.getByRole('button', { name: 'Approve checklist', exact: true })).toHaveCount(0);
   await popup.close();
   fixture.assertRequestsHandled();
 });
