@@ -81,6 +81,8 @@ vi.mock('../lib/academicDataClient.js', () => ({
   saveAcademicRows: vi.fn()
 }));
 vi.mock('../lib/api.js', () => ({
+  getTemplateChecklistBatch: vi.fn().mockResolvedValue([]),
+  prepareTemplateChecklistBatch: vi.fn(),
   getFileMonitorSettings: (...args) => workflow.getFileMonitorSettings(...args),
   setFileMonitorSettings: (...args) => workflow.setFileMonitorSettings(...args),
   getDriveConnectionStatus: vi.fn().mockResolvedValue({ configured: true, message: 'Google Drive connected.' }),

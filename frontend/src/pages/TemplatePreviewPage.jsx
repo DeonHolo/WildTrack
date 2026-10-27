@@ -56,7 +56,7 @@ export function TemplatePreviewPage() {
             </section> : null}
           </Stack>
         </Paper>
-        <div className="template-review-layout">
+        <div className={`template-review-layout${session?.roles?.includes('ADMIN') && data.pdf.state === 'READY' ? ' template-review-layout--editable' : ''}`}>
           <TemplatePdfView key={`${workspaceId}:${templateId}:${data.pdf.versionId}`} workspaceId={workspaceId} templateId={templateId}
             pdf={data.pdf} canRetry={session?.roles?.includes('ADMIN') && data.pdf.retryable !== false} onReload={reload} />
           {session?.roles?.includes('ADMIN') && data.pdf.state === 'READY' ? <TemplateChecklistEditor key={`checklist:${workspaceId}:${templateId}:${data.pdf.versionId}`} workspaceId={workspaceId} templateId={templateId} versionId={data.pdf.versionId} /> : null}
@@ -82,7 +82,7 @@ function TemplatePdfView({ workspaceId, templateId, pdf, canRetry, onReload }) {
       setRetrying(false);
     }
   };
-  return <Paper withBorder p="lg">
+  return <Paper withBorder p="lg" className="template-review-panel template-pdf-panel">
     <Group justify="space-between" wrap="wrap" gap="sm">
       <Title order={2} size="h3">Template PDF</Title>
       <Group gap="sm">
@@ -90,8 +90,7 @@ function TemplatePdfView({ workspaceId, templateId, pdf, canRetry, onReload }) {
         {pdf.originalAvailable ? <Button component="a" variant="default" href={getDocumentTemplateFileUrl(workspaceId, templateId)} target="_blank" rel="noopener noreferrer">Original file</Button> : null}
       </Group>
     </Group>
-    {pdf.state === 'READY' ? <iframe title="Official template PDF" src={url}
-      style={{ display: 'block', width: '100%', height: 'min(78vh, 960px)', minHeight: 360, border: 0, marginTop: 16 }} />
+    {pdf.state === 'READY' ? <iframe title="Official template PDF" src={url} className="template-pdf-frame" />
       : pdf.state === 'FAILED' ? <Alert color="orange" title="Template PDF unavailable" mt="md">
         <Stack gap="sm"><Text>{pdf.error || 'The template PDF could not be prepared.'}</Text>
           {canRetry && pdf.originalAvailable ? <Button variant="default" loading={retrying} onClick={retry} style={{ alignSelf: 'flex-start' }}>Retry PDF preparation</Button> : null}

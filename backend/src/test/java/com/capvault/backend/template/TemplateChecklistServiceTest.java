@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.*;
 import static com.capvault.backend.support.AuthenticatedRequest.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 
 import java.io.ByteArrayOutputStream;
 import java.time.Instant;
@@ -134,11 +135,86 @@ class TemplateChecklistServiceTest {
         }
     }
 
+    @Test
+    void batchReadsDoNotQueueAndPreparationPreservesExistingChecklists() throws Exception {
+        var ids = new java.util.ArrayList<UUID>();
+        for (int i=0;i<5;i++) ids.add(upload("batch-"+i,key+"-"+i));
+        var versions = ids.stream().map(id -> pdfs.current(WORKSPACE,id).versionId()).toList();
+        try {
+            var draft = service.save(WORKSPACE,ids.get(2),versions.get(2),0,List.of(item("Retained draft",1,"")));
+            var toApprove = service.save(WORKSPACE,ids.get(3),versions.get(3),0,List.of(item("Retained approval",1,"")));
+            var approved = service.approve(WORKSPACE,ids.get(3),versions.get(3),toApprove.revision(),"admin");
+            db.update("INSERT INTO template_checklists(version_id,revision,state,items_json,error) VALUES (?,1,'FAILED','[]','OUTCOME_UNKNOWN')",versions.get(4));
+            assertThat(service.batch(WORKSPACE).stream().filter(row -> ids.contains(row.templateId())).map(TemplateChecklistService.BatchItem::state))
+                .containsExactlyInAnyOrder("UNPREPARED","UNPREPARED","DRAFT","APPROVED","FAILED");
+            assertThat(service.get(WORKSPACE,ids.get(0)).state()).isEqualTo("UNPREPARED");
+            var queued = service.requestBatch(WORKSPACE,List.of(
+                new TemplateChecklistService.BatchRequest(ids.get(0),versions.get(0),0),
+                new TemplateChecklistService.BatchRequest(ids.get(4),versions.get(4),1)));
+            assertThat(queued.stream().filter(row -> row.templateId().equals(ids.get(0)) || row.templateId().equals(ids.get(4))).map(TemplateChecklistService.BatchItem::state))
+                .containsOnly("QUEUED");
+            assertThat(service.get(WORKSPACE,ids.get(1)).state()).isEqualTo("UNPREPARED");
+            assertThat(service.get(WORKSPACE,ids.get(2))).isEqualTo(draft);
+            assertThat(service.get(WORKSPACE,ids.get(3))).isEqualTo(approved);
+            var first = service.get(WORKSPACE,ids.get(0));
+            service.requestBatch(WORKSPACE,List.of(new TemplateChecklistService.BatchRequest(ids.get(0),versions.get(0),first.revision())));
+            assertThat(service.get(WORKSPACE,ids.get(0))).isEqualTo(first);
+            assertThatThrownBy(() -> service.requestBatch(WORKSPACE,List.of(new TemplateChecklistService.BatchRequest(ids.get(3),versions.get(3),approved.revision()))))
+                .hasMessageContaining("409");
+            assertThat(service.get(WORKSPACE,ids.get(3))).isEqualTo(approved);
+        } finally { versions.forEach(version -> db.update("DELETE FROM template_checklists WHERE version_id=?",version)); }
+    }
+
+    @Test
+    void batchIsAtomicOnStaleRevisionsAndRejectsInvalidSelections() throws Exception {
+        var ids = new java.util.ArrayList<>(List.of(upload("atomic-a",key+"-a"),upload("atomic-b",key+"-b")));
+        ids.sort(java.util.Comparator.naturalOrder());
+        var first = new TemplateChecklistService.BatchRequest(ids.get(0),pdfs.current(WORKSPACE,ids.get(0)).versionId(),0);
+        var secondVersion = pdfs.current(WORKSPACE,ids.get(1)).versionId();
+        var stale = new TemplateChecklistService.BatchRequest(ids.get(1),secondVersion,12);
+        assertThatThrownBy(() -> service.requestBatch(WORKSPACE,List.of(first,stale))).hasMessageContaining("409");
+        assertThat(service.get(WORKSPACE,ids.get(0)).state()).isEqualTo("UNPREPARED");
+        assertThat(service.get(WORKSPACE,ids.get(1)).state()).isEqualTo("UNPREPARED");
+        assertThatThrownBy(() -> service.requestBatch(WORKSPACE,List.of(first,new TemplateChecklistService.BatchRequest(ids.get(1),UUID.randomUUID(),0))))
+            .hasMessageContaining("409");
+        assertThat(service.get(WORKSPACE,ids.get(0)).state()).isEqualTo("UNPREPARED");
+        for (var selection:List.of(List.<TemplateChecklistService.BatchRequest>of(),List.of(first,first),
+                List.of(new TemplateChecklistService.BatchRequest(null,first.versionId(),0)),
+                List.of(new TemplateChecklistService.BatchRequest(first.templateId(),null,0)),
+                List.of(new TemplateChecklistService.BatchRequest(first.templateId(),first.versionId(),-1))))
+            assertThatThrownBy(() -> service.requestBatch(WORKSPACE,selection)).hasMessageContaining("400");
+        assertThatThrownBy(() -> service.requestBatch(UUID.randomUUID(),List.of(first))).hasMessageContaining("404");
+        assertThat(service.get(WORKSPACE,ids.get(0)).state()).isEqualTo("UNPREPARED");
+    }
+
+    @Test
+    void batchEndpointRequiresPersistedAdminAndCsrf() throws Exception {
+        String url="/api/templates/checklists";
+        mvc.perform(get(url).param("workspaceId",WORKSPACE.toString())).andExpect(status().isUnauthorized());
+        mvc.perform(get(url).with(session()).param("workspaceId",WORKSPACE.toString())).andExpect(status().isForbidden());
+        mvc.perform(get(url).with(adviserSession()).param("workspaceId",WORKSPACE.toString())).andExpect(status().isForbidden());
+        mvc.perform(get(url).with(adminSession()).param("workspaceId",WORKSPACE.toString())).andExpect(status().isForbidden());
+        String subject="batch-admin-"+UUID.randomUUID();
+        var login=sessions.create(new GoogleIdentity(subject,"batch@example.invalid","Admin",""));
+        var role=assignments.saveAndFlush(new StaffRoleAssignment(UUID.randomUUID(),subject,"batch@example.invalid",StaffRole.ADMIN,true,Instant.now(),Instant.now()));
+        try {
+            var cookie=new Cookie("WILDTRACK_SESSION",login.rawToken());
+            mvc.perform(get(url).cookie(cookie).param("workspaceId",WORKSPACE.toString())).andExpect(status().isOk());
+            mvc.perform(post(url+"/prepare").cookie(cookie).param("workspaceId",WORKSPACE.toString())
+                .contentType("application/json").content("[]")).andExpect(status().isForbidden());
+            mvc.perform(post(url+"/prepare").cookie(cookie).with(csrf()).param("workspaceId",WORKSPACE.toString())
+                .contentType("application/json").content("[]")).andExpect(status().isBadRequest());
+        } finally { sessions.revoke(login.rawToken()); assignments.deleteById(role.getId()); }
+    }
+
     private TemplateInstructionProtocol.Draft item(String title, int page, String condition) {
         return new TemplateInstructionProtocol.Draft(title, "Instruction", "Quote", "", page,
             TemplateInstructionProtocol.Applicability.REQUIRED, condition);
     }
     private UUID upload(String value) throws Exception {
+        return upload(value, key);
+    }
+    private UUID upload(String value, String templateKey) throws Exception {
         try (var document = new PDDocument(); var bytes = new ByteArrayOutputStream()) {
             var page = new PDPage();
             document.addPage(page);
@@ -151,7 +227,7 @@ class TemplateChecklistServiceTest {
             }
             document.getDocumentInformation().setTitle(value);
             document.save(bytes);
-            UUID id = templates.save(WORKSPACE, key, "Template",
+            UUID id = templates.save(WORKSPACE, templateKey, "Template",
                 new MockMultipartFile("file", "source.pdf", "application/pdf", bytes.toByteArray())).id();
             for (int attempts = 0; attempts < 20 && !"READY".equals(pdfs.current(WORKSPACE, id).state()); attempts++)
                 pdfPreparation.prepareNext();
