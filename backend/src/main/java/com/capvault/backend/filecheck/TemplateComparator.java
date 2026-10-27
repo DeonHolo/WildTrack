@@ -185,10 +185,10 @@ public class TemplateComparator {
 
     private static String tocHeading(String line) {
         String value = line == null ? "" : line.trim();
-        value = value.replaceFirst("\\s+\\d+\\s*$", "");
+        value = value.replaceFirst("(?:\\s*\\.{2,}\\s*|\\s+)\\d+\\s*$", "");
         value = value.replaceFirst(
             "^((?:\\d+(?:\\.(?:\\d+|[A-Za-z]))*\\.?|[A-Z](?:\\.\\d+)*\\.?)\\s*)\\.{2,}\\s*",
-            "$1"
+            "$1 "
         );
         value = value.replaceFirst("\\s*\\.{2,}\\s*$", "");
         return isTemplatePlaceholderHeading(value) ? "" : displayHeading(value);
@@ -229,6 +229,7 @@ public class TemplateComparator {
     }
 
     private static String stripLeadingNumber(String value) {
+        value = value.replaceFirst("^(?:\\d+(?:\\.\\d+)+[.)]?|\\d+[.)])(?=[A-Za-z])", "");
         return value.replaceFirst(
             "^(?:\\d+(?:\\.(?:\\d+|[A-Za-z]))*|[A-Z](?:\\.\\d+)*|[IVXLC]+)[.)]?\\s+",
             ""
