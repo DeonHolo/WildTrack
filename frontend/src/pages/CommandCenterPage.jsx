@@ -503,7 +503,8 @@ export function CommandCenterPage() {
               .reduce((updated, entry) => applyDocumentCheck(updated, entry.report), item);
           })
         }));
-        // Refresh the saved access state; this read never starts another check.
+        // Refresh saved file events, including content changes from this check.
+        // This read never starts another check.
         void refreshFileEvents();
       }
       if (result.results) {
@@ -538,7 +539,7 @@ export function CommandCenterPage() {
       title: 'Archive this accepted response?',
       children: (
         <Text size="sm">
-          WildTrack creates one archive metadata record and snapshots the submitted artifact references. Independent PDF storage is not connected yet.
+          WildTrack will preserve copies of the accepted PDFs. Copying may take some time; check Final archive for progress.
         </Text>
       ),
       labels: { confirm: 'Archive response', cancel: 'Cancel' },
@@ -556,13 +557,15 @@ export function CommandCenterPage() {
         if (!isCurrentScope()) return;
         setRunningIds((current) => withoutId(current, task.response.id));
         if (result?.ok) {
-          setState(current => ({ ...current, attempts: current.attempts.map(item =>
-            item.id === task.response.id ? { ...item, archiveStatus: 'Archived' } : item) }));
-          setResolvedTaskIds((current) => withId(current, task.id));
+          if (result.archived) {
+            setState(current => ({ ...current, attempts: current.attempts.map(item =>
+              item.id === task.response.id ? { ...item, archiveStatus: 'Archived' } : item) }));
+            setResolvedTaskIds((current) => withId(current, task.id));
+          }
           notifications.show({
-            color: 'green',
-            title: 'Archive record created',
-            message: "The accepted response left Today's work."
+            color: result.queued ? 'blue' : 'green',
+            title: result.queued ? 'Archive copies queued' : 'Response archived',
+            message: result.queued ? 'Copying is in progress. Check Final archive for the latest status.' : "The accepted response left Today's work."
           });
         } else {
           notifications.show({

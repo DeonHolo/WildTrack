@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
 import { CommandCenterPage } from './CommandCenterPage.jsx';
+import { formatDateTime } from '../lib/workflow.js';
 
 const workflow = vi.hoisted(() => ({
   state: null,
@@ -406,7 +407,7 @@ describe("today's work queues", () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Archive Student accepted-004 final' }));
     const confirmation = await screen.findByRole('dialog', { name: 'Archive this accepted response?' });
-    expect(confirmation).toHaveTextContent('one archive metadata record');
+    expect(confirmation).toHaveTextContent('preserve copies of the accepted PDFs');
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Archive response' }));
     await waitFor(() => expect(workflow.archiveAttempt).toHaveBeenCalledWith('accepted-004'));
   });
@@ -444,6 +445,39 @@ describe("today's work queues", () => {
     fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun Document Check' }));
     await waitFor(() => expect(workflow.runDocumentCheck).toHaveBeenCalledWith('review-002'));
     expect(workflow.runDocumentCheck).toHaveBeenCalledTimes(1);
+    expect(workflow.runAiReview).not.toHaveBeenCalled();
+  });
+
+  it('replaces an undismissed old content warning with the latest saved change after a manual check', async () => {
+    workflow.activeWorkspaceId = 'workspace-content-change';
+    const current = checkedResponse('content-001');
+    workflow.state = makeState([current]);
+    const old = { id: 'oct14', fileId: 'content-001', kind: 'CONTENT_CHANGED',
+      detail: 'Earlier PDF version.', observedAt: '2026-10-13T18:20:00Z',
+      responseIds: [current.id], teamCodes: [current.teamCode] };
+    const latest = { ...old, id: 'oct18', detail: 'Latest PDF version.',
+      observedAt: '2026-10-18T06:16:00Z' };
+    workflow.state.fileEvents = [old];
+    api.getFileMonitorEvents.mockResolvedValue([old, latest]);
+    workflow.runDocumentCheck.mockResolvedValue({ ok: true, report: {
+      ...current.documentCheck, checkedAt: latest.observedAt, summary: 'Updated PDF checked.'
+    } });
+    renderPage();
+    const queue = screen.getByRole('table', { name: "Today's work queue" });
+    const contentRow = () => within(queue).getByText('PDF content changed').closest('tr');
+    const updatedCell = () => within(contentRow()).getAllByRole('cell')[3];
+    expect(updatedCell()).toHaveTextContent(formatDateTime(new Date(old.observedAt)));
+
+    fireEvent.click(within(queue).getByRole('button', { name: 'Review affected response for PDF content changed' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Student content-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun Document Check' }));
+
+    await waitFor(() => expect(updatedCell()).toHaveTextContent(formatDateTime(new Date(latest.observedAt))));
+    expect(within(queue).getAllByText('PDF content changed')).toHaveLength(1);
+    expect(contentRow()).toHaveTextContent('Latest PDF version.');
+    expect(contentRow()).not.toHaveTextContent('Earlier PDF version.');
+    expect(api.getFileMonitorEvents).toHaveBeenCalledWith('workspace-content-change');
+    expect(api.dismissWorkTask).not.toHaveBeenCalled();
     expect(workflow.runAiReview).not.toHaveBeenCalled();
   });
 

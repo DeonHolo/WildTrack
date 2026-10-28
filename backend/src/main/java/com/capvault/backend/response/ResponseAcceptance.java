@@ -41,6 +41,9 @@ public class ResponseAcceptance {
     @Column(name = "revoked_at")
     private Instant revokedAt;
 
+    @Column(name = "source_artifacts_json", columnDefinition = "TEXT")
+    private String sourceArtifactsJson;
+
     protected ResponseAcceptance() {
     }
 
@@ -63,6 +66,8 @@ public class ResponseAcceptance {
     public Instant getSourceResponseUpdatedAt() { return sourceResponseUpdatedAt; }
     public Instant getAcceptedAt() { return acceptedAt; }
     public Instant getRevokedAt() { return revokedAt; }
+    public String getSourceArtifactsJson() { return sourceArtifactsJson; }
+    public void setSourceArtifactsJson(String value) { this.sourceArtifactsJson = value; }
     public void setRevokedAt(Instant revokedAt) { this.revokedAt = revokedAt; }
 
     public void reactivate(String acceptedBySubject, String acceptedByEmail, String acceptedByRole,

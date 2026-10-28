@@ -802,3 +802,14 @@ export function requestAiReview(workspaceId, responseId, retryAcknowledged = fal
     method: 'POST', body: { fieldId, retryAcknowledged, retryToken, rerunRequested }
   });
 }
+
+export function getArchiveStorage() { return request('/archive/storage'); }
+export function retryArchiveRecord(workspaceId, id, stateVersion) {
+  return request(withWorkspace(`/archive/${encodeURIComponent(id)}/retry`, workspaceId), { method: 'POST', body: { stateVersion } });
+}
+export function unarchiveRecord(workspaceId, id, stateVersion) {
+  return request(withWorkspace(`/archive/${encodeURIComponent(id)}/unarchive`, workspaceId), { method: 'POST', body: { stateVersion } });
+}
+export function verifyArchiveRecord(workspaceId, id) {
+  return request(withWorkspace(`/archive/${encodeURIComponent(id)}/verify`, workspaceId), { method: 'POST' });
+}

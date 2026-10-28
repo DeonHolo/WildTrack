@@ -31,6 +31,7 @@ import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { archiveAttempts as archiveServerAttempts, emptyArchiveState, loadArchiveState } from '../lib/archiveClient.js';
 import { getArchiveStatus, getArchiveVersion } from '../lib/archive.js';
+import { retryArchiveRecord, unarchiveRecord, verifyArchiveRecord } from '../lib/api.js';
 
 const PAGE_SIZE = 50;
 const ARCHIVE_FILTER_STATE_KEY = 'wildtrack.archive.filters';
@@ -62,9 +63,11 @@ export function ArchivePage() {
   const [selectedArchiveId, setSelectedArchiveId] = useState(linkedArchiveId);
   const [page, setPage] = useState(1);
   const [archiving, setArchiving] = useState(false);
+  const [action, setAction] = useState('');
 
   useEffect(() => {
     setArchiving(false);
+    setAction('');
     setSelectedArchiveId(linkedArchiveId);
   }, [isCurrentScope, linkedArchiveId]);
 
@@ -85,7 +88,15 @@ export function ArchivePage() {
   const pageRows = filteredArchives.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const selectedArchive = archives.find((archive) => archive.id === selectedArchiveId) || null;
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
-  const storageConfigured = Boolean(state.archiveStorage?.configured);
+  const storageReady = Boolean(state.archiveStorage?.ready);
+  const copying = archives.some((item) => ['QUEUED', 'COPYING'].includes(item.captureState));
+  useEffect(() => {
+    if (!copying || !activeWorkspaceId) return undefined;
+    const timer = window.setInterval(() => {
+      if (isCurrentScope()) refreshArchive({ background: true });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [copying, activeWorkspaceId, isCurrentScope, refreshArchive]);
   const filterOptions = useMemo(
     () => buildFilterOptions(archives, workspaces, activeWorkspace),
     [activeWorkspace, archives, workspaces]
@@ -114,17 +125,12 @@ export function ArchivePage() {
   }
 
   function confirmArchiveAccepted() {
-    if (!candidates.length) return;
+    if (!candidates.length || !storageReady) return;
     modals.openConfirmModal({
       title: `Archive ${candidates.length} accepted finals?`,
       children: (
         <Stack gap="xs">
-          <Text size="sm">This records {candidates.length} accepted response{candidates.length === 1 ? '' : 's'} in the final archive.</Text>
-          {!storageConfigured ? (
-            <Text size="sm" c="dimmed">
-              Current archive storage is not connected, so this creates metadata records and keeps submitted artifact links as source references. It does not create independent PDF copies.
-            </Text>
-          ) : null}
+          <Text size="sm">This queues independent copies for {candidates.length} accepted response{candidates.length === 1 ? '' : 's'}. Copying may take some time.</Text>
         </Stack>
       ),
       labels: { confirm: `Archive ${candidates.length} finals`, cancel: 'Cancel' },
@@ -142,11 +148,11 @@ export function ArchivePage() {
         if (!isCurrentScope()) return;
         setArchiving(false);
         if (result?.ok) {
-          const count = result.archived ?? candidates.length;
+          const count = result.queued ?? 0;
           notifications.show({
-            color: 'green',
-            title: 'Archive records created',
-            message: `${count} accepted final${count === 1 ? '' : 's'} recorded.`
+            color: count ? 'blue' : 'green',
+            title: count ? 'Archive copies queued' : 'Finals archived',
+            message: count ? `${count} accepted final${count === 1 ? '' : 's'} queued for copying.` : `${result.archived} accepted final${result.archived === 1 ? '' : 's'} archived.`
           });
         } else {
           notifications.show({
@@ -156,6 +162,36 @@ export function ArchivePage() {
           });
         }
       }
+    });
+  }
+
+  async function runAction(kind, archive) {
+    if (!isCurrentScope() || action) return;
+    setAction(kind);
+    try {
+      let result;
+      if (kind === 'retry') await retryArchiveRecord(activeWorkspaceId, archive.id, archive.stateVersion);
+      if (kind === 'unarchive') await unarchiveRecord(activeWorkspaceId, archive.id, archive.stateVersion);
+      if (kind === 'verify') result = await verifyArchiveRecord(activeWorkspaceId, archive.id);
+      if (!isCurrentScope()) return;
+      await refreshArchive({ background: true });
+      if (!isCurrentScope()) return;
+      notifications.show({ color: kind === 'verify' && result?.integrityStatus !== 'Verified' ? 'yellow' : 'green', title: kind === 'verify' ? 'Integrity check complete' : kind === 'retry' ? 'Copy queued' : 'Submission unarchived', message: kind === 'verify' ? (result?.integrityStatus === 'Verified' ? 'The retained copies were verified.' : 'Verification is unavailable for this record.') : kind === 'retry' ? 'The archive copy will be retried.' : 'The submission is active again.' });
+    } catch (error) {
+      if (!isCurrentScope()) return;
+      notifications.show({ color: 'red', title: kind === 'verify' ? 'Integrity check failed' : 'Archive action failed', message: kind === 'verify' && error?.status === 503 ? 'The retained copy could not be read.' : error?.message || 'Please try again.' });
+      if (error?.status === 409) await refreshArchive({ background: true });
+    } finally {
+      if (isCurrentScope()) setAction('');
+    }
+  }
+
+  function confirmUnarchive(archive) {
+    modals.openConfirmModal({
+      title: 'Unarchive this submission?',
+      children: <Text size="sm">The submission will become active again. Preserved copies, answers, and review decisions will remain unchanged.</Text>,
+      labels: { confirm: 'Unarchive', cancel: 'Cancel' },
+      onConfirm: () => runAction('unarchive', archive)
     });
   }
 
@@ -172,7 +208,7 @@ export function ArchivePage() {
         <Button
           leftSection={<ArchiveIcon size={18} />}
           color="wildtrackMaroon"
-          disabled={!candidates.length}
+          disabled={!candidates.length || !storageReady}
           loading={archiving}
           onClick={confirmArchiveAccepted}
         >
@@ -180,7 +216,7 @@ export function ArchivePage() {
         </Button>
       </header>
 
-      {!storageConfigured ? (
+      {!storageReady ? (
         <Alert
           className="wt-archive-storage-alert"
           role="status"
@@ -188,7 +224,7 @@ export function ArchivePage() {
           color="gray"
           title="Independent archive storage is not connected"
         >
-          WildTrack currently records archive metadata and keeps the submitted Drive link as its source reference. It does not yet preserve an independent PDF copy. Connect Cloudflare R2 or another S3-compatible service before relying on this as permanent file storage.
+          {state.archiveStorage?.message || 'Archive storage is not ready. New copies cannot be queued. Existing records and available copies remain accessible.'}
         </Alert>
       ) : null}
 
@@ -287,7 +323,11 @@ export function ArchivePage() {
       <ArchiveRecordDrawer
         archive={selectedArchive}
         opened={Boolean(selectedArchive)}
-        storageConfigured={storageConfigured}
+        storageReady={storageReady}
+        action={action}
+        onVerify={(archive) => runAction('verify', archive)}
+        onRetry={(archive) => runAction('retry', archive)}
+        onUnarchive={confirmUnarchive}
         onClose={() => setSelectedArchiveId('')}
       />
     </div>

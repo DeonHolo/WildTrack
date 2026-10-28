@@ -334,7 +334,7 @@ describe('deliverable-first submission review', () => {
     });
     workflow.getAiReviewStatus.mockResolvedValue({ configured: true, message: 'Gemini connected.' });
     workflow.runAiReviews.mockResolvedValue(undefined);
-    workflow.archiveAttempt.mockResolvedValue({ ok: true, archived: 1 });
+    workflow.archiveAttempt.mockResolvedValue({ ok: true, archived: 0, queued: 1, records: [{ captureState: 'QUEUED' }] });
     workflow.markAccepted.mockImplementation(async (id) => ({
       feedback: [],
       acceptance: {
@@ -1227,7 +1227,7 @@ describe('deliverable-first submission review', () => {
     expect(within(table).getAllByRole('row')[1]).toHaveTextContent('Student 318');
   });
 
-  it('removes an accepted response from the active queue and confirms one archive record honestly', async () => {
+  it('removes an accepted response from Pending but waits for preserved copies before showing Archived', async () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Review Pacio, Muriel D. response' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).getByRole('button', { name: 'Accept response' }));
@@ -1238,10 +1238,11 @@ describe('deliverable-first submission review', () => {
     expect(within(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).getByRole('button', { name: 'Archive response' })).toBeEnabled();
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).getByRole('button', { name: 'Archive response' }));
     const archiveConfirmation = await screen.findByRole('dialog', { name: 'Archive this accepted response?' });
-    expect(archiveConfirmation).toHaveTextContent('one archive metadata record');
-    expect(archiveConfirmation).toHaveTextContent('Independent PDF storage is not connected yet');
+    expect(archiveConfirmation).toHaveTextContent('preserve copies of the accepted PDFs');
+    expect(archiveConfirmation).toHaveTextContent('check Final archive for progress');
     fireEvent.click(within(archiveConfirmation).getByRole('button', { name: 'Archive response' }));
     await waitFor(() => expect(workflow.archiveAttempt).toHaveBeenCalledWith('response-muriel-srs'));
+    expect(await screen.findByText('Copying is in progress. Check Final archive for the latest status.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Accepted' }));
     expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Pacio, Muriel D.')).toBeInTheDocument();
@@ -1249,7 +1250,7 @@ describe('deliverable-first submission review', () => {
 
     fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'Archived' }));
     expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Barangan, Mark Lorenz L.')).toBeInTheDocument();
-    expect(within(screen.getByRole('table', { name: 'SRS submissions' })).getByText('Pacio, Muriel D.')).toBeInTheDocument();
+    expect(within(screen.getByRole('table', { name: 'SRS submissions' })).queryByText('Pacio, Muriel D.')).not.toBeInTheDocument();
   });
 
   it('accepts only the specifically checked response after explicit academic confirmation, not the class or archive', async () => {
