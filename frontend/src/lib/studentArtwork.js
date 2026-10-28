@@ -3,6 +3,12 @@ function artwork(src, alt, position, size = 'contain') {
 }
 
 export const STUDENT_ARTWORK = Object.freeze({
+  studentEntry: artwork(
+    '/assets/WELCOME%20TO%20WILDMAPS.webp',
+    'WildTrack mascot welcoming students',
+    'center bottom',
+    'auto 100%'
+  ),
   dashboardWelcome: artwork(
     '/assets/Waving.webp',
     'WildTrack mascot waving',

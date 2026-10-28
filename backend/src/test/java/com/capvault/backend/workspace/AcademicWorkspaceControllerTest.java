@@ -31,10 +31,27 @@ class AcademicWorkspaceControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired private com.capvault.backend.auth.WildTrackSessionService sessions;
+    @Autowired private com.capvault.backend.staff.StaffRoleAssignmentRepository roles;
+
+    private jakarta.servlet.http.Cookie adminCookie() {
+        String subject = "catalog-admin-" + java.util.UUID.randomUUID();
+        var now = java.time.Instant.now();
+        roles.saveAndFlush(new com.capvault.backend.staff.StaffRoleAssignment(java.util.UUID.randomUUID(), subject,
+            "catalog-admin@example.invalid", com.capvault.backend.staff.StaffRole.ADMIN, true, now, now));
+        var login = sessions.create(new com.capvault.backend.auth.GoogleIdentity(subject, "catalog-admin@example.invalid", "Admin", ""));
+        return new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", login.rawToken());
+    }
+
+    private jakarta.servlet.http.Cookie studentCookie() {
+        var login = sessions.create(new com.capvault.backend.auth.GoogleIdentity("catalog-unlinked-" + java.util.UUID.randomUUID(),
+            "catalog-unlinked@example.invalid", "Unlinked", ""));
+        return new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", login.rawToken());
+    }
 
     @Test
     void listsSeededWorkspacesAndCreatesAnotherAcademicContext() throws Exception {
-        mockMvc.perform(get("/api/workspaces").with(session()))
+        mockMvc.perform(get("/api/workspaces").cookie(adminCookie()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()", greaterThanOrEqualTo(2)))
             .andExpect(jsonPath("$[?(@.courseCode == 'IT332')]").exists());
@@ -54,6 +71,32 @@ class AcademicWorkspaceControllerTest {
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.program").value("IS"))
             .andExpect(jsonPath("$.courseCode").value("IS401"));
+    }
+
+    @Test
+    void unlinkedAccountCannotBrowseRosterOrWorkspaceCatalogue() throws Exception {
+        var login = sessions.create(new com.capvault.backend.auth.GoogleIdentity("unlinked-catalog-test", "unlinked@example.invalid", "Unlinked", ""));
+        var cookie = new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", login.rawToken());
+        mockMvc.perform(get("/api/workspaces").cookie(cookie))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(get("/api/students").cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/tracker/rows").cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/tracker/columns").cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/tracker/writebacks").cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/projects").cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/monitoring").cookie(cookie).param("workspaceId", "11111111-1111-1111-1111-111111111111"))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/deliverables").cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/deliverables/" + java.util.UUID.randomUUID()).cookie(cookie)).andExpect(status().isForbidden());
+        for (String route : java.util.List.of("/api/academic-data", "/api/archive", "/api/workspace/students/dashboard",
+                "/api/templates", "/api/sheets/import-runs", "/api/workspace/sources", "/api/workspace/responses/staff")) {
+            mockMvc.perform(get(route).param("workspaceId", "11111111-1111-1111-1111-111111111111").cookie(cookie))
+                .andExpect(status().isForbidden());
+        }
+        mockMvc.perform(get("/api/workspace/students/options")
+                .param("workspaceId", "11111111-1111-1111-1111-111111111111").cookie(cookie))
+            .andExpect(status().isForbidden());
+        sessions.revoke(login.rawToken());
     }
 
     @Test
@@ -89,14 +132,14 @@ class AcademicWorkspaceControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.active").value(false));
 
-        mockMvc.perform(get("/api/workspaces").with(session()))
+        mockMvc.perform(get("/api/workspaces").cookie(studentCookie()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[?(@.id == '%s')]".formatted(id)).doesNotExist());
 
         mockMvc.perform(get("/api/workspaces?includeArchived=true").with(session()))
             .andExpect(status().isForbidden());
 
-        mockMvc.perform(get("/api/workspaces?includeArchived=true").with(adminSession()))
+        mockMvc.perform(get("/api/workspaces?includeArchived=true").cookie(adminCookie()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[?(@.id == '%s' && @.active == false)]".formatted(id)).exists());
 

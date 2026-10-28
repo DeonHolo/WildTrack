@@ -59,7 +59,7 @@ for (const viewport of artworkViewports) {
   test('public submission form renders approved artwork on ' + viewport.label, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await useVerifiedGoogleIdentity(page);
-    await page.goto('/w/it-it332-2025-26-semester-2/submit/week-9-srs');
+    await page.goto('/s/' + 'a'.repeat(64));
 
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Software Requirements Specification');
     await expectRenderedArtwork(
@@ -151,12 +151,13 @@ test('approved student artwork assets are served from the root public directory'
 test('submission success stays aligned and shows the submitted Student Number', async ({ page }) => {
   await page.setViewportSize({ width: 690, height: 912 });
   await useVerifiedGoogleIdentity(page, 'CS');
-  await page.goto('/w/cs-cs-capstone-2025-26-semester-2/submit/week-9-srs');
+  await page.goto('/s/' + 'a'.repeat(64));
 
   const studentNumber = page.getByLabel('Student Number');
-  await studentNumber.click();
-  await page.getByRole('option').first().click();
-  const selectedStudentNumber = await studentNumber.inputValue();
+  await studentNumber.fill('22-1001-001');
+  await page.getByLabel('Student Name').fill('DELA CRUZ, JUAN CARLOS M.');
+  await page.getByRole('button', { name: 'Verify student details' }).click();
+  const selectedStudentNumber = '22-1001-001';
   await page.getByLabel('PDF Drive Link').fill('https://drive.google.com/file/d/1WildTrackBrowserCheck/view');
   await page.getByRole('button', { name: 'Submit response' }).click();
   await expect(page.getByRole('heading', { name: 'Response received' })).toBeVisible();
@@ -179,7 +180,7 @@ test('submission success stays aligned and shows the submitted Student Number', 
 });
 test('signed-out public submission requires Google verification before showing response fields', async ({ page }) => {
   page.apiFixture = await installApiFixtures(page, { role: 'anonymous' });
-  await page.goto('/w/it-it332-2025-26-semester-2/submit/week-9-srs');
+  await page.goto('/s/' + 'a'.repeat(64));
 
   await expect(page.getByText('Use your Google account before entering your student and submission details.')).toBeVisible();
   await expect(page.getByText(/No separate WildTrack password/i)).toHaveCount(0);
@@ -596,7 +597,7 @@ for (const viewport of editorViewports) {
     await expect(page.getByText('Published', { exact: true })).toBeVisible();
     await expectNoPageOverflow(page);
 
-    await page.goto('/w/it-it332-2025-26-semester-2/submit/week-9-srs');
+    await page.goto('/s/' + 'a'.repeat(64));
     await expect(page.getByRole('heading', { level: 1, name: 'Software Requirements Specification' })).toBeVisible();
     await page.getByRole('textbox', { name: 'Project Summary' }).fill('Browser round trip');
     await page.getByRole('textbox', { name: 'PDF Drive Link' }).fill('https://drive.google.com/file/d/ticket12-browser-pdf/view');

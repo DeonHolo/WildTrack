@@ -39,6 +39,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { SubmissionFields } from '../components/public/SubmissionFields.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
+import { useDeliverableShareLinks } from '../hooks/useDeliverableShareLinks.js';
 import {
   ACADEMIC_FIELD_ORDER,
   ACADEMIC_FIELD_TYPES,
@@ -58,7 +59,7 @@ import {
 import { emptyFormsState, loadFormsState } from '../lib/formsClient.js';
 import { saveDeliverable } from '../lib/submissionClient.js';
 import { createQuestionDragAutoScroll } from '../lib/questionDragAutoScroll.js';
-import { getActiveTrackerColumns, getTrackerColumn, getWorkspacePublicKey } from '../lib/workflow.js';
+import { getActiveTrackerColumns, getTrackerColumn } from '../lib/workflow.js';
 import '../styles/form-designer.css';
 
 const FIELD_TYPES = [
@@ -99,7 +100,7 @@ const FIELD_TYPE_COMBOBOX_PROPS = {
 export function FormEditorPage() {
   const { formId } = useParams();
   const navigate = useNavigate();
-  const { activeWorkspace, activeWorkspaceId } = useWorkspaceSession();
+  const { activeWorkspaceId } = useWorkspaceSession();
   const { data: state, setData: setState, status, error: loadError } = useWorkspaceResource(
     activeWorkspaceId,
     loadFormsState,
@@ -131,7 +132,7 @@ export function FormEditorPage() {
   const [insertedId, setInsertedId] = useState('');
   const [questionAnnouncement, setQuestionAnnouncement] = useState('');
   const editing = Boolean(formId);
-  const workspaceKey = getWorkspacePublicKey(activeWorkspace);
+  const shareLinks = useDeliverableShareLinks(activeWorkspaceId, formId ? [{ id: formId }] : []);
   const activeColumns = useMemo(() => getActiveTrackerColumns(state), [state]);
   const dirty = Boolean(draft && baseline && snapshot(draft) !== baseline);
 
@@ -272,7 +273,7 @@ export function FormEditorPage() {
   const published = String(draft.status || '').toLowerCase() === 'published';
   const canUndo = historyRef.current.past.length > 0 && historyRevision >= 0;
   const canRedo = historyRef.current.future.length > 0 && historyRevision >= 0;
-  const publicPath = draft.slug ? `/w/${workspaceKey}/submit/${draft.slug}` : '';
+  const publicPath = shareLinks.paths[formId] || '';
 
   function commitDraft(nextOrUpdater) {
     const current = draftRef.current || draft;
@@ -636,7 +637,7 @@ export function FormEditorPage() {
               Public URL
             </Button>
           ) : (
-            <Button variant="default" leftSection={<ArrowSquareOut size={17} />} disabled>Public URL</Button>
+            <Button variant="default" leftSection={<ArrowSquareOut size={17} />} disabled={!shareLinks.errors[formId]} onClick={shareLinks.reload}>{shareLinks.errors[formId] ? 'Retry public link' : 'Public URL'}</Button>
           )}
           <Button variant="default" leftSection={<Eye size={17} />} onClick={() => setPreviewOpened(true)}>Preview</Button>
           <Button variant="default" leftSection={<FloppyDisk size={17} />} loading={saveState === 'saving'} onClick={() => save(draft.status || 'Unpublished')}>Save</Button>

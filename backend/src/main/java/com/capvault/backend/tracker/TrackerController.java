@@ -60,8 +60,10 @@ public class TrackerController {
     @GetMapping("/columns")
     @Transactional(readOnly = true)
     public List<TrackerColumnResponse> listColumns(
-        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        HttpServletRequest http
     ) {
+        if (!security.isAdmin(http)) throw new AccessDeniedException("Admin authorization required.");
         return columnRepository.findAllByWorkspaceIdOrderByDisplayOrderAscLabelAsc(workspaceId)
             .stream()
             .map(TrackerColumnResponse::from)
@@ -71,8 +73,10 @@ public class TrackerController {
     @GetMapping("/rows")
     @Transactional(readOnly = true)
     public List<TrackerRowResponse> listRows(
-        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        HttpServletRequest http
     ) {
+        if (!security.isAdmin(http)) throw new AccessDeniedException("Admin authorization required.");
         return rowRepository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId)
             .stream()
             .map(row -> {
@@ -142,8 +146,10 @@ public class TrackerController {
     @GetMapping("/writebacks")
     @Transactional(readOnly = true)
     public List<TrackerWritebackResponse> listWritebacks(
-        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        HttpServletRequest http
     ) {
+        if (!security.isAdmin(http)) throw new AccessDeniedException("Admin authorization required.");
         return writebackRepository.findTop50ByWorkspaceIdOrderByRequestedAtDesc(workspaceId)
             .stream()
             .map(TrackerWritebackResponse::from)

@@ -68,6 +68,8 @@ export async function installApiFixtures(page, {
   };
   const unexpected = [];
   const calls = [];
+  const tokenFor = item => (item.id === 'deliverable-sdd' ? 'b' : 'a').repeat(64);
+  const canEnter = (token, formId = deliverable.id) => role === 'admin' || role === 'adviser' || association || deliverables.some(item => item.id === formId && token === tokenFor(item));
 
   function makeResponse(values) {
     return { id: 'response-1', deliverableId: deliverable.id, studentNumber: student.studentNumber, studentName: student.studentName, teamCode: student.teamCode, googleSubject: identity.googleSubject, googleEmail: identity.email, owned: true, submittedAt: timestamp, updatedAt: timestamp, revision: 0, valuesJson: JSON.stringify(values) };
@@ -89,10 +91,22 @@ export async function installApiFixtures(page, {
       return reply(null);
     }
     if (method === 'GET' && path.startsWith('/public/forms/')) {
+      if (path.startsWith('/public/forms/share/')) {
+        const form = deliverables.find(item => path === `/public/forms/share/${tokenFor(item)}`);
+        return form && workspace.active && form.status === 'PUBLISHED' ? reply({ workspace, deliverable: form }) : reply({ message: 'Published form was not found.' }, 404);
+      }
       expect(path).toBe(`/public/forms/${workspace.publicKey}/${deliverable.slug}`);
+      if (!canEnter()) return reply({ message: 'Published form was not found.' }, 404);
+      if (!workspace.active || deliverable.status !== 'PUBLISHED') return reply({ message: 'Published form was not found.' }, 404);
       return reply({ workspace, deliverable });
     }
-    if (method === 'GET' && path === '/workspaces') return reply([workspace]);
+    if (method === 'GET' && path === '/workspaces') return reply(role === 'admin' || role === 'adviser' || association ? [workspace] : []);
+    if (method === 'POST' && /^\/deliverables\/[^/]+\/share-link$/.test(path)) {
+      expect(role).toBe('admin');
+      expect(url.searchParams.get('workspaceId')).toBe(workspace.id);
+      const form = deliverables.find(item => path === `/deliverables/${item.id}/share-link`);
+      return form ? reply({ token: tokenFor(form), path: `/s/${tokenFor(form)}` }) : reply({ message: 'Deliverable not found.' }, 404);
+    }
     if (path === `/workspaces/${workspace.id}/file-monitor` && method === 'GET') {
       expect(role).toBe('admin');
       return reply(fileMonitorSettings);
@@ -185,13 +199,29 @@ export async function installApiFixtures(page, {
       ],
       teams: [{ workspaceId: workspace.id, workspaceName: workspace.name, teamCode: student.teamCode, adviserNames: ['Browser Adviser'] }]
     });
-    if (path === '/workspace/students/me' && method === 'GET') return reply(association);
-    if (path === '/workspace/students/options' && method === 'GET') return reply([student]);
-    if (path === '/workspace/students/associate' && method === 'POST') {
-      expect(request.postDataJSON().studentNumber).toBe(student.studentNumber);
-      association = { ...student, assuranceLevel: 'SELF_DECLARED' };
+    if (path === '/workspace/students/me' && method === 'GET') return reply(url.searchParams.get('workspaceId') === workspace.id ? association : null);
+    if (path === '/workspace/students/options' && method === 'GET') return role === 'admin'
+      ? reply([student]) : reply({ message: 'Admin authorization required.' }, 403);
+    if (path === '/workspace/students/connect' && method === 'POST') {
+      const body = request.postDataJSON();
+      if (body.studentNumber !== student.studentNumber || body.studentName?.trim().toLowerCase() !== student.studentName.toLowerCase()
+          || body.teamCode?.trim().toLowerCase() !== student.teamCode.toLowerCase())
+        return reply({ error: 'Student details do not match an active class record.' }, 400);
+      association = { ...student, workspaceId: workspace.id, assuranceLevel: 'SELF_DECLARED' };
       return reply(association);
     }
+    if (path === '/workspace/students/associate' && method === 'POST') {
+      const body = request.postDataJSON();
+      if (!canEnter(body.shareToken, body.deliverableId)) return reply({ message: 'A valid submission link is required.' }, 403);
+      if (url.searchParams.get('workspaceId') !== workspace.id || body.deliverableId !== deliverable.id || deliverable.status !== 'PUBLISHED') {
+        return reply({ message: 'This submission form is unavailable.' }, 403);
+      }
+      if (body.studentNumber !== student.studentNumber || body.studentName?.trim().toLowerCase() !== student.studentName.toLowerCase()) {
+        return reply({ message: 'Student Number and name do not match the current class record.' }, 400);
+      }
+      return reply({ ...student, assuranceLevel: 'SELF_DECLARED' });
+    }
+    if (path.startsWith('/workspace/drafts') && !canEnter(method === 'GET' || method === 'DELETE' ? url.searchParams.get('shareToken') : request.postDataJSON()?.shareToken)) return reply({ message: 'A valid submission link is required.' }, 403);
     if (path === '/workspace/drafts' && method === 'GET') return reply(draft || { present: false });
     if (path === '/workspace/drafts' && method === 'DELETE') { draft = null; return route.fulfill({ status: 204 }); }
     if (path === '/workspace/drafts/save' && method === 'POST') {
@@ -201,7 +231,12 @@ export async function installApiFixtures(page, {
     if (path === '/workspace/responses/mine' && method === 'GET') return reply(response);
     if (path === '/workspace/responses/submit' && method === 'POST') {
       const body = request.postDataJSON();
+      if (!canEnter(body.shareToken, body.deliverableId)) return reply({ message: 'A valid submission link is required.' }, 403);
       expect(body.studentNumber).toBe(student.studentNumber);
+      expect(body.studentName).toBe(student.studentName);
+      expect(body.deliverableId).toBe(deliverable.id);
+      expect(url.searchParams.get('workspaceId')).toBe(workspace.id);
+      expect(deliverable.status).toBe('PUBLISHED');
       association ??= { ...student, assuranceLevel: 'SELF_DECLARED' };
       response = makeResponse(JSON.parse(body.valuesJson));
       return reply({ changed: true, responseId: response.id, revision: response.revision, valuesJson: response.valuesJson });
@@ -303,6 +338,12 @@ export async function installApiFixtures(page, {
     const collections = { '/templates/checklists': [], '/students': [student], '/projects': projects, '/tracker/columns': columns, '/tracker/rows': rows, '/deliverables': deliverables, '/templates': templates, '/workspace/responses/my-team': responses,
       '/workspace/students/identity-conflicts': [], '/workspace/staff': [],
       '/workspace/sources': ['TEAM_FORMATION', 'TRACKER', 'PROJECT_MONITOR'].map((sourceType) => ({ sourceType, status: 'IMPORTED', displayName: sourceType, sheetUrl: 'https://docs.google.com/spreadsheets/d/browser-sheet/edit' })) };
+    if (method === 'GET' && ['/students', '/projects', '/tracker/columns', '/tracker/rows', '/deliverables'].includes(path) && role !== 'admin') {
+      return reply({ message: 'Admin authorization required.' }, 403);
+    }
+    if (method === 'GET' && path === '/workspace/sources' && !['admin', 'adviser'].includes(role)) {
+      return reply({ message: 'Staff authorization required.' }, 403);
+    }
     if (method === 'GET' && Object.hasOwn(collections, path)) return reply(collections[path]);
     if (method === 'GET' && path === '/workspace/responses/response-1/review-state') return reply({ feedback: [], acceptance: null });
     if (method === 'GET' && path === '/file-checks/response-1') return reply({ id: 'check-1', responseId: 'response-1', sourceResponseUpdatedAt: timestamp, checkedAt: timestamp, status: 'COMPLETED', attentionRequired: false, summary: 'The submitted PDF is accessible and readable.', flags: [], metadata: { canDownload: true, mimeType: 'application/pdf' }, document: { readable: true, pageCount: 5 } });
@@ -310,5 +351,5 @@ export async function installApiFixtures(page, {
     unexpected.push(`${method} ${path}`);
     return reply({ error: `Unexpected fixture request: ${method} ${path}` }, 501);
   });
-  return { calls, assertRequestsHandled: () => expect(unexpected).toEqual([]) };
+  return { calls, association: () => association, assertRequestsHandled: () => expect(unexpected).toEqual([]) };
 }

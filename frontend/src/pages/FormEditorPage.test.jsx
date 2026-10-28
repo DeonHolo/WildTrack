@@ -15,6 +15,7 @@ const session = vi.hoisted(() => ({
 
 const formsClient = vi.hoisted(() => ({ loadFormsState: vi.fn() }));
 const submissionClient = vi.hoisted(() => ({ saveDeliverable: vi.fn() }));
+vi.mock('../lib/api.js', async original => ({ ...(await original()), getDeliverableShareLink: vi.fn().mockResolvedValue({ path: '/s/' + 'a'.repeat(64) }) }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({ useWorkspaceSession: () => session }));
 vi.mock('../lib/formsClient.js', async (importOriginal) => {
@@ -276,8 +277,8 @@ describe('full-page form editor', () => {
     renderEditor('/forms/form-srs/edit');
     await screen.findByDisplayValue('SRS Submission');
     expect(screen.queryByText('Public URL:')).not.toBeInTheDocument();
-    const link = screen.getByRole('link', { name: 'Public URL' });
-    expect(link).toHaveAttribute('href', '/w/it-it411-2026-27-semester-1/submit/srs-submission');
+    const link = await screen.findByRole('link', { name: 'Public URL' });
+    expect(link).toHaveAttribute('href', '/s/' + 'a'.repeat(64));
     expect(link).toHaveAttribute('target', '_blank');
   });
 

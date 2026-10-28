@@ -8,7 +8,7 @@ export function GoogleSignInGate({ children }) {
   const { session, sessionStatus } = useWorkspaceSession();
   const location = useLocation();
   const isSignInRoute = ['/login', '/register'].includes(location.pathname);
-  const publicForm = /^\/(?:w\/[^/]+\/)?submit\/[^/]+\/?$/.test(location.pathname);
+  const publicForm = /^\/(?:w\/[^/]+\/)?submit\/[^/]+\/?$/.test(location.pathname) || /^\/s\/[^/]+\/?$/.test(location.pathname);
   const publicInformation = isPublicInformationPath(location.pathname);
   const anonymousPrivateRoute = sessionStatus === 'ready' && session?.authenticated === false
     && !publicForm && !publicInformation && !isSignInRoute && !import.meta.env.DEV;

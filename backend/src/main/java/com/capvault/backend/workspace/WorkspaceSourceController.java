@@ -17,15 +17,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class WorkspaceSourceController {
 
     private final WorkspaceSourceService service;
+    private final com.capvault.backend.student.StudentAssociationSecurity security;
 
-    public WorkspaceSourceController(WorkspaceSourceService service) {
+    public WorkspaceSourceController(WorkspaceSourceService service, com.capvault.backend.student.StudentAssociationSecurity security) {
         this.service = service;
+        this.security = security;
     }
 
     @GetMapping
     public List<WorkspaceSourceResponse> listSources(
-        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        jakarta.servlet.http.HttpServletRequest request
     ) {
+        if (security.activeRoles(request).isEmpty()) throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
         return service.listSources(workspaceId);
     }
 

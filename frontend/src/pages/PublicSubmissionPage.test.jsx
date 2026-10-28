@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   confirmStudentAssociation: vi.fn(),
   getDraft: vi.fn(),
   getPublicSubmissionForm: vi.fn(),
+  getSharedSubmissionForm: vi.fn(),
   getMyAssociation: vi.fn(),
   getMyResponse: vi.fn(),
   getRosterOptions: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('../lib/api.js', async (importOriginal) => ({
   confirmStudentAssociation: api.confirmStudentAssociation,
   getDraft: api.getDraft,
   getPublicSubmissionForm: api.getPublicSubmissionForm,
+  getSharedSubmissionForm: api.getSharedSubmissionForm,
   getMyAssociation: api.getMyAssociation,
   getMyResponse: api.getMyResponse,
   getRosterOptions: api.getRosterOptions,
@@ -103,6 +105,7 @@ function FormHarness({ path = '/submit/week-9-srs' }) {
           <Routes>
             <Route path="/submit/:slug" element={<PublicSubmissionPage />} />
             <Route path="/w/:workspaceKey/submit/:slug" element={<PublicSubmissionPage />} />
+            <Route path="/s/:shareToken" element={<PublicSubmissionPage />} />
           </Routes>
         </MemoryRouter>
       </ModalsProvider>
@@ -115,10 +118,11 @@ function renderForm(path = '/submit/week-9-srs') {
 }
 
 async function selectStudent() {
-  const studentNumber = await screen.findByRole('combobox', { name: /Student Number/i });
-  await userEvent.click(studentNumber);
-  await userEvent.type(studentNumber, '22-1001');
-  fireEvent.click(await screen.findByRole('option', { name: '22-1001-001' }));
+  const studentNumber = await screen.findByRole('textbox', { name: 'Student Number' });
+  await userEvent.type(studentNumber, '22-1001-001');
+  await userEvent.type(screen.getByRole('textbox', { name: 'Student Name' }), 'DELA CRUZ, JUAN CARLOS M.');
+  await userEvent.click(screen.getByRole('button', { name: 'Verify student details' }));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Verify student details' })).not.toBeInTheDocument());
 }
 
 async function selectStudentByName(name = 'DELA CRUZ') {
@@ -139,11 +143,53 @@ function mvpValidationApiFields() {
 }
 
 describe('public submission form', () => {
+  it('requires an independently entered number and name before loading identity details', async () => {
+    renderForm('/w/workspace-it/submit/week-9-srs');
+    const number = await screen.findByRole('textbox', { name: 'Student Number' });
+    const name = screen.getByRole('textbox', { name: 'Student Name' });
+    expect(api.getRosterOptions).not.toHaveBeenCalled();
+    expect(name).toHaveValue('');
+    await userEvent.type(number, '22-1001-001');
+    expect(name).toHaveValue('');
+    await userEvent.type(name, 'DELA CRUZ, JUAN CARLOS M.');
+    await userEvent.click(screen.getByRole('button', { name: 'Verify student details' }));
+    await waitFor(() => expect(api.confirmStudentAssociation).toHaveBeenCalledWith(
+      'workspace-it', '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.', 'deliv-srs'));
+  });
+
+  it('carries the shared link through verification and the first successful save without storing it', async () => {
+    const token = 'a'.repeat(64);
+    api.getSharedSubmissionForm.mockResolvedValue(await api.getPublicSubmissionForm());
+    api.getPublicSubmissionForm.mockClear();
+    renderForm('/s/' + token);
+    await selectStudent();
+    expect(api.confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.', 'deliv-srs', token);
+    fireEvent.change(screen.getByRole('textbox', { name: 'PDF Drive Link' }), { target: { value: 'https://drive.google.com/file/d/shared-test/view' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
+    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', expect.any(Object), null, '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.', token));
+    expect(api.getPublicSubmissionForm).not.toHaveBeenCalled();
+    expect(api.getDraft).toHaveBeenCalledWith('workspace-it', 'deliv-srs', token);
+    expect(localStorage.getItem('wildtrack.public-forms.v1')).toBeNull();
+  });
+
+  it('rejects a mismatched name without revealing or reserving a roster record', async () => {
+    renderForm('/w/workspace-it/submit/week-9-srs?student=22-1001-001');
+    const number = await screen.findByRole('textbox', { name: 'Student Number' });
+    expect(number).toHaveValue('');
+    await userEvent.type(number, '22-1001-001');
+    await userEvent.type(screen.getByRole('textbox', { name: 'Student Name' }), 'Wrong Name');
+    await userEvent.click(screen.getByRole('button', { name: 'Verify student details' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Student Number and name do not match');
+    expect(screen.getByRole('button', { name: 'Submit response' })).toBeDisabled();
+    expect(api.submitResponse).not.toHaveBeenCalled();
+    expect(api.getRosterOptions).not.toHaveBeenCalled();
+  });
   it('accepts the workspace from a form link even when it matches the unconfirmed default', async () => {
     workspaceSession.needsWorkspaceChoice = true;
     renderForm('/w/workspace-it/submit/week-9-srs');
-    await waitFor(() => expect(workspaceSession.switchWorkspace).toHaveBeenCalledWith('workspace-it'));
     expect(await screen.findByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
+    expect(api.getPublicSubmissionForm).toHaveBeenCalledWith('workspace-it', 'week-9-srs');
+    expect(workspaceSession.switchWorkspace).not.toHaveBeenCalled();
     expect(screen.queryByRole('combobox', { name: 'Workspace' })).not.toBeInTheDocument();
   });
 
@@ -167,13 +213,15 @@ describe('public submission form', () => {
     workflow.authenticateGoogleAccount.mockReset();
     workflow.refreshBackendData.mockReset().mockResolvedValue({ ok: true });
     api.clearDraft.mockReset().mockResolvedValue(undefined);
-    api.confirmStudentAssociation.mockReset().mockImplementation(async (_workspaceId, studentNumber) => {
-      const student = workflow.state.students.find((item) => item.studentNumber === studentNumber);
-      return student ? {
+    api.getSharedSubmissionForm.mockReset();
+    api.confirmStudentAssociation.mockReset().mockImplementation(async (_workspaceId, studentNumber, studentName) => {
+      const student = workflow.state.students.find((item) => item.studentNumber === studentNumber && item.name === studentName);
+      if (!student) throw new Error('Student Number and name do not match the current class record.');
+      return {
         studentNumber: student.studentNumber,
         studentName: student.name,
         teamCode: student.teamCode
-      } : null;
+      };
     });
     api.getDraft.mockReset().mockResolvedValue({ present: false, values: null, revision: 0 });
     api.getRosterOptions.mockReset().mockResolvedValue(createState().students.map((student, index) => ({
@@ -235,7 +283,8 @@ describe('public submission form', () => {
     workspaceSession.needsWorkspaceChoice = true;
     workspaceSession.switchWorkspace.mockReturnValue(new Promise(() => {}));
     view.rerender(<FormHarness path={path} />);
-    await waitFor(() => expect(workspaceSession.switchWorkspace).toHaveBeenCalled());
+    await screen.findByRole('textbox', { name: 'Student Number' });
+    expect(workspaceSession.switchWorkspace).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Opening submission form' })).not.toBeInTheDocument();
   });
@@ -302,15 +351,12 @@ describe('public submission form', () => {
     await waitFor(() => expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue(expected));
   });
 
-  it('clears private response content when a late roster request denies access', async () => {
-    let deny;
-    api.getRosterOptions.mockReturnValue(new Promise((_, reject) => { deny = reject; }));
+  it('clears private response content when a refreshed account is denied access', async () => {
+    api.getDraft.mockRejectedValueOnce(Object.assign(new Error('Access denied'), { status: 403 }));
     api.getMyResponse.mockResolvedValue({ id: 'owned', valuesJson: JSON.stringify({ documentPdf: 'private-answer' }) });
     renderForm();
-    await waitFor(() => expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('private-answer'));
-    await act(async () => deny(Object.assign(new Error('Access denied'), { status: 403 })));
+    expect(await screen.findByRole('heading', { name: 'Workspace access unavailable' })).toBeInTheDocument();
     expect(screen.queryByDisplayValue('private-answer')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Save response changes' })).not.toBeInTheDocument();
   });
 
   it('prefills existing server submission for authenticated owner and marks it ready to edit (ticket 05)', async () => {
@@ -370,23 +416,20 @@ describe('public submission form', () => {
   it('maintains institutional roster casing on student name prefill (ticket 04)', async () => {
     api.getMyAssociation.mockResolvedValue({
       studentNumber: '22-1001-001',
-      studentName: 'Deon Holo', // Title case from Google/OAuth
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
       teamCode: '2526-sem2-it332-11'
     });
     renderForm('/submit/week-9-srs');
 
     await waitFor(() => {
-      // Must match official roster name 'DELA CRUZ, JUAN CARLOS M.', not 'Deon Holo'
       expect(screen.getByDisplayValue('DELA CRUZ, JUAN CARLOS M.')).toBeInTheDocument();
     });
   });
 
-  it('preserves edits and the returning identity when roster options arrive late', async () => {
-    let resolveRoster;
-    api.getRosterOptions.mockImplementationOnce(() => new Promise((resolve) => { resolveRoster = resolve; }));
+  it('preserves edits and the returning identity without loading a roster', async () => {
     api.getMyAssociation.mockResolvedValue({
       studentNumber: '22-1001-001',
-      studentName: 'Google display name',
+      studentName: 'DELA CRUZ, JUAN CARLOS M.',
       teamCode: '2526-sem2-it332-11'
     });
     renderForm('/submit/week-9-srs?student=22-1002-002');
@@ -396,16 +439,10 @@ describe('public submission form', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /PDF Drive Link/i }), {
       target: { value: 'https://drive.google.com/file/d/unsaved-edit/view' }
     });
-    resolveRoster(createState().students.map((student, index) => ({
-      id: `student-${index + 1}`,
-      studentNumber: student.studentNumber,
-      studentName: student.name,
-      teamCode: student.teamCode
-    })));
     await waitFor(() => expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.'));
     expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('https://drive.google.com/file/d/unsaved-edit/view');
     expect(api.getMyResponse).toHaveBeenCalledTimes(1);
-    expect(api.getRosterOptions).toHaveBeenCalledWith('workspace-it');
+    expect(api.getRosterOptions).not.toHaveBeenCalled();
   });
 
   it('requires verified Google identity before class-record and submission fields are shown', async () => {
@@ -471,10 +508,11 @@ describe('public submission form', () => {
       screen.getByRole('textbox', { name: 'Validation Evidence' })
     ];
     expect(controls).toHaveLength(5);
-    expect(screen.getByText('Paste the shareable Google Form link.')).toBeInTheDocument();
-    expect(screen.getByText('Paste the shareable Google Sheet link.')).toBeInTheDocument();
-    expect(screen.getByText('Paste the shareable Google Drive folder link.')).toBeInTheDocument();
-    expect(screen.getAllByText('Share a Google Drive file link that opens to the final PDF.')).toHaveLength(2);
+    expect(screen.queryByText('Paste the shareable Google Form link.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Paste the shareable Google Sheet link.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Paste the shareable Google Drive folder link.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Share a Google Drive file link that opens to the final PDF.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Linked to the selected Student Number.')).not.toBeInTheDocument();
 
     const invalidValues = [
       'https://example.com/not-a-form',
@@ -502,7 +540,7 @@ describe('public submission form', () => {
     Object.values(validValues).forEach((value, index) => fireEvent.change(controls[index], { target: { value } }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
 
-    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', validValues, null, '22-1001-001'));
+    await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', validValues, null, '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.'));
   });
 
   it('does not resend restored retired response keys when an active answer is edited', async () => {
@@ -522,14 +560,13 @@ describe('public submission form', () => {
     });
     renderForm();
 
-    const pdf = await screen.findByRole('textbox', { name: 'PDF Drive Link' });
-    expect(pdf).toHaveValue('https://drive.google.com/file/d/old-pdf/view');
-    fireEvent.change(pdf, { target: { value: 'https://drive.google.com/file/d/new-pdf/view' } });
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'PDF Drive Link' })).toHaveValue('https://drive.google.com/file/d/old-pdf/view'));
+    fireEvent.change(screen.getByRole('textbox', { name: 'PDF Drive Link' }), { target: { value: 'https://drive.google.com/file/d/new-pdf/view' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save response changes' }));
 
     await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
       documentPdf: 'https://drive.google.com/file/d/new-pdf/view'
-    }, 2, '22-1001-001'));
+    }, 2, '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.'));
   });
 
   it('renders configured academic identity and persists editable Section while keeping roster identity out of response values', async () => {
@@ -573,12 +610,10 @@ describe('public submission form', () => {
     });
     renderForm();
 
-    const number = await screen.findByRole('textbox', { name: /School ID/i });
-    await userEvent.click(number);
-    fireEvent.click(await screen.findByRole('option', { name: '22-1001-001' }));
+    await selectStudent();
     expect(screen.getByRole('textbox', { name: /Student/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
     expect(screen.getByRole('textbox', { name: /Assigned Team/i })).toHaveValue('2526-sem2-it332-11');
-    expect(screen.getByRole('textbox', { name: /Class Section/i })).toHaveValue('G7');
+    fireEvent.change(screen.getByRole('textbox', { name: /Class Section/i }), { target: { value: 'G7' } });
     expect(screen.getByText('Keep this concise.')).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Summary' }), { target: { value: 'Validated locally' } });
@@ -595,7 +630,7 @@ describe('public submission form', () => {
       scope: 'scope-campus',
       readiness: 'ready',
       evidence: ['screenshots']
-    }, null, '22-1001-001'));
+    }, null, '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.'));
   });
 
   it('does not require absent or optional academic name, team, or section fields on configured forms', async () => {
@@ -628,9 +663,7 @@ describe('public submission form', () => {
     });
     renderForm();
 
-    const number = await screen.findByRole('textbox', { name: /School ID/i });
-    await userEvent.click(number);
-    fireEvent.click(await screen.findByRole('option', { name: '22-1001-001' }));
+    await selectStudent();
     expect(screen.queryByRole('textbox', { name: /Student Name/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /Team Code/i })).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: /Class Section/i })).toHaveValue('');
@@ -639,7 +672,7 @@ describe('public submission form', () => {
 
     await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
       summary: 'No extra identity requirements'
-    }, null, '22-1001-001'));
+    }, null, '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.'));
   });
 
   it('accepts a manually entered required Section when the roster record has no section', async () => {
@@ -672,9 +705,7 @@ describe('public submission form', () => {
     });
     renderForm();
 
-    const number = await screen.findByRole('textbox', { name: /School ID/i });
-    await userEvent.click(number);
-    fireEvent.click(await screen.findByRole('option', { name: '22-1001-001' }));
+    await selectStudent();
     const section = screen.getByRole('textbox', { name: /Class Section/i });
     fireEvent.change(screen.getByRole('textbox', { name: 'Summary' }), { target: { value: 'Section entered manually' } });
     fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
@@ -689,10 +720,10 @@ describe('public submission form', () => {
     await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', {
       sectionPresentation: 'G7',
       summary: 'Section entered manually'
-    }, null, '22-1001-001'));
+    }, null, '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.'));
   });
 
-  it('uses Team Code as a searchable roster filter and clears an incompatible selected student', async () => {
+  it('does not expose team or roster choices before identity verification', async () => {
     api.getPublicSubmissionForm.mockResolvedValue({
       workspace: workspaceSession.activeWorkspace,
       deliverable: {
@@ -714,46 +745,29 @@ describe('public submission form', () => {
     });
     renderForm();
 
-    const team = await screen.findByRole('textbox', { name: /Team Code/i });
-    await userEvent.click(team);
-    fireEvent.click(await screen.findByRole('option', { name: '2526-sem2-it332-12' }));
-
-    const number = screen.getByRole('textbox', { name: /Student Number/i });
-    await userEvent.click(number);
-    expect(await screen.findByRole('option', { name: '22-1002-002' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: '22-1001-001' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('option', { name: '22-1002-002' }));
-    expect(screen.getByRole('textbox', { name: /Student Name/i })).toHaveValue('SANTOS, MARIA L.');
-    expect(team).toHaveValue('2526-sem2-it332-12');
-
-    await userEvent.click(team);
-    fireEvent.click(await screen.findByRole('option', { name: '2526-sem2-it332-11' }));
-    expect(number).toHaveValue('');
-    expect(screen.getByRole('textbox', { name: /Student Name/i })).toHaveValue('');
-    expect(team).toHaveValue('2526-sem2-it332-11');
+    await screen.findByRole('textbox', { name: 'Student Number' });
+    expect(screen.queryByRole('textbox', { name: 'Team Code' })).not.toBeInTheDocument();
+    expect(api.getRosterOptions).not.toHaveBeenCalled();
+    expect(screen.queryByText('SANTOS, MARIA L.')).not.toBeInTheDocument();
   });
 
-  it('shows each identity result as only the value belonging to that field', async () => {
+  it('does not disclose matching roster names while typing a student number', async () => {
     renderForm();
 
-    const studentNumber = await screen.findByRole('combobox', { name: /Student Number/i });
-    await userEvent.click(studentNumber);
+    const studentNumber = await screen.findByRole('textbox', { name: /Student Number/i });
     await userEvent.type(studentNumber, '22-1001');
 
-    const numberListbox = screen.getByRole('listbox');
-    expect(await within(numberListbox).findByRole('option', { name: '22-1001-001' })).toBeInTheDocument();
-    expect(within(numberListbox).queryByText('DELA CRUZ, JUAN CARLOS M.')).not.toBeInTheDocument();
-    expect(within(numberListbox).queryByText('2526-sem2-it332-11')).not.toBeInTheDocument();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Student Name' })).toHaveValue('');
   });
 
-  it('autofills Student Number and Team Code when a Student Name is selected', async () => {
+  it('does not autofill Student Number from a typed name', async () => {
     renderForm();
 
-    await selectStudentByName();
-
-    expect(screen.getByRole('combobox', { name: /Student Number/i })).toHaveValue('22-1001-001');
-    expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('DELA CRUZ, JUAN CARLOS M.');
-    expect(screen.getByRole('combobox', { name: /Team Code/i })).toHaveValue('2526-sem2-it332-11');
+    const name = await screen.findByRole('textbox', { name: 'Student Name' });
+    await userEvent.type(name, 'DELA CRUZ');
+    expect(screen.getByRole('textbox', { name: 'Student Number' })).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Verify student details' })).toBeDisabled();
   });
 
   it('clears a legacy selected student when Team Code is edited away from the roster match', async () => {
@@ -764,9 +778,9 @@ describe('public submission form', () => {
     await userEvent.clear(team);
     await userEvent.type(team, '2526-sem2-it332-12');
 
-    expect(screen.getByRole('combobox', { name: /Student Number/i })).toHaveValue('');
-    expect(screen.getByRole('combobox', { name: /Student Name/i })).toHaveValue('');
-    expect(team).toHaveValue('2526-sem2-it332-12');
+    expect(screen.getByRole('textbox', { name: /Student Number/i })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: /Student Name/i })).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Verify student details' })).toBeDisabled();
   });
 
   it('keeps all three identity fields required after autofill', async () => {
@@ -841,7 +855,7 @@ describe('public submission form', () => {
     });
     renderForm();
 
-    expect(await screen.findByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('https://drive.google.com/file/d/owned-response');
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toHaveValue('https://drive.google.com/file/d/owned-response'));
     expect(screen.getByRole('button', { name: /Save response changes/i })).toBeInTheDocument();
   });
 
@@ -853,8 +867,8 @@ describe('public submission form', () => {
     });
     const view = renderForm();
 
-    expect(await screen.findByRole('textbox', { name: /PDF Drive Link/i }))
-      .toHaveValue('https://drive.google.com/file/d/first-private-response');
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /PDF Drive Link/i }))
+      .toHaveValue('https://drive.google.com/file/d/first-private-response'));
 
     let resolveNextResponse;
     api.getMyResponse.mockImplementationOnce(() => new Promise((resolve) => { resolveNextResponse = resolve; }));
@@ -896,11 +910,10 @@ describe('public submission form', () => {
     expect(document.body).not.toHaveTextContent('private-response');
   });
 
-  it('places identity validation beside the form when no class record is selected', async () => {
+  it('prevents submission until both identity values are verified', async () => {
     renderForm();
-    fireEvent.click(await screen.findByRole('button', { name: 'Submit response' }));
-
-    expect(screen.getByRole('alert')).toHaveTextContent("Choose a Student Number from this workspace's class record.");
+    expect(await screen.findByRole('button', { name: 'Submit response' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Verify student details' })).toBeDisabled();
   });
 
   it('disables the submission action while the response is saving', async () => {
@@ -965,8 +978,8 @@ describe('public submission form', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
 
     await waitFor(() => expect(api.submitResponse).toHaveBeenCalledWith(
-      'workspace-it', 'deliv-srs', expect.any(Object), null, '22-1001-001'));
-    expect(api.confirmStudentAssociation).not.toHaveBeenCalled();
+      'workspace-it', 'deliv-srs', expect.any(Object), null, '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.'));
+    expect(api.confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.', 'deliv-srs');
   });
 
   it.each([
@@ -994,7 +1007,7 @@ describe('public submission form', () => {
 
     expect(await screen.findByRole('heading', { name: expectedTitle })).toBeInTheDocument();
     expect(api.submitResponse).toHaveBeenCalledWith('workspace-it', 'deliv-srs', expect.any(Object),
-      overrides.updated || overrides.unchanged ? 1 : null, '22-1001-001');
+      overrides.updated || overrides.unchanged ? 1 : null, '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.');
     const successArtwork = screen.getByRole('img', { name: /WildTrack mascot celebrating a recorded submission/i });
     expect(successArtwork).toHaveStyle('background-image: url("/assets/Good%20Job.webp")');
     expect(successArtwork).toHaveStyle('background-size: auto 100%');
@@ -1043,7 +1056,7 @@ describe('public submission form', () => {
     expect(await screen.findByRole('heading', { name: 'Submission form not found' })).toBeInTheDocument();
   });
 
-  it('allows typing but prevents submission while switching to the form workspace', async () => {
+  it('uses the form workspace without switching the home workspace', async () => {
     api.getPublicSubmissionForm.mockResolvedValue({
       workspace: { ...workspaceSession.activeWorkspace, id: 'workspace-cs', program: 'CS' },
       deliverable: {
@@ -1060,13 +1073,14 @@ describe('public submission form', () => {
     workspaceSession.switchWorkspace.mockReturnValue(new Promise(() => {}));
     renderForm('/w/workspace-cs/submit/week-9-srs');
 
-    await waitFor(() => expect(workspaceSession.switchWorkspace).toHaveBeenCalledWith('workspace-cs'));
-    expect(screen.getByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Week 9: Software Requirements Specification' })).toBeInTheDocument();
+    expect(workspaceSession.switchWorkspace).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.getMyAssociation).toHaveBeenCalledWith('workspace-cs'));
     expect(screen.getByRole('textbox', { name: /PDF Drive Link/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Submit response' })).toBeDisabled();
   });
 
-  it('shows a recoverable error when the form workspace cannot be opened', async () => {
+  it('shows a recoverable error when the public form cannot be opened', async () => {
     api.getPublicSubmissionForm.mockResolvedValue({
       workspace: { ...workspaceSession.activeWorkspace, id: 'workspace-cs', program: 'CS' },
       deliverable: {
@@ -1080,7 +1094,7 @@ describe('public submission form', () => {
         status: 'PUBLISHED'
       }
     });
-    workspaceSession.switchWorkspace.mockResolvedValue({ ok: false, error: 'Workspace access failed.' });
+    api.getPublicSubmissionForm.mockRejectedValue(new Error('Workspace access failed.'));
     renderForm('/w/workspace-cs/submit/week-9-srs');
 
     expect(await screen.findByRole('heading', { name: 'Unable to open submission form' })).toBeInTheDocument();

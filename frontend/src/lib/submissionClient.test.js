@@ -182,10 +182,10 @@ describe('SubmissionClient intake', () => {
 
     await expect(saveSubmissionDraft('workspace-1', 'deliverable-1', { primaryLink: 'https://example.test' }, 3))
       .resolves.toEqual({ conflict: true });
-    await expect(commitSubmission('workspace-1', 'deliverable-1', { primaryLink: 'https://example.test' }, null, '22-1001-001'))
+    await expect(commitSubmission('workspace-1', 'deliverable-1', { primaryLink: 'https://example.test' }, null, '22-1001-001', 'Student Name'))
       .resolves.toEqual({ conflict: true });
     expect(api.submitResponse).toHaveBeenCalledWith(
-      'workspace-1', 'deliverable-1', { primaryLink: 'https://example.test' }, null, '22-1001-001');
+      'workspace-1', 'deliverable-1', { primaryLink: 'https://example.test' }, null, '22-1001-001', 'Student Name');
   });
 
   it('clears the server draft only through the draft endpoint', async () => {
@@ -199,9 +199,9 @@ describe('SubmissionClient intake', () => {
   it('confirms the selected class-record identity through the server association seam', async () => {
     api.confirmStudentAssociation.mockResolvedValue({ studentNumber: '22-1001-001' });
 
-    await expect(confirmSubmissionAssociation('workspace-1', '22-1001-001'))
+    await expect(confirmSubmissionAssociation('workspace-1', '22-1001-001', 'Student Name', 'deliverable-1'))
       .resolves.toEqual({ studentNumber: '22-1001-001' });
-    expect(api.confirmStudentAssociation).toHaveBeenCalledWith('workspace-1', '22-1001-001');
+    expect(api.confirmStudentAssociation).toHaveBeenCalledWith('workspace-1', '22-1001-001', 'Student Name', 'deliverable-1');
   });
 
   it('normalizes session and authorization errors for the form surface', () => {

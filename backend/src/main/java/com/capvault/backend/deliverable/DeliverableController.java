@@ -20,23 +20,39 @@ import org.springframework.web.bind.annotation.RestController;
 public class DeliverableController {
 
     private final DeliverableService service;
+    private final com.capvault.backend.student.StudentAssociationSecurity security;
+    private final DeliverableShareLinkService shareLinks;
 
-    public DeliverableController(DeliverableService service) {
+    public DeliverableController(DeliverableService service, com.capvault.backend.student.StudentAssociationSecurity security, DeliverableShareLinkService shareLinks) {
         this.service = service;
+        this.security = security;
+        this.shareLinks = shareLinks;
+    }
+
+    @PostMapping("/{id}/share-link")
+    public DeliverableShareLinkService.ShareLink shareLink(@PathVariable UUID id, @RequestParam UUID workspaceId,
+            jakarta.servlet.http.HttpServletRequest request, jakarta.servlet.http.HttpServletResponse response) {
+        if (!security.isAdmin(request)) throw new org.springframework.security.access.AccessDeniedException("Admin authorization required.");
+        response.setHeader("Cache-Control", "no-store");
+        return shareLinks.issue(workspaceId, id);
     }
 
     @GetMapping
     public List<DeliverableResponse> listDeliverables(
-        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        jakarta.servlet.http.HttpServletRequest http
     ) {
+        if (!security.isAdmin(http)) throw new org.springframework.security.access.AccessDeniedException("Admin authorization required.");
         return service.listDeliverables(workspaceId);
     }
 
     @GetMapping("/{id}")
     public DeliverableResponse getDeliverable(
         @PathVariable UUID id,
-        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        jakarta.servlet.http.HttpServletRequest http
     ) {
+        if (!security.isAdmin(http)) throw new org.springframework.security.access.AccessDeniedException("Admin authorization required.");
         return service.getDeliverable(workspaceId, id);
     }
 

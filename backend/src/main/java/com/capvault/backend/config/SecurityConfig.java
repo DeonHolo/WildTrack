@@ -88,6 +88,8 @@ public class SecurityConfig {
                     "/api/workspace/sources/**").hasRole("ADMIN")
                 .requestMatchers("/api/templates/*/checklist", "/api/templates/*/checklist/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/templates/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET, "/api/templates", "/api/templates/**").hasAnyRole("ADMIN", "ADVISER")
+                .requestMatchers(HttpMethod.GET, "/api/sheets/import-runs").hasRole("ADMIN")
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll())
             .exceptionHandling(exceptions -> exceptions

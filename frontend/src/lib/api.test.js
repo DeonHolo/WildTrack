@@ -1,8 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, decideIdentityConflict, describeSnapshotFailures, getAiReviewStatus, getApiBaseUrl, getBackendSnapshot, getCurrentSession, getDeletedWorkTasks, getDocumentTemplatePreviewUrl, getDocumentTemplateStructure, getMyResponse, getSavedAiReview, logout, requestAiReview, saveBackendDeliverable, submitResponse } from './api.js';
 import { fetchCurrentSession, logoutSession } from './session.js';
+import { confirmStudentAssociation, getDeliverableShareLink, getDraft, getSharedSubmissionForm, saveDraft } from './api.js';
 
 describe('production API delivery', () => {
+  it('uses one opaque link and carries its authorization on first-time form operations', async () => {
+    document.cookie = 'XSRF-TOKEN=csrf-token; path=/';
+    const token = 'a'.repeat(64);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    await getDeliverableShareLink('workspace', 'form');
+    expect(fetchMock.mock.calls[0]).toEqual(['/api/deliverables/form/share-link?workspaceId=workspace', expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ 'X-XSRF-TOKEN': 'csrf-token' }) })]);
+    await getSharedSubmissionForm(token);
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/public/forms/share/' + token);
+    await confirmStudentAssociation('workspace', 'number', 'Name', 'form', token);
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ studentNumber: 'number', studentName: 'Name', deliverableId: 'form', shareToken: token });
+    await getDraft('workspace', 'form', token);
+    expect(fetchMock.mock.calls[3][0]).toContain('&shareToken=' + token);
+    await saveDraft('workspace', 'form', { answer: 'draft' }, null, token);
+    expect(JSON.parse(fetchMock.mock.calls[4][1].body).shareToken).toBe(token);
+    await submitResponse('workspace', 'form', { answer: 'done' }, null, 'number', 'Name', token);
+    expect(JSON.parse(fetchMock.mock.calls[5][1].body)).toMatchObject({ studentName: 'Name', shareToken: token });
+  });
   it('keeps the queue readable during a staggered endpoint rollout without masking authorization failures', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('{}', { status: 404 }))
       .mockResolvedValueOnce(new Response('{}', { status: 403 }));

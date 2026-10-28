@@ -84,6 +84,9 @@ public class StudentDashboardController {
         var session = security.requireSession(http);
         workspaces.findById(workspaceId).orElseThrow(() -> new IllegalArgumentException("Workspace not found."));
         var association = associations.activeAssociation(workspaceId, session.googleSubject()).orElse(null);
+        if (association == null) {
+            throw new org.springframework.security.access.AccessDeniedException("No student access to this workspace.");
+        }
         String team = association == null ? "" : association.teamCode();
         Map<UUID, FormResponse> visible = new LinkedHashMap<>();
         if (team != null && !team.isBlank()) {
@@ -107,7 +110,8 @@ public class StudentDashboardController {
                 try { fieldChecks.put(UUID.fromString(responseId), reports); }
                 catch (IllegalArgumentException ignored) { }
             });
-        return new DashboardResponse(association, associations.workspaceRosterOptions(workspaceId),
+        return new DashboardResponse(association, associations.workspaceRosterOptions(workspaceId).stream()
+                .filter(item -> item.id().equals(association.studentRecordId())).toList(),
             students.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
                 .filter(com.capvault.backend.student.StudentRecord::isCurrentActive)
                 .filter(item -> sameTeam(team, item.getTeamCode())).map(StudentRecordResponse::from).toList(),

@@ -1,0 +1,38 @@
+name: Academic workflow checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/academic-workflow-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  academic-workflows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Check workbook imports and student access
+        run: mvn -B -Dtest=Workbook*,Academic*,StudentEntryIntegrationTest,AccountBindingSubmissionIT,StudentAssociationServiceTest,FormDraftServiceTest,FormResponseServiceTest,FormResponseStaffViewControllerTest,WorkspaceSourceControllerTest test
+      - name: Save test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: academic-workflow-results
+          path: backend/target/surefire-reports/
+          if-no-files-found: ignore
+          retention-days: 7

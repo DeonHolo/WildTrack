@@ -38,6 +38,21 @@ describe('WorkspaceSession', () => {
     expect(result.current.activeWorkspace).toEqual({ id: 'ws-1', name: 'Backend workspace' });
   });
 
+  it('does not display a previously cached catalogue before access is revalidated', async () => {
+    const account = JSON.stringify(['server@student.test', undefined, []]);
+    const key = JSON.stringify([account, '', 'workspace-catalog']);
+    localStorage.setItem('wildtrack.resource-snapshots.v2', JSON.stringify([{ key,
+      data: [{ id: 'old-global', name: 'Previously visible workspace' }], updatedAt: Date.now() }]));
+    let complete;
+    api.getWorkspaces.mockReturnValue(new Promise(resolve => { complete = resolve; }));
+    const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
+    const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
+    await waitFor(() => expect(api.getWorkspaces).toHaveBeenCalled());
+    expect(result.current.workspaces).toEqual([]);
+    await act(async () => complete([]));
+    expect(result.current.workspaces).toEqual([]);
+  });
+
   it('auto-selects and persists the only workspace without requiring a choice', async () => {
     const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
     const { result } = renderHook(() => useWorkspaceSession(), { wrapper });

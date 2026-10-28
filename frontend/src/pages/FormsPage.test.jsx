@@ -30,6 +30,8 @@ const submissionClient = vi.hoisted(() => ({
 }));
 
 const formsClient = vi.hoisted(() => ({ loadFormsState: vi.fn() }));
+const shareApi = vi.hoisted(() => ({ getDeliverableShareLink: vi.fn() }));
+vi.mock('../lib/api.js', async original => ({ ...(await original()), ...shareApi }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
   useWorkspaceSession: () => workspaceSession
@@ -125,6 +127,7 @@ describe('forms management', () => {
     };
     workspaceSession.activeWorkspaceId = 'workspace-it';
     formsClient.loadFormsState.mockReset().mockImplementation(async () => workflow.state);
+    shareApi.getDeliverableShareLink.mockReset().mockResolvedValue({ path: '/s/' + 'a'.repeat(64) });
     submissionClient.saveDeliverable.mockReset().mockImplementation(async (_workspaceId, payload) => ({
       ...payload,
       id: payload.id || 'deliverable-created'
@@ -146,13 +149,13 @@ describe('forms management', () => {
     within(table).getAllByText('Published').forEach((label) => {
       expect(label.closest('.wt-status-indicator')).toHaveAttribute('data-tone', 'success');
     });
-    expect(within(table).getByRole('link', { name: 'Open SRS submission form' })).toHaveAttribute(
+    await waitFor(() => expect(within(table).getByRole('link', { name: 'Open SRS submission form' })).toHaveAttribute(
       'href',
-      '/w/it-it332-2025-26-semester-2/submit/week-9-srs'
-    );
+      '/s/' + 'a'.repeat(64)
+    ));
 
     fireEvent.click(within(table).getByRole('button', { name: 'Copy SRS form link' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('/submit/week-9-srs')));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('/s/' + 'a'.repeat(64))));
     expect(screen.getByRole('status')).toHaveTextContent('SRS form link copied');
   });
 
@@ -160,6 +163,17 @@ describe('forms management', () => {
     formsClient.loadFormsState.mockReturnValue(new Promise(() => {}));
     renderPage();
     expect(screen.queryByText('0 forms')).not.toBeInTheDocument();
+  });
+
+  it('never falls back to a guessable URL when loading a share link fails', async () => {
+    shareApi.getDeliverableShareLink.mockRejectedValue(new Error('Offline'));
+    renderPage();
+    expect((await screen.findAllByRole('button', { name: 'Retry link' }))).toHaveLength(2);
+    expect(screen.queryByRole('link', { name: /submission form$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy SRS form link' })).toBeDisabled();
+    shareApi.getDeliverableShareLink.mockResolvedValue({ path: '/s/' + 'a'.repeat(64) });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Retry link' })[0]);
+    expect(await screen.findByRole('link', { name: 'Open SRS submission form' })).toHaveAttribute('href', '/s/' + 'a'.repeat(64));
   });
 
   it('renders deliverables returned by the forms client without a local workflow mirror', async () => {

@@ -18,17 +18,15 @@ import { useNavigate } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
+import { useDeliverableShareLinks } from '../hooks/useDeliverableShareLinks.js';
 import { PublishedFormsTable } from '../components/forms/PublishedFormsTable.jsx';
 import { saveDeliverable, unpublishAllDeliverables, unpublishDeliverable } from '../lib/submissionClient.js';
 import { emptyFormsState, loadFormsState } from '../lib/formsClient.js';
-import {
-  getWorkspacePublicKey,
-  sortDeliverables
-} from '../lib/workflow.js';
+import { sortDeliverables } from '../lib/workflow.js';
 
 export function FormsPage() {
   const navigate = useNavigate();
-  const { activeWorkspace, activeWorkspaceId } = useWorkspaceSession();
+  const { activeWorkspaceId } = useWorkspaceSession();
   const { data: state, setData: setState, status: formsStatus, error: loadError, reload } = useWorkspaceResource(
     activeWorkspaceId,
     loadFormsState,
@@ -39,7 +37,7 @@ export function FormsPage() {
   const [formsError, setFormsError] = useState('');
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
   const orderedDeliverables = useMemo(() => sortDeliverables(state, deliverables), [deliverables, state]);
-  const workspaceKey = getWorkspacePublicKey(activeWorkspace);
+  const shareLinks = useDeliverableShareLinks(activeWorkspaceId, orderedDeliverables);
   const [copyStatus, setCopyStatus] = useState('');
   const [bulkUnpublishing, setBulkUnpublishing] = useState(false);
   const [bulkUnpublishCount, setBulkUnpublishCount] = useState(0);
@@ -252,7 +250,7 @@ export function FormsPage() {
 
       {formsStatus === 'ready' ? <PublishedFormsTable
         deliverables={orderedDeliverables}
-        workspaceKey={workspaceKey}
+        shareLinks={shareLinks}
         onCopy={copyLink}
         onEdit={openEditor}
         onRepublish={republish}
