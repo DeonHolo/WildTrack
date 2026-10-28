@@ -63,6 +63,12 @@ async function installTemplate(page, { role = 'admin', state = ready, getStructu
       checklistView = { ...checklistView, state: 'APPROVED', revision: checklistView.revision + 1 };
       return json(checklistView);
     }
+    if (url.pathname.endsWith('/checklist/unapprove')) {
+      expect(request.method()).toBe('POST');
+      expect(request.postDataJSON()).toEqual({versionId:checklistView.versionId,expectedRevision:checklistView.revision});
+      checklistView={...checklistView,state:'DRAFT',revision:checklistView.revision+1,approvedAt:null};
+      return json(checklistView);
+    }
     if (url.pathname.endsWith('/checklist/rerun')) {
       expect(request.method()).toBe('POST');
       expect(request.postDataJSON()).toEqual({versionId:lastState.versionId,expectedRevision:checklistView.revision});
@@ -192,7 +198,7 @@ for (const width of [390, 1024, 1440]) {
     await expect(editor.getByRole('button', { name: 'Approve checklist', exact: true })).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath(`checklist-edit-${width}.png`), fullPage: true });
     await editor.getByRole('button', { name: 'Approve checklist', exact: true }).click();
-    await expect(page.getByText('Confirm that you checked the saved checklist against the template PDF.')).toBeVisible();
+    await expect(page.getByText(/Confirm that you checked the saved checklist against the template PDF/)).toBeVisible();
     await page.getByRole('button', { name: 'Confirm approval', exact: true }).click();
     await expect(editor.getByText('Approved', { exact: true })).toBeVisible();
     await expect(editor.getByRole('button', { name: 'Describe project activity 33', exact: true })).toBeAttached();
@@ -200,6 +206,16 @@ for (const width of [390, 1024, 1440]) {
     expect(await editor.getByRole('button', { name: 'Describe project activity 1', exact: true }).evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(16);
     await page.screenshot({ path: testInfo.outputPath(`checklist-approved-${width}.png`), fullPage: true });
     expect(fixture.templateCalls.filter(call => call.method !== 'GET').map(call => call.method)).toEqual(['PUT', 'POST']);
+    await editor.getByRole('button',{name:'Unapprove checklist',exact:true}).click();
+    const unapproval=page.getByRole('dialog',{name:'Unapprove this checklist?'});
+    await expect(unapproval).toHaveCSS('opacity','1');
+    await expect(unapproval.getByText(/earlier AI Review results and Document Check results are kept/)).toBeVisible();
+    await page.screenshot({path:testInfo.outputPath(`template-unapprove-${width}.png`)});
+    await unapproval.getByRole('button',{name:'Confirm unapproval',exact:true}).click();
+    await expect(editor.getByText('Draft',{exact:true})).toBeVisible();
+    await expect(editor.getByRole('button',{name:'Approve checklist',exact:true})).toBeEnabled();
+    await expect(editor.getByRole('button',{name:'Describe project activity 33',exact:true})).toBeAttached();
+    expect(fixture.templateCalls.filter(call=>call.method!=='GET').map(call=>call.method)).toEqual(['PUT','POST','POST']);
     fixture.assertRequestsHandled();
   });
 }

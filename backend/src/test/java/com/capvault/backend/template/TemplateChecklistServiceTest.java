@@ -79,6 +79,71 @@ class TemplateChecklistServiceTest {
         assertThatThrownBy(() -> service.save(WORKSPACE, id, source.versionId(), edited.revision(), items)).hasMessageContaining("409");
         assertThat(db.queryForObject("SELECT COUNT(*) FROM template_checklist_approvals WHERE version_id=?", Integer.class, source.versionId())).isEqualTo(1);
     }
+    @Test
+    void unapprovalKeepsItemsAndApprovalHistoryButBlocksNewReviewUse() throws Exception {
+        UUID id=upload("unapprove"), version=pdfs.current(WORKSPACE,id).versionId();
+        var items=List.of(item("Retained instruction",1,""));
+        var draft=service.save(WORKSPACE,id,version,0,items);
+        var approved=service.approve(WORKSPACE,id,version,draft.revision(),"admin");
+        String fingerprint=service.fingerprint(WORKSPACE,id);
+        assertThatThrownBy(()->service.unapprove(WORKSPACE,id,version,approved.revision()-1)).hasMessageContaining("409");
+        var unapproved=service.unapprove(WORKSPACE,id,version,approved.revision());
+        assertThat(unapproved.state()).isEqualTo("DRAFT");
+        assertThat(unapproved.items()).isEqualTo(items);
+        assertThat(unapproved.revision()).isEqualTo(approved.revision()+1);
+        assertThat(unapproved.approvedAt()).isNull();
+        assertThat(service.fingerprint(WORKSPACE,id)).isNotEqualTo(fingerprint);
+        assertThatThrownBy(()->service.approved(WORKSPACE,id,pdfs.current(WORKSPACE,id).sourceSha256())).hasMessageContaining("409");
+        assertThatThrownBy(()->service.unapprove(WORKSPACE,id,version,unapproved.revision())).hasMessageContaining("409");
+        assertThat(service.approve(WORKSPACE,id,version,unapproved.revision(),"admin").state()).isEqualTo("APPROVED");
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM template_checklist_approvals WHERE version_id=?",Integer.class,version)).isEqualTo(2);
+        assertThat(pdfs.current(WORKSPACE,id).state()).isEqualTo("READY");
+    }
+    @Test
+    void bulkApprovalIsAtomicAndUsesExactSavedRevisions() throws Exception {
+        var ids=new java.util.ArrayList<>(List.of(upload("approve-a",key+"-a"),upload("approve-b",key+"-b")));
+        ids.sort(java.util.Comparator.naturalOrder());
+        var versions=ids.stream().map(id->pdfs.current(WORKSPACE,id).versionId()).toList();
+        for(int i=0;i<2;i++) service.save(WORKSPACE,ids.get(i),versions.get(i),0,List.of(item("Saved",1,"")));
+        var first=new TemplateChecklistService.ApprovalRequest(ids.get(0),versions.get(0),1);
+        assertThatThrownBy(()->service.approveBatch(WORKSPACE,List.of(first,
+            new TemplateChecklistService.ApprovalRequest(ids.get(1),versions.get(1),99)),"admin")).hasMessageContaining("409");
+        for(int i=0;i<2;i++) {
+            assertThat(service.get(WORKSPACE,ids.get(i)).state()).isEqualTo("DRAFT");
+            assertThat(db.queryForObject("SELECT COUNT(*) FROM template_checklist_approvals WHERE version_id=?",Integer.class,versions.get(i))).isZero();
+        }
+        assertThatThrownBy(()->service.approveBatch(WORKSPACE,List.of(first,first),"admin")).hasMessageContaining("400");
+        assertThatThrownBy(()->service.approveBatch(UUID.randomUUID(),List.of(first),"admin")).hasMessageContaining("404");
+        var second=new TemplateChecklistService.ApprovalRequest(ids.get(1),versions.get(1),1);
+        service.approveBatch(WORKSPACE,List.of(second,first),"admin");
+        for(int i=0;i<2;i++) {
+            assertThat(service.get(WORKSPACE,ids.get(i)).state()).isEqualTo("APPROVED");
+            assertThat(db.queryForObject("SELECT actor FROM template_checklist_approvals WHERE version_id=?",String.class,versions.get(i))).isEqualTo("admin");
+        }
+        assertThatThrownBy(()->service.approveBatch(WORKSPACE,List.of(second,first),"admin")).hasMessageContaining("409");
+    }
+    @Test
+    void approvalControlsRequirePersistedAdminAndCsrf() throws Exception {
+        UUID id=upload("approval-access"), version=pdfs.current(WORKSPACE,id).versionId();
+        var draft=service.save(WORKSPACE,id,version,0,List.of(item("Saved",1,"")));
+        String bulk="[{\"templateId\":\""+id+"\",\"versionId\":\""+version+"\",\"expectedRevision\":"+draft.revision()+"}]";
+        String url="/api/templates/checklists/approve";
+        mvc.perform(post(url).with(adviserSession()).with(csrf()).param("workspaceId",WORKSPACE.toString()).contentType("application/json").content(bulk)).andExpect(status().isForbidden());
+        String subject="approval-admin-"+UUID.randomUUID();
+        var login=sessions.create(new GoogleIdentity(subject,"approval@example.invalid","Admin",""));
+        var role=assignments.saveAndFlush(new StaffRoleAssignment(UUID.randomUUID(),subject,"approval@example.invalid",StaffRole.ADMIN,true,Instant.now(),Instant.now()));
+        try {
+            var cookie=new Cookie("WILDTRACK_SESSION",login.rawToken());
+            mvc.perform(post(url).cookie(cookie).param("workspaceId",WORKSPACE.toString()).contentType("application/json").content(bulk)).andExpect(status().isForbidden());
+            mvc.perform(post(url).cookie(cookie).with(csrf()).param("workspaceId",WORKSPACE.toString()).contentType("application/json").content(bulk)).andExpect(status().isOk());
+            String unapprove="/api/templates/"+id+"/checklist/unapprove";
+            String body="{\"versionId\":\""+version+"\",\"expectedRevision\":"+(draft.revision()+1)+"}";
+            mvc.perform(post(unapprove).with(adviserSession()).with(csrf()).param("workspaceId",WORKSPACE.toString()).contentType("application/json").content(body)).andExpect(status().isForbidden());
+            mvc.perform(post(unapprove).cookie(cookie).param("workspaceId",WORKSPACE.toString()).contentType("application/json").content(body)).andExpect(status().isForbidden());
+            mvc.perform(post(unapprove).cookie(cookie).with(csrf()).param("workspaceId",WORKSPACE.toString()).contentType("application/json").content(body)).andExpect(status().isOk());
+            assertThat(service.get(WORKSPACE,id).items()).hasSize(1);
+        } finally { sessions.revoke(login.rawToken()); assignments.deleteById(role.getId()); }
+    }
 
     @Test
     void rejectsInvalidPageConditionAndEmptyApproval() throws Exception {

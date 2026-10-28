@@ -455,6 +455,9 @@ export function getTemplateChecklistBatch(workspaceId) {
 export function prepareTemplateChecklistBatch(workspaceId, selected) {
   return request(withWorkspace('/templates/checklists/prepare', workspaceId), { method: 'POST', body: selected });
 }
+export function approveTemplateChecklistBatch(workspaceId, selected) {
+  return request(withWorkspace('/templates/checklists/approve', workspaceId), { method: 'POST', body: selected });
+}
 export function prepareDocumentTemplateChecklist(workspaceId, templateId, payload) {
   return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist/prepare`, workspaceId), { method: 'POST', body: payload });
 }
@@ -466,6 +469,9 @@ export function saveDocumentTemplateChecklist(workspaceId, templateId, payload) 
 }
 export function approveDocumentTemplateChecklist(workspaceId, templateId, payload) {
   return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist/approve`, workspaceId), { method: 'POST', body: payload });
+}
+export function unapproveDocumentTemplateChecklist(workspaceId, templateId, payload) {
+  return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist/unapprove`, workspaceId), { method: 'POST', body: payload });
 }
 
 export function getDocumentTemplatePreviewUrl(workspaceId, templateId) {
