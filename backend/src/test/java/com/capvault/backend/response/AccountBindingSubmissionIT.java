@@ -33,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest
+@org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 @ActiveProfiles("test")
 class AccountBindingSubmissionIT {
 
@@ -45,6 +46,157 @@ class AccountBindingSubmissionIT {
     @Autowired private DeliverableRepository deliverables;
     @Autowired private DeliverableFieldRepository fields;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private org.springframework.test.web.servlet.MockMvc mvc;
+    @Autowired private com.capvault.backend.auth.WildTrackSessionService sessions;
+    @Autowired private com.fasterxml.jackson.databind.ObjectMapper mapper;
+    @Autowired private com.capvault.backend.staff.StaffRoleAssignmentRepository roles;
+    @Autowired private com.capvault.backend.deliverable.DeliverableShareLinkService shareLinks;
+
+    @Test
+    void concurrentShareLinkIssuanceReturnsOneStableToken() throws Exception {
+        Fixture fixture = fixture("share-concurrent");
+        var start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> { start.await(); return shareLinks.issue(fixture.workspaceId(), fixture.deliverableId()); });
+            var second = executor.submit(() -> { start.await(); return shareLinks.issue(fixture.workspaceId(), fixture.deliverableId()); });
+            start.countDown();
+            assertThat(first.get(10, TimeUnit.SECONDS)).isEqualTo(second.get(10, TimeUnit.SECONDS));
+        }
+        assertThat(jdbc.queryForObject("select count(*) from deliverable_share_links where deliverable_id = ?", Integer.class,
+            fixture.deliverableId())).isEqualTo(1);
+    }
+
+    @Test
+    void httpClaimRequiresMatchingNameAndPublishedWorkspaceForm() throws Exception {
+        Fixture fixture = fixture("http-claim");
+        var login = sessions.create(new com.capvault.backend.auth.GoogleIdentity("http-claim-" + UUID.randomUUID(),
+            "claim@example.invalid", "Claim", ""));
+        var cookie = new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", login.rawToken());
+        String subject = "share-admin-" + UUID.randomUUID();
+        var now = java.time.Instant.now();
+        roles.saveAndFlush(new com.capvault.backend.staff.StaffRoleAssignment(UUID.randomUUID(), subject, "admin@example.invalid",
+            com.capvault.backend.staff.StaffRole.ADMIN, true, now, now));
+        var admin = sessions.create(new com.capvault.backend.auth.GoogleIdentity(subject, "admin@example.invalid", "Admin", ""));
+        var adminCookie = new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", admin.rawToken());
+        String issuePath = "/api/deliverables/" + fixture.deliverableId() + "/share-link?workspaceId=" + fixture.workspaceId();
+        String issued = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(issuePath).cookie(adminCookie)
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf()))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+            .andReturn().getResponse().getContentAsString();
+        String token = mapper.readTree(issued).get("token").asText();
+        assertThat(token).matches("[0-9a-f]{64}");
+        assertThat(mapper.readTree(issued).get("path").asText()).isEqualTo("/s/" + token);
+        assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(issuePath).cookie(adminCookie)
+            .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf()))
+            .andReturn().getResponse().getContentAsString()).isEqualTo(issued);
+        var form = deliverables.findById(fixture.deliverableId()).orElseThrow();
+        String readable = "/api/public/forms/" + com.capvault.backend.workspace.AcademicWorkspaceService.publicKeyFor(workspaces.findById(fixture.workspaceId()).orElseThrow()) + "/" + form.getSlug();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(readable))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(readable).cookie(cookie))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(readable).cookie(adminCookie))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/public/forms/share/" + token))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-store"))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("X-Robots-Tag", "noindex, nofollow"))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.deliverable.id").value(fixture.deliverableId().toString()))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.students").doesNotExist());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/public/forms/share/" + "0".repeat(64)))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        var path = "/api/workspace/responses/submit?workspaceId=" + fixture.workspaceId();
+        var draftPath = "/api/workspace/drafts?workspaceId=" + fixture.workspaceId() + "&deliverableId=" + fixture.deliverableId() + "&shareToken=" + token;
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/workspace/drafts?workspaceId=" + fixture.workspaceId()
+                + "&deliverableId=" + fixture.deliverableId()).cookie(cookie))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        var noTokenSubmission = mapper.writeValueAsString(Map.of("deliverableId", fixture.deliverableId(),
+            "studentNumber", fixture.studentNumber(), "studentName", fixture.studentName(), "valuesJson", "{\"answer\":\"ready\"}"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path).cookie(cookie)
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(noTokenSubmission))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        var draft = mapper.writeValueAsString(Map.of("deliverableId", fixture.deliverableId(), "shareToken", token, "valuesJson", "{\"answer\":\"draft\"}"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/workspace/drafts/save?workspaceId=" + fixture.workspaceId())
+                .cookie(cookie).with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(draft))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        var preview = mapper.writeValueAsString(Map.of("studentNumber", fixture.studentNumber(), "studentName", fixture.studentName()));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/workspace/students/associate?workspaceId=" + fixture.workspaceId())
+                .cookie(cookie).with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(preview))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        assertThat(bindings.findById(key(fixture.studentNumber()))).isEmpty();
+        var validPreview = mapper.writeValueAsString(Map.of("studentNumber", fixture.studentNumber(), "studentName", fixture.studentName(),
+            "deliverableId", fixture.deliverableId(), "shareToken", token));
+        Fixture other = fixture("wrong-context");
+        var wrongForm = mapper.writeValueAsString(Map.of("studentNumber", fixture.studentNumber(), "studentName", fixture.studentName(),
+            "deliverableId", other.deliverableId(), "shareToken", token));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/workspace/students/associate?workspaceId=" + fixture.workspaceId())
+                .cookie(cookie).with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(wrongForm))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/workspace/students/associate?workspaceId=" + other.workspaceId())
+                .cookie(cookie).with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(validPreview))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/workspace/students/associate?workspaceId=" + fixture.workspaceId())
+                .cookie(cookie).with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(validPreview))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        assertThat(bindings.findById(key(fixture.studentNumber()))).isEmpty();
+        var bad = mapper.writeValueAsString(Map.of("deliverableId", fixture.deliverableId(),
+            "studentNumber", fixture.studentNumber(), "studentName", "Wrong Name", "shareToken", token, "valuesJson", "{\"answer\":\"ready\"}"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path).cookie(cookie)
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(bad))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
+        assertThat(bindings.findById(key(fixture.studentNumber()))).isEmpty();
+        var good = mapper.writeValueAsString(Map.of("deliverableId", fixture.deliverableId(),
+            "studentNumber", fixture.studentNumber(), "studentName", fixture.studentName(), "shareToken", token, "valuesJson", "{\"answer\":\"ready\"}"));
+        form.setStatus(DeliverableStatus.UNPUBLISHED);
+        deliverables.saveAndFlush(form);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/public/forms/share/" + token))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(draftPath).cookie(cookie))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path).cookie(cookie)
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(good))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        assertThat(bindings.findById(key(fixture.studentNumber()))).isEmpty();
+        form.setStatus(DeliverableStatus.PUBLISHED);
+        deliverables.saveAndFlush(form);
+        var workspace = workspaces.findById(fixture.workspaceId()).orElseThrow();
+        workspace.setActive(false);
+        workspaces.saveAndFlush(workspace);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/public/forms/share/" + token))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        workspace.setActive(true);
+        workspaces.saveAndFlush(workspace);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(draftPath).cookie(cookie))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.values.answer").value("draft"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path).cookie(cookie)
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(good))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        assertThat(bindings.findById(key(fixture.studentNumber())).orElseThrow().isBound()).isTrue();
+        var stranger = sessions.create(new com.capvault.backend.auth.GoogleIdentity("http-stranger-" + UUID.randomUUID(),
+            "stranger@example.invalid", "Stranger", ""));
+        var strangerCookie = new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", stranger.rawToken());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path).cookie(strangerCookie)
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(good))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.error").value(
+                org.hamcrest.Matchers.containsString("already associated with another Google account")));
+        assertThat(responseRepository.findAllByDeliverableId(fixture.deliverableId())).hasSize(1);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(readable).cookie(cookie))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        sessions.revoke(login.rawToken());
+        sessions.revoke(admin.rawToken());
+    }
 
     @Test
     void firstSuccessfulSaveBindsAndARejectedSaveDoesNotReserveTheStudentNumber() {
@@ -182,7 +334,7 @@ class AccountBindingSubmissionIT {
     private FormResponseService.SaveResult submit(Fixture fixture, String subject, String email,
             Map<String, Object> values, Long revision) {
         return responses.submit(new FormResponseService.SubmitCommand(
-            fixture.workspaceId(), fixture.deliverableId(), subject, email, fixture.studentNumber(), values, revision));
+            fixture.workspaceId(), fixture.deliverableId(), subject, email, fixture.studentNumber(), fixture.studentName(), values, revision));
     }
 
     private Object runAfter(CountDownLatch start, ThrowingSupplier supplier) {
@@ -210,14 +362,14 @@ class AccountBindingSubmissionIT {
         fields.saveAndFlush(new DeliverableField(
             "answer-" + token, deliverable.getId(), "answer", "Answer", DeliverableFieldType.SHORT_TEXT,
             true, 0, DocumentCheckPolicy.OFF, false, true));
-        return new Fixture(workspace.getId(), student.getId(), deliverable.getId(), studentNumber);
+        return new Fixture(workspace.getId(), student.getId(), deliverable.getId(), studentNumber, student.getStudentName());
     }
 
     private static String key(String studentNumber) {
         return studentNumber.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
-    private record Fixture(UUID workspaceId, UUID studentRecordId, UUID deliverableId, String studentNumber) { }
+    private record Fixture(UUID workspaceId, UUID studentRecordId, UUID deliverableId, String studentNumber, String studentName) { }
 
     @FunctionalInterface
     private interface ThrowingSupplier {

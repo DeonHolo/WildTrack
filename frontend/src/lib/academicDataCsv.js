@@ -26,5 +26,5 @@ export function downloadAcademicCsv(kind, columns, rows) {
   link.click();
   link.remove();
   // A delayed revoke leaves the object URL available to the browser's download handler.
-  setTimeout(() => URL.revokeObjectURL(href), 0);
+  setTimeout(() => URL.revokeObjectURL(href), 60000);
 }

@@ -13,10 +13,10 @@ for (const width of [1440, 375]) {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const fixture = await installApiFixtures(page, { connected: true, submitted: true });
     const session = gate();
-    const roster = gate();
+    const draft = gate();
     await page.route('**/api/auth/session', async route => { await session.promise; await route.fallback(); });
-    await page.route('**/api/workspace/students/options?*', async route => { await roster.promise; await route.fallback(); });
-    await page.goto('/w/it-it332-2025-26-semester-2/submit/week-9-srs', { waitUntil: 'domcontentloaded' });
+    await page.route('**/api/workspace/drafts?*', async route => { await draft.promise; await route.fallback(); });
+    await page.goto('/s/' + 'a'.repeat(64), { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Software Requirements Specification');
     await page.evaluate(() => {
       window.reopened = false;
@@ -26,16 +26,13 @@ for (const width of [1440, 375]) {
     });
     session.release();
     const answer = page.getByLabel('PDF Drive Link');
-    await expect(answer).toHaveValue('https://drive.google.com/file/d/browser-pdf/view');
     await expect(answer).toBeEnabled();
-    // A previously bound student identity stays visible and usable while the
-    // roster refresh is pending. Saving must wait for the roster to finish.
-    await expect(page.getByLabel('Student Number')).toHaveValue('22-1001-001');
-    await expect(page.getByRole('button', { name: 'Save response changes' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Submit response' })).toBeDisabled();
     await answer.focus();
     await page.keyboard.press('ControlOrMeta+A');
     await page.keyboard.type('https://example.test/keyboard-edit');
-    roster.release();
+    draft.release();
+    await expect(page.getByLabel('Student Number')).toHaveValue('22-1001-001');
     await expect(page.getByRole('button', { name: 'Save response changes' })).toBeEnabled();
     await expect(answer).toHaveValue('https://example.test/keyboard-edit');
     await expect(page.getByText('Draft saved', { exact: true })).toBeVisible();

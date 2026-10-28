@@ -38,6 +38,7 @@ import {
 import { StaffManagementPanel } from '../components/workspace/StaffManagementPanel.jsx';
 import { MonitorSettingsDialog } from '../components/workspace/MonitorSettingsDialog.jsx';
 import { TemplateChecklistBatch } from '../components/workspace/TemplateChecklistBatch.jsx';
+import { WorkspaceWorkbookImport } from '../components/workspace/WorkspaceWorkbookImport.jsx';
 
 const SOURCE_CONFIG = [
   {
@@ -715,9 +716,11 @@ export function WorkspacePage() {
         <div className="panel-header">
           <div>
             <h2>Source sheets</h2>
-            <p>Each Sheet has one responsibility. Import results are reviewed before further setup.</p>
+            <p>Import an Excel workbook or connect Google Sheets. Preview changes before applying.</p>
           </div>
         </div>
+        {isAdmin && activeWorkspace?.active !== false ? <WorkspaceWorkbookImport key={activeWorkspaceId}
+          workspaceId={activeWorkspaceId} onImported={reload} /> : null}
         {backendSyncError ? (
           <div role="alert" className="inline-alert danger">{backendSyncError}</div>
         ) : null}

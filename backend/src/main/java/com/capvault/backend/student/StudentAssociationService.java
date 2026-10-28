@@ -154,6 +154,21 @@ public class StudentAssociationService {
             record.getStudentName(), record.getTeamCode(), ASSURANCE_SELF_DECLARED);
     }
 
+    @Transactional(readOnly = true)
+    public void requireMatchingName(UUID workspaceId, String studentNumber, String studentName) {
+        StudentRecord record;
+        try {
+            record = requireCurrentRecord(workspaceId, studentNumber);
+        } catch (IllegalArgumentException invalidRecord) {
+            throw new IllegalArgumentException("Student Number and name do not match the current class record.");
+        }
+        String supplied = studentName == null ? "" : studentName.trim().replaceAll("\\s+", " ");
+        String expected = record.getStudentName() == null ? "" : record.getStudentName().trim().replaceAll("\\s+", " ");
+        if (supplied.isBlank() || !expected.equalsIgnoreCase(supplied)) {
+            throw new IllegalArgumentException("Student Number and name do not match the current class record.");
+        }
+    }
+
     /**
      * Joins the response transaction. Field validation must already have succeeded before this is called.
      * The canonical row is locked so two accounts cannot win the same first successful claim concurrently.
@@ -161,10 +176,29 @@ public class StudentAssociationService {
     @Transactional
     public AssociationView associationForSuccessfulSave(UUID workspaceId, String googleSubject, String googleEmail,
             String studentNumber, boolean editingExistingResponse) {
+        return associationForSuccessfulSave(workspaceId, googleSubject, googleEmail, studentNumber, editingExistingResponse, null, false);
+    }
+
+    @Transactional
+    public AssociationView associationForSuccessfulSave(UUID workspaceId, String googleSubject, String googleEmail,
+            String studentNumber, boolean editingExistingResponse, String studentName, boolean requireName) {
+        return bindAccount(workspaceId, googleSubject, googleEmail, studentNumber, editingExistingResponse, studentName, requireName, false);
+    }
+
+    @Transactional
+    public AssociationView connectDirectly(UUID workspaceId, String googleSubject, String googleEmail, String studentNumber) {
+        return bindAccount(workspaceId, googleSubject, googleEmail, studentNumber, false, null, false, true);
+    }
+
+    private AssociationView bindAccount(UUID workspaceId, String googleSubject, String googleEmail,
+            String studentNumber, boolean editingExistingResponse, String studentName, boolean requireName, boolean direct) {
         StudentRecord selected = requireCurrentRecord(workspaceId, studentNumber);
         StudentRecord record = studentRecordRepository.lockById(selected.getId())
             .filter(StudentRecord::isCurrentActive)
             .orElseThrow(() -> new IllegalArgumentException("That Student Record is no longer available in this workspace."));
+        if (requireName && activeAssociation(workspaceId, googleSubject).isEmpty()) {
+            requireMatchingName(workspaceId, record.getStudentNumber(), studentName);
+        }
         String key = normalizeStudentNumber(record.getStudentNumber());
         CanonicalStudentAccountBinding binding = lockCanonicalBinding(key);
         Instant now = clock.instant();
@@ -216,7 +250,7 @@ public class StudentAssociationService {
         binding.bind(googleSubject, googleEmail, now);
         canonicalBindingRepository.save(binding);
         WorkspaceStudentAssociation workspaceAssociation = upsertWorkspaceAssociation(record, googleSubject, googleEmail, now);
-        events.record(workspaceId, record.getId(), googleSubject, "ACCOUNT_BOUND_ON_FIRST_SUCCESSFUL_SUBMISSION",
+        events.record(workspaceId, record.getId(), googleSubject, direct ? "ACCOUNT_BOUND_ON_DIRECT_CONNECTION" : "ACCOUNT_BOUND_ON_FIRST_SUCCESSFUL_SUBMISSION",
             Map.of("studentNumber", record.getStudentNumber(), "assurance", ASSURANCE_SELF_DECLARED));
         return toView(workspaceAssociation).orElseThrow();
     }
@@ -320,7 +354,7 @@ public class StudentAssociationService {
             .map(this::accountBindingView)
             .toList();
         return new AccountManagementView(
-            "Account ownership is self-declared by the first successful submission. This prevents later account overwrites, but it cannot prove the first claimant was the rightful student.",
+            "Account ownership is self-declared through the first successful account connection or submission. Later accounts cannot overwrite it, but the first claim does not prove the student’s identity.",
             accounts);
     }
 

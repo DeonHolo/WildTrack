@@ -13,15 +13,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProjectMetadataController {
 
     private final ProjectMetadataRepository repository;
+    private final com.capvault.backend.student.StudentAssociationSecurity security;
 
-    public ProjectMetadataController(ProjectMetadataRepository repository) {
+    public ProjectMetadataController(ProjectMetadataRepository repository, com.capvault.backend.student.StudentAssociationSecurity security) {
         this.repository = repository;
+        this.security = security;
     }
 
     @GetMapping
     public List<ProjectMetadataResponse> listProjects(
-        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        jakarta.servlet.http.HttpServletRequest request
     ) {
+        if (!security.isAdmin(request)) throw new org.springframework.security.access.AccessDeniedException("Admin authorization required.");
         return repository.findAllByWorkspaceIdOrderByGroupCodeAsc(workspaceId)
             .stream()
             .map(ProjectMetadataResponse::from)

@@ -32,6 +32,8 @@ class WorkspaceSourceControllerTest {
 
     @Autowired
     private SheetImportRunRepository sheetImportRunRepository;
+    @Autowired private com.capvault.backend.auth.WildTrackSessionService sessions;
+    @Autowired private com.capvault.backend.staff.StaffRoleAssignmentRepository roles;
 
     @Test
     void upsertSourceStoresGoogleSheetMetadata() throws Exception {
@@ -53,10 +55,22 @@ class WorkspaceSourceControllerTest {
             .andExpect(jsonPath("$.displayName").value("Team Formation"))
             .andExpect(jsonPath("$.status").value("IMPORTED"));
 
-        mockMvc.perform(get("/api/workspace/sources").with(session()))
+        String suffix = java.util.UUID.randomUUID().toString();
+        var student = sessions.create(new com.capvault.backend.auth.GoogleIdentity("source-student-" + suffix, "student@example.invalid", "Student", ""));
+        var adminSubject = "source-admin-" + suffix;
+        var now = java.time.Instant.now();
+        roles.saveAndFlush(new com.capvault.backend.staff.StaffRoleAssignment(java.util.UUID.randomUUID(), adminSubject,
+            "admin@example.invalid", com.capvault.backend.staff.StaffRole.ADMIN, true, now, now));
+        var admin = sessions.create(new com.capvault.backend.auth.GoogleIdentity(adminSubject, "admin@example.invalid", "Admin", ""));
+        mockMvc.perform(get("/api/workspace/sources").cookie(new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", student.rawToken())))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/workspace/sources").cookie(new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", admin.rawToken())))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].sourceType").value("TEAM_FORMATION"));
+        sessions.revoke(student.rawToken());
+        sessions.revoke(admin.rawToken());
     }
 
     @Test

@@ -27,13 +27,40 @@ public class StudentAssociationController {
 
     private final StudentAssociationService associationService;
     private final StudentAssociationSecurity security;
+    private final StudentEntryService studentEntryService;
+    private final com.capvault.backend.deliverable.DeliverableRepository deliverables;
+    private final com.capvault.backend.workspace.AcademicWorkspaceService workspaces;
+    private final com.capvault.backend.deliverable.DeliverableShareLinkService shareLinks;
 
-    public StudentAssociationController(StudentAssociationService associationService, StudentAssociationSecurity security) {
+    public StudentAssociationController(StudentAssociationService associationService, StudentAssociationSecurity security, StudentEntryService studentEntryService,
+            com.capvault.backend.deliverable.DeliverableRepository deliverables,
+            com.capvault.backend.workspace.AcademicWorkspaceService workspaces,
+            com.capvault.backend.deliverable.DeliverableShareLinkService shareLinks) {
         this.associationService = associationService;
         this.security = security;
+        this.studentEntryService = studentEntryService;
+        this.deliverables = deliverables;
+        this.workspaces = workspaces;
+        this.shareLinks = shareLinks;
     }
 
-    public record ConfirmRequest(@NotBlank String studentNumber) {
+    public record ConfirmRequest(@NotBlank String studentNumber, @NotBlank String studentName, UUID deliverableId, String shareToken) {
+    }
+
+    public record ConnectRequest(@NotBlank @jakarta.validation.constraints.Size(max=80) String studentNumber,
+        @NotBlank @jakarta.validation.constraints.Size(max=240) String studentName,
+        @NotBlank @jakarta.validation.constraints.Size(max=160) String teamCode) {}
+
+    @PostMapping("/connect")
+    public AssociationView connect(@Valid @RequestBody ConnectRequest body, HttpServletRequest request) {
+        var session = security.requireSession(request);
+        return studentEntryService.connect(session.googleSubject(), session.googleEmail(), body.studentNumber(), body.studentName(), body.teamCode());
+    }
+
+    @org.springframework.web.bind.annotation.ExceptionHandler(StudentEntryService.ThrottledException.class)
+    public ResponseEntity<java.util.Map<String,String>> throttled() {
+        return ResponseEntity.status(429).header("Retry-After", "60")
+            .body(java.util.Map.of("error", "Too many attempts. Wait a minute before trying again."));
     }
 
     public record ConflictDecisionRequest(@NotBlank String decision, String note, String confirmedSubject) {
@@ -52,7 +79,9 @@ public class StudentAssociationController {
 
     @GetMapping("/options")
     public List<StudentRecordResponse> rosterOptions(@RequestParam UUID workspaceId, HttpServletRequest request) {
-        security.requireSession(request);
+        if (!security.isAdmin(request)) {
+            throw new org.springframework.security.access.AccessDeniedException("Admin authorization required.");
+        }
         return associationService.workspaceRosterOptions(workspaceId);
     }
 
@@ -63,6 +92,12 @@ public class StudentAssociationController {
         HttpServletRequest request
     ) {
         var session = security.requireSession(request);
+        shareLinks.requireEntry(workspaceId, body.deliverableId(), body.shareToken(), request);
+        if (!workspaces.require(workspaceId).isActive() || body.deliverableId() == null || deliverables.findById(body.deliverableId())
+            .filter(d -> workspaceId.equals(d.getWorkspaceId()) && d.getStatus() == com.capvault.backend.deliverable.DeliverableStatus.PUBLISHED).isEmpty()) {
+            throw new org.springframework.security.access.AccessDeniedException("This submission form is unavailable.");
+        }
+        associationService.requireMatchingName(workspaceId, body.studentNumber(), body.studentName());
         return associationService.previewAssociation(workspaceId, session.googleSubject(), session.googleEmail(), body.studentNumber());
     }
 

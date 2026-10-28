@@ -7,6 +7,7 @@ import {
   getMyAssociation,
   getMyResponse,
   getPublicSubmissionForm,
+  getSharedSubmissionForm,
   saveBackendDeliverable,
   saveDraft,
   submitResponse,
@@ -62,10 +63,15 @@ export async function openPublicSubmission(workspaceKey, slug) {
   };
 }
 
-export async function loadSubmissionState(workspaceId, deliverableId) {
+export async function openSharedSubmission(shareToken) {
+  const payload = await getSharedSubmissionForm(shareToken);
+  return payload?.deliverable ? { workspace: payload.workspace, deliverable: mapDeliverable(payload.deliverable) } : null;
+}
+
+export async function loadSubmissionState(workspaceId, deliverableId, shareToken) {
   const [association, draft, response] = await Promise.all([
     getMyAssociation(workspaceId),
-    getDraft(workspaceId, deliverableId),
+    getDraft(workspaceId, deliverableId, ...(shareToken ? [shareToken] : [])),
     getMyResponse(workspaceId, deliverableId)
   ]);
   const ownedResponse = response ? { ...response, values: parseValues(response.valuesJson) } : null;
@@ -81,20 +87,20 @@ export async function loadSubmissionState(workspaceId, deliverableId) {
   };
 }
 
-export function saveSubmissionDraft(workspaceId, deliverableId, values, revision) {
-  return saveDraft(workspaceId, deliverableId, values, revision);
+export function saveSubmissionDraft(workspaceId, deliverableId, values, revision, shareToken) {
+  return saveDraft(workspaceId, deliverableId, values, revision, ...(shareToken ? [shareToken] : []));
 }
 
-export function commitSubmission(workspaceId, deliverableId, values, revision, studentNumber) {
-  return submitResponse(workspaceId, deliverableId, values, revision, studentNumber);
+export function commitSubmission(workspaceId, deliverableId, values, revision, studentNumber, studentName, shareToken) {
+  return submitResponse(workspaceId, deliverableId, values, revision, studentNumber, studentName, ...(shareToken ? [shareToken] : []));
 }
 
-export function confirmSubmissionAssociation(workspaceId, studentNumber) {
-  return confirmStudentAssociation(workspaceId, studentNumber);
+export function confirmSubmissionAssociation(workspaceId, studentNumber, studentName, deliverableId, shareToken) {
+  return confirmStudentAssociation(workspaceId, studentNumber, studentName, deliverableId, ...(shareToken ? [shareToken] : []));
 }
 
-export function clearSubmissionDraft(workspaceId, deliverableId) {
-  return clearDraft(workspaceId, deliverableId);
+export function clearSubmissionDraft(workspaceId, deliverableId, shareToken) {
+  return clearDraft(workspaceId, deliverableId, ...(shareToken ? [shareToken] : []));
 }
 
 export function describeSubmissionError(error) {

@@ -51,18 +51,6 @@ export function WorkspaceSessionProvider({ children }) {
     setWorkspaceCatalogError('');
     try {
       const key = JSON.stringify([sessionIdentity.current, '', 'workspace-catalog']);
-      const cached = resourceCache.read(key);
-      if (!activeRef.current && Array.isArray(cached) && cached.length) {
-        const cachedActive = activeWorkspaceCatalog(cached);
-        const selected = cachedActive.find(workspace => workspace.id === readActiveWorkspaceId())?.id || '';
-        const nextActive = selected || cachedActive[0]?.id || '';
-        setAllWorkspaces(cached);
-        setWorkspaces(cachedActive);
-        activeRef.current = nextActive;
-        setActiveWorkspaceId(nextActive);
-        setSelectedWorkspaceId(selected || (cachedActive.length === 1 ? nextActive : ''));
-        setWorkspaceCatalogStatus('ready');
-      }
       const list = await resourceCache.load(key, getWorkspaces);
       if (request !== catalogRequest.current) return [];
       const all = Array.isArray(list) ? list : [];

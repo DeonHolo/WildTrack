@@ -268,6 +268,7 @@ vi.mock('../hooks/useWorkspaceResource.js', () => ({
 }));
 
 vi.mock('../lib/api.js', () => ({
+  connectStudentAccount: vi.fn(),
   disconnectStudentAssociation: vi.fn().mockResolvedValue({}),
   confirmStudentAssociation: vi.fn(),
 }));
@@ -784,11 +785,13 @@ describe('student dashboard', () => {
     expect(workflow.refreshWorkspaceCatalog).toHaveBeenCalledOnce();
   });
 
-  it('shows an empty workspace state without student-record controls', () => {
+    it('offers manual connection without roster suggestions when no workspace is connected', () => {
     associateAccount();
     workflow.workspaces = [];
     renderDashboard();
-    expect(screen.getByText(/No workspaces are available yet/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Connect your student account' })).toBeInTheDocument();
+    expect(screen.getByText('Enter your details as they appear in your class record.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Team Code' })).toHaveValue('');
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 

@@ -46,6 +46,17 @@ class StudentAssociationServiceTest {
     }
 
     @Test
+    void firstClaimRequiresMatchingNameAndDoesNotReserveOnMismatch() {
+        assertThatThrownBy(() -> service.associationForSuccessfulSave(workspaceId, "new-subject", "new@example.test",
+            "20-0649-750", false, "Wrong Name", true))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThat(service.activeAssociation(workspaceId, "new-subject")).isEmpty();
+        var association = service.associationForSuccessfulSave(workspaceId, "new-subject", "new@example.test",
+            "20-0649-750", false, "  deon   holo ", true);
+        assertThat(association.studentNumber()).isEqualTo("20-0649-750");
+    }
+
+    @Test
     void previewingAStudentNumberDoesNotReserveTheRecord() {
         var preview = service.previewAssociation(workspaceId, "preview-subject", "preview@gmail.com", "20-0649-750");
 

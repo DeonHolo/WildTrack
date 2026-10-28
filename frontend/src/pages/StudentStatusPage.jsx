@@ -2,12 +2,13 @@ import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { Alert, Button, Container, Paper, Skeleton, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { ArrowClockwise, WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 import { StudentDeliverableList } from '../components/student/StudentDeliverableList.jsx';
 import { StudentProfileSummary } from '../components/student/StudentProfileSummary.jsx';
 import { StudentProgressPanel } from '../components/student/StudentProgressPanel.jsx';
 import { StudentWelcomeBanner } from '../components/student/StudentWelcomeBanner.jsx';
+import { StudentEntryForm } from '../components/student/StudentEntryForm.jsx';
 import { StudentWorkspacePicker } from '../components/student/StudentWorkspacePicker.jsx';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
@@ -30,6 +31,8 @@ import { emptyStudentDashboardState, loadStudentDashboard } from '../lib/student
 import { submissionArtifactFields } from '../lib/submissionArtifacts.js';
 
 export function StudentStatusPage() {
+  const location = useLocation();
+  const submissionPath = /^\/s\/[0-9a-f]{64}$/.test(location.state?.submissionPath || '') ? location.state.submissionPath : '';
   const {
     account: sessionAccount,
     workspaces,
@@ -39,7 +42,8 @@ export function StudentStatusPage() {
     workspaceCatalogStatus,
     workspaceCatalogError,
     refreshWorkspaceCatalog,
-    refreshSession
+    refreshSession,
+    switchWorkspace
   } = useWorkspaceSession();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
   const {
@@ -116,14 +120,20 @@ export function StudentStatusPage() {
     );
   }
   if (workspaceCatalogStatus === 'loading' && !activeWorkspaceId) return <LoadingDashboard />;
+  if (!workspaces?.length && workspaceCatalogStatus !== 'error') return <DashboardContainer>
+    <StudentEntryForm email={activeAccount.email} submissionPath={submissionPath} onConnected={async result => {
+      const selected = await switchWorkspace(result.workspaceId);
+      if (!selected?.ok) throw new Error(selected?.error || 'Your account is connected. Reload to open your dashboard.');
+    }} />
+  </DashboardContainer>;
   if ((workspaceCatalogStatus === 'error' && !activeWorkspaceId) || !workspaces?.length || needsWorkspaceChoice) {
     return (
       <DashboardContainer>
         <Paper className="wt-student-connect wt-student-connect-column" withBorder radius="sm" p="lg">
           <Stack gap="lg">
             <header className="wt-student-page-heading">
-              <Title order={1}>Choose your workspace</Title>
-              <Text c="dimmed">Select your capstone class before connecting your student record.</Text>
+              <Title order={1}>{!workspaces?.length && workspaceCatalogStatus !== 'error' ? 'Open your deliverable link' : 'Choose your workspace'}</Title>
+              {workspaces?.length || workspaceCatalogStatus === 'error' ? <Text c="dimmed">Select your capstone class before connecting your student record.</Text> : null}
             </header>
             {workspaceCatalogStatus === 'error' ? (
               <>
@@ -132,7 +142,7 @@ export function StudentStatusPage() {
               </>
             ) : workspaces?.length ? <StudentWorkspacePicker /> : (
               <>
-                <Text>No workspaces are available yet. Ask your instructor for a class link, or check again later.</Text>
+                <Text>Use the deliverable link shared by your instructor. Your Google account connects to your class after your first successful submission.</Text>
                 <Button variant="default" onClick={refreshWorkspaceCatalog}>Check again</Button>
               </>
             )}

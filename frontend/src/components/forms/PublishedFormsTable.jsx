@@ -16,7 +16,7 @@ import { StatusIndicator } from '../ui.jsx';
 
 export function PublishedFormsTable({
   deliverables,
-  workspaceKey,
+  shareLinks,
   onCopy,
   onEdit,
   onRepublish,
@@ -48,7 +48,7 @@ export function PublishedFormsTable({
             <Table.Tbody>
               {deliverables.map((item) => {
                 const isPdf = item.fields?.some((field) => field.pdfRequired);
-                const path = `/w/${workspaceKey}/submit/${item.slug}`;
+                const path = shareLinks?.paths[item.id];
                 const published = item.status !== 'Unpublished';
                 return (
                   <Table.Tr key={item.id}>
@@ -72,12 +72,12 @@ export function PublishedFormsTable({
                             size="lg"
                             aria-label={`Copy ${item.shortTitle} form link`}
                             onClick={() => onCopy(item, path)}
-                            disabled={actionsDisabled}
+                            disabled={actionsDisabled || !path}
                           >
                             <Copy size={17} aria-hidden="true" />
                           </ActionIcon>
                         </Tooltip>
-                        <Anchor
+                        {path ? <Anchor
                           href={path}
                           target="_blank"
                           rel="noreferrer"
@@ -85,8 +85,8 @@ export function PublishedFormsTable({
                           className="wt-form-link"
                           size="sm"
                         >
-                          {path}
-                        </Anchor>
+                          Open form
+                        </Anchor> : shareLinks?.errors[item.id] ? <Button variant="subtle" onClick={shareLinks.reload}>Retry link</Button> : <Text size="sm" c="dimmed">Loading share link…</Text>}
                       </Group>
                     </Table.Td>
                     <Table.Td>

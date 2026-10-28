@@ -10,11 +10,12 @@ import {
   Paper,
   Stack,
   Text,
+  TextInput,
   ThemeIcon,
   Title
 } from '@mantine/core';
 import { CalendarBlank, Clock, FilePdf, LinkSimple, PaperPlaneTilt, WarningCircle } from '@phosphor-icons/react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { GoogleIdentityAccess } from '../components/auth/GoogleIdentityAccess.jsx';
 import { FormArtwork } from '../components/public/FormArtwork.jsx';
@@ -25,7 +26,6 @@ import {
   findStudent,
   formatDate,
   formatTime,
-  getIdentityStudents,
   getWorkspacePublicKey,
   activeSubmissionValues,
   validateSubmission,
@@ -34,13 +34,13 @@ import {
 import {
   clearSubmissionDraft,
   commitSubmission,
+  confirmSubmissionAssociation,
   describeSubmissionError,
   loadSubmissionState,
   openPublicSubmission,
+  openSharedSubmission,
   saveSubmissionDraft
 } from '../lib/submissionClient.js';
-import { getRosterOptions } from '../lib/api.js';
-import { createWorkspaceResourceCache } from '../lib/workspaceResourceCache.js';
 
 function FormUnavailable({ deliverable }) {
   return (
@@ -54,7 +54,7 @@ function FormUnavailable({ deliverable }) {
           <Text c="dimmed">
             {deliverable
               ? 'This deliverable is not accepting new responses right now. Previous responses remain recorded.'
-              : 'This link does not match a published deliverable in the selected workspace.'}
+              : 'Ask your instructor for the current deliverable link. This link is unavailable or your account cannot open it.'}
           </Text>
           <Button component={Link} to="/student" variant="default">Open student dashboard</Button>
         </Stack>
@@ -82,40 +82,36 @@ function WorkspaceError({ message, onRetry }) {
 }
 
 export function PublicSubmissionPage() {
-  const { slug, workspaceKey } = useParams();
-  const [searchParams] = useSearchParams();
+  const { slug, workspaceKey, shareToken } = useParams();
+  useEffect(() => {
+    if (!shareToken) return undefined;
+    const meta = document.createElement('meta');
+    meta.name = 'robots'; meta.content = 'noindex, nofollow';
+    document.head.append(meta);
+    return () => meta.remove();
+  }, [shareToken]);
   const {
     session,
     sessionStatus,
     workspaceCatalogStatus,
     account: activeAccount,
     activeWorkspace,
-    activeWorkspaceId,
-    needsWorkspaceChoice,
-    switchWorkspace,
+    activeWorkspaceId: selectedWorkspaceId,
     refreshSession
   } = useWorkspaceSession();
   const activeWorkspaceKey = getWorkspacePublicKey(activeWorkspace);
-  const targetWorkspaceKey = workspaceKey || activeWorkspaceKey;
-  const formKey = JSON.stringify([targetWorkspaceKey, slug]);
-  const waitingForWorkspace = !targetWorkspaceKey && (sessionStatus === 'loading' || workspaceCatalogStatus === 'loading');
-  const [workspaceStatus, setWorkspaceStatus] = useState('ready');
-  const [workspaceError, setWorkspaceError] = useState('');
+  const targetWorkspaceKey = shareToken ? '' : workspaceKey || activeWorkspaceKey;
+  const formKey = JSON.stringify([shareToken || targetWorkspaceKey, slug || '', session?.googleSubject || activeAccount?.email || '']);
+  const waitingForWorkspace = !shareToken && !targetWorkspaceKey && (sessionStatus === 'loading' || workspaceCatalogStatus === 'loading');
   const [submitting, setSubmitting] = useState(false);
-  const [publicCache] = useState(() => createWorkspaceResourceCache({ storageKey: 'wildtrack.public-forms.v1' }));
-  const [publicResult, setPublicResult] = useState(() => {
-    const data = publicCache.read(formKey);
-    return data ? { key: formKey, status: 'refreshing', data } : null;
-  });
+  const [publicResult, setPublicResult] = useState(null);
   const publicFormPayload = publicResult?.key === formKey ? publicResult.data : null;
+  const activeWorkspaceId = publicFormPayload?.workspace?.id || selectedWorkspaceId;
   const fetchingPublicForm = publicResult?.key !== formKey || publicResult?.status === 'loading' || waitingForWorkspace;
   const publicError = publicResult?.key === formKey ? publicResult.error : '';
   const [retry, setRetry] = useState(0);
-  const [workspaceRetry, setWorkspaceRetry] = useState(0);
   const [privateRetry, setPrivateRetry] = useState(0);
-  const [rosterRetry, setRosterRetry] = useState(0);
-  const deliverable = publicFormPayload?.deliverable?.slug === slug ? publicFormPayload.deliverable : null;
-  const queryStudent = searchParams.get('student') || '';
+  const deliverable = shareToken || publicFormPayload?.deliverable?.slug === slug ? publicFormPayload?.deliverable : null;
   const [identity, setIdentity] = useState({ studentNumber: '', studentName: '', teamCode: '' });
   const [values, setValues] = useState({});
   const [fieldErrors, setFieldErrors] = useState({});
@@ -124,6 +120,7 @@ export function PublicSubmissionPage() {
   const privateScope = useRef(0);
   const [identityErrors, setIdentityErrors] = useState({});
   const [formError, setFormError] = useState('');
+  const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState(null);
   const [identityStudents, setIdentityStudents] = useState([]);
   const student = useMemo(() => findStudent(identityStudents, identity.studentNumber), [identity.studentNumber, identityStudents]);
@@ -136,19 +133,19 @@ export function PublicSubmissionPage() {
   const editedFields = useRef(new Set());
   const identityEdited = useRef(false);
   const [hydration, setHydration] = useState({ key: '', status: 'idle' });
-  const [roster, setRoster] = useState({ key: '', status: 'idle', error: '' });
-  const rosterReady = roster.key === hydrationKey && roster.status === 'ready';
+  const rosterReady = Boolean(student);
   const [valuesEdited, setValuesEdited] = useState(false);
   const [deniedAccess, setDeniedAccess] = useState(null);
   const accessDenied = deniedAccess?.key === hydrationKey;
   const privateReady = hydration.key === hydrationKey && hydration.status === 'ready'
-    && activeWorkspaceId === publicFormPayload?.workspace?.id && workspaceStatus === 'ready' && !accessDenied
+    && activeWorkspaceId === publicFormPayload?.workspace?.id && !accessDenied
     && publicResult?.status === 'ready';
   const requiresPdf = Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
 
   useLayoutEffect(() => {
     privateScope.current += 1;
     setSubmitting(false);
+    setVerifying(false);
     setFormError('');
     setIdentityErrors({});
     setFieldErrors({});
@@ -162,7 +159,6 @@ export function PublicSubmissionPage() {
     }
     setDeniedAccess(null);
     setHydration({ key: hydrationKey, status: 'idle' });
-    setRoster({ key: hydrationKey, status: 'idle', error: '' });
     setIdentityStudents([]);
     setServerAssociation(null);
     setMyServerResponse(null);
@@ -175,87 +171,23 @@ export function PublicSubmissionPage() {
   useEffect(() => {
     let active = true;
     if (waitingForWorkspace) return () => { active = false; };
-    if (!slug || !targetWorkspaceKey) {
+    if (!shareToken && (!slug || !targetWorkspaceKey)) {
       setPublicResult({ key: formKey, status: 'ready', data: null });
       return () => { active = false; };
     }
-    const cached = publicCache.read(formKey);
-    setPublicResult({ key: formKey, status: cached ? 'refreshing' : 'loading', data: cached || null });
-    publicCache.load(formKey, () => openPublicSubmission(targetWorkspaceKey, slug))
+    setPublicResult({ key: formKey, status: 'loading', data: null });
+    (shareToken ? openSharedSubmission(shareToken) : openPublicSubmission(targetWorkspaceKey, slug))
       .then((data) => {
         if (!active) return;
         setPublicResult({ key: formKey, status: 'ready', data });
       })
       .catch((error) => {
         if (!active) return;
-        publicCache.remove(formKey);
         setPublicResult({ key: formKey, status: error?.status === 404 ? 'ready' : 'error', data: null,
           error: error?.status === 404 ? '' : error?.message || 'This submission form could not be opened.' });
       });
     return () => { active = false; };
-  }, [formKey, targetWorkspaceKey, slug, waitingForWorkspace, retry]);
-
-  useEffect(() => {
-    let active = true;
-    const targetWorkspaceId = publicFormPayload?.workspace?.id;
-    if (!session?.authenticated || !targetWorkspaceId || (!needsWorkspaceChoice && targetWorkspaceId === activeWorkspaceId)) {
-      setWorkspaceStatus('ready');
-      setWorkspaceError('');
-      return () => { active = false; };
-    }
-    setWorkspaceStatus('loading');
-    setWorkspaceError('');
-    switchWorkspace(targetWorkspaceId)
-      .then((response) => {
-        if (!active) return;
-        if (response?.ok) {
-          setWorkspaceStatus('ready');
-          return;
-        }
-        setWorkspaceStatus('error');
-        setWorkspaceError(response?.error || 'This academic workspace could not be opened.');
-      })
-      .catch((error) => {
-        if (!active) return;
-        setWorkspaceStatus('error');
-        setWorkspaceError(error?.message || 'This academic workspace could not be opened.');
-      });
-    return () => { active = false; };
-  }, [activeWorkspaceId, needsWorkspaceChoice, publicFormPayload?.workspace?.id, session?.authenticated, switchWorkspace, workspaceRetry]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!session?.authenticated || !activeWorkspaceId || activeWorkspaceId !== publicFormPayload?.workspace?.id) return;
-    setRoster({ key: hydrationKey, status: 'loading', error: '' });
-    getRosterOptions(activeWorkspaceId).then(rows => {
-      if (cancelled) return;
-      setIdentityStudents(getIdentityStudents((rows || []).map((row) => ({
-        rowKey: row.id, studentNumber: row.studentNumber || '', name: row.studentName || '',
-        teamCode: row.teamCode || '', memberNumber: row.memberNumber || '', section: row.sectionName || '',
-        adviser: row.adviserName || '', email: row.institutionalEmail || '', milestones: {}
-      }))));
-      setRoster({ key: hydrationKey, status: 'ready', error: '' });
-    }).catch(error => {
-      if (!cancelled && (error?.status === 401 || error?.status === 403)) {
-        setDeniedAccess({ key: hydrationKey, status: error.status, message: describeSubmissionError(error) });
-      }
-      if (!cancelled) setRoster({ key: hydrationKey, status: 'error', error: describeSubmissionError(error) });
-    });
-    return () => { cancelled = true; };
-  }, [hydrationKey, publicFormPayload?.workspace?.id, rosterRetry]);
-
-  useEffect(() => {
-    const targetStudentNumber = queryStudent;
-    if (!targetStudentNumber || serverAssociation || identityEdited.current) return;
-    const matched = findStudent(identityStudents, targetStudentNumber);
-    if (matched) {
-      setIdentity((current) => ({
-        studentNumber: matched.studentNumber || current.studentNumber,
-        studentName: matched.name || current.studentName,
-        teamCode: matched.teamCode || current.teamCode
-      }));
-    }
-  }, [identityStudents, queryStudent, serverAssociation]);
+  }, [formKey, targetWorkspaceKey, slug, shareToken, waitingForWorkspace, retry]);
 
   useEffect(() => {
     const matched = findStudent(identityStudents, serverAssociation?.studentNumber);
@@ -276,10 +208,11 @@ export function PublicSubmissionPage() {
       return () => { cancelled = true; };
     }
     setHydration({ key: hydrationKey, status: 'loading' });
-    loadSubmissionState(activeWorkspaceId, deliverable.id)
+    loadSubmissionState(activeWorkspaceId, deliverable.id, ...(shareToken ? [shareToken] : []))
       .then(({ association, draft, response, values: restoredValues }) => {
         if (cancelled) return;
         setServerAssociation(association || null);
+        if (association?.studentNumber) setIdentityStudents([{ studentNumber: association.studentNumber, name: association.studentName || '', teamCode: association.teamCode || '' }]);
         if (association?.studentNumber && !identityEdited.current) {
           setIdentity({
             studentNumber: association.studentNumber,
@@ -321,7 +254,7 @@ export function PublicSubmissionPage() {
     let cancelled = false;
     setDraftStatus('saving');
     const timer = setTimeout(() => {
-      saveSubmissionDraft(activeWorkspaceId, deliverable.id, activeSubmissionValues(deliverable, values, student), draftRevisionRef.current)
+      saveSubmissionDraft(activeWorkspaceId, deliverable.id, activeSubmissionValues(deliverable, values, student), draftRevisionRef.current, ...(shareToken ? [shareToken] : []))
         .then((saved) => {
           if (cancelled) return;
           if (saved.conflict) {
@@ -359,6 +292,25 @@ export function PublicSubmissionPage() {
     setFormError('');
   }
 
+  async function verifyStudent() {
+    if (verifying || !deliverable?.id) return;
+    const scope = privateScope.current;
+    setFormError('');
+    setVerifying(true);
+    try {
+      const matched = await confirmSubmissionAssociation(activeWorkspaceId, identity.studentNumber, identity.studentName, deliverable.id, ...(shareToken ? [shareToken] : []));
+      if (scope !== privateScope.current) return;
+      setIdentityStudents([{ studentNumber: matched.studentNumber, name: matched.studentName, teamCode: matched.teamCode || '' }]);
+      setIdentity({ studentNumber: matched.studentNumber, studentName: matched.studentName, teamCode: matched.teamCode || '' });
+    } catch (error) {
+      if (scope !== privateScope.current) return;
+      setIdentityStudents([]);
+      setFormError(describeSubmissionError(error));
+    } finally {
+      if (scope === privateScope.current) setVerifying(false);
+    }
+  }
+
   async function finishGoogleSignIn(identity, verifiedSession) {
     const scope = privateScope.current;
     const current = verifiedSession || await refreshSession();
@@ -370,10 +322,8 @@ export function PublicSubmissionPage() {
     setServerAssociation(null);
     setMyServerResponse(null);
     setHydration({ key: hydrationKey, status: 'idle' });
-    setRoster({ key: hydrationKey, status: 'idle', error: '' });
     setDeniedAccess(null);
     setPrivateRetry(value => value + 1);
-    setRosterRetry(value => value + 1);
   }
 
   async function submit(event) {
@@ -409,17 +359,18 @@ export function PublicSubmissionPage() {
     setSubmitting(true);
     try {
       const saved = await commitSubmission(
-        activeWorkspaceId, deliverable.id, submittedValues, myServerResponse?.revision ?? null, identity.studentNumber);
+        activeWorkspaceId, deliverable.id, submittedValues, myServerResponse?.revision ?? null, identity.studentNumber, identity.studentName, ...(shareToken ? [shareToken] : []));
       if (submittingScope !== privateScope.current) return;
       if (saved.conflict) {
         setFormError('A newer version was saved from another session. Reload the form to continue editing.');
         return;
       }
-      clearSubmissionDraft(activeWorkspaceId, deliverable.id).catch(() => {});
+      clearSubmissionDraft(activeWorkspaceId, deliverable.id, ...(shareToken ? [shareToken] : [])).catch(() => {});
       setMyServerResponse((current) => ({ ...current, id: saved.responseId, revision: saved.revision, values: submittedValues }));
       setValuesEdited(false);
       window.dispatchEvent(new Event('wildtrack:server-mutation'));
       window.dispatchEvent(new Event('wildtrack:refresh-resources'));
+      refreshSession?.();
       setResult({
         ok: true,
         updated: saved.changed && Boolean(myServerResponse),
@@ -441,9 +392,8 @@ export function PublicSubmissionPage() {
     <main className="wt-public-root">
       <WildTrackPublicHeader subtitle={publicFormPayload?.workspace?.name || activeWorkspace?.name || 'WildTrack'} />
       <Container component="section" size="sm" py={{ base: 'lg', sm: 'xl' }} aria-busy={fetchingPublicForm}>
-        {fetchingPublicForm ? null : publicError || workspaceStatus === 'error' ? (
-          <WorkspaceError message={publicError || workspaceError} onRetry={() => publicError
-            ? setRetry(value => value + 1) : setWorkspaceRetry(value => value + 1)} />
+        {fetchingPublicForm ? null : publicError ? (
+          <WorkspaceError message={publicError} onRetry={() => setRetry(value => value + 1)} />
         ) : accessDenied ? (
           <Paper withBorder p="xl"><Stack>
             <Title order={1}>{deniedAccess.status === 401 ? 'Sign in to continue' : 'Workspace access unavailable'}</Title>
@@ -496,12 +446,13 @@ export function PublicSubmissionPage() {
                         <Alert color="red" role="alert">{formError}</Alert>
                         <Button variant="default" onClick={() => setPrivateRetry(value => value + 1)}>Retry loading your response</Button>
                       </Stack> : null}
-                      {roster.key === hydrationKey && roster.status === 'error' ? <Stack gap="xs">
-                        <Alert color="red" role="alert">{roster.error}</Alert>
-                        <Button variant="default" onClick={() => setRosterRetry(value => value + 1)}>Retry loading class roster</Button>
-                      </Stack> : null}
                       <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                       <Stack gap="xl">
+                      {!serverAssociation && !student ? <Stack>
+                        <TextInput label="Student Number" required value={identity.studentNumber} disabled={verifying} onChange={event => updateIdentity({ ...identity, studentNumber: event.currentTarget.value })} />
+                        <TextInput label="Student Name" required value={identity.studentName} disabled={verifying} onChange={event => updateIdentity({ ...identity, studentName: event.currentTarget.value })} />
+                        <Button type="button" onClick={verifyStudent} loading={verifying} disabled={!identity.studentNumber.trim() || !identity.studentName.trim()}>Verify student details</Button>
+                      </Stack> : null}
                       <SubmissionFields
                         fields={deliverable.fields}
                         values={values}
@@ -513,6 +464,7 @@ export function PublicSubmissionPage() {
                         onIdentityChange={updateIdentity}
                         activeAccount={activeAccount}
                         disabled={submitting}
+                        hideIdentity={!student}
                       />
                       {formError && hydration.status !== 'error' ? (
                         <Alert color="red" variant="light" icon={<WarningCircle size={20} />} role="alert">{formError}</Alert>

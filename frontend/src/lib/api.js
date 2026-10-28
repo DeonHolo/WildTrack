@@ -81,6 +81,26 @@ export async function getWorkspaces(includeArchived = false) {
   return request(includeArchived ? '/workspaces?includeArchived=true' : '/workspaces');
 }
 
+export async function downloadWorkspaceWorkbook(workspaceId) {
+  const response = await fetch(`${API_BASE_URL}${withWorkspace('/workbook/template', workspaceId)}`, {
+    credentials: 'include', mode: 'same-origin'
+  });
+  if (!response.ok) throw await responseApiError(response, 'The Excel template could not be downloaded.');
+  return response.blob();
+}
+
+export function previewWorkspaceWorkbook(workspaceId, file) {
+  const body = new FormData();
+  body.append('file', file);
+  return requestForm(withWorkspace('/workbook/preview', workspaceId), { method: 'POST', body });
+}
+
+export function applyWorkspaceWorkbook(workspaceId, previewId, resolutions) {
+  return request(withWorkspace('/workbook/apply', workspaceId), {
+    method: 'POST', body: { previewId, resolutions }
+  });
+}
+
 export async function createWorkspace(payload) {
   return request('/workspaces', {
     method: 'POST',
@@ -115,6 +135,14 @@ export async function getPublicSubmissionForm(workspaceKey, slug) {
 
 export async function getDeliverables(workspaceId) {
   return request(withWorkspace('/deliverables', workspaceId));
+}
+
+export function getSharedSubmissionForm(token) {
+  return request(`/public/forms/share/${encodeURIComponent(token)}`, { skipCsrfPrecheck: true });
+}
+
+export function getDeliverableShareLink(workspaceId, deliverableId) {
+  return request(withWorkspace(`/deliverables/${encodeURIComponent(deliverableId)}/share-link`, workspaceId), { method: 'POST' });
 }
 
 export async function unpublishAllBackendDeliverables(workspaceId) {
@@ -577,11 +605,17 @@ export async function getRosterOptions(workspaceId) {
   return request(`/workspace/students/options?workspaceId=${encodeURIComponent(workspaceId)}`);
 }
 
-export async function confirmStudentAssociation(workspaceId, studentNumber) {
+export function connectStudentAccount(studentNumber, studentName, teamCode) {
+  return request('/workspace/students/connect', {
+    method: 'POST', body: { studentNumber, studentName, teamCode }
+  });
+}
+
+export async function confirmStudentAssociation(workspaceId, studentNumber, studentName, deliverableId, shareToken) {
   await ensureCsrfToken();
   return request(`/workspace/students/associate?workspaceId=${encodeURIComponent(workspaceId)}`, {
     method: 'POST',
-    body: { studentNumber }
+    body: { studentNumber, studentName, deliverableId, ...(shareToken ? { shareToken } : {}) }
   });
 }
 
@@ -596,7 +630,7 @@ export async function getMyResponse(workspaceId, deliverableId) {
   return request(`/workspace/responses/mine?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`);
 }
 
-export async function submitResponse(workspaceId, deliverableId, values, revision, studentNumber = '') {
+export async function submitResponse(workspaceId, deliverableId, values, revision, studentNumber = '', studentName = '', shareToken) {
   await ensureCsrfToken();
   const response = await fetch(`${API_BASE_URL}/workspace/responses/submit?workspaceId=${encodeURIComponent(workspaceId)}`, {
     method: 'POST',
@@ -607,7 +641,7 @@ export async function submitResponse(workspaceId, deliverableId, values, revisio
       'Content-Type': 'application/json',
       ...csrfHeader()
     },
-    body: JSON.stringify({ deliverableId, studentNumber: studentNumber || null, valuesJson: JSON.stringify(values), revision: revision ?? null })
+    body: JSON.stringify({ deliverableId, studentNumber: studentNumber || null, ...(studentName ? { studentName } : {}), ...(shareToken ? { shareToken } : {}), valuesJson: JSON.stringify(values), revision: revision ?? null })
   });
   if (response.status === 409 && response.headers.get('X-WildTrack-Conflict') === 'stale-revision') {
     return { conflict: true };
@@ -623,7 +657,7 @@ export async function getResponseHistory(workspaceId, deliverableId) {
   return request(`/workspace/responses/${encodeURIComponent(deliverableId)}/history?workspaceId=${encodeURIComponent(workspaceId)}`);
 }
 
-export async function saveDraft(workspaceId, deliverableId, values, revision) {
+export async function saveDraft(workspaceId, deliverableId, values, revision, shareToken) {
   const response = await fetch(`${API_BASE_URL}/workspace/drafts/save?workspaceId=${encodeURIComponent(workspaceId)}`, {
     method: 'POST',
     credentials: 'include',
@@ -633,20 +667,20 @@ export async function saveDraft(workspaceId, deliverableId, values, revision) {
       'Content-Type': 'application/json',
       ...csrfHeader()
     },
-    body: JSON.stringify({ deliverableId, valuesJson: JSON.stringify(values), revision: revision ?? null })
+    body: JSON.stringify({ deliverableId, valuesJson: JSON.stringify(values), revision: revision ?? null, ...(shareToken ? { shareToken } : {}) })
   });
   if (response.status === 409) return { conflict: true };
   if (!response.ok) throw await responseApiError(response, `Draft could not be saved (${response.status})`);
   return response.json();
 }
 
-export async function getDraft(workspaceId, deliverableId) {
-  return request(`/workspace/drafts?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`);
+export async function getDraft(workspaceId, deliverableId, shareToken) {
+  return request(`/workspace/drafts?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}${shareToken ? `&shareToken=${encodeURIComponent(shareToken)}` : ''}`);
 }
 
-export async function clearDraft(workspaceId, deliverableId) {
+export async function clearDraft(workspaceId, deliverableId, shareToken) {
   await ensureCsrfToken();
-  return request(`/workspace/drafts?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}`, {
+  return request(`/workspace/drafts?workspaceId=${encodeURIComponent(workspaceId)}&deliverableId=${encodeURIComponent(deliverableId)}${shareToken ? `&shareToken=${encodeURIComponent(shareToken)}` : ''}`, {
     method: 'DELETE'
   });
 }

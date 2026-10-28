@@ -22,21 +22,29 @@ import org.springframework.web.bind.annotation.RestController;
 public class AcademicWorkspaceController {
 
     private final AcademicWorkspaceService service;
+    private final com.capvault.backend.student.StudentAssociationSecurity security;
+    private final com.capvault.backend.student.StudentAssociationService associations;
 
-    public AcademicWorkspaceController(AcademicWorkspaceService service) {
+    public AcademicWorkspaceController(AcademicWorkspaceService service, com.capvault.backend.student.StudentAssociationSecurity security,
+            com.capvault.backend.student.StudentAssociationService associations) {
         this.service = service;
+        this.security = security;
+        this.associations = associations;
     }
 
     @GetMapping
     public List<AcademicWorkspaceResponse> list(
         @RequestParam(defaultValue = "false") boolean includeArchived,
-        Authentication authentication
+        Authentication authentication, jakarta.servlet.http.HttpServletRequest request
     ) {
         if (includeArchived && (authentication == null || authentication.getAuthorities().stream()
             .noneMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority())))) {
             throw new AccessDeniedException("Admin authorization required.");
         }
-        return service.list(includeArchived);
+        var session = security.requireSession(request);
+        var list = service.list(includeArchived);
+        if (!security.activeRoles(request).isEmpty()) return list;
+        return list.stream().filter(workspace -> associations.activeAssociation(workspace.id(), session.googleSubject()).isPresent()).toList();
     }
 
     @PostMapping

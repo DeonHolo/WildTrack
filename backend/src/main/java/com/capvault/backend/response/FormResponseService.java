@@ -89,16 +89,21 @@ public class FormResponseService {
         String googleSubject,
         String googleEmail,
         String studentNumber,
+        String studentName,
         Map<String, Object> values,
         Long revision
     ) {
         public SubmitCommand(UUID workspaceId, UUID deliverableId, String googleSubject, String googleEmail, Map<String, Object> values) {
-            this(workspaceId, deliverableId, googleSubject, googleEmail, null, values, null);
+            this(workspaceId, deliverableId, googleSubject, googleEmail, null, null, values, null);
         }
 
         public SubmitCommand(UUID workspaceId, UUID deliverableId, String googleSubject, String googleEmail,
                 Map<String, Object> values, Long revision) {
-            this(workspaceId, deliverableId, googleSubject, googleEmail, null, values, revision);
+            this(workspaceId, deliverableId, googleSubject, googleEmail, null, null, values, revision);
+        }
+        public SubmitCommand(UUID workspaceId, UUID deliverableId, String googleSubject, String googleEmail,
+                String studentNumber, Map<String, Object> values, Long revision) {
+            this(workspaceId, deliverableId, googleSubject, googleEmail, studentNumber, null, values, revision);
         }
     }
 
@@ -141,7 +146,8 @@ public class FormResponseService {
                 .orElse("");
         }
         StudentAssociationService.AssociationView association = associationService.associationForSuccessfulSave(
-            command.workspaceId(), command.googleSubject(), command.googleEmail(), selectedStudentNumber, existing.isPresent());
+            command.workspaceId(), command.googleSubject(), command.googleEmail(), selectedStudentNumber, existing.isPresent(),
+            command.studentName(), command.studentName() != null);
         if (!allPersistedFields.isEmpty()
                 && persistedFields.stream().anyMatch(field -> field.getFieldType().isAcademicIdentity())) {
             StudentRecord record = studentRecordRepository.findById(association.studentRecordId())

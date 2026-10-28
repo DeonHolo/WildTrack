@@ -13,15 +13,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class StudentRecordController {
 
     private final StudentRecordRepository repository;
+    private final StudentAssociationSecurity security;
 
-    public StudentRecordController(StudentRecordRepository repository) {
+    public StudentRecordController(StudentRecordRepository repository, StudentAssociationSecurity security) {
         this.repository = repository;
+        this.security = security;
     }
 
     @GetMapping
     public List<StudentRecordResponse> listStudents(
-        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        jakarta.servlet.http.HttpServletRequest request
     ) {
+        if (!security.isAdmin(request)) throw new org.springframework.security.access.AccessDeniedException("Admin authorization required.");
         return repository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId)
             .stream()
             .filter(StudentRecord::isCurrentActive)

@@ -1,11 +1,13 @@
 import { Button, Container, Group, Text } from '@mantine/core';
 import { SignOut } from '@phosphor-icons/react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { WildTrackMark } from '../layout/WildTrackMark.jsx';
 
 export function WildTrackPublicHeader({ subtitle }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const signInPath = `/login?${new URLSearchParams({ returnTo: location.pathname + location.search })}`;
   const { account: activeAccount, logoutStudentAccount } = useWorkspaceSession();
 
   function logout() {
@@ -25,14 +27,14 @@ export function WildTrackPublicHeader({ subtitle }) {
         </Link>
 
         <Group component="nav" gap="xs" wrap="wrap" justify="flex-end" aria-label="Student access">
-          <Button component={Link} to="/student" variant="default" size="sm">Student dashboard</Button>
+          <Button component={Link} to="/student" state={{ submissionPath: location.pathname }} variant="default" size="sm">Student dashboard</Button>
           {activeAccount ? (
             <>
               <Text className="wt-account-email" c="dimmed" size="xs">{activeAccount.email}</Text>
               <Button variant="default" size="sm" leftSection={<SignOut size={17} />} onClick={logout}>Log out</Button>
             </>
           ) : (
-            <Button component={Link} to="/login" variant="default" size="sm">Continue with Google</Button>
+            <Button component={Link} to={signInPath} variant="default" size="sm">Continue with Google</Button>
           )}
         </Group>
       </Container>

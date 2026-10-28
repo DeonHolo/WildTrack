@@ -75,6 +75,9 @@ for (const scenario of [
   { name: 'authenticated Forms page with wrapped legacy identity', role: 'admin', path: '/forms', authenticated: true, wrapped: true }
 ]) {
   test('legacy tab notifications settle without repeated gate flicker on ' + scenario.name, async ({ page, context }, testInfo) => {
+    // The real backend sets this cookie on the initial session GET. Keep the
+    // session-request counter focused on cross-tab refreshes, not CSRF setup.
+    await context.addCookies([{ name: 'XSRF-TOKEN', value: 'session-refresh-fixture', url: 'http://127.0.0.1' }]);
     const fixture = await installApiFixtures(page, {
       role: scenario.role, connected: true, submitted: true
     });
@@ -132,7 +135,8 @@ for (const scenario of [
     });
     console.log('Cross-tab session observation: ' + JSON.stringify(observation));
     fixture.assertRequestsHandled();
-    expect(fixture.calls.filter(call => call.method !== 'GET')).toEqual([]);
+    expect(fixture.calls.filter(call => call.method !== 'GET'
+      && !(call.method === 'POST' && /^\/deliverables\/[^/]+\/share-link$/.test(call.path)))).toEqual([]);
 
     expect(observation.appSessionRequestsAfterLegacyPublish,
       'A single legacy identity publication must not echo into repeated session requests')

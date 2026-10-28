@@ -27,9 +27,20 @@ export function SubmissionFields({
   identityErrors = {},
   onIdentityChange,
   activeAccount = null,
-  disabled = false
+  disabled = false,
+  hideIdentity = false
 }) {
   const activeFields = fields.filter((field) => field.active !== false);
+  if (hideIdentity) {
+    return <Stack gap="md" aria-label="Submission questions">
+      {activeFields.filter(field => !ACADEMIC_FIELD_TYPES.has(field.type) || field.type === 'academicSection').map(field =>
+        field.type === 'academicSection'
+          ? <TextInput key={field.id} label={field.label} description={field.helpText || undefined} required={field.required} disabled={disabled}
+              value={values[field.id] || ''} error={errors[field.id]} onChange={event => onValueChange?.(field.id, event.currentTarget.value)} />
+          : <ResponseField key={field.id} field={field} value={values[field.id]} error={errors[field.id]}
+              disabled={disabled} onChange={value => onValueChange?.(field.id, value)} />)}
+    </Stack>;
+  }
   const configuredIdentity = hasAcademicDefinitions(activeFields);
   const renderedFields = configuredIdentity ? ensureStudentNumberAnchor(activeFields) : activeFields;
 
@@ -128,7 +139,7 @@ function AcademicField({ field, value, valueError, students, identity, errors, d
       placeholder="Search student name" onChange={(value) => value && selectStudent(students, value, identity, onChange)} />;
   }
   if (field.type === 'academicTeamCode') {
-    return <Select searchable label={field.label} description={description || 'Linked to the selected Student Number.'}
+    return <Select searchable label={field.label} description={description}
       required={required} disabled={disabled} data={teamOptions}
       value={identity.teamCode || null} error={errors.teamCode} clearable={!required}
       placeholder="Search team code"
@@ -137,7 +148,7 @@ function AcademicField({ field, value, valueError, students, identity, errors, d
   return (
     <TextInput
       label={field.label}
-      description={description || 'Enter your section. The class-record value is used as the starting value when available.'}
+      description={description}
       value={value !== undefined ? value : matched?.section || ''}
       placeholder="Enter section"
       disabled={disabled}
@@ -171,7 +182,7 @@ function selectStudent(students, studentNumber, identity, onChange) {
 }
 
 function ResponseField({ field, value, error, disabled, onChange }) {
-  const description = field.helpText || submissionFieldDescription(field);
+  const description = field.helpText || undefined;
   if (field.type === 'textarea') {
     return <Textarea label={field.label} description={description} required={field.required} value={value || ''}
       error={error} disabled={disabled} minRows={4} autosize onChange={(event) => onChange(event.currentTarget.value)} />;
@@ -230,17 +241,8 @@ function ensureStudentNumberAnchor(fields) {
     label: 'Student Number',
     type: 'academicStudentNumber',
     required: true,
-    active: true,
-    helpText: 'Required to connect this response to your class record.'
+    active: true
   }, ...fields];
-}
-
-function submissionFieldDescription(field) {
-  if (field.pdfRequired || field.type === 'drive') return 'Share a Google Drive file link that opens to the final PDF.';
-  if (field.type === 'googleForm') return 'Paste the shareable Google Form link.';
-  if (field.type === 'googleSheet') return 'Paste the shareable Google Sheet link.';
-  if (field.type === 'driveFolder') return 'Paste the shareable Google Drive folder link.';
-  return undefined;
 }
 
 function submissionFieldPlaceholder(field) {

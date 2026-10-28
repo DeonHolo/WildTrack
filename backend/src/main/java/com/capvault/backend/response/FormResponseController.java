@@ -31,22 +31,30 @@ public class FormResponseController {
     private final StudentAssociationSecurity security;
     private final StaffManagementService staffManagementService;
     private final StudentAssociationService associationService;
+    private final com.capvault.backend.workspace.AcademicWorkspaceService workspaces;
+    private final com.capvault.backend.deliverable.DeliverableShareLinkService shareLinks;
 
     public FormResponseController(
         FormResponseService responseService,
         StudentAssociationSecurity security,
         StaffManagementService staffManagementService,
-        StudentAssociationService associationService
+        StudentAssociationService associationService,
+        com.capvault.backend.workspace.AcademicWorkspaceService workspaces,
+        com.capvault.backend.deliverable.DeliverableShareLinkService shareLinks
     ) {
         this.responseService = responseService;
         this.security = security;
         this.staffManagementService = staffManagementService;
         this.associationService = associationService;
+        this.workspaces = workspaces;
+        this.shareLinks = shareLinks;
     }
 
     public record SubmitRequest(
         @NotNull UUID deliverableId,
         String studentNumber,
+        String studentName,
+        String shareToken,
         @NotBlank String valuesJson,
         Long revision
     ) {
@@ -117,6 +125,12 @@ public class FormResponseController {
         HttpServletRequest http
     ) {
         var session = security.requireSession(http);
+        if (!workspaces.require(workspaceId).isActive()) throw new org.springframework.security.access.AccessDeniedException("This workspace is unavailable.");
+        shareLinks.requireEntry(workspaceId, request.deliverableId(), request.shareToken(), http);
+        var linked = associationService.activeAssociation(workspaceId, session.googleSubject());
+        if (linked.isEmpty()) {
+            associationService.requireMatchingName(workspaceId, request.studentNumber(), request.studentName());
+        }
         Map<String, Object> values;
         try {
             values = new com.fasterxml.jackson.databind.ObjectMapper().readValue(
@@ -126,7 +140,7 @@ public class FormResponseController {
         }
         try {
             return ResponseEntity.ok(toSubmitResponse(responseService.submit(new FormResponseService.SubmitCommand(
-                workspaceId, request.deliverableId(), session.googleSubject(), session.googleEmail(), request.studentNumber(), values, request.revision()))));
+                workspaceId, request.deliverableId(), session.googleSubject(), session.googleEmail(), request.studentNumber(), request.studentName() == null ? "" : request.studentName(), values, request.revision()))));
         } catch (FormResponseService.ConcurrentModificationException e) {
             return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
                 .header("X-WildTrack-Conflict", "stale-revision")

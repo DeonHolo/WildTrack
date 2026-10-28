@@ -16,6 +16,7 @@ public interface StudentRecordRepository extends JpaRepository<StudentRecord, UU
 
     Optional<StudentRecord> findByWorkspaceIdAndStudentNumberIgnoreCase(UUID workspaceId, String studentNumber);
     List<StudentRecord> findAllByWorkspaceIdAndStudentNumberIgnoreCase(UUID workspaceId, String studentNumber);
+    List<StudentRecord> findAllByStudentNumberIgnoreCase(String studentNumber);
 
     Optional<StudentRecord> findFirstByWorkspaceIdAndTeamCodeIgnoreCaseAndMemberNumberIgnoreCase(
         UUID workspaceId,

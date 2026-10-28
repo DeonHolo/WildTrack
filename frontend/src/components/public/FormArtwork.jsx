@@ -13,7 +13,7 @@ export function FormArtwork({ success = false, artwork: artworkOverride = null, 
       aria-label={ariaLabel}
     >
       <div className="wt-artwork-copy">
-        {children || <Text component="strong">{success ? 'Submission recorded' : 'Submit with a clear trail'}</Text>}
+        {children || <Text component="strong">{success ? 'Submission recorded' : 'Keep your capstone on track'}</Text>}
       </div>
       <div
         className={`wt-artwork-mascot ${mascotClassName}`.trim()}
