@@ -34,7 +34,8 @@ export function WorkspaceWorkbookImport({ workspaceId, onImported }) {
       const link = document.createElement('a');
       link.href = url; link.download = 'WildTrack_Workspace_Template.xlsx';
       document.body.append(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      // Keep the URL alive while the browser writes the downloaded file.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (failure) {
       if (current()) setError(failure.message || 'The Excel template could not be downloaded.');
     } finally { if (current()) setBusy(''); }

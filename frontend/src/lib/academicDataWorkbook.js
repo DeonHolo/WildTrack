@@ -136,5 +136,5 @@ export function downloadAcademicWorkbook(sheets) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  setTimeout(() => URL.revokeObjectURL(href), 0);
+  setTimeout(() => URL.revokeObjectURL(href), 60000);
 }

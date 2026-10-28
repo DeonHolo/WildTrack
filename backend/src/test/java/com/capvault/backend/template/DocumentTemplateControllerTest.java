@@ -36,6 +36,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static com.capvault.backend.support.AuthenticatedRequest.adminSession;
 import static com.capvault.backend.support.AuthenticatedRequest.session;
+import static com.capvault.backend.support.AuthenticatedRequest.adviserSession;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -101,13 +102,13 @@ class DocumentTemplateControllerTest {
 
         upload("Updated SRS template", "Updated official SRS template instructions and required sections");
 
-        mockMvc.perform(get("/api/templates").with(session()))
+        mockMvc.perform(get("/api/templates").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].displayName").value("Updated SRS template"))
             .andExpect(jsonPath("$[0].originalFilename").value("template.pdf"));
 
-        mockMvc.perform(get("/api/templates/" + firstId + "/file").with(session()))
+        mockMvc.perform(get("/api/templates/" + firstId + "/file").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"template.pdf\""))
             .andExpect(content().contentType(PDF_MIME));
@@ -115,7 +116,7 @@ class DocumentTemplateControllerTest {
         mockMvc.perform(delete("/api/templates/" + firstId).with(adminSession()))
             .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/templates").with(session()))
+        mockMvc.perform(get("/api/templates").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(0)));
     }
@@ -126,7 +127,7 @@ class DocumentTemplateControllerTest {
             + "Introduction\nOverview instructions\nTest Plan\nPlan instructions\nTest Cases\nCase instructions\n";
         String id = responseId(upload("STD", null, "Official STD", text));
 
-        mockMvc.perform(get("/api/templates/" + id + "/structure").with(session()))
+        mockMvc.perform(get("/api/templates/" + id + "/structure").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.templateId").value(id))
             .andExpect(jsonPath("$.displayName").value("Official STD"))
@@ -135,9 +136,18 @@ class DocumentTemplateControllerTest {
             .andExpect(jsonPath("$.expectedHeadings", hasItems("Introduction", "Test Plan", "Test Cases")))
             .andExpect(jsonPath("$.detectedHeadings", hasItems("Introduction", "Test Plan", "Test Cases")));
 
-        mockMvc.perform(get("/api/templates").with(session()))
+        mockMvc.perform(get("/api/templates").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].extractedText").doesNotExist());
+    }
+
+    @Test
+    void studentSessionsCannotReadOfficialTemplateListsOrFiles() throws Exception {
+        String id = responseId(upload("Official SRS", "Introduction and project requirements."));
+        for (String path : List.of("/api/templates", "/api/templates/" + id + "/file", "/api/templates/" + id + "/structure")) {
+            mockMvc.perform(get(path).with(session())).andExpect(status().isForbidden());
+            mockMvc.perform(get(path).with(adviserSession())).andExpect(status().isOk());
+        }
     }
 
     @Test
@@ -146,7 +156,7 @@ class DocumentTemplateControllerTest {
 
         mockMvc.perform(get("/api/templates/" + id + "/structure"))
             .andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/templates/" + id + "/structure").with(session())
+        mockMvc.perform(get("/api/templates/" + id + "/structure").with(adviserSession())
                 .param("workspaceId", UUID.randomUUID().toString()))
             .andExpect(status().isBadRequest());
     }
@@ -184,7 +194,7 @@ class DocumentTemplateControllerTest {
             .getContentAsString();
 
         String templateId = response.replaceAll(".*\"id\":\"([^\"]+)\".*", "$1");
-        mockMvc.perform(get("/api/templates/" + templateId + "/file").with(session()))
+        mockMvc.perform(get("/api/templates/" + templateId + "/file").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(content().bytes(bytes));
     }
@@ -230,7 +240,7 @@ class DocumentTemplateControllerTest {
             .andExpect(jsonPath("$.error").value("Upload the official template as a PDF file."));
 
         assertEquals(1L, repository.count());
-        mockMvc.perform(get("/api/templates/" + id + "/file").with(session()))
+        mockMvc.perform(get("/api/templates/" + id + "/file").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(content().contentType(PDF_MIME))
             .andExpect(content().bytes(original));
@@ -278,7 +288,7 @@ class DocumentTemplateControllerTest {
             .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("valid, unencrypted PDF")));
 
         assertEquals(1L, repository.count());
-        mockMvc.perform(get("/api/templates/" + id + "/file").with(session()))
+        mockMvc.perform(get("/api/templates/" + id + "/file").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(content().contentType(PDF_MIME))
             .andExpect(content().bytes(original));
@@ -344,7 +354,7 @@ class DocumentTemplateControllerTest {
         assertEquals("Updated framework template", service.find(workspaceId, deliverableKey, frameworkFieldId).getDisplayName());
         assertEquals("Highlights template", service.find(workspaceId, deliverableKey, highlightsFieldId).getDisplayName());
 
-        mockMvc.perform(get("/api/templates").with(session()))
+        mockMvc.perform(get("/api/templates").with(adviserSession()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(3)))
             .andExpect(jsonPath("$[*].fieldId", hasItems(frameworkFieldId, highlightsFieldId)));
