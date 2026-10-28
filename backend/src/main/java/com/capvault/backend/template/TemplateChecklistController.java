@@ -33,4 +33,7 @@ public class TemplateChecklistController {
     @PostMapping("/approve") public TemplateChecklistService.View approve(@PathVariable UUID id,@RequestParam UUID workspaceId,@RequestBody Request body,HttpServletRequest http) {
         return service.approve(workspaceId,id,body.versionId(),body.expectedRevision(),admin(http));
     }
+    @PostMapping("/unapprove") public TemplateChecklistService.View unapprove(@PathVariable UUID id,@RequestParam UUID workspaceId,@RequestBody Request body,HttpServletRequest http) {
+        admin(http); return service.unapprove(workspaceId,id,body.versionId(),body.expectedRevision());
+    }
 }

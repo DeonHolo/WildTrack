@@ -1,12 +1,13 @@
 import { MantineProvider } from '@mantine/core';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TemplateChecklistBatch } from './TemplateChecklistBatch.jsx';
 
-const api = vi.hoisted(() => ({ get: vi.fn(), prepare: vi.fn() }));
+const api = vi.hoisted(() => ({ get: vi.fn(), prepare: vi.fn(), approve: vi.fn() }));
 vi.mock('../../lib/api.js', () => ({
   getTemplateChecklistBatch: (...args) => api.get(...args),
   prepareTemplateChecklistBatch: (...args) => api.prepare(...args),
+  approveTemplateChecklistBatch: (...args) => api.approve(...args),
   getDocumentTemplatePreviewUrl: (ws, id) => `/templates/${id}/preview?workspaceId=${ws}`
 }));
 const row = (id, state = 'UNPREPARED', pdfState = 'READY') => ({ templateId: id, versionId: `v-${id}`, revision: state === 'UNPREPARED' ? 0 : 2, title: `Template ${id}`, state, pdfState });
@@ -18,7 +19,52 @@ async function open() {
   return screen.getByRole('dialog');
 }
 describe('template checklist batch', () => {
-  beforeEach(() => { api.get.mockReset().mockResolvedValue(items); api.prepare.mockReset(); });
+  beforeEach(() => { api.get.mockReset().mockResolvedValue(items); api.prepare.mockReset(); api.approve.mockReset(); });
+  afterEach(() => { vi.useRealTimers(); });
+  it('keeps the saved drafts button steady during recurring background polling', async () => {
+    api.get.mockResolvedValue([row('running', 'PREPARING')]);
+    vi.useFakeTimers();
+    await act(async () => { render(tree()); });
+    const button = screen.getByRole('button', { name: 'Check saved drafts' });
+    expect(button).not.toHaveAttribute('data-loading');
+    let finish; api.get.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(api.get).toHaveBeenCalledTimes(2);
+    expect(button).not.toHaveAttribute('data-loading'); expect(button).toBeEnabled();
+    await act(async () => { finish([row('running', 'PREPARING')]); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(api.get).toHaveBeenCalledTimes(3);
+    expect(button).not.toHaveAttribute('data-loading');
+  });
+  it('requires checklist inspection acknowledgement before bulk approval and uses saved revisions', async () => {
+    const drafts = [row('draft-a','DRAFT'), row('draft-b','DRAFT'), row('approved','APPROVED'), row('failed','FAILED')];
+    api.get.mockResolvedValue(drafts);
+    api.approve.mockResolvedValue(drafts.map(item => item.state === 'DRAFT' ? { ...item, state:'APPROVED',revision:3 } : item));
+    render(tree()); fireEvent.click(await screen.findByRole('button',{name:'Check saved drafts'}));
+    const dialog = await screen.findByRole('dialog',{name:'Saved template AI drafts'});
+    const approve = within(dialog).getByRole('button',{name:'Approve all checklists'});
+    expect(approve).toBeDisabled();
+    expect(within(dialog).getByText(/You can edit or unapprove it later/)).toBeVisible();
+    fireEvent.click(within(dialog).getByRole('checkbox',{name:'I checked the draft checklists against their template PDFs.'}));
+    fireEvent.click(approve);
+    await within(dialog).findByText('2 checklists approved.');
+    expect(api.approve).toHaveBeenCalledExactlyOnceWith('workspace-a',[
+      {templateId:'draft-a',versionId:'v-draft-a',expectedRevision:2},
+      {templateId:'draft-b',versionId:'v-draft-b',expectedRevision:2}
+    ]);
+    expect(api.prepare).not.toHaveBeenCalled();
+  });
+  it('reloads a rejected bulk approval without approving changed checklists again', async () => {
+    const drafts = [row('draft','DRAFT')]; api.get.mockResolvedValue(drafts);
+    api.approve.mockRejectedValue(new Error('The checklist changed. Reload and try again.'));
+    render(tree()); fireEvent.click(await screen.findByRole('button',{name:'Check saved drafts'}));
+    const dialog=await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('checkbox',{name:'I checked the draft checklists against their template PDFs.'}));
+    fireEvent.click(within(dialog).getByRole('button',{name:'Approve all checklists'}));
+    await within(dialog).findByText('The checklist changed. Reload and try again.');
+    expect(within(dialog).getByRole('button',{name:'Approve all checklists'})).toBeDisabled();
+    expect(api.approve).toHaveBeenCalledTimes(1);
+  });
   it('requires confirmation, preserves existing checklists and excludes unready PDFs', async () => {
     render(tree()); const dialog = await open();
     expect(within(dialog).getByRole('checkbox', { name: 'Template new' })).toBeChecked();
@@ -56,7 +102,7 @@ describe('template checklist batch', () => {
     const dialog=await screen.findByRole('dialog', { name: 'Saved template AI drafts' });
     expect(within(dialog).getByText(/Opening it does not send an AI request/)).toBeVisible();
     expect(within(dialog).getByText('Template draft')).toBeVisible();
-    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('checkbox',{name:'I checked the draft checklists against their template PDFs.'})).not.toBeChecked();
     expect(within(dialog).getAllByRole('link', { name: 'Open checklist' })).toHaveLength(items.length);
     expect(within(dialog).getAllByRole('link')[2]).toHaveAttribute('href', '/templates/draft/preview?workspaceId=workspace-a');
     expect(within(dialog).queryByRole('button', { name: 'Prepare drafts' })).not.toBeInTheDocument();

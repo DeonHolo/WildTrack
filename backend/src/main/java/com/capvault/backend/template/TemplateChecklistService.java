@@ -27,6 +27,17 @@ public class TemplateChecklistService {
     public record BatchRequest(UUID templateId,UUID versionId,long expectedRevision,boolean rerun) {
         public BatchRequest(UUID templateId,UUID versionId,long expectedRevision) { this(templateId,versionId,expectedRevision,false); }
     }
+    public record ApprovalRequest(UUID templateId,UUID versionId,long expectedRevision) {}
+    @Transactional
+    public List<BatchItem> approveBatch(UUID workspace,List<ApprovalRequest> selected,String subject) {
+        if (selected==null || selected.isEmpty() || selected.stream().anyMatch(item -> item==null
+            || item.templateId()==null || item.versionId()==null || item.expectedRevision()<0)
+            || selected.stream().map(ApprovalRequest::templateId).distinct().count()!=selected.size())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Select valid checklists to approve.");
+        for (var item:selected.stream().sorted(java.util.Comparator.comparing(ApprovalRequest::templateId)).toList())
+            approve(workspace,item.templateId(),item.versionId(),item.expectedRevision(),subject);
+        return batch(workspace);
+    }
     @Transactional(readOnly = true)
     public List<BatchItem> batch(UUID workspace) {
         return store.database().query("""
@@ -118,6 +129,17 @@ public class TemplateChecklistService {
     public String fingerprint(UUID workspace,UUID id) {
         var p=pdfs.current(workspace,id); var r=store.find(p.versionId()).orElse(null);
         return hash(p.versionId()+":"+(r==null?"UNPREPARED:0":r.state()+":"+r.revision()+":"+r.hash()));
+    }
+    @Transactional
+    public View unapprove(UUID workspace,UUID id,UUID version,long revision) {
+        store.lock(workspace,id); var pdf=current(workspace,id,version); var row=checked(version,revision);
+        if (row==null || !row.state().equals("APPROVED")) throw conflict();
+        store.database().update("""
+            UPDATE template_checklists SET state='DRAFT',revision=revision+1,
+                approved_at=NULL,approval_hash=NULL,updated_at=CURRENT_TIMESTAMP
+            WHERE version_id=?
+            """,version);
+        return view(pdf,store.find(version).orElseThrow());
     }
     @Transactional
     public Approved approved(UUID workspace,UUID id,String expectedSourceHash) {

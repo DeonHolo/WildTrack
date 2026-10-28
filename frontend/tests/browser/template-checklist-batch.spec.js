@@ -3,9 +3,10 @@ import { installApiFixtures } from './api-fixtures.js';
 
 const workspaceId = '11111111-1111-1111-1111-111111111111';
 const item = (id, state, title) => ({ templateId: id, versionId: `version-${id}`, revision: state === 'UNPREPARED' ? 0 : 2, title, state, pdfState: 'READY' });
-for (const width of [390, 1024, 1440]) {
+for (const width of [375, 390, 1024, 1440]) {
   test(`template preparation uses the shared batch confirmation and progress at ${width}px`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width, height: width === 1024 ? 760 : 950 });
+    test.setTimeout(60000);
+    await page.setViewportSize({ width, height: width === 375 ? 812 : width === 390 ? 844 : width === 1024 ? 760 : 950 });
     const fixture = await installApiFixtures(page, { role: 'admin' });
     let entries = [item('spmp', 'UNPREPARED', 'Software Project Management Plan template'), item('srs', 'APPROVED', 'Software Requirements Specification template'),
       item('sdd', 'DRAFT', 'Software Design Description template'), item('std', 'FAILED', 'Software Test Documentation template')];
@@ -15,7 +16,9 @@ for (const width of [390, 1024, 1440]) {
       expect(new URL(request.url()).searchParams.get('workspaceId')).toBe(workspaceId);
       if (request.method() === 'POST') {
         writes.push(request.postDataJSON());
-        entries = entries.map(entry => entry.templateId === 'spmp' ? { ...entry, state: 'QUEUED', revision: 1 } : entry);
+        entries = new URL(request.url()).pathname.endsWith('/approve')
+          ? entries.map(entry => entry.state === 'DRAFT' ? { ...entry, state: 'APPROVED', revision: entry.revision + 1 } : entry)
+          : entries.map(entry => entry.templateId === 'spmp' ? { ...entry, state: 'QUEUED', revision: 1 } : entry);
       }
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(entries) });
     });
@@ -42,6 +45,8 @@ for (const width of [390, 1024, 1440]) {
     await dialog.getByRole('button', { name: 'Prepare drafts' }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page.getByText('Preparing template AI drafts')).toBeVisible();
+    const savedButton = page.getByRole('button',{name:'Check saved drafts'});
+    await expect(savedButton).not.toHaveAttribute('data-loading');
     expect(writes).toEqual([[{ templateId: 'spmp', versionId: 'version-spmp', expectedRevision: 0 }]]);
     await page.getByText('Preparing template AI drafts').scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`template-batch-progress-${width}.png`) });
@@ -53,7 +58,7 @@ for (const width of [390, 1024, 1440]) {
     const saved=page.getByRole('dialog', { name: 'Saved template AI drafts' });
     await expect(saved).toHaveCSS('opacity','1');
     await expect(saved.getByRole('link', { name: 'Open checklist' })).toHaveCount(4);
-    await expect(saved.getByRole('checkbox')).toHaveCount(0);
+    await expect(saved.getByRole('checkbox',{name:'I checked the draft checklists against their template PDFs.'})).not.toBeChecked();
     await expect(saved.getByText('Software Design Description template', { exact:true })).toBeVisible();
     await page.screenshot({path:testInfo.outputPath(`template-saved-drafts-${width}.png`)});
     await saved.getByRole('button',{name:'Rerun saved AI drafts',exact:true}).click();
@@ -64,6 +69,22 @@ for (const width of [390, 1024, 1440]) {
     await expect(reruns.getByRole('checkbox',{name:'Replace the selected saved Review checklists'})).not.toBeChecked();
     await page.screenshot({path:testInfo.outputPath(`template-batch-rerun-warning-${width}.png`)});
     expect(writes).toHaveLength(1);
+    await reruns.getByRole('button',{name:'Close',exact:true}).click();
+    await savedButton.click();
+    await expect(saved.getByRole('button',{name:'Approve all checklists',exact:true})).toBeDisabled();
+    await expect(saved.getByText(/You can edit or unapprove it later/)).toBeVisible();
+    await saved.getByRole('checkbox',{name:'I checked the draft checklists against their template PDFs.'}).check();
+    await expect(saved.getByRole('button',{name:'Approve all checklists',exact:true})).toBeInViewport({ratio:1});
+    await expect(saved.getByRole('button',{name:'Close',exact:true})).toBeInViewport({ratio:1});
+    await expect(saved.getByRole('button',{name:'Rerun saved AI drafts',exact:true})).toBeInViewport({ratio:1});
+    await page.screenshot({path:testInfo.outputPath(`template-bulk-approval-${width}.png`)});
+    await saved.getByRole('button',{name:'Approve all checklists',exact:true}).click();
+    await expect(saved.getByText('2 checklists approved.')).toBeVisible();
+    expect(writes[1]).toEqual([
+      {templateId:'spmp',versionId:'version-spmp',expectedRevision:2},
+      {templateId:'sdd',versionId:'version-sdd',expectedRevision:2}
+    ]);
+    expect(writes).toHaveLength(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     fixture.assertRequestsHandled();
   });

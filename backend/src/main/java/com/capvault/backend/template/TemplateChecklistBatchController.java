@@ -28,4 +28,10 @@ public class TemplateChecklistBatchController {
             @RequestBody List<TemplateChecklistService.BatchRequest> selected,HttpServletRequest http) {
         admin(http); return service.requestBatch(workspaceId,selected);
     }
+    @PostMapping("/approve")
+    public List<TemplateChecklistService.BatchItem> approve(@RequestParam UUID workspaceId,
+            @RequestBody List<TemplateChecklistService.ApprovalRequest> selected,HttpServletRequest http) {
+        admin(http);
+        return service.approveBatch(workspaceId,selected,security.requireSession(http).googleSubject());
+    }
 }

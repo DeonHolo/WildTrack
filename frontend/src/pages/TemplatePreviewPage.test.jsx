@@ -8,7 +8,7 @@ const workspace = vi.hoisted(() => ({
   activeWorkspaceId: 'workspace-current',
   session: { authenticated: true, email: 'admin@school.edu', roles: ['ADMIN'] }
 }));
-const api = vi.hoisted(() => ({ structure: vi.fn(), pdf: vi.fn(), retry: vi.fn(), checklist: vi.fn(), prepare: vi.fn(), rerun: vi.fn(), save: vi.fn(), approve: vi.fn() }));
+const api = vi.hoisted(() => ({ structure: vi.fn(), pdf: vi.fn(), retry: vi.fn(), checklist: vi.fn(), prepare: vi.fn(), rerun: vi.fn(), save: vi.fn(), approve: vi.fn(), unapprove: vi.fn() }));
 vi.mock('../app/WorkspaceSession.jsx', () => ({ useWorkspaceSession: () => workspace }));
 vi.mock('../lib/api.js', () => ({
   getDocumentTemplateStructure: (...args) => api.structure(...args),
@@ -19,6 +19,7 @@ vi.mock('../lib/api.js', () => ({
   rerunDocumentTemplateChecklist: (...args) => api.rerun(...args),
   saveDocumentTemplateChecklist: (...args) => api.save(...args),
   approveDocumentTemplateChecklist: (...args) => api.approve(...args),
+  unapproveDocumentTemplateChecklist: (...args) => api.unapprove(...args),
   getDocumentTemplatePdfUrl: (workspaceId, templateId, versionId) => `/api/templates/${templateId}/pdf?workspaceId=${workspaceId}&versionId=${versionId}`,
   getDocumentTemplateFileUrl: (workspaceId, templateId) => `/api/templates/${templateId}/file?workspaceId=${workspaceId}`
 }));
@@ -52,7 +53,7 @@ describe('official template browser preview', () => {
     api.pdf.mockReset().mockResolvedValue(pdf);
     api.retry.mockReset().mockResolvedValue({ ...pdf, state: 'PENDING' });
     api.checklist.mockReset().mockResolvedValue({ versionId: 'version-1', revision: 0, state: 'UNPREPARED', pdfPages: 7, items: [] });
-    api.prepare.mockReset(); api.rerun.mockReset(); api.save.mockReset(); api.approve.mockReset();
+    api.prepare.mockReset(); api.rerun.mockReset(); api.save.mockReset(); api.approve.mockReset(); api.unapprove.mockReset();
   });
 
   it('shows one list and no missing-section panel when all template headings are detected', async () => {
@@ -176,6 +177,21 @@ describe('official template browser preview', () => {
     render(tree());
     expect(await screen.findByRole('button', { name: 'Approve checklist' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Prepare AI draft' })).not.toBeInTheDocument();
+  });
+  it('unapproves the saved checklist without changing its items or sending an AI request', async () => {
+    const item={title:'Purpose',instruction:'Explain the purpose',sourceQuote:'Purpose',section:'1.1',page:1,applicability:'REQUIRED',condition:''};
+    api.checklist.mockResolvedValue({versionId:'version-1',revision:5,state:'APPROVED',pdfPages:7,items:[item]});
+    api.unapprove.mockResolvedValue({versionId:'version-1',revision:6,state:'DRAFT',pdfPages:7,items:[item]});
+    render(tree());
+    fireEvent.click(await screen.findByRole('button',{name:'Unapprove checklist',exact:true}));
+    const modal=await screen.findByRole('dialog',{name:'Unapprove this checklist?'});
+    await waitFor(() => expect(within(modal).getByText(/earlier AI Review results and Document Check results are kept/)).toBeVisible());
+    expect(api.unapprove).not.toHaveBeenCalled();
+    fireEvent.click(within(modal).getByRole('button',{name:'Confirm unapproval'}));
+    expect(await screen.findByRole('button',{name:'Approve checklist',exact:true})).toBeEnabled();
+    expect(api.unapprove).toHaveBeenCalledExactlyOnceWith('workspace-link','template-std',{versionId:'version-1',expectedRevision:5});
+    expect(screen.getByRole('button',{name:'Purpose',exact:true})).toBeVisible();
+    expect(api.save).not.toHaveBeenCalled(); expect(api.prepare).not.toHaveBeenCalled(); expect(api.rerun).not.toHaveBeenCalled();
   });
 
   it('restores unsaved edits after navigation and keeps them on a stale revision', async () => {

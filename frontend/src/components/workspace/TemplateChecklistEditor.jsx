@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Alert, Badge, Button, Group, Modal, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { ArrowClockwise, CaretDown, CaretRight, Trash } from '@phosphor-icons/react';
 import { ConfirmDialog } from '../ui.jsx';
-import { getDocumentTemplateChecklist, prepareDocumentTemplateChecklist, rerunDocumentTemplateChecklist, saveDocumentTemplateChecklist, approveDocumentTemplateChecklist } from '../../lib/api.js';
+import { getDocumentTemplateChecklist, prepareDocumentTemplateChecklist, rerunDocumentTemplateChecklist, saveDocumentTemplateChecklist, approveDocumentTemplateChecklist, unapproveDocumentTemplateChecklist } from '../../lib/api.js';
 import './TemplateChecklistEditor.css';
 
 const blank = () => ({ title: '', instruction: '', sourceQuote: '', section: '', page: '', applicability: 'REQUIRED', condition: '', _sourceEditable: true });
@@ -92,10 +92,11 @@ export function TemplateChecklistEditor({ workspaceId, templateId, versionId }) 
       const next = type === 'prepare' ? await prepareDocumentTemplateChecklist(workspaceId, templateId, payload)
         : type === 'rerun' ? await rerunDocumentTemplateChecklist(workspaceId, templateId, payload)
         : type === 'approve' ? await approveDocumentTemplateChecklist(workspaceId, templateId, payload)
+        : type === 'unapprove' ? await unapproveDocumentTemplateChecklist(workspaceId, templateId, payload)
           : await saveDocumentTemplateChecklist(workspaceId, templateId, { ...payload, items: items.map(({ _sourceEditable, ...item }) => ({ ...item, page: Number(item.page) })) });
       apply(next);
     } catch (e) {
-      if (type === 'prepare' || type === 'rerun') await load(); // A lost response may have queued work. Never repeat the POST.
+      if (['prepare', 'rerun', 'approve', 'unapprove'].includes(type)) await load(); // Reload an unconfirmed action; never repeat the POST.
       setError(e?.message || 'The checklist could not be updated.'); if (e?.status === 409) setConflict(true);
     }
     finally { setBusy(false); }
@@ -132,14 +133,18 @@ export function TemplateChecklistEditor({ workspaceId, templateId, versionId }) 
           {['UNPREPARED', 'FAILED'].includes(view.state) && !items.length && <Button variant="default" disabled={preparing || busy || dirty || conflict} onClick={() => setConfirm('prepare')}>{view.state === 'FAILED' ? 'Retry AI draft' : 'Prepare AI draft'}</Button>}
           {view.state === 'FAILED' && items.length > 0 && <Button variant="default" disabled={busy || dirty || conflict} onClick={() => setConfirm('prepare')}>Retry AI draft</Button>}
           <Button disabled={!dirty || preparing || busy || conflict} loading={busy} onClick={() => { if (validate()) action('save'); }}>Save draft</Button>
-          <Button disabled={!items.length || dirty || preparing || busy || conflict || view.state !== 'DRAFT'} onClick={() => setConfirm('approve')}>Approve checklist</Button></Group>
+          <Button variant={view.state === 'APPROVED' ? 'default' : 'filled'} color={view.state === 'APPROVED' ? 'orange' : undefined}
+            disabled={!items.length || dirty || preparing || busy || conflict || !['DRAFT', 'APPROVED'].includes(view.state)}
+            onClick={() => setConfirm(view.state === 'APPROVED' ? 'unapprove' : 'approve')}>
+            {view.state === 'APPROVED' ? 'Unapprove checklist' : 'Approve checklist'}</Button></Group>
         {['DRAFT', 'APPROVED'].includes(view.state) && <Button variant="subtle" leftSection={<ArrowClockwise size={18} aria-hidden="true" />} style={{ alignSelf: 'flex-start' }} disabled={busy || dirty || conflict} onClick={() => setConfirm('rerun')}>Rerun AI draft</Button>}
       </>}
     </Stack>
-    <Modal opened={Boolean(confirm)} onClose={() => setConfirm('')} title={confirm === 'prepare' ? 'Prepare an AI draft?' : confirm === 'rerun' ? 'Rerun AI draft?' : 'Approve this checklist?'}>
+    <Modal opened={Boolean(confirm)} onClose={() => setConfirm('')} title={confirm === 'prepare' ? 'Prepare an AI draft?' : confirm === 'rerun' ? 'Rerun AI draft?' : confirm === 'unapprove' ? 'Unapprove this checklist?' : 'Approve this checklist?'}>
       <Stack><Text>{confirm === 'prepare' ? 'Preparing a draft sends the Template PDF to Gemini and uses AI tokens. Check the result and select Approve checklist before using it in AI Review.' : confirm === 'rerun'
         ? 'This sends the Template PDF to Gemini again and uses additional AI tokens. A successful result replaces this saved Review checklist, including your edits. There is no Undo. AI Review cannot use this checklist until you approve it again. Existing AI Review results and Document Check results are kept.'
-        : 'Confirm that you checked the saved checklist against the template PDF.'}</Text><Group justify="flex-end"><Button variant="default" onClick={() => setConfirm('')}>Cancel</Button><Button color={confirm === 'rerun' ? 'orange' : undefined} onClick={() => action(confirm)}>{confirm === 'prepare' ? 'Prepare draft' : confirm === 'rerun' ? 'Rerun AI draft' : 'Confirm approval'}</Button></Group></Stack>
+        : confirm === 'unapprove' ? 'This returns the checklist to Draft. AI Review cannot use it until you approve it again. The checklist, earlier AI Review results and Document Check results are kept.'
+        : 'Confirm that you checked the saved checklist against the template PDF. You can edit or unapprove it later.'}</Text><Group justify="flex-end"><Button variant="default" onClick={() => setConfirm('')}>Cancel</Button><Button color={['rerun', 'unapprove'].includes(confirm) ? 'orange' : undefined} onClick={() => action(confirm)}>{confirm === 'prepare' ? 'Prepare draft' : confirm === 'rerun' ? 'Rerun AI draft' : confirm === 'unapprove' ? 'Confirm unapproval' : 'Confirm approval'}</Button></Group></Stack>
     </Modal>
     <ConfirmDialog open={toRemove !== null} title="Remove checklist item?" intent="danger" confirmLabel="Remove item"
       description={`“${items[toRemove]?.title || 'Untitled item'}” will be permanently removed when you save the draft. There is no Undo for this action.`}
