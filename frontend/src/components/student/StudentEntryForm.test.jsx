@@ -56,4 +56,13 @@ describe('Student entry form', () => {
     await waitFor(() => expect(connectStudentAccount).toHaveBeenCalledTimes(1));
     expect(connected).not.toHaveBeenCalled();
   });
+  it('shows the account recovery message without clearing the typed identity', async () => {
+    connectStudentAccount.mockRejectedValue(Object.assign(new Error('This Google account was disconnected from the Student Number by an administrator. Ask an administrator to recover the account binding.'), { status: 409 }));
+    const connected=setup();fill();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect account' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ask an administrator to recover the account binding.');
+    expect(screen.getByRole('textbox', { name: 'Student Number' })).toHaveValue(' 20-0649-750 ');
+    expect(screen.getByRole('textbox', { name: 'Team Code' })).toHaveValue(' Team-7 ');
+    expect(connected).not.toHaveBeenCalled();
+  });
 });

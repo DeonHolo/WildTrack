@@ -17,6 +17,14 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    @ExceptionHandler(com.capvault.backend.student.StudentAssociationService.AccountBindingConflictException.class)
+    ResponseEntity<ApiErrorResponse> handleAccountBindingConflict(
+        com.capvault.backend.student.StudentAssociationService.AccountBindingConflictException exception
+    ) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiErrorResponse.of(
+            HttpStatus.CONFLICT.value(), exception.getMessage()));
+    }
+
     @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)
     ResponseEntity<ApiErrorResponse> handleConcurrentUpdate() {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiErrorResponse.of(
