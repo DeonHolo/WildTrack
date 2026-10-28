@@ -2,6 +2,7 @@ import { ActionIcon, Button, Pagination, ScrollArea, Table, Text, Tooltip } from
 import { CaretRight, FolderOpen } from '@phosphor-icons/react';
 import { formatDateTime } from '../../lib/workflow.js';
 import { getArchiveStatus, getArchiveVersion } from '../../lib/archive.js';
+import './archive.css';
 
 export function ArchiveIndexTable({
   archives,
@@ -43,7 +44,7 @@ export function ArchiveIndexTable({
               <Table.Th>Version</Table.Th>
               <Table.Th>Archived</Table.Th>
               <Table.Th>Integrity</Table.Th>
-              <Table.Th><span className="sr-only">Open details</span></Table.Th>
+              <Table.Th className="wt-archive-open-cell" aria-label="Open details" />
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -66,7 +67,7 @@ export function ArchiveIndexTable({
                   <Table.Td><Text size="sm" className="wt-nowrap">{getArchiveVersion(archive)}</Text></Table.Td>
                   <Table.Td><Text size="sm" className="wt-nowrap wt-tabular">{formatDateTime(archive.archivedAt)}</Text></Table.Td>
                   <Table.Td><ArchiveStatus status={getArchiveStatus(archive)} /></Table.Td>
-                  <Table.Td>
+                  <Table.Td className="wt-archive-open-cell">
                     <Tooltip label={`Open ${label} archive details`}>
                       <ActionIcon
                         variant="subtle"

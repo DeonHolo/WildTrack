@@ -14,7 +14,15 @@ const workflow = vi.hoisted(() => ({
   archiveAttempts: vi.fn(),
   verifyArchive: vi.fn(),
   retryArchive: vi.fn(),
+  unarchive: vi.fn(),
   refreshArchive: vi.fn()
+}));
+
+vi.mock('../lib/api.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  verifyArchiveRecord: (...args) => workflow.verifyArchive(...args),
+  retryArchiveRecord: (...args) => workflow.retryArchive(...args),
+  unarchiveRecord: (...args) => workflow.unarchive(...args)
 }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
@@ -74,7 +82,7 @@ function makeState(archives = [makeArchive(0)]) {
   return {
     archiveLoadStatus: 'ready',
     archiveLoadError: '',
-    archiveStorage: { configured: false, provider: 'Cloudflare R2' },
+    archiveStorage: { configured: true, ready: true },
     archives,
     attempts: [
       { id: 'accepted-1', reviewStatus: 'Accepted', archiveStatus: 'Not Archived', studentName: 'Ready Student 1' },
@@ -108,7 +116,7 @@ describe('archive index', () => {
     workflow.activeWorkspace = { id: 'workspace-it', name: 'IT Capstone - IT332' };
     workflow.workspaces = [workflow.activeWorkspace, { id: 'workspace-cs', name: 'CS Capstone' }];
     Object.values(workflow).forEach((value) => value?.mockReset?.());
-    workflow.archiveAttempts.mockResolvedValue({ ok: true, archived: 2 });
+    workflow.archiveAttempts.mockResolvedValue({ ok: true, archived: 0, queued: 2 });
     workflow.verifyArchive.mockResolvedValue({ ok: true });
     workflow.retryArchive.mockResolvedValue({ ok: true });
   });
@@ -260,8 +268,8 @@ describe('archive index', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
     const confirmation = await screen.findByRole('dialog', { name: 'Archive 2 accepted finals?' });
     expect(confirmation).toHaveTextContent('2 accepted responses');
-    expect(confirmation).toHaveTextContent('metadata records');
-    expect(confirmation).toHaveTextContent('does not create independent PDF copies');
+    expect(confirmation).toHaveTextContent('queues independent copies');
+    expect(confirmation).toHaveTextContent('Copying may take some time');
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Archive 2 finals' }));
 
     await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledWith('workspace-it', ['accepted-1', 'accepted-2']));
@@ -314,5 +322,45 @@ describe('archive index', () => {
 
     const drawer = screen.getByRole('dialog', { name: 'Archive record details' });
     expect(drawer).toHaveTextContent('Software 002');
+  });
+
+  it('keeps stored files downloadable offline and confirms unarchive with the record version', async () => {
+    workflow.state = { ...makeState([makeArchive(0, {
+      captureState: 'COMPLETE', lifecycleState: 'Archived', stateVersion: 7,
+      storageStatus: 'Stored', files: [{ id: 'f1', label: 'SRS', filename: 'srs.pdf', status: 'Stored', downloadUrl: '/api/archive/a/files/f1?workspaceId=workspace-it' }],
+      history: [{ action: 'Archived', occurredAt: archivedAt, actor: 'Adviser' }]
+    })]), archiveStorage: { configured: false, ready: false } };
+    workflow.unarchive.mockResolvedValue({});
+    renderPage();
+    expect(screen.getByRole('button', { name: 'Archive accepted finals (2)' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Software 001 archive details' }));
+    const drawer = screen.getByRole('dialog', { name: 'Archive record details' });
+    expect(within(drawer).getByRole('link', { name: 'Download SRS' })).toHaveAttribute('href', '/api/archive/a/files/f1?workspaceId=workspace-it');
+    expect(drawer).toHaveTextContent('Adviser');
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Unarchive' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Unarchive this submission?' });
+    expect(confirmation).toHaveTextContent('Preserved copies, answers, and review decisions will remain unchanged');
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Unarchive' }));
+    await waitFor(() => expect(workflow.unarchive).toHaveBeenCalledWith('workspace-it', 'archive-1', 7));
+  });
+
+  it('reports a verification read failure without claiming success', async () => {
+    workflow.state = makeState([makeArchive(0, { captureState: 'COMPLETE', lifecycleState: 'Archived', storageStatus: 'Stored', files: [{ id: 'f1', label: 'SRS', status: 'STORED', downloadUrl: '/api/archive/a/files/f1' }] })]);
+    workflow.verifyArchive.mockRejectedValue(Object.assign(new Error('Unavailable'), { status: 503 }));
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Software 001 archive details' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Archive record details' })).getByRole('button', { name: 'Verify integrity' }));
+    expect(await screen.findByText('The retained copy could not be read.')).toBeInTheDocument();
+    expect(screen.queryByText('Integrity check complete')).not.toBeInTheDocument();
+  });
+
+  it('retries a failed capture with its state version', async () => {
+    workflow.state = makeState([makeArchive(0, { captureState: 'FAILED', lifecycleState: 'Archived', stateVersion: 3, storageStatus: 'Storage failed', error: 'Copy failed' })]);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Software 001 archive details' }));
+    const drawer = screen.getByRole('dialog', { name: 'Archive record details' });
+    expect(drawer).toHaveTextContent('Copy failed');
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Retry archive' }));
+    await waitFor(() => expect(workflow.retryArchive).toHaveBeenCalledWith('workspace-it', 'archive-1', 3));
   });
 });

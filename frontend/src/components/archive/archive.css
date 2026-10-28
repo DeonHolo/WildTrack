@@ -1,0 +1,11 @@
+.wt-archive-table .wt-archive-open-cell {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: #fff;
+  box-shadow: -2px 0 4px rgb(0 0 0 / 8%);
+}
+
+.wt-archive-table th.wt-archive-open-cell {
+  background: #f7f5f5;
+}

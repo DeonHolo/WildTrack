@@ -303,7 +303,11 @@ public class DeadlineFileMonitor {
         // submission to poll indefinitely. A later saved revision is separately
         // eligible, because the archive's source version remains immutable.
         java.util.Set<String> finalized = new java.util.HashSet<>(db.query("""
-            SELECT response_id,source_response_updated_at FROM archive_records WHERE workspace_id=?
+            SELECT a.response_id,a.source_response_updated_at FROM archive_records a
+            JOIN response_acceptances r ON r.response_id=a.response_id
+                AND r.revoked_at IS NULL AND r.source_response_updated_at=a.source_response_updated_at
+                AND r.accepted_at=a.active_acceptance_at
+            WHERE a.workspace_id=? AND a.active=TRUE AND a.capture_state='COMPLETE'
             """, (rs, n) -> rs.getString("response_id") + "|" +
                 rs.getTimestamp("source_response_updated_at").toInstant(), workspaceId));
         for (FormResponse response : responses.findAllByWorkspaceId(workspaceId)) {

@@ -8,10 +8,11 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "archive_records", uniqueConstraints = @UniqueConstraint(
-    name = "uq_archive_response_version", columnNames = {"response_id", "source_response_updated_at"}))
+    name = "uq_archive_accepted_capture", columnNames = {"response_id", "source_response_updated_at", "capture_acceptance_at"}))
 public class ArchiveRecord {
 
     @Id
@@ -32,6 +33,12 @@ public class ArchiveRecord {
     @Column(name = "artifact_snapshot_json", columnDefinition = "TEXT") private String artifactSnapshotJson;
     @Column(name = "metadata_sha256", nullable = false, length = 64) private String metadataSha256;
     @Column(name = "archived_at", nullable = false) private Instant archivedAt;
+    @Column(name = "capture_acceptance_at") private Instant captureAcceptanceAt;
+    @Column(name = "active_acceptance_at") private Instant activeAcceptanceAt;
+    @Column(name = "capture_state", nullable = false, length = 24) private String captureState = "LEGACY";
+    @Column(nullable = false) private boolean active = true;
+    @Version @Column(name = "state_version", nullable = false) private long stateVersion;
+    @Column(name = "capture_error", length = 500) private String captureError;
 
     protected ArchiveRecord() {
     }
@@ -78,4 +85,20 @@ public class ArchiveRecord {
     public String getArtifactSnapshotJson() { return artifactSnapshotJson; }
     public String getMetadataSha256() { return metadataSha256; }
     public Instant getArchivedAt() { return archivedAt; }
+    public Instant getCaptureAcceptanceAt() { return captureAcceptanceAt; }
+    public Instant getActiveAcceptanceAt() { return activeAcceptanceAt; }
+    public String getCaptureState() { return captureState; }
+    public boolean isActive() { return active; }
+    public long getStateVersion() { return stateVersion; }
+    public String getCaptureError() { return captureError; }
+    public void queue(Instant acceptedAt) {
+        if (captureAcceptanceAt == null) captureAcceptanceAt = acceptedAt;
+        activeAcceptanceAt = acceptedAt;
+        captureState = "QUEUED";
+        captureError = null;
+        active = true;
+    }
+    public void setCaptureState(String state, String error) { captureState = state; captureError = error; }
+    public void activate(Instant acceptedAt) { active = true; activeAcceptanceAt = acceptedAt; }
+    public void deactivate() { active = false; }
 }

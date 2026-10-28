@@ -643,7 +643,7 @@ export function ReviewPage() {
   function confirmRevoke(response) {
     modals.openConfirmModal({
       title: 'Revoke this acceptance?',
-      children: <Text size="sm">The response returns to Pending. Any existing archive record remains as an immutable historical snapshot, but it will no longer count as the current archived response unless this response is accepted again.</Text>,
+      children: <Text size="sm">The response returns to Pending. Existing archive records and preserved copies are kept. To archive it again, accept the response and choose Archive response.</Text>,
       labels: { confirm: 'Revoke acceptance', cancel: 'Keep accepted' },
       confirmProps: { color: 'red' },
       centered: true,
@@ -699,7 +699,7 @@ export function ReviewPage() {
   function confirmArchive(response) {
     modals.openConfirmModal({
       title: 'Archive this accepted response?',
-      children: <Text size="sm">WildTrack creates one archive metadata record and snapshots the submitted artifact references. Independent PDF storage is not connected yet.</Text>,
+      children: <Text size="sm">WildTrack will preserve copies of the accepted PDFs. Copying may take some time; check Final archive for progress.</Text>,
       labels: { confirm: 'Archive response', cancel: 'Cancel' },
       confirmProps: { color: 'wildtrackMaroon' },
       centered: true,
@@ -709,18 +709,20 @@ export function ReviewPage() {
         try {
           result = await archiveServerAttempts(activeWorkspaceId, [response.id]);
           if (!isCurrentScope()) return;
-          setState((current) => ({
-            ...current,
-            attempts: current.attempts.map((attempt) => attempt.id === response.id ? { ...attempt, archiveStatus: 'Archived' } : attempt)
-          }));
+          if (result?.records?.some(record => record.captureState === 'COMPLETE' && record.lifecycleState === 'Archived')) {
+            setState((current) => ({
+              ...current,
+              attempts: current.attempts.map((attempt) => attempt.id === response.id ? { ...attempt, archiveStatus: 'Archived' } : attempt)
+            }));
+          }
         } catch (error) {
-          result = { ok: false, error: error?.message || 'The archive record could not be created.' };
+          result = { ok: false, error: error?.message || 'The archive copies could not be queued.' };
         }
         if (!isCurrentScope()) return;
         notifications.show({
-          color: result?.ok ? 'green' : 'red',
-          title: result?.ok ? 'Archive record created' : 'Archive failed',
-          message: result?.ok ? 'The metadata record is now available in Final archive.' : result?.error || 'The archive record could not be created.'
+          color: result?.ok ? 'blue' : 'red',
+          title: result?.ok ? (result?.queued ? 'Archive copies queued' : 'Response archived') : 'Archive failed',
+          message: result?.ok ? (result?.queued ? 'Copying is in progress. Check Final archive for the latest status.' : 'The preserved PDFs are available in Final archive.') : result?.error || 'The archive copies could not be queued.'
         });
       }
     });

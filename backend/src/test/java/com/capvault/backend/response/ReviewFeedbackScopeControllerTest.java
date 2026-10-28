@@ -110,6 +110,12 @@ class ReviewFeedbackScopeControllerTest {
     @Autowired
     private FileCheckReportRepository fileCheckReportRepository;
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.capvault.backend.archive.storage.ArchiveStorageRegistry archiveStorage;
+
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -123,10 +129,12 @@ class ReviewFeedbackScopeControllerTest {
         mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/accept")
                 .cookie(sessionCookie(admin)).with(csrf()))
             .andExpect(status().isOk());
+        pinArchiveProof(assignedResponseId);
         mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString())
                 .cookie(sessionCookie(admin)).with(csrf()).contentType("application/json")
                 .content("{\"responseIds\":[\"" + assignedResponseId + "\"]}"))
             .andExpect(status().isOk());
+        completeArchiveFixture(assignedResponseId);
         mockMvc.perform(get("/api/monitoring").param("workspaceId", workspaceId.toString())
                 .cookie(sessionCookie(admin)))
             .andExpect(status().isOk())
@@ -142,7 +150,7 @@ class ReviewFeedbackScopeControllerTest {
     }
 
     @Test
-    void revokeHidesCurrentArchiveWithoutDeletingSnapshotAndReacceptRestoresIt() throws Exception {
+    void reacceptRequiresExplicitRearchiveWithoutDeletingThePreservedSnapshot() throws Exception {
         String admin = sessionTokenFor("archive-revoke-admin", "archive-revoke-admin@school.edu", StaffRole.ADMIN);
         Cookie cookie = sessionCookie(admin);
         String body = "{\"responseIds\":[\"" + assignedResponseId + "\"]}";
@@ -150,9 +158,11 @@ class ReviewFeedbackScopeControllerTest {
         mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/accept")
                 .cookie(cookie).with(csrf()))
             .andExpect(status().isOk());
+        pinArchiveProof(assignedResponseId);
         mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString())
                 .cookie(cookie).with(csrf()).contentType("application/json").content(body))
             .andExpect(status().isOk());
+        completeArchiveFixture(assignedResponseId);
 
         var response = responseRepository.findById(assignedResponseId).orElseThrow();
         var archived = archiveRepository.findByResponseIdAndSourceResponseUpdatedAt(
@@ -174,7 +184,8 @@ class ReviewFeedbackScopeControllerTest {
         mockMvc.perform(get("/api/monitoring").param("workspaceId", workspaceId.toString())
                 .cookie(cookie))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.archivedResponseIds[0]").value(assignedResponseId.toString()));
+            .andExpect(jsonPath("$.archivedResponseIds").isEmpty());
+        pinArchiveProof(assignedResponseId);
         mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString())
                 .cookie(cookie).with(csrf()).contentType("application/json").content(body))
             .andExpect(status().isOk())
@@ -216,6 +227,7 @@ class ReviewFeedbackScopeControllerTest {
         mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/accept")
                 .cookie(cookie).with(csrf()))
             .andExpect(status().isOk());
+        pinArchiveProof(assignedResponseId);
         mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString())
                 .cookie(cookie).with(csrf()).contentType("application/json")
                 .content("{\"responseIds\":[\"" + assignedResponseId + "\"]}"))
@@ -243,9 +255,11 @@ class ReviewFeedbackScopeControllerTest {
         mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/accept")
                 .cookie(cookie).with(csrf()))
             .andExpect(status().isOk());
+        pinArchiveProof(assignedResponseId);
         mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString())
                 .cookie(cookie).with(csrf()).contentType("application/json").content(body))
             .andExpect(status().isOk());
+        completeArchiveFixture(assignedResponseId);
 
         var response = responseRepository.findById(assignedResponseId).orElseThrow();
         var acceptance = acceptanceRepository.findByResponseIdAndRevokedAtIsNull(assignedResponseId).orElseThrow();
@@ -313,10 +327,7 @@ class ReviewFeedbackScopeControllerTest {
             workspaceId, studentRecord.getId(), "dashboard-admin-disconnect", "dashboard-admin@example.test");
         mockMvc.perform(get("/api/workspace/students/dashboard").param("workspaceId", workspaceId.toString())
                 .cookie(sessionCookie(token)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.students.length()").value(0))
-            .andExpect(jsonPath("$.responses.length()").value(0))
-            .andExpect(jsonPath("$.responseTimings").isEmpty());
+            .andExpect(status().isForbidden());
     }
 
     @Test
@@ -385,9 +396,7 @@ class ReviewFeedbackScopeControllerTest {
         var other = workspaceRepository.save(new AcademicWorkspace("CS dashboard", "CS", "CS332", "Semester 2", "2026-27", true));
         mockMvc.perform(get("/api/workspace/students/dashboard").param("workspaceId", other.getId().toString())
                 .cookie(sessionCookie(sessionTokenFor("sub-student-a", "a@gmail.com"))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.responses.length()").value(0))
-            .andExpect(jsonPath("$.students.length()").value(0));
+            .andExpect(status().isForbidden());
     }
 
     @Test
@@ -409,6 +418,9 @@ class ReviewFeedbackScopeControllerTest {
 
     @BeforeEach
     void seed() {
+        var provider=org.mockito.Mockito.mock(com.capvault.backend.archive.storage.ArchiveStorageProvider.class);
+        org.mockito.Mockito.when(provider.id()).thenReturn("fixture:scope");
+        org.mockito.Mockito.when(archiveStorage.defaultProvider()).thenReturn(provider);
         var workspace = workspaceRepository.save(
             new AcademicWorkspace("IT332 Sem 2", "IT", "IT332", "Semester 2", "2026-27", true));
         workspaceId = workspace.getId();
@@ -584,6 +596,35 @@ class ReviewFeedbackScopeControllerTest {
             .andExpect(jsonPath("$.responses.length()").value(2));
     }
 
+    // These controller tests seed saved source proof and completed-copy state.
+    // ArchiveCaptureIntegrationTest exercises real acceptance pinning and copying.
+    private void pinArchiveProof(UUID responseId) throws Exception {
+        var response=responseRepository.findById(responseId).orElseThrow();
+        var values=objectMapper.readTree(response.getValuesJson());
+        var pdfs=new java.util.ArrayList<AcceptedPdfSnapshotService.Pdf>();
+        for (var field:deliverableFieldRepository.findAllByDeliverableIdOrderByDisplayOrderAscLabelAsc(response.getDeliverableId())) {
+            if (field.getFieldType()!=DeliverableFieldType.DRIVE_PDF || values.path(field.getFieldKey()).asText("").isBlank()) continue;
+            String url=values.path(field.getFieldKey()).asText();
+            String id=com.capvault.backend.drive.DriveLinkParser.parse(url).fileId();
+            pdfs.add(new AcceptedPdfSnapshotService.Pdf(field.getFieldKey(),field.getLabel(),url,id,null,
+                "00000000000000000000000000000000",1,"2026-10-01T00:00:00Z","2026-10-01T00:00:00"));
+        }
+        if (pdfs.isEmpty()) pdfs.add(new AcceptedPdfSnapshotService.Pdf("fixture","Fixture PDF",
+            "https://drive.google.com/file/d/fixture/view","fixture",null,
+            "00000000000000000000000000000000",1,"2026-10-01T00:00:00Z","2026-10-01T00:00:00"));
+        var acceptance=acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId).orElseThrow();
+        acceptance.setSourceArtifactsJson(objectMapper.writeValueAsString(new AcceptedPdfSnapshotService.Manifest(true,null,pdfs)));
+        acceptanceRepository.saveAndFlush(acceptance);
+    }
+    private void completeArchiveFixture(UUID responseId) {
+        var response=responseRepository.findById(responseId).orElseThrow();
+        var record=archiveRepository.findByResponseIdAndSourceResponseUpdatedAt(responseId,response.getUpdatedAt()).orElseThrow();
+        record.setCaptureState("COMPLETE",null);
+        archiveRepository.saveAndFlush(record);
+        jdbc.update("UPDATE archive_files SET status='STORED',object_id='fixture',sha256=?,captured_at=CURRENT_TIMESTAMP WHERE archive_id=?",
+            "0".repeat(64),record.getId());
+    }
+
     private void accept(UUID responseId) {
         var response = responseRepository.findById(responseId).orElseThrow();
         acceptanceRepository.save(new ResponseAcceptance(UUID.randomUUID(), response, "sub-admin",
@@ -616,7 +657,8 @@ class ReviewFeedbackScopeControllerTest {
         Cookie admin = sessionCookie(sessionTokenFor("sub-admin", "admin@school.edu", StaffRole.ADMIN));
         String body = "{\"responseIds\":[\"" + assignedResponseId + "\"]}";
         for (int i = 0; i < 2; i++) {
-            mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString()).cookie(admin)
+            pinArchiveProof(assignedResponseId);
+        mockMvc.perform(post("/api/archive").param("workspaceId", workspaceId.toString()).cookie(admin)
                     .with(csrf()).contentType("application/json").content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].version").value("v1"))

@@ -4,13 +4,14 @@ import { notifications } from '@mantine/notifications';
 import { formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 import { getArchiveStatus, getArchiveVersion } from '../../lib/archive.js';
 
-export function ArchiveRecordDrawer({ archive, opened, storageConfigured, onClose, onVerify, onRetry }) {
+export function ArchiveRecordDrawer({ archive, opened, storageReady, action, onClose, onVerify, onRetry, onUnarchive }) {
   if (!archive) return null;
   const stored = archive.storageStatus === 'Stored' && Boolean(archive.downloadUrl || archive.fileSha256);
   const status = getArchiveStatus(archive);
   const canDownload = stored && Boolean(archive.downloadUrl);
-  const canVerify = storageConfigured && stored && typeof onVerify === 'function';
-  const canRetry = storageConfigured && archive.storageStatus === 'Failed' && typeof onRetry === 'function';
+  const files = Array.isArray(archive.files) ? archive.files : [];
+  const canVerify = files.length > 0 && files.every((file) => file.downloadUrl && String(file.status).toUpperCase() === 'STORED') && typeof onVerify === 'function';
+  const canRetry = storageReady && (archive.captureState === 'FAILED' || archive.storageStatus === 'Storage failed') && typeof onRetry === 'function';
   const artifacts = Array.isArray(archive.artifacts) ? archive.artifacts : [];
 
   async function copyValue(value, label) {
@@ -48,18 +49,28 @@ export function ArchiveRecordDrawer({ archive, opened, storageConfigured, onClos
             <ArchiveIntegrityIcon status={status} />
           </Group>
           <div className="wt-archive-preservation-state">
-            <Text fw={750}>{stored ? status : 'Independent PDF copy not stored'}</Text>
+            <Text fw={750}>{archive.captureState ? `${archive.storageStatus || status} · ${archive.lifecycleState || 'Archived'}` : stored ? status : 'Independent PDF copy not stored'}</Text>
             <Text size="sm" c="dimmed">
-              {stored ? 'An independent file is associated with this archive record.' : 'Submitted artifact links remain source references, not independently preserved files.'}
+              {archive.captureState === 'LEGACY' || (!archive.captureState && !stored) ? 'This record contains metadata and source references. No independent copy was captured.' : archive.captureState === 'QUEUED' || archive.captureState === 'COPYING' ? 'Copies are being prepared.' : 'See each file below for its preservation state.'}
             </Text>
           </div>
-          <DetailCode
+          {!archive.captureState || archive.metadataSha256 ? <DetailCode
             label={stored ? 'Archived file SHA-256' : 'Metadata checksum'}
             value={stored ? archive.fileSha256 : (archive.metadataSha256 || archive.sha256)}
             onCopy={copyValue}
-          />
-          {archive.failureReason ? <Text size="sm" c="red.7"><strong>Failure:</strong> {archive.failureReason}</Text> : null}
+          /> : null}
+          {archive.error || archive.failureReason ? <Text size="sm" c="red.7"><strong>Failure:</strong> {archive.error || archive.failureReason}</Text> : null}
         </section>
+
+        {files.length ? <section className="wt-archive-drawer-section">
+          <Title order={3}>Preserved files</Title>
+          <Stack gap="sm">{files.map((file) => <PaperFile key={file.id} file={file} onCopy={copyValue} />)}</Stack>
+        </section> : null}
+
+        {archive.history?.length ? <section className="wt-archive-drawer-section">
+          <Title order={3}>History</Title>
+          <Stack gap="xs">{archive.history.map((event, index) => <Text size="sm" key={`${event.action}-${event.occurredAt}-${index}`}>{historyLabel(event.action)} · {formatDateTime(event.occurredAt)}{event.actor ? ` · ${event.actor === 'archive-worker' ? 'WildTrack' : event.actor}` : ''}</Text>)}</Stack>
+        </section> : null}
 
         <Divider />
 
@@ -76,7 +87,7 @@ export function ArchiveRecordDrawer({ archive, opened, storageConfigured, onClos
             <Detail label="Deliverable" value={archive.deliverableTitle} />
             <Detail label="Version" value={getArchiveVersion(archive)} />
             <Detail label="Archive date" value={formatDateTime(archive.archivedAt)} />
-            <Detail label="Archived filename" value={stored ? archive.filename : 'Not created'} wide />
+            {!files.length ? <Detail label="Archived filename" value={stored ? archive.filename : 'Not created'} wide /> : null}
           </dl>
           {stored ? <DetailCode label="Archive storage key" value={archive.storageKey} onCopy={copyValue} /> : null}
         </section>
@@ -132,7 +143,7 @@ export function ArchiveRecordDrawer({ archive, opened, storageConfigured, onClos
                 Open submitted source
               </Button>
             ) : null}
-            <DisabledActionTooltip disabled={!canDownload} label="No independently stored PDF is available to download.">
+            {!files.length && !archive.captureState ? <DisabledActionTooltip disabled={!canDownload} label="No independently stored PDF is available to download.">
               <Button
                 component={canDownload ? 'a' : 'button'}
                 href={canDownload ? archive.downloadUrl : undefined}
@@ -142,27 +153,30 @@ export function ArchiveRecordDrawer({ archive, opened, storageConfigured, onClos
               >
                 Download archived PDF
               </Button>
-            </DisabledActionTooltip>
-            <DisabledActionTooltip disabled={!canVerify} label="Integrity verification becomes available after independent archive storage is connected.">
+            </DisabledActionTooltip> : null}
+            <DisabledActionTooltip disabled={!canVerify} label="No preserved file is available to verify.">
               <Button
-                disabled={!canVerify}
+                disabled={!canVerify || Boolean(action)}
+                loading={action === 'verify'}
                 variant="default"
                 leftSection={<ShieldCheck size={17} />}
-                onClick={() => onVerify?.(archive.id)}
+                onClick={() => onVerify?.(archive)}
               >
                 Verify integrity
               </Button>
             </DisabledActionTooltip>
             <DisabledActionTooltip disabled={!canRetry} label="Retry is available only for a failed independent archive copy.">
               <Button
-                disabled={!canRetry}
+                disabled={!canRetry || Boolean(action)}
+                loading={action === 'retry'}
                 variant="default"
                 leftSection={<WarningCircle size={17} />}
-                onClick={() => onRetry?.(archive.id)}
+                onClick={() => onRetry?.(archive)}
               >
                 Retry archive
               </Button>
             </DisabledActionTooltip>
+            {archive.lifecycleState === 'Archived' ? <Button variant="default" disabled={Boolean(action)} loading={action === 'unarchive'} onClick={() => onUnarchive?.(archive)}>Unarchive</Button> : null}
           </Group>
         </section>
       </Stack>
@@ -170,8 +184,23 @@ export function ArchiveRecordDrawer({ archive, opened, storageConfigured, onClos
   );
 }
 
+function PaperFile({ file, onCopy }) {
+  return <div>
+    <Text fw={700} size="sm">{file.label || file.filename || 'File'}</Text>
+    <Text size="sm" c="dimmed">{file.filename || 'Filename unavailable'} · {({ STORED: 'Preserved', QUEUED: 'Queued', COPYING: 'Copying', FAILED: 'Copy failed' })[file.status] || file.status || 'Unavailable'}{file.size != null ? ` · ${file.size.toLocaleString()} bytes` : ''}</Text>
+    {file.capturedAt ? <Text size="xs" c="dimmed">Captured {formatDateTime(file.capturedAt)}</Text> : null}
+    {file.error ? <Text size="sm" c="red.7">{file.error}</Text> : null}
+    {file.sha256 ? <DetailCode label="SHA-256" value={file.sha256} onCopy={onCopy} /> : null}
+    {file.downloadUrl && String(file.status).toUpperCase() === 'STORED' ? <Button component="a" href={file.downloadUrl} variant="default" size="xs" mt="xs" leftSection={<DownloadSimple size={15} />}>Download {file.label || file.filename || 'file'}</Button> : null}
+  </div>;
+}
+
 function isWebLink(value) {
   return /^https?:\/\//i.test(String(value || '').trim());
+}
+
+function historyLabel(action) {
+  return ({ ARCHIVE_QUEUED: 'Copying requested', ARCHIVE_COMPLETED: 'PDFs preserved', ARCHIVE_COPY_FAILED: 'Copy failed', ARCHIVE_UNARCHIVED: 'Unarchived', ARCHIVE_REACTIVATED: 'Archived again', ARCHIVE_VERIFIED: 'Copies verified', ARCHIVE_RETRY_REQUESTED: 'Copy retry requested' })[action] || action;
 }
 
 function archiveArtifactTypeLabel(type) {

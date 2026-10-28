@@ -133,10 +133,14 @@ public class StaffMonitoringController {
             : java.util.Map.<UUID, java.util.Map<String, Object>>of();
         var activeAcceptanceVersions = reviews.activeAcceptanceVersionsFor(
             responses.stream().map(FormResponse::getId).toList());
+        var activeAcceptanceTimes = reviews.activeAcceptanceTimesFor(
+            responses.stream().map(FormResponse::getId).toList());
         var visibleVersions = responses.stream().collect(Collectors.toMap(FormResponse::getId, FormResponse::getUpdatedAt));
         var archivedResponseIds = archiveRepository.findAllByWorkspaceIdOrderByArchivedAtDesc(workspaceId).stream()
+            .filter(record -> record.isActive() && "COMPLETE".equals(record.getCaptureState()))
             .filter(record -> record.getSourceResponseUpdatedAt().equals(visibleVersions.get(record.getResponseId())))
             .filter(record -> record.getSourceResponseUpdatedAt().equals(activeAcceptanceVersions.get(record.getResponseId())))
+            .filter(record -> java.util.Objects.equals(record.getActiveAcceptanceAt(),activeAcceptanceTimes.get(record.getResponseId())))
             .map(record -> record.getResponseId()).distinct().toList();
         var rows = rowRepository.findAllByWorkspaceIdOrderByTeamCodeAscMemberNumberAscStudentNameAsc(workspaceId).stream()
             .filter(row -> allTeams || containsTeam(teams, row.getTeamCode())).toList();

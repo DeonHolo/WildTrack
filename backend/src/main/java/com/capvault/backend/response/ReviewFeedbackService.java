@@ -21,6 +21,7 @@ public class ReviewFeedbackService {
     private final Clock clock;
     private final DomainEventRecorder events;
     private final CanonicalResponseService canonical;
+    private final AcceptedPdfSnapshotService acceptedPdfSnapshots;
 
     public ReviewFeedbackService(
         FormResponseRepository responseRepository,
@@ -29,7 +30,8 @@ public class ReviewFeedbackService {
         AdviserTeamAssignmentRepository adviserTeamRepository,
         Clock clock,
         DomainEventRecorder events,
-        CanonicalResponseService canonical
+        CanonicalResponseService canonical,
+        AcceptedPdfSnapshotService acceptedPdfSnapshots
     ) {
         this.responseRepository = responseRepository;
         this.feedbackRepository = feedbackRepository;
@@ -38,6 +40,7 @@ public class ReviewFeedbackService {
         this.clock = clock;
         this.events = events;
         this.canonical = canonical;
+        this.acceptedPdfSnapshots = acceptedPdfSnapshots;
     }
 
     /** Staff can create or update ONE current student-visible note per response (edits in place). */
@@ -71,22 +74,26 @@ public class ReviewFeedbackService {
      */
     @Transactional
     public ResponseAcceptance accept(UUID responseId, String subject, String email, String role) {
-        FormResponse response = responseRepository.findById(responseId)
+        FormResponse response = responseRepository.findByIdForUpdate(responseId)
             .orElseThrow(() -> new IllegalArgumentException("Response not found."));
         requireTeamAccess(response, subject, role, "accept");
         events.record(response.getWorkspaceId(), responseId, subject, "RESPONSE_ACCEPTED",
             java.util.Map.of("role", role, "revision", response.getRevision()));
         canonical.recordAcceptanceIfFirst(response, subject);
+        String sourceArtifacts = acceptedPdfSnapshots.capture(response);
         Instant now = clock.instant();
         var existing = acceptanceRepository.findByResponseId(responseId);
         if (existing.isPresent()) {
             ResponseAcceptance acceptance = existing.get();
             acceptance.reactivate(subject, email, role, response.getUpdatedAt(), now);
+            acceptance.setSourceArtifactsJson(sourceArtifacts);
             return acceptanceRepository.save(acceptance);
         }
-        return acceptanceRepository.save(new ResponseAcceptance(
+        ResponseAcceptance acceptance = new ResponseAcceptance(
             UUID.randomUUID(), response, subject, email, role,
-            response.getUpdatedAt(), now));
+            response.getUpdatedAt(), now);
+        acceptance.setSourceArtifactsJson(sourceArtifacts);
+        return acceptanceRepository.save(acceptance);
     }
 
     /**
@@ -122,6 +129,7 @@ public class ReviewFeedbackService {
 
     @Transactional
     public void revoke(UUID responseId) {
+        responseRepository.findByIdForUpdate(responseId).orElseThrow(() -> new IllegalArgumentException("Response not found."));
         acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId)
             .ifPresent(acceptance -> {
                 acceptance.setRevokedAt(clock.instant());
@@ -131,7 +139,7 @@ public class ReviewFeedbackService {
 
     @Transactional
     public void revoke(UUID responseId, String subject, String role) {
-        var response = responseRepository.findById(responseId).orElseThrow(() -> new IllegalArgumentException("Response not found."));
+        var response = responseRepository.findByIdForUpdate(responseId).orElseThrow(() -> new IllegalArgumentException("Response not found."));
         requireTeamAccess(response, subject, role, "revoke");
         if (acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId).isPresent()) {
             events.record(response.getWorkspaceId(), responseId, subject, "ACCEPTANCE_REVOKED", java.util.Map.of("role", role));
@@ -174,6 +182,13 @@ public class ReviewFeedbackService {
             .collect(java.util.stream.Collectors.toMap(
                 acceptance -> acceptance.getResponse().getId(),
                 ResponseAcceptance::getSourceResponseUpdatedAt));
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, Instant> activeAcceptanceTimesFor(List<UUID> ids) {
+        if (ids.isEmpty()) return java.util.Map.of();
+        return acceptanceRepository.findAllByResponseIdInAndRevokedAtIsNull(ids).stream()
+            .collect(java.util.stream.Collectors.toMap(a -> a.getResponse().getId(),ResponseAcceptance::getAcceptedAt));
     }
 
     @Transactional(readOnly = true)
