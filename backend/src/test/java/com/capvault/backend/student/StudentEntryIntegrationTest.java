@@ -115,4 +115,36 @@ class StudentEntryIntegrationTest {
             .andExpect(header().string("Retry-After", "60"))
             .andExpect(jsonPath("$.error").value("Too many attempts. Wait a minute before trying again."));
     }
+
+    @Test void httpExistingClaimReturnsConflictWithoutReplacingTheOwner() throws Exception {
+        Fixture f=fixture(true,true);
+        String owner=UUID.randomUUID().toString();
+        connect(f,owner);
+        String claimant=UUID.randomUUID().toString();
+        var login=sessions.create(new GoogleIdentity(claimant,"new-account@example.test","Student",""));
+        var cookie=new jakarta.servlet.http.Cookie("WILDTRACK_SESSION",login.rawToken());
+        String body="{\"studentNumber\":\""+f.record().getStudentNumber()+"\",\"studentName\":\"Full Student Name\",\"teamCode\":\"Team-7\"}";
+        mvc.perform(post("/api/workspace/students/connect").cookie(cookie).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error").value("This Student Number is already associated with another Google account. Ask an administrator to review the account binding."));
+        assertThat(associations.activeAssociation(f.workspace().getId(),owner)).isPresent();
+        assertThat(associations.activeAssociation(f.workspace().getId(),claimant)).isEmpty();
+    }
+
+    @Test void httpDisconnectedAccountCannotReclaimItselfAndHasNoWorkspaceCatalogue() throws Exception {
+        Fixture f=fixture(true,true);
+        String owner=UUID.randomUUID().toString();
+        connect(f,owner);
+        associations.adminDisconnect(f.workspace().getId(),f.record().getId(),"admin","admin@example.test");
+        var login=sessions.create(new GoogleIdentity(owner,"owner@example.test","Student",""));
+        var cookie=new jakarta.servlet.http.Cookie("WILDTRACK_SESSION",login.rawToken());
+        mvc.perform(get("/api/workspaces").cookie(cookie)).andExpect(status().isOk()).andExpect(content().json("[]"));
+        String body="{\"studentNumber\":\""+f.record().getStudentNumber()+"\",\"studentName\":\"Full Student Name\",\"teamCode\":\"Team-7\"}";
+        mvc.perform(post("/api/workspace/students/connect").cookie(cookie).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error").value("This Google account was disconnected from the Student Number by an administrator. Ask an administrator to recover the account binding."));
+        assertThat(associations.activeAssociation(f.workspace().getId(),owner)).isEmpty();
+    }
 }

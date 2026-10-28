@@ -803,6 +803,19 @@ describe('student dashboard', () => {
     expect(screen.queryByRole('combobox', { name: 'Workspace' })).not.toBeInTheDocument();
   });
 
+  it('shows manual connection after disconnection even with a stale selected workspace', () => {
+    associateAccount();
+    workflow.workspaces = [];
+    workflow.needsWorkspaceChoice = true;
+    renderDashboard();
+    expect(screen.getByRole('heading', { name: 'Connect your student account' })).toBeInTheDocument();
+    for (const name of ['Student Number', 'Student Name', 'Team Code']) {
+      expect(screen.getByRole('textbox', { name })).toHaveValue('');
+    }
+    expect(screen.queryByRole('heading', { name: 'Choose your workspace' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
   it('shows a failed switch and keeps the picker available for retry', async () => {
     associateAccount({ studentNumber: '' });
     workflow.needsWorkspaceChoice = true;

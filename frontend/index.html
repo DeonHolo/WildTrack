@@ -7,6 +7,26 @@
     <link rel="icon" type="image/svg+xml" href="/src/assets/brand/mark.svg?no-inline" />
     <meta name="description" content="WildTrack capstone submissions, reviews, project tracking, and academic records." />
     <meta name="theme-color" content="#65152e" />
+    <script>
+      (() => {
+        const path = window.location.pathname;
+        const image = /^\/student\/?$/.test(path)
+          ? '/assets/WELCOME%20TO%20WILDMAPS.webp'
+          : /^\/(?:s|submit)\//.test(path) || /^\/w\/[^/]+\/submit\//.test(path)
+            ? '/assets/Showing%20PDF.webp'
+            : /^(?:\/|\/login\/?|\/register\/?)$/.test(path)
+              ? '/assets/FIND%20QUEST%20NODES.webp'
+              : '';
+        if (!image) return;
+        const link = document.createElement('link');
+        link.rel = 'preload';
+        link.as = 'image';
+        link.type = 'image/webp';
+        link.href = image;
+        link.fetchPriority = 'high';
+        document.head.appendChild(link);
+      })();
+    </script>
     <title>WildTrack</title>
   </head>
   <body>
