@@ -12,6 +12,7 @@ const LEGACY_VERIFICATION = /^Mapped-template (?:body heading|transaction artifa
 
 export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', reviewedOn = '' }) {
   if (!report) return null;
+  const missingTemplate = report.limitations?.find(limit => typeof limit === 'string' && limit.startsWith('No official template was supplied'));
   const originalFindings = report.findings || legacyFindings(report.flags);
   const legacyNotes = originalFindings.filter(isLegacyVerification).map(legacyVerification);
   const allFindings = uniqueByClaim(originalFindings.filter(finding => !isLegacyVerification(finding)));
@@ -59,6 +60,9 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
 
   return (
     <Stack gap="lg" className="wt-ai-review-report">
+      {missingTemplate ? <Alert color="orange" title="No official template" role="status">
+        AI Review could not compare this PDF against an official template. Findings are limited to the available deliverable instructions and PDF content.
+      </Alert> : null}
       {report.documentOverview?.text ? <section aria-label="Document overview">
         <div className="wt-ai-review-overview-heading">
           <Text component="h3" fw={700}>Document overview</Text>

@@ -51,6 +51,24 @@ public class TemplateInstructionStore {
         return find(versionId).filter(state -> token.equals(state.token()));
     }
 
+    /** Called in the checklist rerun transaction, under its template lock. */
+    public UUID restart(UUID versionId) {
+        var saved = find(versionId).orElse(null);
+        if (saved == null) return null;
+        if ("PROCESSING".equals(saved.state()))
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.CONFLICT, "Template AI preparation is already running.");
+        UUID retry = UUID.randomUUID();
+        if (db.update("""
+            UPDATE template_instruction_sets SET state='FAILED',claim_token=?,completed_page=0,
+                items_json='[]',failure_code='REGENERATION_REQUESTED',updated_at=CURRENT_TIMESTAMP
+            WHERE version_id=? AND protocol_version=? AND claim_token=? AND state<>'PROCESSING'
+            """, retry, versionId, TemplateInstructionProtocol.VERSION, saved.token()) != 1)
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.CONFLICT, "Template AI preparation changed. Reload before trying again.");
+        return retry;
+    }
+
     public boolean startRequest(State state) {
         return db.update("""
             UPDATE template_instruction_sets SET request_count = request_count + 1,

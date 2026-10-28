@@ -24,7 +24,7 @@ describe('template checklist batch', () => {
     expect(within(dialog).getByRole('checkbox', { name: 'Template new' })).toBeChecked();
     expect(within(dialog).getByRole('checkbox', { name: 'Template failed' })).not.toBeChecked();
     for (const id of ['draft', 'approved', 'pdf']) expect(within(dialog).getByRole('checkbox', { name: `Template ${id}` })).toBeDisabled();
-    expect(within(dialog).getByText(/does not review student submissions or approve/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/does not run AI Review on submissions or approve/)).toBeInTheDocument();
     expect(api.prepare).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close', exact: true }));
     expect(api.prepare).not.toHaveBeenCalled();
@@ -49,6 +49,34 @@ describe('template checklist batch', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Prepare drafts' }));
     await waitFor(() => expect(api.prepare).toHaveBeenCalledTimes(1));
     expect(api.prepare.mock.calls[0][1].map(item => item.templateId)).toEqual(['new', 'failed']);
+  });
+  it('opens saved drafts with readable names and direct links instead of silently refreshing counts', async () => {
+    render(tree());
+    fireEvent.click(await screen.findByRole('button', { name: 'Check saved drafts' }));
+    const dialog=await screen.findByRole('dialog', { name: 'Saved template AI drafts' });
+    expect(within(dialog).getByText(/Opening it does not send an AI request/)).toBeVisible();
+    expect(within(dialog).getByText('Template draft')).toBeVisible();
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(within(dialog).getAllByRole('link', { name: 'Open checklist' })).toHaveLength(items.length);
+    expect(within(dialog).getAllByRole('link')[2]).toHaveAttribute('href', '/templates/draft/preview?workspaceId=workspace-a');
+    expect(within(dialog).queryByRole('button', { name: 'Prepare drafts' })).not.toBeInTheDocument();
+    expect(api.prepare).not.toHaveBeenCalled();
+  });
+  it('reruns saved drafts only after an explicit mode and replacement acknowledgement', async () => {
+    api.prepare.mockResolvedValue(items.map(item=>['draft','approved'].includes(item.templateId)?{...item,state:'QUEUED',revision:3}:item));
+    render(tree()); await open();
+    fireEvent.click(screen.getByRole('checkbox',{name:'Rerun saved AI drafts',exact:true}));
+    const dialog=screen.getByRole('dialog',{name:'Rerun template AI drafts'});
+    expect(within(dialog).getByRole('checkbox',{name:'Template draft'})).toBeChecked();
+    expect(within(dialog).getByRole('checkbox',{name:'Template approved'})).toBeChecked();
+    expect(within(dialog).getByRole('checkbox',{name:'Template new'})).toBeDisabled();
+    expect(within(dialog).getByRole('button',{name:'Rerun AI drafts'})).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole('checkbox',{name:'Replace the selected saved Review checklists'}));
+    fireEvent.click(within(dialog).getByRole('button',{name:'Rerun AI drafts'}));
+    await waitFor(()=>expect(api.prepare).toHaveBeenCalledExactlyOnceWith('workspace-a',[
+      {templateId:'draft',versionId:'v-draft',expectedRevision:2,rerun:true},
+      {templateId:'approved',versionId:'v-approved',expectedRevision:2,rerun:true}
+    ]));
   });
   it('reloads a lost submission response without repeating it or leaving stale selections', async () => {
     api.prepare.mockRejectedValue(new Error('Request could not be confirmed'));

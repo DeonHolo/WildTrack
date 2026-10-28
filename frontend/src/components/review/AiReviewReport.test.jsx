@@ -5,6 +5,20 @@ import { AiReviewReport } from './AiReviewReport.jsx';
 
 function show(report) { render(<MantineProvider><AiReviewReport report={report} /></MantineProvider>); }
 
+it('shows missing-template scope prominently rather than only inside collapsed review limits', () => {
+  show({ documentOverview:{text:'A project plan.',wrongDocument:false},findings:[],
+    limitations:['No official template was supplied, so compliance with a specific template structure was not assessed.'] });
+  const notice=screen.getByText('No official template').closest('[role="status"]');
+  expect(notice).toBeVisible();
+  expect(notice).toHaveTextContent('Findings are limited to the available deliverable instructions and PDF content.');
+  expect(notice.compareDocumentPosition(screen.getByRole('region',{name:'Document overview'})) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it('does not call an approved-template report missing a template', () => {
+  show({findings:[],limitations:['Graphical content requires inspection in the original PDF.']});
+  expect(screen.queryByText('No official template')).not.toBeInTheDocument();
+});
+
 it('summarizes a completed one-instruction template without an artificial coverage warning', () => {
   show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', findings: [], verificationNotes: [], verifiedChecks: [],
     coverage: { omittedCriteria: 0, criteria: [{ id: 'T1', title: 'Describe project responsibilities',

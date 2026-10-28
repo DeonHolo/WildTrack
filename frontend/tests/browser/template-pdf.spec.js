@@ -63,6 +63,12 @@ async function installTemplate(page, { role = 'admin', state = ready, getStructu
       checklistView = { ...checklistView, state: 'APPROVED', revision: checklistView.revision + 1 };
       return json(checklistView);
     }
+    if (url.pathname.endsWith('/checklist/rerun')) {
+      expect(request.method()).toBe('POST');
+      expect(request.postDataJSON()).toEqual({versionId:lastState.versionId,expectedRevision:checklistView.revision});
+      checklistView={...checklistView,state:'QUEUED',revision:checklistView.revision+1,approvedAt:null};
+      return json(checklistView);
+    }
     if (url.pathname.endsWith('/pdf/retry')) {
       expect(request.method()).toBe('POST');
       expect(url.searchParams.get('versionId')).toBe(versionId);
@@ -78,12 +84,44 @@ async function installTemplate(page, { role = 'admin', state = ready, getStructu
 }
 
 for (const width of [390, 1440]) {
+  test(`rerunning a template draft requires a replacement warning at ${width}px`, async ({page},testInfo) => {
+    await page.setViewportSize({width,height:950});
+    const draft={versionId,revision:4,state:'APPROVED',pdfPages:2,items:[{title:'Project purpose',instruction:'Describe the project purpose.',
+      sourceQuote:'Describe the project purpose.',section:'Purpose',page:1,applicability:'REQUIRED',condition:''}]};
+    const fixture=await installTemplate(page,{checklist:draft});
+    await page.goto(previewUrl);
+    await page.getByRole('button',{name:'Rerun AI draft',exact:true}).click();
+    const dialog=page.getByRole('dialog',{name:'Rerun AI draft?'});
+    await expect(dialog.getByText(/There is no Undo/)).toBeVisible();
+    await expect(dialog.getByText(/Existing AI Review results and Document Check results are kept/)).toBeVisible();
+    await page.screenshot({path:testInfo.outputPath(`template-rerun-confirm-${width}.png`)});
+    await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+    expect(fixture.templateCalls.filter(call=>call.method!=='GET')).toHaveLength(0);
+    await page.getByRole('button',{name:'Rerun AI draft',exact:true}).click();
+    await dialog.getByRole('button',{name:'Rerun AI draft',exact:true}).click();
+    await expect(page.getByText('Preparing the draft. You can leave this page and return later.')).toBeVisible();
+    await expect(page.getByRole('button',{name:'Project purpose',exact:true})).toBeAttached();
+    await expect(page.getByRole('button',{name:'Approve checklist',exact:true})).toBeDisabled();
+    expect(fixture.templateCalls.filter(call=>call.method!=='GET').map(call=>call.path)).toEqual([`/api/templates/${templateId}/checklist/rerun`]);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    fixture.assertRequestsHandled();
+  });
+
   test(`shows the retained PDF and keeps template headings and actions readable at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 950 });
     const fixture = await installTemplate(page);
     const pdfResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/templates/${templateId}/pdf`);
     await page.goto(previewUrl);
-    await expect(page.getByRole('heading', { name: 'Template headings', exact: true })).toBeVisible();
+    const headings=page.getByRole('button', { name: 'Template headings', exact: true });
+    await expect(headings).toHaveAttribute('aria-expanded','false');
+    await page.getByRole('button',{name:'About Template headings'}).focus();
+    const help=page.getByRole('tooltip');
+    await expect(help).toHaveCSS('opacity','1');
+    await expect(help).toHaveText(/Document Check looks for matching headings/);
+    await expect(help).toHaveText(/AI Review uses the Review checklist/);
+    await page.screenshot({path:testInfo.outputPath(`template-headings-help-${width}.png`)});
+    await expect(page.getByRole('region', { name: 'Template body sections' })).not.toBeVisible();
+    await headings.click();
     await expect(page.getByRole('region', { name: 'Template body sections' }).getByRole('listitem')).toHaveText(structure.detectedHeadings);
     await expect(page.getByText(structure.extractedText)).toHaveCount(0);
     const frame = page.locator('iframe[title="Official template PDF"]');

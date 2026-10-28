@@ -49,6 +49,7 @@ class TemplateChecklistServiceTest {
     @Autowired TemplatePdfPreparation pdfPreparation;
     @Autowired TemplateChecklistService service;
     @Autowired TemplateChecklistStore store;
+    @Autowired TemplateInstructionStore instructions;
     @Autowired JdbcTemplate db;
     @Autowired MockMvc mvc;
     @Autowired WildTrackSessionService sessions;
@@ -205,6 +206,108 @@ class TemplateChecklistServiceTest {
             mvc.perform(post(url+"/prepare").cookie(cookie).with(csrf()).param("workspaceId",WORKSPACE.toString())
                 .contentType("application/json").content("[]")).andExpect(status().isBadRequest());
         } finally { sessions.revoke(login.rawToken()); assignments.deleteById(role.getId()); }
+    }
+
+    @Test
+    void explicitRerunResetsProviderCacheKeepsItemsUntilSuccessAndRequiresNewApproval() throws Exception {
+        UUID id=upload("rerun"), version=pdfs.current(WORKSPACE,id).versionId();
+        var old=List.of(item("Saved edit",1,""));
+        var source=instructions.claim(version,"test-provider",null).orElseThrow();
+        assertThat(instructions.startRequest(source)).isTrue();
+        assertThat(instructions.checkpoint(source,1,old,true)).isTrue();
+        var draft=service.save(WORKSPACE,id,version,0,old);
+        var approved=service.approve(WORKSPACE,id,version,draft.revision(),"admin");
+        String oldFingerprint=service.fingerprint(WORKSPACE,id);
+        assertThatThrownBy(() -> service.requestPreparation(WORKSPACE,id,version,approved.revision())).hasMessageContaining("409");
+        assertThatThrownBy(() -> service.requestRegeneration(WORKSPACE,id,version,approved.revision()-1)).hasMessageContaining("409");
+        assertThat(instructions.find(version).orElseThrow().state()).isEqualTo("READY");
+        var queued=service.requestRegeneration(WORKSPACE,id,version,approved.revision());
+        assertThat(queued.state()).isEqualTo("QUEUED");
+        assertThat(queued.items()).isEqualTo(old);
+        assertThat(queued.approvedAt()).isNull();
+        assertThat(service.fingerprint(WORKSPACE,id)).isNotEqualTo(oldFingerprint);
+        assertThatThrownBy(() -> service.approved(WORKSPACE,id,pdfs.current(WORKSPACE,id).sourceSha256())).hasMessageContaining("409");
+        assertThatThrownBy(() -> service.requestRegeneration(WORKSPACE,id,version,approved.revision())).hasMessageContaining("409");
+        var reset=instructions.find(version).orElseThrow();
+        assertThat(reset.completedPage()).isZero();
+        assertThat(reset.items()).isEmpty();
+        assertThat(reset.requestCount()).isEqualTo(1);
+        assertThat(instructions.claim(version,"test-provider",null)).isEmpty();
+        assertThat(instructions.checkpoint(source,1,old,true)).isFalse();
+        assertThat(instructions.claim(version,"test-provider",store.find(version).orElseThrow().retry())).isPresent();
+        UUID claim=UUID.randomUUID();
+        db.update("UPDATE template_checklists SET state='PREPARING',claim_token=? WHERE version_id=?",claim,version);
+        store.finish(new TemplateChecklistStore.Job(version,claim,WORKSPACE,id,"source",reset.token()),List.of(item("New AI draft",1,"")));
+        var replacement=service.get(WORKSPACE,id);
+        assertThat(replacement.state()).isEqualTo("DRAFT");
+        assertThat(replacement.items()).extracting(TemplateInstructionProtocol.Draft::title).containsExactly("New AI draft");
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM template_checklist_approvals WHERE version_id=?",Integer.class,version)).isEqualTo(1);
+        assertThat(service.approve(WORKSPACE,id,version,replacement.revision(),"admin").state()).isEqualTo("APPROVED");
+    }
+
+    @Test
+    void rerunOfManualDraftWorksButAnActiveProviderClaimCannotBeReplaced() throws Exception {
+        UUID id=upload("manual-rerun"), version=pdfs.current(WORKSPACE,id).versionId();
+        var draft=service.save(WORKSPACE,id,version,0,List.of(item("Manual",1,"")));
+        assertThat(service.requestRegeneration(WORKSPACE,id,version,draft.revision()).state()).isEqualTo("QUEUED");
+        assertThat(instructions.find(version)).isEmpty();
+        long queuedRevision=draft.revision()+1;
+        assertThatThrownBy(() -> service.requestRegeneration(WORKSPACE,id,version,queuedRevision)).hasMessageContaining("409");
+        db.update("DELETE FROM template_checklists WHERE version_id=?",version);
+        draft=service.save(WORKSPACE,id,version,0,List.of(item("Retained",1,"")));
+        instructions.claim(version,"test-provider",null).orElseThrow();
+        long revision=draft.revision();
+        assertThatThrownBy(() -> service.requestRegeneration(WORKSPACE,id,version,revision)).hasMessageContaining("409");
+        assertThat(service.get(WORKSPACE,id).state()).isEqualTo("DRAFT");
+        assertThat(service.get(WORKSPACE,id).items()).extracting(TemplateInstructionProtocol.Draft::title).containsExactly("Retained");
+        db.update("DELETE FROM template_checklists WHERE version_id=?",version);
+    }
+
+    @Test
+    void rerunEndpointRequiresPersistedAdminCsrfAndCurrentRevision() throws Exception {
+        UUID id=upload("rerun-access"), version=pdfs.current(WORKSPACE,id).versionId();
+        var draft=service.save(WORKSPACE,id,version,0,List.of(item("Keep",1,"")));
+        String url="/api/templates/"+id+"/checklist/rerun";
+        String payload="{\"versionId\":\""+version+"\",\"expectedRevision\":"+draft.revision()+"}";
+        mvc.perform(post(url).with(adviserSession()).with(csrf()).param("workspaceId",WORKSPACE.toString()).contentType("application/json").content(payload)).andExpect(status().isForbidden());
+        String subject="rerun-admin-"+UUID.randomUUID();
+        var login=sessions.create(new GoogleIdentity(subject,"rerun@example.invalid","Admin",""));
+        var role=assignments.saveAndFlush(new StaffRoleAssignment(UUID.randomUUID(),subject,"rerun@example.invalid",StaffRole.ADMIN,true,Instant.now(),Instant.now()));
+        try {
+            var cookie=new Cookie("WILDTRACK_SESSION",login.rawToken());
+            mvc.perform(post(url).cookie(cookie).param("workspaceId",WORKSPACE.toString()).contentType("application/json").content(payload)).andExpect(status().isForbidden());
+            mvc.perform(post(url).cookie(cookie).with(csrf()).param("workspaceId",WORKSPACE.toString()).contentType("application/json").content(payload)).andExpect(status().isOk());
+            mvc.perform(post(url).cookie(cookie).with(csrf()).param("workspaceId",WORKSPACE.toString()).contentType("application/json").content(payload)).andExpect(status().isConflict());
+            db.update("DELETE FROM template_checklists WHERE version_id=?",version);
+            service.save(WORKSPACE,id,version,0,List.of(item("Batch rerun",1,"")));
+            mvc.perform(post("/api/templates/checklists/prepare").cookie(cookie).with(csrf()).param("workspaceId",WORKSPACE.toString())
+                .contentType("application/json").content("[{\"templateId\":\""+id+"\",\"versionId\":\""+version+"\",\"expectedRevision\":1,\"rerun\":true}]"))
+                .andExpect(status().isOk());
+            assertThat(service.get(WORKSPACE,id).state()).isEqualTo("QUEUED");
+        } finally {
+            db.update("DELETE FROM template_checklists WHERE version_id=?",version);
+            sessions.revoke(login.rawToken()); assignments.deleteById(role.getId());
+        }
+    }
+
+    @Test
+    void aStaleBatchRerunRollsBackEveryChecklistAndProviderCache() throws Exception {
+        var ids=new java.util.ArrayList<>(List.of(upload("rerun-atomic-a",key+"-a"),upload("rerun-atomic-b",key+"-b")));
+        ids.sort(java.util.Comparator.naturalOrder());
+        var versions=ids.stream().map(id->pdfs.current(WORKSPACE,id).versionId()).toList();
+        for (int i=0;i<2;i++) {
+            var source=instructions.claim(versions.get(i),"test-provider",null).orElseThrow();
+            instructions.checkpoint(source,1,List.of(item("Source",1,"")),true);
+            service.save(WORKSPACE,ids.get(i),versions.get(i),0,List.of(item("Retained",1,"")));
+        }
+        assertThatThrownBy(()->service.requestBatch(WORKSPACE,List.of(
+            new TemplateChecklistService.BatchRequest(ids.get(0),versions.get(0),1,true),
+            new TemplateChecklistService.BatchRequest(ids.get(1),versions.get(1),99,true)))).hasMessageContaining("409");
+        for (int i=0;i<2;i++) {
+            assertThat(service.get(WORKSPACE,ids.get(i)).state()).isEqualTo("DRAFT");
+            assertThat(service.get(WORKSPACE,ids.get(i)).revision()).isEqualTo(1);
+            assertThat(instructions.find(versions.get(i)).orElseThrow().state()).isEqualTo("READY");
+        }
     }
 
     private TemplateInstructionProtocol.Draft item(String title, int page, String condition) {
