@@ -24,6 +24,9 @@ public class TemplateChecklistController {
     @PostMapping("/prepare") public TemplateChecklistService.View prepare(@PathVariable UUID id,@RequestParam UUID workspaceId,@RequestBody Request body,HttpServletRequest http) {
         admin(http); return service.requestPreparation(workspaceId,id,body.versionId(),body.expectedRevision());
     }
+    @PostMapping("/rerun") public TemplateChecklistService.View rerun(@PathVariable UUID id,@RequestParam UUID workspaceId,@RequestBody Request body,HttpServletRequest http) {
+        admin(http); return service.requestRegeneration(workspaceId,id,body.versionId(),body.expectedRevision());
+    }
     @PutMapping public TemplateChecklistService.View save(@PathVariable UUID id,@RequestParam UUID workspaceId,@RequestBody Request body,HttpServletRequest http) {
         admin(http); return service.save(workspaceId,id,body.versionId(),body.expectedRevision(),body.items());
     }

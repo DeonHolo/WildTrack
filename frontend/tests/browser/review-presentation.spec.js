@@ -2,6 +2,25 @@ import { expect, test } from '@playwright/test';
 import { installApiFixtures } from './api-fixtures.js';
 
 for (const width of [375, 1440]) {
+  test(`makes a missing official template visible without opening Review limits at ${width}px`, async ({page},testInfo) => {
+    await page.setViewportSize({width,height:950});
+    const fixture=await installApiFixtures(page,{role:'admin',submitted:true,monitoring:payload=>{
+      const saved=savedMonitoring(payload);
+      saved.aiReviewsByField['response-1'][field]={...review,report:{...report,coverage:null,
+        limitations:['No official template was supplied, so compliance with a specific template structure was not assessed.']}};
+      return saved;
+    }});
+    const calls=paidRequests(page);
+    await page.goto('/review?response=response-1');
+    await page.getByRole('button',{name:'View AI Review',exact:true}).click();
+    const modal=page.getByRole('dialog',{name:'AI Review: Software Requirements Specification'});
+    await expect(modal.getByText('No official template',{exact:true})).toBeVisible();
+    await expect(modal.getByText(/Findings are limited to the available deliverable instructions and PDF content/)).toBeVisible();
+    await page.screenshot({path:testInfo.outputPath(`ai-review-no-template-${width}.png`)});
+    expect(calls).toEqual([]);
+    fixture.assertRequestsHandled();
+  });
+
   test(`keeps repeated diagram checks concise and preserves PDF locations at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 950 });
     const notes = ['1.1 Import class record', '1.2 Manage groups', '1.3 Live tracker'].flatMap((context, index) =>

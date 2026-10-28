@@ -427,14 +427,14 @@ describe('workspace operations', () => {
     const help = within(monitor).getByRole('button', { name: 'How deadline PDF monitoring works' });
     fireEvent.mouseEnter(help);
     const tooltip = await screen.findByRole('tooltip');
-    expect(tooltip).toHaveTextContent('Asia/Manila');
-    expect(tooltip).toHaveTextContent('24 hours before the deadline until 48 hours afterward');
-    expect(tooltip).toHaveTextContent('every 5 minutes');
-    expect(tooltip).toHaveTextContent('once every hour');
-    expect(tooltip).toHaveTextContent('20 files per enabled workspace per cycle');
-    expect(tooltip).toHaveTextContent('avoids downloading an unchanged PDF when a comparable content checksum is available');
-    expect(tooltip).toHaveTextContent('verify uncertain changes or restored access');
-    expect(tooltip).toHaveTextContent('best-effort, not guaranteed');
+    expect(tooltip).toHaveTextContent('file changes or lost access');
+    expect(tooltip).toHaveTextContent('24 hours before to 48 hours after each deadline');
+    expect(tooltip).toHaveTextContent('every five minutes');
+    expect(tooltip).toHaveTextContent('about hourly');
+    expect(tooltip).toHaveTextContent('Philippine time');
+    expect(tooltip).toHaveTextContent('Drive limits can delay checks');
+    expect(tooltip).toHaveTextContent('This does not run AI Review.');
+    expect(tooltip).not.toHaveTextContent('checksum');
   });
 
   it('configures an individual deliverable and preserves its selection through disable/re-enable', async () => {

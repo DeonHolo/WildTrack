@@ -24,7 +24,9 @@ public class TemplateChecklistService {
     public record View(UUID versionId,long revision,String state,Integer pdfPages,List<TemplateInstructionProtocol.Draft> items,Instant approvedAt,String error) {}
     public record Approved(UUID versionId,String pdfSha256,byte[] pdf,List<TemplateInstructionPreparation.Instruction> instructions,String fingerprint) {}
     public record BatchItem(UUID templateId,UUID versionId,long revision,String title,String state,String pdfState,String error) {}
-    public record BatchRequest(UUID templateId,UUID versionId,long expectedRevision) {}
+    public record BatchRequest(UUID templateId,UUID versionId,long expectedRevision,boolean rerun) {
+        public BatchRequest(UUID templateId,UUID versionId,long expectedRevision) { this(templateId,versionId,expectedRevision,false); }
+    }
     @Transactional(readOnly = true)
     public List<BatchItem> batch(UUID workspace) {
         return store.database().query("""
@@ -45,8 +47,10 @@ public class TemplateChecklistService {
             || selected.stream().map(BatchRequest::templateId).distinct().count()!=selected.size())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Select valid templates to prepare.");
         // One transaction queues the whole selection; stable lock order avoids batch deadlocks.
-        for (var item:selected.stream().sorted(java.util.Comparator.comparing(BatchRequest::templateId)).toList())
-            requestPreparation(workspace,item.templateId(),item.versionId(),item.expectedRevision());
+        for (var item:selected.stream().sorted(java.util.Comparator.comparing(BatchRequest::templateId)).toList()) {
+            if (item.rerun()) requestRegeneration(workspace,item.templateId(),item.versionId(),item.expectedRevision());
+            else requestPreparation(workspace,item.templateId(),item.versionId(),item.expectedRevision());
+        }
         return batch(workspace);
     }
     private ResponseStatusException conflict() { return new ResponseStatusException(HttpStatus.CONFLICT,"The template or checklist changed. Reload and try again."); }
@@ -76,6 +80,20 @@ public class TemplateChecklistService {
         UUID retry=instructions.find(version).filter(s -> "FAILED".equals(s.state())).map(TemplateInstructionStore.State::token).orElse(null);
         if (row == null) store.database().update("INSERT INTO template_checklists(version_id,revision,state,items_json,retry_token) VALUES (?,1,'QUEUED','[]',?)",version,retry);
         else store.database().update("UPDATE template_checklists SET state='QUEUED',revision=revision+1,error=NULL,retry_token=?,updated_at=CURRENT_TIMESTAMP WHERE version_id=?",retry,version);
+        return view(pdf,store.find(version).orElseThrow());
+    }
+    @Transactional
+    public View requestRegeneration(UUID workspace,UUID id,UUID version,long revision) {
+        store.lock(workspace,id); var pdf=current(workspace,id,version); var row=checked(version,revision);
+        // Only an explicit, versioned rerun may replace an existing saved checklist.
+        // Keep its items visible until success; immutable approval history remains intact.
+        if (row == null || !(row.state().equals("DRAFT") || row.state().equals("APPROVED"))) throw conflict();
+        UUID retry=instructions.restart(version);
+        store.database().update("""
+            UPDATE template_checklists SET state='QUEUED',revision=revision+1,error=NULL,
+                retry_token=?,approved_at=NULL,approval_hash=NULL,updated_at=CURRENT_TIMESTAMP
+            WHERE version_id=?
+            """,retry,version);
         return view(pdf,store.find(version).orElseThrow());
     }
     @Transactional

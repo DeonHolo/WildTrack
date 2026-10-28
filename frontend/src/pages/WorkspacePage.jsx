@@ -658,9 +658,9 @@ export function WorkspacePage() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <h2>Deadline PDF monitoring</h2>
-                <Tooltip multiline withArrow w={355} label={(
+                <Tooltip multiline withArrow w={320} events={{hover:true,focus:true,touch:true}} label={(
                   <span>
-                    The deadline is each deliverable’s due date in Asia/Manila. WildTrack normally checks Google Drive PDF metadata about once every hour. From 24 hours before the deadline until 48 hours afterward, it targets checks about every 5 minutes. A worker wakes every minute and processes at most 20 files per enabled workspace per cycle. It reads metadata first and avoids downloading an unchanged PDF when a comparable content checksum is available. A download may be needed to verify uncertain changes or restored access. The schedule is best-effort, not guaranteed; access, limits and Drive API quota may delay checks.
+                    Checks submitted Google Drive PDFs for file changes or lost access. Checks run about hourly, or every five minutes from 24 hours before to 48 hours after each deadline (Philippine time). Drive limits can delay checks. This does not run AI Review.
                   </span>
                 )}>
                   <MantineButton type="button" variant="subtle" size="compact-xs" radius="xl"

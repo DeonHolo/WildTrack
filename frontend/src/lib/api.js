@@ -458,6 +458,9 @@ export function prepareTemplateChecklistBatch(workspaceId, selected) {
 export function prepareDocumentTemplateChecklist(workspaceId, templateId, payload) {
   return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist/prepare`, workspaceId), { method: 'POST', body: payload });
 }
+export function rerunDocumentTemplateChecklist(workspaceId, templateId, payload) {
+  return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist/rerun`, workspaceId), { method: 'POST', body: payload });
+}
 export function saveDocumentTemplateChecklist(workspaceId, templateId, payload) {
   return request(withWorkspace(`/templates/${encodeURIComponent(templateId)}/checklist`, workspaceId), { method: 'PUT', body: payload });
 }

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Alert, Badge, Button, Group, Modal, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
-import { CaretDown, CaretRight, Trash } from '@phosphor-icons/react';
+import { ArrowClockwise, CaretDown, CaretRight, Trash } from '@phosphor-icons/react';
 import { ConfirmDialog } from '../ui.jsx';
-import { getDocumentTemplateChecklist, prepareDocumentTemplateChecklist, saveDocumentTemplateChecklist, approveDocumentTemplateChecklist } from '../../lib/api.js';
+import { getDocumentTemplateChecklist, prepareDocumentTemplateChecklist, rerunDocumentTemplateChecklist, saveDocumentTemplateChecklist, approveDocumentTemplateChecklist } from '../../lib/api.js';
 import './TemplateChecklistEditor.css';
 
 const blank = () => ({ title: '', instruction: '', sourceQuote: '', section: '', page: '', applicability: 'REQUIRED', condition: '', _sourceEditable: true });
@@ -90,17 +90,21 @@ export function TemplateChecklistEditor({ workspaceId, templateId, versionId }) 
     try {
       const payload = { versionId: view.versionId || versionId, expectedRevision: view.revision };
       const next = type === 'prepare' ? await prepareDocumentTemplateChecklist(workspaceId, templateId, payload)
+        : type === 'rerun' ? await rerunDocumentTemplateChecklist(workspaceId, templateId, payload)
         : type === 'approve' ? await approveDocumentTemplateChecklist(workspaceId, templateId, payload)
           : await saveDocumentTemplateChecklist(workspaceId, templateId, { ...payload, items: items.map(({ _sourceEditable, ...item }) => ({ ...item, page: Number(item.page) })) });
       apply(next);
-    } catch (e) { setError(e?.message || 'The checklist could not be updated.'); if (e?.status === 409) setConflict(true); }
+    } catch (e) {
+      if (type === 'prepare' || type === 'rerun') await load(); // A lost response may have queued work. Never repeat the POST.
+      setError(e?.message || 'The checklist could not be updated.'); if (e?.status === 409) setConflict(true);
+    }
     finally { setBusy(false); }
   };
   const preparing = ['QUEUED', 'PREPARING'].includes(view?.state);
   return <Paper withBorder p="lg" className="template-review-panel template-checklist">
     <Stack gap="md" className="template-checklist-body">
       <Group justify="space-between"><Title order={2} size="h3">Review checklist</Title>{view && <Badge color={view.state === 'APPROVED' ? 'green' : view.state === 'DRAFT' ? 'orange' : 'blue'}>{labels[view.state] || view.state}</Badge>}</Group>
-      <Text>Check the PDF for missing items and mistakes, including examples. Approved wording is used for student reviews.</Text>
+      <Text>Check this Review checklist against the Template PDF, then select Approve checklist to use it in AI Review. Approval is not required for Document Check.</Text>
       {error && <Alert color="red" role="alert">{error} {conflict && <Button variant="default" onClick={() => { if (!dirty || window.confirm('Discard unsaved changes and reload the checklist?')) { if (versionChanged) window.location.reload(); else load(true); } }}>{versionChanged ? 'Reload template' : 'Reload checklist'}</Button>}</Alert>}
       {!view ? loading ? <Text>Loading checklist…</Text> : <Button variant="default" onClick={() => { setLoading(true); load(); }}>Retry loading</Button> : <>
         {view.state === 'FAILED' && <Alert color="orange">{view.error || 'Checklist preparation failed.'}</Alert>}
@@ -110,28 +114,32 @@ export function TemplateChecklistEditor({ workspaceId, templateId, versionId }) 
         <Stack gap="xs" className="template-checklist-items" tabIndex={0} aria-label="Checklist items">{items.map((item, index) => <Paper withBorder p="sm" key={index}>
           <Button variant="subtle" fullWidth className="checklist-disclosure" leftSection={open === index ? <CaretDown aria-hidden="true" /> : <CaretRight aria-hidden="true" />} aria-expanded={open === index} aria-controls={`${disclosureId}-${index}`} onClick={() => setOpen(open === index ? null : index)}>{item.title || `Item ${index + 1}`}</Button>
           {open === index && <Stack gap="sm" mt="sm" id={`${disclosureId}-${index}`}>
-            <TextInput label="Title" value={item.title || ''} error={errors[index]?.title} onChange={e => change(index, 'title', e.currentTarget.value)} />
-            <Textarea label="Instruction" autosize minRows={6} className="checklist-instruction" value={item.instruction || ''} error={errors[index]?.instruction} onChange={e => change(index, 'instruction', e.currentTarget.value)} />
+            <TextInput label="Title" disabled={preparing || busy} value={item.title || ''} error={errors[index]?.title} onChange={e => change(index, 'title', e.currentTarget.value)} />
+            <Textarea label="Instruction" disabled={preparing || busy} autosize minRows={6} className="checklist-instruction" value={item.instruction || ''} error={errors[index]?.instruction} onChange={e => change(index, 'instruction', e.currentTarget.value)} />
             {item._sourceEditable ? <>
-              <Textarea label="Template excerpt" description="Copy the relevant text from the template PDF." autosize minRows={3} value={item.sourceQuote || ''} error={errors[index]?.sourceQuote} onChange={e => change(index, 'sourceQuote', e.currentTarget.value)} />
-              <TextInput label="Source section (optional)" value={item.section || ''} onChange={e => change(index, 'section', e.currentTarget.value)} />
+              <Textarea label="Template excerpt" disabled={preparing || busy} description="Copy the relevant text from the template PDF." autosize minRows={3} value={item.sourceQuote || ''} error={errors[index]?.sourceQuote} onChange={e => change(index, 'sourceQuote', e.currentTarget.value)} />
+              <TextInput label="Source section (optional)" disabled={preparing || busy} value={item.section || ''} onChange={e => change(index, 'section', e.currentTarget.value)} />
             </> : <Text size="sm" className="checklist-source">Source: {item.section || 'Official template'} · PDF page {item.page}</Text>}
             <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
-            <NumberInput label="PDF page" min={1} max={view.pdfPages || undefined} value={item.page ?? ''} error={errors[index]?.page} onChange={value => change(index, 'page', value)} />
-            <Select label="Applicability" data={[{ value: 'REQUIRED', label: 'Required' }, { value: 'OPTIONAL', label: 'Optional' }, { value: 'CONDITIONAL', label: 'Conditional' }]} value={item.applicability} allowDeselect={false} onChange={value => change(index, 'applicability', value)} />
+            <NumberInput label="PDF page" disabled={preparing || busy} min={1} max={view.pdfPages || undefined} value={item.page ?? ''} error={errors[index]?.page} onChange={value => change(index, 'page', value)} />
+            <Select label="Applicability" disabled={preparing || busy} data={[{ value: 'REQUIRED', label: 'Required' }, { value: 'OPTIONAL', label: 'Optional' }, { value: 'CONDITIONAL', label: 'Conditional' }]} value={item.applicability} allowDeselect={false} onChange={value => change(index, 'applicability', value)} />
             </SimpleGrid>
-            {item.applicability === 'CONDITIONAL' && <TextInput label="Condition" value={item.condition || ''} error={errors[index]?.condition} onChange={e => change(index, 'condition', e.currentTarget.value)} />}
+            {item.applicability === 'CONDITIONAL' && <TextInput label="Condition" disabled={preparing || busy} value={item.condition || ''} error={errors[index]?.condition} onChange={e => change(index, 'condition', e.currentTarget.value)} />}
             <Button color="red" variant="subtle" className="checklist-remove" leftSection={<Trash size={18} aria-hidden="true" />} disabled={busy || preparing} onClick={() => setToRemove(index)}>Remove item</Button>
           </Stack>}
         </Paper>)}</Stack>
         <Group className="template-checklist-actions"><Button variant="default" disabled={preparing || busy} onClick={() => { setItems(current => [...current, blank()]); setOpen(items.length); setChanged(true); }}>Add item</Button>
           {['UNPREPARED', 'FAILED'].includes(view.state) && !items.length && <Button variant="default" disabled={preparing || busy || dirty || conflict} onClick={() => setConfirm('prepare')}>{view.state === 'FAILED' ? 'Retry AI draft' : 'Prepare AI draft'}</Button>}
+          {view.state === 'FAILED' && items.length > 0 && <Button variant="default" disabled={busy || dirty || conflict} onClick={() => setConfirm('prepare')}>Retry AI draft</Button>}
           <Button disabled={!dirty || preparing || busy || conflict} loading={busy} onClick={() => { if (validate()) action('save'); }}>Save draft</Button>
           <Button disabled={!items.length || dirty || preparing || busy || conflict || view.state !== 'DRAFT'} onClick={() => setConfirm('approve')}>Approve checklist</Button></Group>
+        {['DRAFT', 'APPROVED'].includes(view.state) && <Button variant="subtle" leftSection={<ArrowClockwise size={18} aria-hidden="true" />} style={{ alignSelf: 'flex-start' }} disabled={busy || dirty || conflict} onClick={() => setConfirm('rerun')}>Rerun AI draft</Button>}
       </>}
     </Stack>
-    <Modal opened={Boolean(confirm)} onClose={() => setConfirm('')} title={confirm === 'prepare' ? 'Prepare an AI draft?' : 'Approve this checklist?'}>
-      <Stack><Text>{confirm === 'prepare' ? 'Preparing a draft uses AI tokens. Review and approval are still required.' : 'Confirm that you checked the saved checklist against the template PDF.'}</Text><Group justify="flex-end"><Button variant="default" onClick={() => setConfirm('')}>Cancel</Button><Button onClick={() => action(confirm)}>{confirm === 'prepare' ? 'Prepare draft' : 'Confirm approval'}</Button></Group></Stack>
+    <Modal opened={Boolean(confirm)} onClose={() => setConfirm('')} title={confirm === 'prepare' ? 'Prepare an AI draft?' : confirm === 'rerun' ? 'Rerun AI draft?' : 'Approve this checklist?'}>
+      <Stack><Text>{confirm === 'prepare' ? 'Preparing a draft sends the Template PDF to Gemini and uses AI tokens. Check the result and select Approve checklist before using it in AI Review.' : confirm === 'rerun'
+        ? 'This sends the Template PDF to Gemini again and uses additional AI tokens. A successful result replaces this saved Review checklist, including your edits. There is no Undo. AI Review cannot use this checklist until you approve it again. Existing AI Review results and Document Check results are kept.'
+        : 'Confirm that you checked the saved checklist against the template PDF.'}</Text><Group justify="flex-end"><Button variant="default" onClick={() => setConfirm('')}>Cancel</Button><Button color={confirm === 'rerun' ? 'orange' : undefined} onClick={() => action(confirm)}>{confirm === 'prepare' ? 'Prepare draft' : confirm === 'rerun' ? 'Rerun AI draft' : 'Confirm approval'}</Button></Group></Stack>
     </Modal>
     <ConfirmDialog open={toRemove !== null} title="Remove checklist item?" intent="danger" confirmLabel="Remove item"
       description={`“${items[toRemove]?.title || 'Untitled item'}” will be permanently removed when you save the draft. There is no Undo for this action.`}

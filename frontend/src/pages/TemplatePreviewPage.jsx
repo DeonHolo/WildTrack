@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Anchor, Button, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
+import { Accordion, Alert, Anchor, Button, Group, Loader, Paper, Stack, Text, Title, Tooltip } from '@mantine/core';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
@@ -43,24 +43,36 @@ export function TemplatePreviewPage() {
           <Button variant="default" onClick={() => reload()} style={{ alignSelf: 'flex-start' }}>Reload template</Button>
         </Stack>
       </Alert> : data ? <>
-        <Paper withBorder p="md">
-          <Stack gap="md">
-            <Title order={2} size="h3">Template headings</Title>
-            <Text size="sm">{data.detectedHeadings.length} of {data.expectedHeadings.length} expected body sections detected in this template</Text>
-            <section aria-label="Template body sections"><Text fw={600}>Detected body sections</Text>
-              <HeadingList headings={data.detectedHeadings} empty="No matching headings were detected in the template body." />
-            </section>
-            {data.expectedHeadings.some(heading => !data.detectedHeadings.includes(heading)) ? <section aria-label="Template sections not detected">
-              <Text fw={600}>Expected sections not detected</Text>
-              <HeadingList headings={data.expectedHeadings.filter(heading => !data.detectedHeadings.includes(heading))} />
-            </section> : null}
-          </Stack>
-        </Paper>
         <div className={`template-review-layout${session?.roles?.includes('ADMIN') && data.pdf.state === 'READY' ? ' template-review-layout--editable' : ''}`}>
           <TemplatePdfView key={`${workspaceId}:${templateId}:${data.pdf.versionId}`} workspaceId={workspaceId} templateId={templateId}
             pdf={data.pdf} canRetry={session?.roles?.includes('ADMIN') && data.pdf.retryable !== false} onReload={reload} />
           {session?.roles?.includes('ADMIN') && data.pdf.state === 'READY' ? <TemplateChecklistEditor key={`checklist:${workspaceId}:${templateId}:${data.pdf.versionId}`} workspaceId={workspaceId} templateId={templateId} versionId={data.pdf.versionId} /> : null}
         </div>
+        <Paper withBorder className="template-headings">
+          <Accordion variant="default">
+            <Accordion.Item value="headings">
+              <Group gap="xs" wrap="nowrap" pr="md">
+                <Accordion.Control style={{ flex: 1 }}><Text component="span" fw={600} size="lg">Template headings</Text></Accordion.Control>
+                <Tooltip multiline withArrow w={320} events={{hover:true,focus:true,touch:true}}
+                  label="Shows the section headings found in the Template PDF. Document Check looks for matching headings in submissions. AI Review uses the Review checklist to assess what those sections contain.">
+                  <Button variant="subtle" size="compact-xs" radius="xl" aria-label="About Template headings">?</Button>
+                </Tooltip>
+              </Group>
+              <Accordion.Panel>
+                <Stack gap="md">
+                  <Text size="sm">{data.detectedHeadings.length} of {data.expectedHeadings.length} expected body sections detected in this template</Text>
+                  <section aria-label="Template body sections"><Text fw={600}>Detected body sections</Text>
+                    <HeadingList headings={data.detectedHeadings} empty="No matching headings were detected in the template body." />
+                  </section>
+                  {data.expectedHeadings.some(heading => !data.detectedHeadings.includes(heading)) ? <section aria-label="Template sections not detected">
+                    <Text fw={600}>Expected sections not detected</Text>
+                    <HeadingList headings={data.expectedHeadings.filter(heading => !data.detectedHeadings.includes(heading))} />
+                  </section> : null}
+                </Stack>
+              </Accordion.Panel>
+            </Accordion.Item>
+          </Accordion>
+        </Paper>
       </> : null}
     </ResourceBoundary>
   </Stack>;

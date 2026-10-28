@@ -8,7 +8,7 @@ const workspace = vi.hoisted(() => ({
   activeWorkspaceId: 'workspace-current',
   session: { authenticated: true, email: 'admin@school.edu', roles: ['ADMIN'] }
 }));
-const api = vi.hoisted(() => ({ structure: vi.fn(), pdf: vi.fn(), retry: vi.fn(), checklist: vi.fn(), prepare: vi.fn(), save: vi.fn(), approve: vi.fn() }));
+const api = vi.hoisted(() => ({ structure: vi.fn(), pdf: vi.fn(), retry: vi.fn(), checklist: vi.fn(), prepare: vi.fn(), rerun: vi.fn(), save: vi.fn(), approve: vi.fn() }));
 vi.mock('../app/WorkspaceSession.jsx', () => ({ useWorkspaceSession: () => workspace }));
 vi.mock('../lib/api.js', () => ({
   getDocumentTemplateStructure: (...args) => api.structure(...args),
@@ -16,6 +16,7 @@ vi.mock('../lib/api.js', () => ({
   retryDocumentTemplatePdf: (...args) => api.retry(...args),
   getDocumentTemplateChecklist: (...args) => api.checklist(...args),
   prepareDocumentTemplateChecklist: (...args) => api.prepare(...args),
+  rerunDocumentTemplateChecklist: (...args) => api.rerun(...args),
   saveDocumentTemplateChecklist: (...args) => api.save(...args),
   approveDocumentTemplateChecklist: (...args) => api.approve(...args),
   getDocumentTemplatePdfUrl: (workspaceId, templateId, versionId) => `/api/templates/${templateId}/pdf?workspaceId=${workspaceId}&versionId=${versionId}`,
@@ -51,13 +52,15 @@ describe('official template browser preview', () => {
     api.pdf.mockReset().mockResolvedValue(pdf);
     api.retry.mockReset().mockResolvedValue({ ...pdf, state: 'PENDING' });
     api.checklist.mockReset().mockResolvedValue({ versionId: 'version-1', revision: 0, state: 'UNPREPARED', pdfPages: 7, items: [] });
-    api.prepare.mockReset(); api.save.mockReset(); api.approve.mockReset();
+    api.prepare.mockReset(); api.rerun.mockReset(); api.save.mockReset(); api.approve.mockReset();
   });
 
   it('shows one list and no missing-section panel when all template headings are detected', async () => {
     api.structure.mockResolvedValue({ ...template, detectedHeadings: template.expectedHeadings });
     render(tree());
     await screen.findByRole('heading', { name: 'STD TEMPLATE.docx' });
+    fireEvent.click(screen.getByRole('button', { name: 'Template headings', exact: true }));
+    await screen.findByRole('region', { name: 'Template body sections' });
     expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(template.expectedHeadings);
     expect(screen.queryByRole('region', { name: 'Template sections not detected' })).not.toBeInTheDocument();
   });
@@ -72,6 +75,16 @@ describe('official template browser preview', () => {
       '/api/templates/template-std/file?workspaceId=workspace-link');
     expect(screen.queryByRole('link', { name: 'Back to workspace' })).not.toBeInTheDocument();
     expect(api.checklist).not.toHaveBeenCalled();
+  });
+
+  it('explains Template headings separately from the Review checklist without expanding the section', async () => {
+    render(tree());
+    const help=await screen.findByRole('button',{name:'About Template headings'});
+    fireEvent.focus(help);
+    const tooltip=await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent('Document Check looks for matching headings in submissions.');
+    expect(tooltip).toHaveTextContent('AI Review uses the Review checklist to assess what those sections contain.');
+    expect(screen.getByRole('button',{name:'Template headings',exact:true})).toHaveAttribute('aria-expanded','false');
   });
 
   it('confirms removal and saves it only when the draft is saved', async () => {
@@ -222,6 +235,11 @@ describe('official template browser preview', () => {
   it('lists each detected heading once and keeps missing expectations separate', async () => {
     render(tree());
     expect(await screen.findByRole('heading', { name: 'STD TEMPLATE.docx' })).toBeInTheDocument();
+    const headings=screen.getByRole('button', { name: 'Template headings', exact: true });
+    expect(headings).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('.template-review-layout').compareDocumentPosition(headings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(headings);
+    await screen.findByRole('region', { name: 'Template body sections' });
     expect(api.structure).toHaveBeenCalledWith('workspace-link', 'template-std');
     expect(screen.getByText('2 of 3 expected body sections detected in this template')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Template body sections' })).getAllByRole('listitem')).toHaveLength(2);
@@ -236,6 +254,42 @@ describe('official template browser preview', () => {
     expect(screen.getByRole('link', { name: 'Original file' }))
       .toHaveAttribute('href', '/api/templates/template-std/file?workspaceId=workspace-link');
     expect(api.structure).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires explicit confirmation to rerun a saved checklist and preserves its displayed items while preparing', async () => {
+    const item={ title:'Saved instruction',instruction:'Explain the project purpose.',sourceQuote:'Explain the project purpose.',section:'Purpose',page:1,applicability:'REQUIRED',condition:'' };
+    const view={versionId:'version-1',revision:4,state:'APPROVED',pdfPages:7,items:[item]};
+    api.checklist.mockResolvedValue(view);
+    api.rerun.mockResolvedValue({...view,revision:5,state:'QUEUED',approvedAt:null});
+    render(tree());
+    fireEvent.click(await screen.findByRole('button',{name:'Rerun AI draft',exact:true}));
+    let dialog=await screen.findByRole('dialog',{name:'Rerun AI draft?'});
+    await waitFor(()=>expect(within(dialog).getByText(/including your edits. There is no Undo/)).toBeVisible());
+    fireEvent.click(within(dialog).getByRole('button',{name:'Cancel',exact:true}));
+    await waitFor(()=>expect(screen.queryByRole('dialog',{name:'Rerun AI draft?'})).not.toBeInTheDocument());
+    expect(api.rerun).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button',{name:'Rerun AI draft',exact:true}));
+    dialog=await screen.findByRole('dialog',{name:'Rerun AI draft?'});
+    fireEvent.click(within(dialog).getByRole('button',{name:'Rerun AI draft',exact:true}));
+    await screen.findByText('Preparing the draft. You can leave this page and return later.');
+    expect(api.rerun).toHaveBeenCalledExactlyOnceWith('workspace-link','template-std',{versionId:'version-1',expectedRevision:4});
+    fireEvent.click(screen.getByRole('button',{name:'Saved instruction',exact:true}));
+    expect(screen.getByLabelText('Instruction')).toBeDisabled();
+    expect(screen.getByLabelText('Instruction')).toHaveValue(item.instruction);
+    expect(screen.getByRole('button',{name:'Approve checklist'})).toBeDisabled();
+  });
+
+  it('checks saved progress after a lost rerun response without sending another request', async () => {
+    const view={versionId:'version-1',revision:4,state:'DRAFT',pdfPages:7,items:[]};
+    api.checklist.mockResolvedValue(view);
+    api.rerun.mockRejectedValue(new Error('The rerun request could not be confirmed.'));
+    render(tree());
+    fireEvent.click(await screen.findByRole('button',{name:'Rerun AI draft',exact:true}));
+    api.checklist.mockResolvedValue({...view,state:'QUEUED',revision:5});
+    fireEvent.click(within(await screen.findByRole('dialog',{name:'Rerun AI draft?'})).getByRole('button',{name:'Rerun AI draft',exact:true}));
+    await screen.findByText('The rerun request could not be confirmed.');
+    expect(screen.getByText('Preparing the draft. You can leave this page and return later.')).toBeVisible();
+    expect(api.rerun).toHaveBeenCalledTimes(1);
   });
 
   it('removes the previous private template immediately when the target changes and ignores a late response', async () => {
