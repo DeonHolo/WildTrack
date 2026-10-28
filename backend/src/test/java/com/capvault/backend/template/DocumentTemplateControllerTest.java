@@ -143,7 +143,7 @@ class DocumentTemplateControllerTest {
 
     @Test
     void studentSessionsCannotReadOfficialTemplateListsOrFiles() throws Exception {
-        String id = responseId(upload("Official SRS", "Introduction and project requirements."));
+        String id = responseId(upload("Official SRS", "Introduction\nDescribe the project, intended users, system scope and required document sections."));
         for (String path : List.of("/api/templates", "/api/templates/" + id + "/file", "/api/templates/" + id + "/structure")) {
             mockMvc.perform(get(path).with(session())).andExpect(status().isForbidden());
             mockMvc.perform(get(path).with(adviserSession())).andExpect(status().isOk());
