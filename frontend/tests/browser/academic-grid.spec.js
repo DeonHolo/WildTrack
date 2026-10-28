@@ -93,9 +93,13 @@ for (const viewport of viewports) {
     expect(roster.split('\n')).toHaveLength(120);
     expect((await largeTextarea.inputValue()).split('\n')).toHaveLength(120);
     await largeTextarea.focus();
-    await largeTextarea.evaluate((node) => { node.scrollTop = 0; });
+    // fill() leaves the caret at the last line. Start from the first line so
+    // PageDown has somewhere to move, then allow native scrolling to finish.
+    await largeTextarea.press('Control+Home');
+    await expect.poll(()=>largeTextarea.evaluate(node=>node.selectionStart)).toBe(0);
     const keyboardBefore = await largeTextarea.evaluate((node) => node.scrollTop);
     await largeTextarea.press('PageDown');
+    await expect.poll(()=>largeTextarea.evaluate(node=>node.scrollTop)).toBeGreaterThan(keyboardBefore);
     const textareaMetrics = await largeTextarea.evaluate((node) => ({
       before: node.scrollTop,
       after: node.scrollTop,
