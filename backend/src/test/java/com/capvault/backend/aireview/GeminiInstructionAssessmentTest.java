@@ -128,7 +128,8 @@ class GeminiInstructionAssessmentTest {
         var grounded = AiReviewService.groundInstructions(provider.assessInstructions(input(true)), student, inspection, template.instructions());
         assertThat(grounded.verifiedChecks()).isEmpty();
         assertThat(grounded.coverage().criteria().getFirst().assessment())
-            .isEqualTo(AiReviewProvider.CriterionAssessmentLabel.CHECK_MANUALLY);
+            .isEqualTo(AiReviewProvider.CriterionAssessmentLabel.UNVERIFIED);
+        assertThat(grounded.coverage().criteria().getFirst().documentEvidence()).isNull();
         server.verify();
     }
 

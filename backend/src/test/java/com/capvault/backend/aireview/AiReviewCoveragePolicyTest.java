@@ -216,14 +216,16 @@ class AiReviewCoveragePolicyTest {
             CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
             CriterionAssessmentLabel.APPEARS_ADDRESSED, "The schedule is described.", "The fabricated milestone schedule is complete.", new EvidenceLocation(99, null));
         var rejected = AiReviewCoveragePolicy.grounded(with(List.of(), List.of(fabricated)), result(List.of()), plan, quote, pages).criteria().getFirst();
-        assertThat(rejected.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(rejected.assessment()).isEqualTo(CriterionAssessmentLabel.UNVERIFIED);
+        assertThat(rejected.status()).isEqualTo(CoverageStatus.NOT_CHECKED);
+        assertThat(rejected.verifiedCheckIndexes()).isEmpty();
         assertThat(rejected.documentEvidence()).isNull();
         assertThat(rejected.location()).isNull();
-        assertThat(rejected.explanation()).contains("Gemini's unconfirmed observation: The schedule is described.",
-            "quotation could not be matched").doesNotContain("AI-cited page 99");
+        assertThat(rejected.explanation()).contains("Unverified AI observation: The schedule is described.",
+            "quotation could not be verified").doesNotContain("AI-cited page 99", "Check Schedule");
     }
 
-    @Test void unverifiedVisualQuotationKeepsSpecificContextAndAnExplicitlyUnverifiedPageHint() {
+    @Test void unverifiedVisualQuotationIsALimitationWithoutInferringThatThePageIsUnreadable() {
         String requirement = "Show scheduling relationships and concurrent work.";
         var row = new CriterionAssessment("T1", requirement, FindingSource.OFFICIAL_TEMPLATE,
             CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
@@ -234,11 +236,11 @@ class AiReviewCoveragePolicyTest {
         String body = "5. Schedule allocation\nA chart describes the proposed project schedule.";
         var pages = List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(5, body, true));
         var grounded = AiReviewCoveragePolicy.grounded(with(List.of(), List.of(row)), result(List.of()), plan, body, pages).criteria().getFirst();
-        assertThat(grounded.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(grounded.assessment()).isEqualTo(CriterionAssessmentLabel.UNVERIFIED);
         assertThat(grounded.location()).isNull();
         assertThat(grounded.documentEvidence()).isNull();
-        assertThat(grounded.explanation()).contains("Check Schedule allocation in the PDF (AI-cited page 5)",
-            "cited page contains visual content", "chart shows phases R1 to R4");
+        assertThat(grounded.explanation()).contains("quotation could not be verified", "chart shows phases R1 to R4")
+            .doesNotContain("Check Schedule", "page contains visual content", "AI-cited page");
     }
 
     @Test void verifiedSpecificNoteExplainsManualDowngrade() {
@@ -258,6 +260,34 @@ class AiReviewCoveragePolicyTest {
         assertThat(grounded.location().page()).isEqualTo(3);
     }
 
+    @Test void anUnverifiedNegativeAssessmentRemainsASpecificManualConcern() {
+        String requirement = "Describe recovery after interrupted uploads.";
+        var row = new CriterionAssessment("T1", requirement, FindingSource.OFFICIAL_TEMPLATE, CoverageStatus.ISSUE_RECORDED,
+            List.of(), List.of(), List.of(), List.of(), CriterionAssessmentLabel.NEEDS_ATTENTION,
+            "The recovery description does not explain what happens to a partially saved upload.",
+            "Invented recovery passage.", new EvidenceLocation(3, null), "Upload recovery");
+        var plan = new AiReviewCoveragePolicy.Plan(List.of(new AiReviewCoveragePolicy.Criterion(
+            "T1", requirement, FindingSource.OFFICIAL_TEMPLATE, "Upload recovery")), 0, "Fixed");
+        var grounded = AiReviewCoveragePolicy.grounded(with(List.of(), List.of(row)), result(List.of()), plan,
+            "The system lets the student upload the required deliverable.", List.of()).criteria().getFirst();
+        assertThat(grounded.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(grounded.explanation()).contains("partially saved upload", "not an established defect");
+        assertThat(grounded.documentEvidence()).isNull();
+    }
+
+    @Test void combiningUnverifiedObservationsKeepsTheResultLimitedRatherThanCleanOrActionable() {
+        var row = new CriterionAssessment("T1", "Provide a change history.", FindingSource.OFFICIAL_TEMPLATE,
+            CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(), CriterionAssessmentLabel.UNVERIFIED,
+            "The supporting quotation could not be verified. Unverified AI observation: Versions and dates are present.",
+            null, null, "Change history");
+        var limited = AiReviewInstructionsWorkflow.combine(List.of(with(List.of(), List.of(row))));
+        assertThat(limited.outcome()).isEqualTo(ReviewOutcome.INCONCLUSIVE);
+        assertThat(limited.summary()).contains("Review limits").doesNotContain("items to check");
+        assertThat(limited.findings()).isEmpty();
+        assertThat(limited.verificationNotes()).isEmpty();
+        assertThat(limited.coverage().criteria().getFirst()).isEqualTo(row);
+    }
+
     @Test void headingOnlyQuoteCannotUpgradeAppearsAddressed() {
         String requirement = "Describe the project boundary and intended deliverables.";
         String quote = "1. Overview";
@@ -266,7 +296,7 @@ class AiReviewCoveragePolicyTest {
             "Looks addressed.", quote, null);
         var coverage = AiReviewCoveragePolicy.grounded(with(List.of(), List.of(row)), result(List.of()),
             requirement, "", quote, List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(1, quote, false)));
-        assertThat(coverage.criteria().getFirst().assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(coverage.criteria().getFirst().assessment()).isEqualTo(CriterionAssessmentLabel.UNVERIFIED);
         assertThat(coverage.criteria().getFirst().documentEvidence()).isNull();
     }
 
@@ -291,6 +321,14 @@ class AiReviewCoveragePolicyTest {
             CriterionAssessmentLabel.CHECK_MANUALLY, "Verify manually.", null, null);
         assertThat(AiReviewService.instructionOutcome(accepted,
             new ReviewCoverage(List.of(manual), 0, 1, null, null)))
+            .isEqualTo(ReviewOutcome.INCONCLUSIVE);
+        var unverified = new CriterionAssessment("T3", "Describe change history.", FindingSource.OFFICIAL_TEMPLATE,
+            CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
+            CriterionAssessmentLabel.UNVERIFIED, "The positive observation could not be verified.", null, null);
+        var mixed = new java.util.ArrayList<>(positiveRows);
+        mixed.add(unverified);
+        assertThat(AiReviewService.instructionOutcome(accepted,
+            new ReviewCoverage(mixed, 0, 1, null, null)))
             .isEqualTo(ReviewOutcome.INCONCLUSIVE);
         var legacy = new CriterionAssessment("C1", "Area one", FindingSource.DELIVERABLE_REQUIREMENTS,
             CoverageStatus.EVIDENCE_RECORDED, List.of(), List.of(), List.of(), List.of());

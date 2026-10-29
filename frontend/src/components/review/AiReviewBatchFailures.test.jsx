@@ -55,7 +55,7 @@ describe('AI batch affected PDF presentation', () => {
   it('keeps completed inconclusive reviews green with an informational icon and affected PDF', () => {
     const batch = completedBatch();
     batch.message = 'AI Review batch finished with items needing attention. Open the affected PDFs below.';
-    batch.entries[0] = { ...batch.entries[0], error: 'This review is inconclusive; it does not establish a clean result.',
+    batch.entries[0] = { ...batch.entries[0], error: 'Review finished with checks needing manual verification. Open the saved review to inspect the cited areas.',
       identity: { fileName: 'reviewed.pdf', sourceUrl: 'https://drive.google.com/file/d/reviewed/view' } };
     renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
     expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('green');
@@ -78,7 +78,7 @@ describe('AI batch affected PDF presentation', () => {
 
   it.each(['FAILED', 'UNCERTAIN', undefined])('keeps a %s attempt orange alongside completed review advisories', resultStatus => {
     const batch = completedBatch();
-    batch.entries[0].error = 'This review is inconclusive; it does not establish a clean result.';
+    batch.entries[0].error = 'Review finished with checks needing manual verification. Open the saved review to inspect the cited areas.';
     batch.entries.unshift({ target: { responseId: 'failed', fieldId: 'pdf' }, preview: { key: 'failed' },
       selected: true, phase: 'DONE', resultStatus, noAiStarted: false,
       error: "Gemini rejected WildTrack's AI request (HTTP 400)." });
@@ -103,6 +103,9 @@ describe('AI batch affected PDF presentation', () => {
     expect(screen.getByText('1 AI review available')).toBeInTheDocument();
     expect(screen.queryByText(/failed or unconfirmed/)).not.toBeInTheDocument();
     expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('green');
+    expect(screen.getByText(/finished with limited coverage/)).toBeInTheDocument();
+    expect(screen.queryByText(/finished with items to check in the PDF/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show PDFs with review limits' }).style.getPropertyValue('--ai-color')).toContain('blue');
   });
 
   it('keeps backend-shaped selected pre-AI FILE_ACCESS failures green without counting them as reviews', () => {

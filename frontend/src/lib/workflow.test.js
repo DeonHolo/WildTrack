@@ -6,6 +6,7 @@ import {
   aiReviewReportStatus,
   aiReviewReportSummary,
   aiReviewEvidenceCount,
+  aiReviewAssessment,
   verifiedAiChecks,
   artifactAiReview,
   artifactAiReviewStatus,
@@ -26,6 +27,27 @@ import {
   validateSubmissionIdentity
 } from './workflow.js';
 import { importPublicSheetSource } from './devPublicSheetImport.js';
+
+describe('saved positive quotation failures', () => {
+  const row = { id: 'T1', assessment: 'CHECK_MANUALLY', explanation: "Check Change history in the PDF (AI-cited page 2). The cited page contains visual content, but the quotation could not be matched to readable text. Gemini's unconfirmed observation: Versions, dates and descriptions are present." };
+  it('reclassifies only the known backend wrapper without an AI rerun', () => {
+    const report = { outcome: 'INCONCLUSIVE', coverage: { criteria: [row] } };
+    expect(aiReviewAssessment(row).assessment).toBe('UNVERIFIED');
+    expect(aiReviewAssessment(row).explanation).not.toContain('visual content');
+    expect(aiReviewAssessment(row).explanation).toContain('Versions, dates and descriptions');
+    expect(aiReviewReportStatus(report)).toBe('Limited review coverage');
+    expect(aiReviewEvidenceCount(report)).toBe(0);
+    expect(row.assessment).toBe('CHECK_MANUALLY');
+  });
+  it('retains model manual questions and any linked concern', () => {
+    const manual = { ...row, explanation: 'Confirm whether version 3.2 has a date.' };
+    expect(aiReviewAssessment(manual)).toBe(manual);
+    const linked = { ...row, verificationNoteIndexes: [0] };
+    expect(aiReviewAssessment(linked)).toBe(linked);
+    const negative = { ...row, explanation: "Check Change history in the PDF. The proposed concern could not be confirmed from its cited evidence; it is not an established defect. Gemini's unconfirmed observation: A date is missing." };
+    expect(aiReviewAssessment(negative)).toBe(negative);
+  });
+});
 
 const responses = [
   {

@@ -109,9 +109,9 @@ class AiReviewBatchLifecycleTest {
     }
 
     @Test void geminiHttpStatusSurvivesCooldownAndRemainingDocumentsContinue() throws Exception {
-        var diagnostic = new AiReviewProvider.FailureDiagnostic("gemini", "generation", 429, "RESOURCE_EXHAUSTED",
-            "RATE_LIMITED", List.of(), "Gemini quota reached.", null, GeminiAiReviewProvider.MODEL, 200L);
-        var node = json.<com.fasterxml.jackson.databind.node.ObjectNode>valueToTree(result("UNCERTAIN", "RATE_LIMITED", false));
+        var diagnostic = new AiReviewProvider.FailureDiagnostic("gemini", "generation", 503, null,
+            "PROVIDER_OUTCOME_UNKNOWN", List.of(), "Gemini unavailable.", null, GeminiAiReviewProvider.MODEL, 200L);
+        var node = json.<com.fasterxml.jackson.databind.node.ObjectNode>valueToTree(result("UNCERTAIN", "PROVIDER_OUTCOME_UNKNOWN", false));
         node.set("failureDiagnostics", json.valueToTree(diagnostic));
         var review = json.treeToValue(node, AiReviewService.View.class);
         var plan = prepared(); start(plan, "ATTENTION", false);
@@ -124,7 +124,7 @@ class AiReviewBatchLifecycleTest {
         assertThat(saved.state()).isEqualTo("RUNNING");
         assertThat(saved.entries().get(0).failureDiagnostics()).isEqualTo(diagnostic);
         assertThat(saved.entries().get(1).phase()).isEqualTo("PENDING");
-        assertThat(saved.message()).contains("rate limit");
+        assertThat(saved.message()).contains("Waiting for the AI service");
         verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
         long version = saved.version();
         service.tick();

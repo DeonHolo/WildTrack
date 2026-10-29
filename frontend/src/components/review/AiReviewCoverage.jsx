@@ -1,9 +1,10 @@
 import { Text, VisuallyHidden } from '@mantine/core';
 import { formatTemplateInstruction } from '../../lib/templateInstructionText.js';
+import { aiReviewAssessment } from '../../lib/workflow.js';
 
 const SOURCES = { DOCUMENT: 'Submitted document', DELIVERABLE_REQUIREMENTS: 'Deliverable requirements', OFFICIAL_TEMPLATE: 'Official template' };
-const ASSESSMENTS = new Set(['APPEARS_ADDRESSED', 'NEEDS_ATTENTION', 'CHECK_MANUALLY', 'NOT_APPLICABLE']);
-const STATUS_LABELS = { APPEARS_ADDRESSED: 'Appears addressed', NEEDS_ATTENTION: 'Needs attention', CHECK_MANUALLY: 'Check in PDF', NOT_APPLICABLE: 'Not applicable' };
+const ASSESSMENTS = new Set(['APPEARS_ADDRESSED', 'NEEDS_ATTENTION', 'CHECK_MANUALLY', 'NOT_APPLICABLE', 'UNVERIFIED']);
+const STATUS_LABELS = { APPEARS_ADDRESSED: 'Appears addressed', NEEDS_ATTENTION: 'Needs attention', CHECK_MANUALLY: 'Check in PDF', NOT_APPLICABLE: 'Not applicable', UNVERIFIED: 'Unverified observation' };
 const hasText = value => typeof value === 'string' && value.trim().length > 0;
 const validPage = location => Number.isInteger(location?.page) && location.page > 0;
 
@@ -12,7 +13,7 @@ export function validAssessmentCriteria(report) {
   if (!Array.isArray(criteria)) return [];
   const counts = new Map();
   for (const item of criteria) counts.set(item?.id, (counts.get(item?.id) || 0) + 1);
-  return criteria.map((item, index) => {
+  return criteria.map(aiReviewAssessment).map((item, index) => {
     const assessment = item?.assessment;
     const valid = /^[CT][1-9]\d*$/.test(item?.id || '') && counts.get(item.id) === 1
       && hasText(item.requirement) && Object.hasOwn(SOURCES, item.source) && item.source !== 'DOCUMENT'
@@ -100,7 +101,7 @@ export function AiReviewCoverage({ report, showHeading = true }) {
   const positive = rows.filter(row => row.assessment === 'APPEARS_ADDRESSED');
   const notApplicable = rows.filter(row => row.assessment === 'NOT_APPLICABLE');
   const omitted = Number.isInteger(report.coverage.omittedCriteria) && report.coverage.omittedCriteria > 0 ? report.coverage.omittedCriteria : 0;
-  if (!rows.length && !missing.length && !omitted) return null;
+  if (!actionable.length && !positive.length && !notApplicable.length && !missing.length && !omitted) return null;
   return <section aria-label="Template and instruction assessment">
     {showHeading ? <Text component="h3" fw={700}>Review checklist</Text> : null}
     {actionable.map(row => <AssessmentRow key={row.key} row={row} report={report} />)}
@@ -110,5 +111,15 @@ export function AiReviewCoverage({ report, showHeading = true }) {
     {notApplicable.length ? <details className="wt-ai-review-secondary"><summary>Not applicable ({notApplicable.length})</summary>
       {notApplicable.map(row => <AssessmentRow key={row.key} row={row} report={report} />)}</details> : null}
     {omitted ? <Text mt="sm">{omitted} additional template or instruction {omitted === 1 ? 'item was' : 'items were'} outside the saved checklist.</Text> : null}
+  </section>;
+}
+
+export function AiReviewVerificationLimits({ report }) {
+  const rows = validAssessmentCriteria(report).filter(row => row.assessment === 'UNVERIFIED');
+  if (!rows.length) return null;
+  return <section aria-label="Unverified AI observations">
+    <Text component="h3" fw={700} mt="sm">Unverified AI observations ({rows.length})</Text>
+    <Text mt="sm">The supporting quotations could not be verified. These observations do not establish a document problem or a confirmed pass.</Text>
+    {rows.map(row => <AssessmentRow key={row.key} row={row} report={report} />)}
   </section>;
 }

@@ -108,13 +108,15 @@ export function aiBatchFailureGroups(entries = []) {
       || error.startsWith('Google Drive is rate-limited.')
       || error.startsWith("WildTrack's Drive API configuration was rejected.");
     const advisory = isAiBatchReviewAdvisory(entry);
-    const reviewLimit = advisory && /inconclusive|limited (?:review )?coverage|manual verification/i.test(error);
-    const message = reviewLimit
+    const manualCheck = advisory && /manual verification|items to check in the PDF/i.test(error);
+    const reviewLimit = advisory && /inconclusive|limited (?:review )?coverage/i.test(error);
+    const message = manualCheck
       ? 'These AI Reviews finished with items to check in the PDF. Open the saved reviews for details.'
+      : reviewLimit ? 'These AI Reviews finished with limited coverage. See Review limits in the saved reviews for details.'
       : driveAccess || driveRetrieval
         ? 'These PDFs could not be opened from Google Drive. No AI review started for them.' : error;
     const groupKey = `${advisory ? 'advisory' : 'failure'}:${message}`;
-    if (!groups.has(groupKey)) groups.set(groupKey, { message, advisory, entries: [] });
+    if (!groups.has(groupKey)) groups.set(groupKey, { message, advisory, limited: reviewLimit && !manualCheck, entries: [] });
     groups.get(groupKey).entries.push({ ...entry,
       failureDetail: providerFailureLabel(entry.failureDiagnostics)
         || (driveAccess ? 'Access restricted' : driveRetrieval ? 'Drive error' : '') });

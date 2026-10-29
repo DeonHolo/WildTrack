@@ -73,6 +73,34 @@ class GeminiProviderCooldownTest {
         server.verify();
     }
 
+    @Test void http503KeepsItsDiagnosticAndHonorsHintWithoutReplaying() {
+        server.expect(requestTo(GENERATE)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
+            .header("Retry-After", "12").body("{}").contentType(MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> provider.review(input())).isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+            assertThat(failure.code).isEqualTo("PROVIDER_OUTCOME_UNKNOWN");
+            assertThat(failure.detail).isEqualTo("http_503");
+            assertThat(failure.diagnostic.httpStatus()).isEqualTo(503);
+        });
+        assertThat(provider.retryDelayMillis()).isBetween(11_000L, 12_000L);
+        assertThatThrownBy(() -> provider.review(input())).isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class,
+            failure -> assertThat(failure.code).isEqualTo("PROVIDER_OUTCOME_UNKNOWN"));
+        server.verify();
+    }
+
+    @Test void repeated503BackoffIncreasesAndCapsWithoutSleeping() throws Exception {
+        for (int i = 0; i < 6; i++) server.expect(requestTo(GENERATE))
+            .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE).body("{}").contentType(MediaType.APPLICATION_JSON));
+        var blockedUntil = GeminiAiReviewProvider.class.getDeclaredField("quotaBlockedUntil");
+        blockedUntil.setAccessible(true);
+        long[] bases = {30_000L, 60_000L, 120_000L, 240_000L, 300_000L, 300_000L};
+        for (long base : bases) {
+            blockedUntil.setLong(provider, 0L); // Simulate elapsed time without waiting.
+            assertThatThrownBy(() -> provider.review(input())).isInstanceOf(GeminiAiReviewProvider.Failure.class);
+            assertThat(provider.retryDelayMillis()).isBetween(base - 1000L, Math.min(300_000L, base + base / 4));
+        }
+        server.verify();
+    }
+
     @Test void successfulResponseDoesNotSetCooldown() throws Exception {
         String report = "{\"summary\":\"Review saved.\",\"findings\":[],\"missingRequiredSections\":[],\"suggestedAction\":\"Inspect the PDF.\",\"verifiedChecks\":[]}";
         String body = json.writeValueAsString(Map.of("candidates", List.of(Map.of("finishReason", "STOP", "content", Map.of("parts", List.of(Map.of("text", report)))))));

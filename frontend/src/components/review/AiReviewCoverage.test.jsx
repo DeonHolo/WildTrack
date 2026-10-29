@@ -1,13 +1,25 @@
 import { MantineProvider } from '@mantine/core';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { expect, it } from 'vitest';
-import { AiReviewCoverage } from './AiReviewCoverage.jsx';
+import { AiReviewCoverage, AiReviewVerificationLimits } from './AiReviewCoverage.jsx';
 
 const criterion = (assessment, extra = {}) => ({ id: extra.id || 'C1', title: 'Describe recovery behavior',
   requirement: 'Describe recovery behavior.', source: 'OFFICIAL_TEMPLATE', assessment,
   explanation: 'The saved document describes the retry path.', documentEvidence: 'Users can retry an interrupted upload.',
   location: { page: 8, section: 'Recovery' }, ...extra });
 function show(report) { render(<MantineProvider><AiReviewCoverage report={report} /></MantineProvider>); }
+
+it('shows an unverified positive observation only in Review limits, without a pass or manual concern', () => {
+  const report = { coverage: { criteria: [criterion('UNVERIFIED', { location: null, documentEvidence: null,
+    explanation: 'The supporting quotation could not be verified. Unverified AI observation: The recovery path is described.' })] } };
+  render(<MantineProvider><AiReviewCoverage report={report} /><AiReviewVerificationLimits report={report} /></MantineProvider>);
+  expect(screen.queryByRole('region', { name: 'Template and instruction assessment' })).not.toBeInTheDocument();
+  const limits = screen.getByRole('region', { name: 'Unverified AI observations' });
+  expect(limits).toHaveTextContent('do not establish a document problem or a confirmed pass');
+  expect(limits).not.toHaveTextContent('Appears addressed');
+  expect(limits).not.toHaveTextContent('Check in PDF');
+  expect(limits).toHaveTextContent('The recovery path is described.');
+});
 
 it('keeps all 113 fixed instructions and distinguishes inapplicable items without warnings', () => {
   const criteria = Array.from({ length: 113 }, (_, index) => criterion('APPEARS_ADDRESSED', {

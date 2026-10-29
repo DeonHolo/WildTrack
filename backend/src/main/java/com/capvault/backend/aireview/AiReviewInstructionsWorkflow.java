@@ -118,9 +118,12 @@ public class AiReviewInstructionsWorkflow {
         }
         boolean attention = !findings.isEmpty() || !missing.isEmpty() || criteria.stream().anyMatch(c -> c.assessment() == CriterionAssessmentLabel.NEEDS_ATTENTION);
         boolean manual = criteria.isEmpty() || !notes.isEmpty() || criteria.stream().anyMatch(c -> c.assessment() == CriterionAssessmentLabel.CHECK_MANUALLY);
-        ReviewOutcome outcome = attention ? ReviewOutcome.ISSUES_IDENTIFIED : manual ? ReviewOutcome.INCONCLUSIVE : ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS;
+        boolean limited = criteria.stream().anyMatch(c -> c.assessment() == CriterionAssessmentLabel.UNVERIFIED);
+        ReviewOutcome outcome = attention ? ReviewOutcome.ISSUES_IDENTIFIED : manual || limited ? ReviewOutcome.INCONCLUSIVE : ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS;
         String summary = attention ? "The review identified items needing attention." : manual
-            ? "The review includes items to check in the original PDF." : "No actionable issues were identified in the assessed instructions.";
+            ? "The review includes items to check in the original PDF." : limited
+                ? "Some positive AI observations could not be verified. See Review limits for details."
+                : "No actionable issues were identified in the assessed instructions.";
         return new Result(summary, List.copyOf(findings), List.copyOf(missing), List.copyOf(limitations),
             "Use the cited PDF evidence to make the review decision.", List.copyOf(checks), List.copyOf(notes), outcome,
             new ReviewCoverage(List.copyOf(criteria), 0, results.size(), null,

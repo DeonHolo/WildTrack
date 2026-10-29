@@ -568,9 +568,20 @@ export function hasCompletedTemplateChecklist(report) {
         && String(row.documentEvidence || '').trim() && Number.isInteger(row.location?.page) && row.location.page > 0)));
 }
 
+export function aiReviewAssessment(row) {
+  // Earlier saved results used this exact backend-generated wrapper for positive quote failures.
+  // Do not reclassify a model's own manual concern or a row linked to an actual finding.
+  if (row?.assessment !== 'CHECK_MANUALLY' || row.documentEvidence || row.location
+      || ['verifiedCheckIndexes', 'findingIndexes', 'missingSectionIndexes', 'verificationNoteIndexes']
+        .some(key => row[key]?.length)) return row;
+  const match = String(row.explanation || '').match(/^Check .+ in the PDF(?: \(AI-cited page \d+\))?\. (?:The cited page contains visual content, but the quotation could not be matched to readable text\.|The quotation could not be matched to the PDF's readable text\.|Gemini did not provide a supporting quotation for this assessment\.|The supporting text could not be located on a PDF page\.) Gemini's unconfirmed observation: (.+)$/s);
+  return match ? { ...row, assessment: 'UNVERIFIED',
+    explanation: `The supporting quotation could not be verified. Unverified AI observation: ${match[1]}` } : row;
+}
+
 function hasUnresolvedInstructionAssessments(report) {
   const criteria = report?.coverage?.criteria;
-  return Array.isArray(criteria) && criteria.some(item => ['CHECK_MANUALLY', 'NEEDS_ATTENTION'].includes(item?.assessment));
+  return Array.isArray(criteria) && criteria.some(item => ['CHECK_MANUALLY', 'NEEDS_ATTENTION'].includes(aiReviewAssessment(item)?.assessment));
 }
 
 // Old zero-evidence completed reports can be empty or claim a clean result in
@@ -583,6 +594,7 @@ export function isInconclusiveAiReviewReport(report) {
         || (report.missingRequiredSections || report.missingSections || []).length)) return true;
   if (report.outcome === 'INCONCLUSIVE') return true;
   if (report.outcome === 'ISSUES_IDENTIFIED') return false;
+  if (report.coverage?.criteria?.some(row => aiReviewAssessment(row)?.assessment === 'UNVERIFIED')) return true;
   if (report.outcome === 'NO_ISSUES_IN_CHECKED_AREAS') return !hasCompletedTemplateChecklist(report) && aiReviewEvidenceCount(report) < 2;
   return !((report.findings || report.flags || []).length
     || (report.missingRequiredSections || report.missingSections || []).length)

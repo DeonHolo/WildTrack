@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Alert, Button, Stack, Text } from '@mantine/core';
 import { aiReviewEvidenceCount, aiReviewReportStatus, hasCompletedTemplateChecklist, isInconclusiveAiReviewReport, statusDisplayLabel, verifiedAiChecks } from '../../lib/workflow.js';
-import { AiReviewCoverage, assessedEvidenceIndexes, validAssessmentCriteria } from './AiReviewCoverage.jsx';
+import { AiReviewCoverage, AiReviewVerificationLimits, assessedEvidenceIndexes, validAssessmentCriteria } from './AiReviewCoverage.jsx';
 
 const CHECK_SOURCE_LABELS = {
   DOCUMENT: 'Submitted document',
@@ -18,6 +18,8 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
   const allFindings = uniqueByClaim(originalFindings.filter(finding => !isLegacyVerification(finding)));
   const allNotes = uniqueByClaim([...(report.verificationNotes || []), ...legacyNotes]);
   const instructionRows = validAssessmentCriteria(report);
+  const unverifiedCount = instructionRows.filter(row => row.assessment === 'UNVERIFIED').length;
+  const checklistRows = instructionRows.filter(row => row.assessment !== 'UNVERIFIED');
   const linkedEvidence = assessedEvidenceIndexes(report);
   const mismatch = report.documentOverview?.wrongDocument === true;
   const collapseTemplateChecks = mismatch && !(Array.isArray(report.coverage?.criteria) ? report.coverage.criteria : [])
@@ -54,6 +56,7 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
   const summary = [
     concernCount && `${concernCount} concern${concernCount === 1 ? '' : 's'}`,
     manualCheckCount && `${manualCheckCount} item${manualCheckCount === 1 ? '' : 's'} to check`,
+    unverifiedCount && `${unverifiedCount} unverified observation${unverifiedCount === 1 ? '' : 's'}`,
     glossary.length && `${glossary.length} minor check${glossary.length === 1 ? '' : 's'}`
   ].filter(Boolean).join(' · ') || (fixedChecklistComplete
     ? `${instructionRows.length} template instruction${instructionRows.length === 1 ? '' : 's'} assessed`
@@ -81,9 +84,10 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
         <Text mt={4} size="sm">{summary}</Text>
       </div>
       {inconclusive ? (
-        <Alert color="orange" title={statusDisplayLabel(reviewStatus)} role="status">
-          {reviewStatus === 'Needs manual verification'
+        <Alert color={manualCheckCount || !unverifiedCount ? 'orange' : 'blue'} title={manualCheckCount || !unverifiedCount ? statusDisplayLabel(reviewStatus) : 'Review limits'} role="status">
+          {manualCheckCount
             ? 'Confirm the items in the review checklist in the original PDF.'
+            : unverifiedCount ? 'Some positive AI observations remain unverified. See Review limits for details.'
             : 'Too little supported evidence was recorded for a no-issues conclusion. This does not mean the PDF is empty or incorrect.'}
         </Alert>
       ) : noIssues ? (
@@ -93,7 +97,7 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
           This is advisory feedback, not approval or a guarantee of full compliance.
         </Alert>
       ) : null}
-      {findings.length || missing.length || verificationNotes.length || instructionRows.length || report.coverage?.omittedCriteria > 0 ? (
+      {findings.length || missing.length || verificationNotes.length || checklistRows.length || report.coverage?.omittedCriteria > 0 ? (
         <section aria-label="Review checklist">
           <Text component="h3" fw={700}>Review checklist</Text>
           {renderChecklist(collapseTemplateChecks ? findings.filter(item => !templateRelated(item)) : findings,
@@ -108,6 +112,7 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
       ) : null}
       <details className="wt-ai-review-secondary">
         <summary>Review limits</summary>
+        <AiReviewVerificationLimits report={report} />
         {report.limitations?.map((limit, index) => <Text key={index} size="sm" mt="sm">{limit}</Text>)}
       </details>
     </Stack>
