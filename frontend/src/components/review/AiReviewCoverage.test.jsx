@@ -49,13 +49,14 @@ it('keeps linked excerpt pages separate and does not attribute them to an unloca
   fireEvent.click(rows[0].querySelector('summary'));
   const content = rows[0].querySelector('.wt-ai-review-assessment-details');
   expect(content).not.toHaveTextContent('📌');
-  expect(content.textContent.indexOf('Instruction:')).toBeLessThan(content.textContent.indexOf('Assessment:'));
-  expect(content.textContent.indexOf('Assessment:')).toBeLessThan(content.textContent.indexOf('Linked concern:'));
+  expect(content.textContent.indexOf('Instruction:')).toBeLessThan(content.textContent.indexOf('Linked concern:'));
+  expect(content).not.toHaveTextContent(first.explanation);
+  expect(rows[0].querySelector('summary')).toHaveTextContent(first.explanation);
   expect(content.querySelector('blockquote')).toHaveClass('wt-ai-review-passage', 'wt-ai-review-quote');
   expect(content).not.toHaveTextContent('Excerpt from submitted PDF');
   expect(content.querySelector('blockquote cite')).toHaveTextContent('Submitted PDF · page 3 · Process');
-  expect(content.lastElementChild).toHaveTextContent('Source: Submitted PDF page not established');
-  expect(rows[1].querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('Submitted PDF page not established');
+  expect(content.lastElementChild).toHaveTextContent('Source: Submitted PDF · quotation unverified');
+  expect(rows[1].querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('Submitted PDF · quotation unverified');
 });
 
 it('retains each excerpt page when the criterion and a linked concern cite different PDF pages', () => {
@@ -68,10 +69,20 @@ it('retains each excerpt page when the criterion and a linked concern cite diffe
   expect(item.querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('Submitted PDF · page 8 · Recovery');
 });
 
+it('omits a linked concern identical to the summary while preserving its distinct evidence', () => {
+  const row = criterion('NEEDS_ATTENTION', { findingIndexes: [0] });
+  show({ coverage: { criteria: [row] }, findings: [{ source: row.source, requirement: row.requirement,
+    issue: row.explanation, evidence: 'Another passage.', location: { page: 5 } }] });
+  const item = document.querySelector('.wt-ai-review-assessment-row');
+  fireEvent.click(item.querySelector('summary'));
+  expect(item.querySelector('.wt-ai-review-assessment-details')).not.toHaveTextContent(row.explanation);
+  expect(item.querySelector('.wt-ai-review-assessment-details')).toHaveTextContent('Another passage.');
+});
+
 it('keeps positive assessments collapsed and never exposes historical evidence as a pass', () => {
   show({ coverage: { criteria: [criterion('APPEARS_ADDRESSED')] } });
   expect(screen.getByText('Appears addressed (1)')).toBeInTheDocument();
-  expect(screen.queryByText('The saved document describes the retry path.')).not.toBeVisible();
+  expect(document.querySelector('.wt-ai-review-assessment-summary')).not.toBeVisible();
   cleanup();
   show({ coverage: { criteria: [{ ...criterion('APPEARS_ADDRESSED'), assessment: null, status: 'EVIDENCE_RECORDED' }] } });
   expect(screen.queryByRole('region', { name: 'Template and instruction assessment' })).not.toBeInTheDocument();

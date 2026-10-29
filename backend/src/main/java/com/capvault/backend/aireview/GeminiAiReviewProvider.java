@@ -156,7 +156,9 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     private final int maxOutputTokens;
     private final com.capvault.backend.template.TemplateProviderFileStore templateFiles;
     private long nextRequestAt;
-    private long quotaBlockedUntil;
+    private volatile long quotaBlockedUntil;
+    private int consecutiveRateLimits;
+    private static final long MAX_COOLDOWN_MILLIS = 3_600_000L;
 
     GeminiAiReviewProvider(String key, RestClient http, ObjectMapper json, int minimumIntervalSeconds) {
         this(key, http, json, minimumIntervalSeconds, "MINIMAL", DEFAULT_MAX_OUTPUT_TOKENS);
@@ -192,6 +194,47 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     }
 
     @Override public boolean isConfigured() { return !key.isBlank(); }
+    @Override public long retryDelayMillis() { return Math.max(0, quotaBlockedUntil - System.currentTimeMillis()); }
+
+    private void rateLimited(RestClientResponseException response) {
+        long now = System.currentTimeMillis();
+        long hinted = cooldownHintMillis(response, now);
+        int exponent = Math.min(consecutiveRateLimits++, 4);
+        long base = Math.min(300_000L, 30_000L << exponent);
+        long fallback = Math.min(300_000L, base + java.util.concurrent.ThreadLocalRandom.current().nextLong(base / 4 + 1));
+        quotaBlockedUntil = Math.max(quotaBlockedUntil, now + (hinted > 0 ? hinted : fallback));
+    }
+
+    static long cooldownHintMillis(RestClientResponseException response, long now) {
+        long delay = 0;
+        var headers = response.getResponseHeaders();
+        String retryAfter = headers == null ? null : headers.getFirst("Retry-After");
+        if (retryAfter != null) {
+            try {
+                if (retryAfter.trim().matches("[0-9]{1,10}"))
+                    delay = Math.min(MAX_COOLDOWN_MILLIS, Long.parseLong(retryAfter.trim()) * 1000L);
+                else delay = Math.max(0, Math.min(MAX_COOLDOWN_MILLIS,
+                    java.time.ZonedDateTime.parse(retryAfter.trim(), java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+                        .toInstant().toEpochMilli() - now));
+            } catch (RuntimeException ignored) { /* Invalid hint falls back to backoff. */ }
+        }
+        try {
+            byte[] body = response.getResponseBodyAsByteArray();
+            if (body.length <= 65_536) {
+                JsonNode details = new ObjectMapper().readTree(body).path("error").path("details");
+                if (details.isArray()) for (JsonNode item : details) {
+                    if (!item.path("@type").asText().equals("type.googleapis.com/google.rpc.RetryInfo")) continue;
+                    String duration = item.path("retryDelay").asText();
+                    if (!duration.matches("[0-9]{1,10}(\\.[0-9]{1,9})?s")) continue;
+                    long millis = new java.math.BigDecimal(duration.substring(0, duration.length() - 1))
+                        .multiply(java.math.BigDecimal.valueOf(1000)).min(java.math.BigDecimal.valueOf(MAX_COOLDOWN_MILLIS))
+                        .setScale(0, java.math.RoundingMode.CEILING).longValueExact();
+                    delay = Math.max(delay, millis);
+                }
+            }
+        } catch (Exception ignored) { /* Never include provider bodies in diagnostics. */ }
+        return delay;
+    }
 
     @Override public String cacheVersion() {
         return MODEL + ":rest-pdf-v7:thinking-" + thinkingLevel.toLowerCase(Locale.ROOT)
@@ -279,11 +322,12 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                     "responseJsonSchema", wireSchema(AiReviewInstructionProtocol.schema())));
             JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
                 .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON).body(payload).retrieve().body(JsonNode.class);
+            consecutiveRateLimits = 0;
             stage = "instruction_validation";
             return AiReviewInstructionProtocol.parse(report(response, 200_000), input.template(), input.instructions(), input.includeOverview());
         } catch (RestClientResponseException rejected) {
             int status = rejected.getStatusCode().value();
-            if (status == 429) quotaBlockedUntil = System.currentTimeMillis() + 60_000;
+            if (status == 429) rateLimited(rejected);
             Failure failure = status == 400 ? rejectedRequest(rejected) : new Failure(status == 429 ? "RATE_LIMITED"
                 : status == 401 || status == 403 ? "API_KEY_REJECTED" : "PROVIDER_OUTCOME_UNKNOWN", "http_" + status)
                 .withHttpStatus(status, requestId(rejected));
@@ -343,12 +387,13 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
                 .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON)
                 .body(payload).retrieve().body(JsonNode.class);
+            consecutiveRateLimits = 0;
             stage = "template_validation";
             JsonNode proposed = report(response, 500_000);
             return com.capvault.backend.template.TemplateInstructionProtocol.parseDraft(proposed, input.pageTexts(), input.firstPage(), input.lastPage());
         } catch (RestClientResponseException rejected) {
             int status = rejected.getStatusCode().value();
-            if (status == 429) quotaBlockedUntil = System.currentTimeMillis() + 60_000;
+            if (status == 429) rateLimited(rejected);
             Failure failure = status == 400 ? rejectedRequest(rejected)
                 : new Failure(status == 429 ? "RATE_LIMITED" : status == 401 || status == 403 ? "API_KEY_REJECTED"
                     : "PROVIDER_OUTCOME_UNKNOWN", "http_" + status).withHttpStatus(status, requestId(rejected));
@@ -476,12 +521,13 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
                 .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON)
                 .body(payload).retrieve().body(JsonNode.class);
+            consecutiveRateLimits = 0;
             stage = "response_validation";
             return parse(response, input, passages, plan);
         } catch (RestClientResponseException rejected) {
             int status = rejected.getStatusCode().value();
             if (status == 429) {
-                quotaBlockedUntil = System.currentTimeMillis() + 60_000;
+                rateLimited(rejected);
                 LOG.warn("Gemini AI review HTTP failure: stage={} status={} code=RATE_LIMITED", stage, status);
                 throw new Failure("RATE_LIMITED").withHttpStatus(status, requestId(rejected)).withContext(stage, startedAt);
             }

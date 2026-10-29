@@ -19,16 +19,14 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
   const allNotes = uniqueByClaim([...(report.verificationNotes || []), ...legacyNotes]);
   const instructionRows = validAssessmentCriteria(report);
   const linkedEvidence = assessedEvidenceIndexes(report);
+  const mismatch = report.documentOverview?.wrongDocument === true;
+  const collapseTemplateChecks = mismatch && !(Array.isArray(report.coverage?.criteria) ? report.coverage.criteria : [])
+    .some(row => row?.assessment === 'APPEARS_ADDRESSED');
   const findings = uniqueByClaim(originalFindings.filter((finding, index) => !isLegacyVerification(finding)
-    && !linkedEvidence.findingIndexes.has(index)));
+    && (!linkedEvidence.findingIndexes.has(index) || mismatch && isIdentityMismatch(finding))));
   const allMissing = report.missingRequiredSections || legacyMissingSections(report.missingSections);
   const missing = allMissing.filter((item, index) => !linkedEvidence.missingSectionIndexes.has(index));
-  const sharedSectionSource = missing[0]?.source && missing.every(item => item.source === missing[0].source)
-    ? missing[0].source : null;
   const verificationNotes = uniqueByClaim((report.verificationNotes || []).filter((note, index) => !linkedEvidence.verificationNoteIndexes.has(index)).concat(legacyNotes));
-  const sectionNotes = verificationNotes.filter(note => sectionVerification(note));
-  const diagramNotes = verificationNotes.filter(isDiagramPresenceNote);
-  const artifactNotes = groupArtifactNotes(verificationNotes.filter(note => !sectionVerification(note) && !isDiagramPresenceNote(note)));
   const allDiagramNotes = allNotes.filter(isDiagramPresenceNote);
   const manualCheckCount = allNotes.length - allDiagramNotes.length + (allDiagramNotes.length ? 1 : 0)
     + instructionRows.filter(row => row.assessment === 'CHECK_MANUALLY'
@@ -36,8 +34,11 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
   const checks = verifiedAiChecks(report).filter(check => !findings.some(finding => sameCheck(finding, check)));
   const evidenceCount = aiReviewEvidenceCount(report);
   const grouped = groupGlossary(findings);
-  const concerns = grouped.filter(group => !group.terms);
   const glossary = grouped.filter(group => group.terms);
+  const templateRelated = item => ['OFFICIAL_TEMPLATE', 'DELIVERABLE_REQUIREMENTS'].includes(item.source)
+    && !(mismatch && isIdentityMismatch(item));
+  const templateCount = (report.coverage?.criteria?.length || 0) + (report.coverage?.omittedCriteria || 0)
+    + findings.filter(templateRelated).length + missing.filter(templateRelated).length + verificationNotes.filter(templateRelated).length;
   const issueCount = allFindings.length + allMissing.length;
   const concernCount = groupGlossary(allFindings).filter(group => !group.terms).length + allMissing.length;
   const inconclusive = issueCount === 0 && (
@@ -95,7 +96,33 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
       {findings.length || missing.length || verificationNotes.length || instructionRows.length || report.coverage?.omittedCriteria > 0 ? (
         <section aria-label="Review checklist">
           <Text component="h3" fw={700}>Review checklist</Text>
-          {findings.length || missing.length || verificationNotes.length ? <ol className="wt-ai-review-checklist">
+          {renderChecklist(collapseTemplateChecks ? findings.filter(item => !templateRelated(item)) : findings,
+            collapseTemplateChecks ? missing.filter(item => !templateRelated(item)) : missing,
+            collapseTemplateChecks ? verificationNotes.filter(item => !templateRelated(item)) : verificationNotes, pdfUrl)}
+          {collapseTemplateChecks && templateCount ? <details className="wt-ai-review-secondary">
+            <summary>Template checks ({templateCount})</summary>
+            {renderChecklist(findings.filter(templateRelated), missing.filter(templateRelated), verificationNotes.filter(templateRelated), pdfUrl)}
+            <AiReviewCoverage report={report} showHeading={false} />
+          </details> : !collapseTemplateChecks ? <AiReviewCoverage report={report} showHeading={false} /> : null}
+        </section>
+      ) : null}
+      <details className="wt-ai-review-secondary">
+        <summary>Review limits</summary>
+        {report.limitations?.map((limit, index) => <Text key={index} size="sm" mt="sm">{limit}</Text>)}
+      </details>
+    </Stack>
+  );
+}
+
+function renderChecklist(findings, missing, verificationNotes, pdfUrl) {
+  const grouped = groupGlossary(findings);
+  const concerns = grouped.filter(group => !group.terms);
+  const glossary = grouped.filter(group => group.terms);
+  const sectionNotes = verificationNotes.filter(note => sectionVerification(note));
+  const diagramNotes = verificationNotes.filter(isDiagramPresenceNote);
+  const artifactNotes = groupArtifactNotes(verificationNotes.filter(note => !sectionVerification(note) && !isDiagramPresenceNote(note)));
+  const sharedSectionSource = missing[0]?.source && missing.every(item => item.source === missing[0].source) ? missing[0].source : null;
+  return findings.length || missing.length || verificationNotes.length ? <ol className="wt-ai-review-checklist">
             {concerns.map((group, index) => <li key={`finding-${index}`}><FindingRow finding={group.finding} label="Concern" /></li>)}
             {missing.length ? <li><article className="wt-ai-review-row">
               <Text className="wt-ai-review-item-label">Check in PDF</Text>
@@ -114,16 +141,7 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
               ? <ArtifactVerificationRow group={group} />
               : <FindingRow finding={group.note} label="Check in PDF" />}</li>)}
             {glossary.map((group, index) => <li key={`glossary-${index}`}><GlossaryRow group={group} /></li>)}
-          </ol> : null}
-          <AiReviewCoverage report={report} showHeading={false} />
-        </section>
-      ) : null}
-      <details className="wt-ai-review-secondary">
-        <summary>Review limits</summary>
-        {report.limitations?.map((limit, index) => <Text key={index} size="sm" mt="sm">{limit}</Text>)}
-      </details>
-    </Stack>
-  );
+          </ol> : null;
 }
 
 function FindingRow({ finding, label, hideRequirement = false }) {
@@ -324,6 +342,10 @@ function CheckRow({ check }) {
 }
 
 function isLegacyVerification(finding) { return LEGACY_VERIFICATION.test(finding.issue || ''); }
+function isIdentityMismatch(finding) {
+  return /\b(?:instead of the required|rather than the required|not the (?:required|requested) document|(?:document|file|submission) type (?:does not match|mismatch))\b/i
+    .test(`${finding.issue || ''} ${finding.explanation || ''} ${finding.title || ''}`);
+}
 function legacyVerification(finding) {
   const quoted = (finding.issue || '').match(/'([^']+)'/);
   const templateEvidence = /^(?:Mapped official-template|Mapped-template)/i.test(finding.evidence || '');

@@ -1201,8 +1201,7 @@ final class AiReviewGroundingPolicy {
 
     static boolean unsupportedTemplateSampleIdentityClaim(String statement, String requirement,
             String documentText, String templateText) {
-        if (!sampleNameConfusion(statement + " " + Objects.requireNonNullElse(requirement, ""),
-                documentText, templateText)) return false;
+        if (!sampleNameConfusion(statement, documentText, templateText)) return false;
         String authority = normalize(requirement);
         // A template example name is illustrative unless the quoted authority itself explicitly
         // imposes an identity/name obligation. Deliverable Instructions are handled separately.
@@ -1492,11 +1491,17 @@ final class AiReviewGroundingPolicy {
 
     static boolean sampleNameConfusion(String issue, String documentText, String templateText) {
         String text = normalize(issue);
-        if (!text.matches("(?s).*(?:name|identity|named|project(?: title)?|system).*")
-                || !text.matches("(?s).*(?:template|sample|example|must match|should match|should be named|"
-                    + "does not match|mismatch|instead of|different project|requested).*") )
-            return false;
+        boolean namingClaim = text.matches("(?s).*(?:name|identity|named|project(?: title)?|system).*")
+            && text.matches("(?s).*(?:template|sample|example|must match|should match|should be named|"
+                + "does not match|mismatch|instead of|different project|requested).*");
         if (templateText == null || templateText.isBlank()) return false;
+        String submitted = normalize(documentText);
+        Matcher coverName = Pattern.compile("(?m)^\\s*(?i:for)\\s*\\R\\s*([A-Z][A-Za-z0-9_-]{3,})\\s*$").matcher(templateText);
+        while (coverName.find()) {
+            if (!coverName.group(1).matches("[A-Z][A-Z0-9_-]{3,}|.*[a-z][A-Z].*")) continue;
+            String name = normalize(coverName.group(1));
+            if (text.contains(name) && !submitted.contains(name)) return true;
+        }
         // A name shown only in the official template cannot determine the identity of a
         // separately submitted project. If the same name appears in the PDF too, don't infer.
         for (Pattern pattern : List.of(
@@ -1506,7 +1511,8 @@ final class AiReviewGroundingPolicy {
             Matcher candidate = pattern.matcher(templateText);
             while (candidate.find()) {
                 String name = candidate.group(1);
-                if (text.contains(normalize(name)) && !normalize(documentText).contains(normalize(name))) return true;
+                if ((namingClaim || name.matches(".*[a-z][A-Z].*"))
+                        && text.contains(normalize(name)) && !submitted.contains(normalize(name))) return true;
             }
         }
         return false;

@@ -98,11 +98,8 @@ public class AiReviewBatchService {
     private final FileCheckReportRepository checks;
     private final ObjectMapper json;
     private final Clock clock;
-    private static final Set<String> PAUSE_CODES = Set.of("RATE_LIMITED", "API_KEY_REJECTED", "NOT_CONFIGURED",
-        "QUEUE_FULL", "PROVIDER_TIMEOUT", "PROVIDER_CONNECTION_FAILED", "MODEL_UNAVAILABLE",
-        "TEMPLATE_PREPARATION_FAILED", "TEMPLATE_PREPARATION_BUSY", "TEMPLATE_FILE_BUSY", "TEMPLATE_PDF_NOT_READY",
-        "PREPARATION_TIME_BUDGET", "PREPARATION_FAILED", "INVALID_TEMPLATE_INSTRUCTIONS", "REVIEW_WORK_BUDGET",
-        "TEMPLATE_INSTRUCTION_PAGE_TOO_LARGE", "TEMPLATE_CHECKLIST_CHANGED");
+    private static final String COOLDOWN_MESSAGE = "Waiting for the AI service rate limit before continuing unstarted documents.";
+    private static final String RUNNING_MESSAGE = "Reviewing on the server. You can leave this page and return to the saved progress.";
 
     public AiReviewBatchService(AiReviewBatchStore store, AiReviewService reviews, FileCheckReportRepository checks,
                                ObjectMapper json, Clock clock) {
@@ -273,8 +270,14 @@ public class AiReviewBatchService {
         Entry entry = entries.get(index);
         boolean starting = entry.phase().equals("PENDING");
         if (starting) {
+            if (reviews.providerRetryDelayMillis() > 0) {
+                if (!COOLDOWN_MESSAGE.equals(row.data().message()))
+                    store.saveLeased(row, "RUNNING", row.data().entries(entries, COOLDOWN_MESSAGE));
+                return;
+            }
             entries.set(index, entry.phase("STARTING"));
-            row = store.checkpoint(row, row.data().entries(entries, row.data().message())).orElse(null);
+            row = store.checkpoint(row, row.data().entries(entries,
+                COOLDOWN_MESSAGE.equals(row.data().message()) ? RUNNING_MESSAGE : row.data().message())).orElse(null);
             if (row == null) return;
         }
         String next = "RUNNING";
@@ -293,25 +296,21 @@ public class AiReviewBatchService {
                     ? "Review finished with limited coverage. Open the saved review to see the supported observations."
                     : "Review finished with checks needing manual verification. Open the saved review to inspect the cited areas."
                 : review.status().equals("COMPLETED") ? "" : review.message();
-            entries.set(index, entry.result(review, message));
-            if (!starting && Set.of("NOT_REVIEWED", "OUTDATED").contains(review.status())) next = "PAUSED";
-            if (review.status().equals("UNAVAILABLE") || PAUSE_CODES.contains(review.failureCode() == null ? "" : review.failureCode())) next = "PAUSED";
+            entries.set(index, !starting && Set.of("NOT_REVIEWED", "OUTDATED").contains(review.status())
+                ? entry.failed("The saved review status could not be confirmed. Check saved reviews before retrying.", false)
+                : entry.result(review, message));
         } catch (AiReviewService.DrivePreparationFailure beforeClaim) {
             entries.set(index, entry.failed(beforeClaim.getReason(), true)
                 .identity(beforeClaim.identity() == null ? entry.identity() : beforeClaim.identity())
                 .diagnostic(beforeClaim.diagnostic()));
             // A different submitted copy may still be accessible. Its normal job claim deduplicates Gemini.
             transferUnclaimedIntent(entries, entry);
-            if (Set.of(com.capvault.backend.drive.GoogleDriveUnavailableException.Kind.CONFIGURATION,
-                    com.capvault.backend.drive.GoogleDriveUnavailableException.Kind.RATE_LIMIT).contains(beforeClaim.kind())) next = "PAUSED";
         } catch (ResponseStatusException uncertain) {
             // The final source check can throw after the executor has already started Gemini.
             entries.set(index, entry.failed(uncertain.getReason() == null
                 ? "The saved review status could not be confirmed. Check saved reviews before retrying." : uncertain.getReason(), false));
-            next = "PAUSED";
         } catch (IllegalArgumentException invalid) {
             entries.set(index, entry.failed("This artifact could not be processed. Check saved reviews before retrying.", false));
-            next = "PAUSED";
         }
         boolean stopped = next.equals("RUNNING") && row.data().stopRequested()
             && entries.stream().noneMatch(e -> e.selected() && Set.of("STARTING", "WAITING").contains(e.phase()));

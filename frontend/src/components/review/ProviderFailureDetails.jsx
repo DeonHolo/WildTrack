@@ -1,13 +1,19 @@
 import { Text } from '@mantine/core';
 import { providerRetryAdvice } from '../../lib/providerFailures.js';
 
+const STAGE_LABELS = {
+  instruction_assessment: 'Assessing instructions',
+  instruction_validation: 'Validating instruction sources in WildTrack'
+};
+
 export function ProviderFailureDetails({ diagnostic, failureCode, service = 'Gemini' }) {
   const explanation = diagnostic?.explanation || diagnostic?.reason;
-  const retryAdvice = providerRetryAdvice(diagnostic, failureCode, service);
+  const localValidation = diagnostic?.stage === 'instruction_validation';
+  const retryAdvice = localValidation ? '' : providerRetryAdvice(diagnostic, failureCode, service);
   const fields = Array.isArray(diagnostic?.parameterFields) ? diagnostic.parameterFields.join(', ') : null;
   const rows = [
-    ['Service', service],
-    ['Step', diagnostic?.stage],
+    ['Service', localValidation ? 'WildTrack' : service],
+    ['Stage', STAGE_LABELS[diagnostic?.stage] || diagnostic?.stage],
     ['HTTP status', diagnostic?.httpStatus ?? diagnostic?.upstreamStatus],
     ['Google status', diagnostic?.providerStatus],
     ['Failure code', failureCode || diagnostic?.code],

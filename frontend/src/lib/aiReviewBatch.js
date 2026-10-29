@@ -113,8 +113,9 @@ export function aiBatchFailureGroups(entries = []) {
       ? 'These AI Reviews finished with items to check in the PDF. Open the saved reviews for details.'
       : driveAccess || driveRetrieval
         ? 'These PDFs could not be opened from Google Drive. No AI review started for them.' : error;
-    if (!groups.has(message)) groups.set(message, { message, advisory, entries: [] });
-    groups.get(message).entries.push({ ...entry,
+    const groupKey = `${advisory ? 'advisory' : 'failure'}:${message}`;
+    if (!groups.has(groupKey)) groups.set(groupKey, { message, advisory, entries: [] });
+    groups.get(groupKey).entries.push({ ...entry,
       failureDetail: providerFailureLabel(entry.failureDiagnostics)
         || (driveAccess ? 'Access restricted' : driveRetrieval ? 'Drive error' : '') });
   }

@@ -102,6 +102,71 @@ class GeminiInstructionAssessmentTest {
         server.verify(); // Upload or DELETE of the shared template would be unexpected.
     }
 
+    @Test void escapedLayoutMarkersDoNotTurnAnOtherwiseExactStudentQuotationIntoAManualCheck() throws Exception {
+        var report = validReport(true);
+        ((ObjectNode) report.withArray("instructionAssessments").get(0))
+            .put("documentEvidence", EVIDENCE.replace(" and ", "\\n and "));
+        expectActive();
+        expectGeneration(report, "STOP", true);
+        var raw = provider.assessInstructions(input(true));
+        var inspection = new com.capvault.backend.filecheck.PdfInspector().inspect(student.pdf());
+        var grounded = AiReviewService.groundInstructions(raw, student, inspection, template.instructions());
+        assertThat(grounded.verifiedChecks()).hasSize(1);
+        assertThat(grounded.coverage().criteria().getFirst().assessment())
+            .isEqualTo(AiReviewProvider.CriterionAssessmentLabel.APPEARS_ADDRESSED);
+        assertThat(grounded.coverage().criteria().getFirst().documentEvidence()).doesNotContain("\\n");
+        server.verify();
+    }
+
+    @Test void anInventedWordIsNotRepairedAsPdfFormatting() throws Exception {
+        var report = validReport(true);
+        ((ObjectNode) report.withArray("instructionAssessments").get(0))
+            .put("documentEvidence", EVIDENCE.replace("Students", "Managers"));
+        expectActive();
+        expectGeneration(report, "STOP", true);
+        var inspection = new com.capvault.backend.filecheck.PdfInspector().inspect(student.pdf());
+        var grounded = AiReviewService.groundInstructions(provider.assessInstructions(input(true)), student, inspection, template.instructions());
+        assertThat(grounded.verifiedChecks()).isEmpty();
+        assertThat(grounded.coverage().criteria().getFirst().assessment())
+            .isEqualTo(AiReviewProvider.CriterionAssessmentLabel.CHECK_MANUALLY);
+        server.verify();
+    }
+
+    @Test void aTemplateExampleProjectNameCannotBecomeASubmittedProjectRequirement() throws Exception {
+        var report = validReport(true);
+        ((ObjectNode) report.withArray("instructionAssessments").get(0))
+            .put("assessment", "NEEDS_ATTENTION").put("explanation", "User responsibilities for the CedarPulse application are missing.");
+        expectActive();
+        expectGeneration(report, "STOP", true);
+        var submitted = new AiReviewProvider.Input(student.idempotencyKey(), student.pdf(), student.extractedText(),
+            student.systemInstruction(), student.deliverableTitle(), student.instructions(), SOURCE + "\nfor CedarPulse");
+        var raw = provider.assessInstructions(new AiReviewProvider.InstructionInput(submitted, template, template.instructions(), true));
+        var inspection = new com.capvault.backend.filecheck.PdfInspector().inspect(submitted.pdf());
+        var grounded = AiReviewService.groundInstructions(raw, submitted, inspection, template.instructions());
+        assertThat(grounded.findings()).isEmpty();
+        assertThat(grounded.coverage().criteria().getFirst().assessment())
+            .isEqualTo(AiReviewProvider.CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(grounded.coverage().criteria().getFirst().explanation())
+            .contains("project name from the template example").doesNotContain("CedarPulse");
+        server.verify();
+    }
+
+    @Test void uppercaseCoverExamplesAreRecognizedWithoutTreatingInstructionVocabularyAsAProjectName() {
+        String templateText = "Software Requirements Specification\nfor\nCEDARPULSE\n\n2. User characteristics";
+        assertThat(AiReviewGroundingPolicy.unsupportedTemplateSampleIdentityClaim(
+            "User characteristics for the CedarPulse application are not addressed.", "Provide content for User characteristics.",
+            EVIDENCE, templateText)).isTrue();
+        assertThat(AiReviewGroundingPolicy.unsupportedTemplateSampleIdentityClaim(
+            "Assumptions and dependencies for the software are not provided.",
+            "For example, specify factors that affect the requirements of the operating system.", EVIDENCE, templateText)).isFalse();
+        assertThat(AiReviewGroundingPolicy.unsupportedTemplateSampleIdentityClaim(
+            "User characteristics for the CedarPulse application are not addressed.", "Provide content for User characteristics.",
+            "CedarPulse is the submitted project. " + EVIDENCE, templateText)).isFalse();
+        assertThat(AiReviewGroundingPolicy.unsupportedTemplateSampleIdentityClaim(
+            "References are not provided.", "Provide references.", EVIDENCE,
+            "For\nReference\n\n2. User characteristics")).isFalse();
+    }
+
     @Test void laterGroupsUseTheSameFixedInstructionAndReturnNoDuplicateOverview() throws Exception {
         expectActive();
         expectGeneration(validReport(false), "STOP", false);

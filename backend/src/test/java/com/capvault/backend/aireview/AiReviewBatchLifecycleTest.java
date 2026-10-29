@@ -108,7 +108,7 @@ class AiReviewBatchLifecycleTest {
         assertThat(entry.noAiStarted()).isTrue();
     }
 
-    @Test void geminiHttpStatusSurvivesPauseWithoutLosingEarlierProgress() throws Exception {
+    @Test void geminiHttpStatusSurvivesCooldownAndRemainingDocumentsContinue() throws Exception {
         var diagnostic = new AiReviewProvider.FailureDiagnostic("gemini", "generation", 429, "RESOURCE_EXHAUSTED",
             "RATE_LIMITED", List.of(), "Gemini quota reached.", null, GeminiAiReviewProvider.MODEL, 200L);
         var node = json.<com.fasterxml.jackson.databind.node.ObjectNode>valueToTree(result("UNCERTAIN", "RATE_LIMITED", false));
@@ -117,11 +117,48 @@ class AiReviewBatchLifecycleTest {
         var plan = prepared(); start(plan, "ATTENTION", false);
         when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
             .thenReturn(review);
+        when(reviews.providerRetryDelayMillis()).thenReturn(0L, 1000L, 1000L, 0L);
+        service.tick();
         service.tick();
         var saved = service.get(workspace, plan.id(), "admin");
-        assertThat(saved.state()).isEqualTo("PAUSED");
+        assertThat(saved.state()).isEqualTo("RUNNING");
         assertThat(saved.entries().get(0).failureDiagnostics()).isEqualTo(diagnostic);
+        assertThat(saved.entries().get(1).phase()).isEqualTo("PENDING");
+        assertThat(saved.message()).contains("rate limit");
         verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+        long version = saved.version();
+        service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").version()).isEqualTo(version);
+        service.tick(); service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("COMPLETED");
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void stopDuringCooldownPreservesPendingDocument() {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        when(reviews.providerRetryDelayMillis()).thenReturn(1000L);
+        service.tick();
+        service.stop(workspace, plan.id(), "admin");
+        service.tick();
+        var paused = service.get(workspace, plan.id(), "admin");
+        assertThat(paused.state()).isEqualTo("PAUSED");
+        assertThat(paused.entries()).allMatch(e -> e.phase().equals("PENDING"));
+        verify(reviews, never()).reviewPlanned(any(), any(), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
+    @Test void cooldownDoesNotDelayPollingAnInFlightReview() {
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenReturn(result("RUNNING", null, false));
+        service.tick();
+        when(reviews.providerRetryDelayMillis()).thenReturn(1000L);
+        when(reviews.saved(workspace, first, "pdf", "admin")).thenReturn(result("UNCERTAIN", "RATE_LIMITED", false));
+        service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").entries().get(0).phase()).isEqualTo("DONE");
+        verify(reviews).saved(workspace, first, "pdf", "admin");
+        service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").entries().get(1).phase()).isEqualTo("PENDING");
     }
 
     @Test void missingChecklistApprovalIsSetupWorkRatherThanAnInaccessiblePdf() {
@@ -309,14 +346,15 @@ class AiReviewBatchLifecycleTest {
         assertThat(progress.entries()).allMatch(AiReviewBatchService.Entry::noAiStarted);
     }
 
-    @Test void pauseAndContinueNeverReplayTheFailedRequest() {
+    @Test void continuedBatchNeverReplaysTheUncertainRequest() {
         when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin"))).thenAnswer(inv -> preview(inv.getArgument(1), inv.getArgument(1).toString(), "MISSING", null));
         var plan = prepared(); start(plan, "ATTENTION", false);
         when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
             .thenReturn(result("UNCERTAIN", "PROVIDER_TIMEOUT", false));
         service.tick();
-        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("PAUSED");
-        service.resume(workspace, plan.id(), "admin"); service.tick(); service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("RUNNING");
+        service.tick(); service.tick();
+        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("COMPLETED");
         verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
         verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
     }
@@ -341,15 +379,15 @@ class AiReviewBatchLifecycleTest {
     }
 
     @ParameterizedTest @EnumSource(value = Kind.class, names = {"CONFIGURATION", "RATE_LIMIT"})
-    void driveConfigurationAndQuotaFailuresStillPauseTheBatch(Kind kind) {
+    void driveConfigurationAndQuotaFailuresDoNotStopOtherDocuments(Kind kind) {
         var plan = prepared(); start(plan, "ATTENTION", false);
         when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
             .thenThrow(new AiReviewService.DrivePreparationFailure(kind, "Drive setup or quota failure. No AI review was started."));
-        service.tick(); service.tick();
+        service.tick(); service.tick(); service.tick();
         var progress = service.get(workspace, plan.id(), "admin");
-        assertThat(progress.state()).isEqualTo("PAUSED");
+        assertThat(progress.state()).isEqualTo("COMPLETED");
         assertThat(progress.entries().get(0).noAiStarted()).isTrue();
-        verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
     }
 
     @ParameterizedTest @ValueSource(ints = {409, 503})
@@ -361,7 +399,7 @@ class AiReviewBatchLifecycleTest {
             .thenThrow(new ResponseStatusException(HttpStatus.valueOf(status), "Saved status could not be confirmed."));
         service.tick();
         var progress = service.get(workspace, plan.id(), "admin");
-        assertThat(progress.state()).isEqualTo("PAUSED");
+        assertThat(progress.state()).isEqualTo("RUNNING");
         assertThat(progress.entries().get(0).noAiStarted()).isFalse();
         assertThat(progress.entries().get(1).rerun()).isFalse();
         assertThat(progress.entries().get(1).retryToken()).isNull();
@@ -369,16 +407,16 @@ class AiReviewBatchLifecycleTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {"NOT_CONFIGURED", "API_KEY_REJECTED", "RATE_LIMITED", "MODEL_UNAVAILABLE", "PROVIDER_CONNECTION_FAILED"})
-    void providerFailuresRemainPausedWithoutReplaying(String failureCode) {
+    void providerFailuresContinueWithoutReplaying(String failureCode) {
         var plan = prepared(); start(plan, "ATTENTION", false);
         when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
             .thenReturn(result("UNCERTAIN", failureCode, false));
-        service.tick(); service.tick();
+        service.tick(); service.tick(); service.tick();
         var progress = service.get(workspace, plan.id(), "admin");
-        assertThat(progress.state()).isEqualTo("PAUSED");
+        assertThat(progress.state()).isEqualTo("COMPLETED");
         assertThat(progress.entries().get(0).noAiStarted()).isFalse();
         verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
-        verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+        verify(reviews, times(1)).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
     }
 
     @Test void lateValidationFailureCannotClaimTheProviderWasNotStarted() {
@@ -387,7 +425,7 @@ class AiReviewBatchLifecycleTest {
             .thenThrow(new IllegalArgumentException("Selected artifact was retired."));
         service.tick();
         var progress = service.get(workspace, plan.id(), "admin");
-        assertThat(progress.state()).isEqualTo("PAUSED");
+        assertThat(progress.state()).isEqualTo("RUNNING");
         assertThat(progress.entries().get(0).noAiStarted()).isFalse();
     }
 
@@ -470,7 +508,7 @@ class AiReviewBatchLifecycleTest {
         when(reviews.saved(workspace, first, "pdf", "admin")).thenReturn(result("NOT_REVIEWED", null, false));
         service.tick();
         verify(reviews, never()).reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
-        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("PAUSED");
+        assertThat(service.get(workspace, plan.id(), "admin").state()).isEqualTo("RUNNING");
         assertThat(store.saveLeased(checkpoint, "COMPLETED", checkpoint.data())).isFalse();
     }
 

@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { ActionIcon, Anchor, Group, Stack, Text } from '@mantine/core';
-import { Warning } from '@phosphor-icons/react';
+import { Info, Warning } from '@phosphor-icons/react';
 import { aiBatchFailureGroups, isAiBatchAccessRestriction } from '../../lib/aiReviewBatch.js';
 import { TemplateChecklistNotices } from './TemplateChecklistNotices.jsx';
 import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
@@ -8,7 +8,7 @@ import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
 export function AiReviewBatchFailures({ entries }) {
   return <Stack gap="sm">
     <TemplateChecklistNotices entries={entries} />
-    {aiBatchFailureGroups(entries.filter(entry => entry.resultStatus !== 'TEMPLATE_APPROVAL_REQUIRED')).map(group => <FailureGroup key={group.message} group={group} />)}
+    {aiBatchFailureGroups(entries.filter(entry => entry.resultStatus !== 'TEMPLATE_APPROVAL_REQUIRED')).map(group => <FailureGroup key={`${group.advisory}:${group.message}`} group={group} />)}
   </Stack>;
 }
 
@@ -23,10 +23,10 @@ function FailureGroup({ group }) {
     : group.advisory ? 'Show PDFs with items to check' : 'Show PDFs with failed AI Reviews';
   return <div>
       <Group gap="xs" wrap="nowrap" align="flex-start">
-        {warningLabel ? <ActionIcon color="yellow.7" variant="transparent" size={20}
+        {warningLabel ? <ActionIcon color={group.advisory ? 'blue.7' : 'yellow.7'} variant="transparent" size={20}
           style={{ minHeight: 20, flexShrink: 0 }}
           aria-label={warningLabel} title={warningLabel} onClick={showAffected}>
-          <Warning size={16} weight="fill" aria-hidden="true" />
+          {group.advisory ? <Info size={16} aria-hidden="true" /> : <Warning size={16} weight="fill" aria-hidden="true" />}
         </ActionIcon> : null}
         <Text size="sm">{group.message}</Text>
       </Group>

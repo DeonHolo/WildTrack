@@ -38,6 +38,21 @@ function drawer(value) {
 }
 
 describe('saved provider error details', () => {
+  it.each([
+    ['instruction_assessment', 'Assessing instructions'],
+    ['instruction_validation', 'Validating instruction sources in WildTrack']
+  ])('uses a readable stage for %s', (stage, label) => {
+    show(<ProviderFailureDetails diagnostic={{ stage }} />);
+    const details = screen.getByLabelText('Gemini error details');
+    expect(details).toHaveTextContent(`Stage${label}`);
+    expect(details).not.toHaveTextContent(stage);
+  });
+  it('attributes instruction source validation to WildTrack without suggesting a provider outage', () => {
+    show(<ProviderFailureDetails diagnostic={{ stage: 'instruction_validation', httpStatus: 503 }} />);
+    const details = screen.getByLabelText('Gemini error details');
+    expect(details).toHaveTextContent('ServiceWildTrack');
+    expect(details).not.toHaveTextContent('temporarily unavailable');
+  });
   it('shows the rejection stage, status, reason, parameter and request reference without raw JSON', () => {
     show(<ProviderFailureDetails diagnostic={diagnostic} failureCode={review.failureCode} />);
     const details = screen.getByLabelText('Gemini error details');
