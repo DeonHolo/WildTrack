@@ -3,6 +3,7 @@ import { ActionIcon, Anchor, Group, Stack, Text } from '@mantine/core';
 import { Warning } from '@phosphor-icons/react';
 import { aiBatchFailureGroups, isAiBatchAccessRestriction } from '../../lib/aiReviewBatch.js';
 import { TemplateChecklistNotices } from './TemplateChecklistNotices.jsx';
+import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
 
 export function AiReviewBatchFailures({ entries }) {
   return <Stack gap="sm">
@@ -40,7 +41,9 @@ function FailureGroup({ group }) {
             return <Text component="li" size="sm" key={`${entry.target?.responseId}:${entry.target?.fieldId}:${index}`}>
               {url ? <Anchor size="sm" href={url} target="_blank" rel="noopener noreferrer">{name}</Anchor> : <span>{name}</span>}
               {context ? ` — ${context}` : ` — Submission ${index + 1}`}
-              {entry.failureDetail ? ` (${entry.failureDetail.toLowerCase()})` : ''}
+              {entry.failureDetail ? ` (${entry.failureDetail})` : ''}
+              {entry.failureDiagnostics ? <ProviderFailureDetails diagnostic={entry.failureDiagnostics}
+                service={entry.failureDiagnostics.provider === 'drive' ? 'Google Drive' : 'Gemini'} /> : null}
             </Text>;
           })}
         </Stack>

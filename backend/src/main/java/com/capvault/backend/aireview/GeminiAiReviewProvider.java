@@ -205,6 +205,27 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
 
     @Override public boolean supportsTemplateInstructions() { return templateFiles != null; }
 
+    static String studentCitationAid(List<String> pages) {
+        final int limit = 250_000;
+        var text = new StringBuilder("STUDENT PDF EXTRACTED TEXT: citation aid only; inspect the attached PDF for the complete document and visuals.\n");
+        for (int i = 0; i < pages.size(); i++) {
+            String heading = "\n--- Absolute student PDF page " + (i + 1) + " ---\n";
+            String page = pages.get(i);
+            int remaining = limit - text.length() - heading.length();
+            if (remaining <= 0) {
+                text.append("\n[Extracted text omitted from page ").append(i + 1).append(" onward due to the citation-aid size limit.]\n");
+                break;
+            }
+            text.append(heading);
+            if (page.length() > remaining) {
+                text.append(page, 0, remaining).append("\n[This page and subsequent extracted pages are truncated due to the citation-aid size limit.]\n");
+                break;
+            }
+            text.append(page);
+        }
+        return text.toString();
+    }
+
     @Override public synchronized Result assessInstructions(InstructionInput input) {
         if (!isConfigured()) throw new Failure("NOT_CONFIGURED");
         if (input.instructions().size() > 16) throw new Failure("REQUIREMENTS_TOO_LARGE");
@@ -244,6 +265,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 Map.of("fileData", Map.of("mimeType", "application/pdf", "fileUri", template.uri())),
                 Map.of("text", "SUBMITTED STUDENT PDF: assess this complete PDF, using absolute page numbers within this PDF."),
                 submission,
+                 Map.of("text", studentCitationAid(com.capvault.backend.template.TemplateInstructionPreparation.pageTexts(input.review().pdf()))),
                 Map.of("text", json.writeValueAsString(Map.of("requestedDeliverable", input.review().deliverableTitle(),
                     "deliverableInstructions", input.review().instructions(), "instructions", input.instructions(),
                     "includeOverview", input.includeOverview()))));
@@ -266,7 +288,15 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 : status == 401 || status == 403 ? "API_KEY_REJECTED" : "PROVIDER_OUTCOME_UNKNOWN", "http_" + status)
                 .withHttpStatus(status, requestId(rejected));
             throw failure.withContext(stage, started);
-        } catch (Failure failure) { throw failure.withContext(stage, started);
+        } catch (AiReviewInstructionProtocol.InvalidResponse failure) {
+            // Protocol messages contain only fixed validation rules, never the model's text.
+            LOG.warn("Gemini instruction validation failed: stage={} reason={}", stage, failure.getMessage());
+            throw new Failure("INVALID_RESPONSE", "instruction_response_contract", new FailureDiagnostic(
+                "gemini", stage, null, null, "INVALID_RESPONSE", List.of(), failure.getMessage(), null, MODEL, null))
+                .withContext(stage, started);
+        } catch (Failure failure) {
+            LOG.warn("Gemini instruction assessment failed: stage={} code={} detail={}", stage, failure.code, failure.detail);
+            throw failure.withContext(stage, started);
         } catch (RestClientException failure) { throw classifyClientFailure(failure).withContext(stage, started);
         } catch (Exception failure) { throw invalid("invalid_instruction_assessment").withContext(stage, started);
         } finally {

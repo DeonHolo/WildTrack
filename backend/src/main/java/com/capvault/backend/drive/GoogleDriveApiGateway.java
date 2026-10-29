@@ -28,22 +28,29 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
 
     private final GoogleDriveProperties properties;
     private final RestClient restClient;
+    private final java.util.function.LongConsumer quotaWait;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     GoogleDriveApiGateway(GoogleDriveProperties properties, RestClient restClient) {
+        this(properties, restClient, GoogleDriveApiGateway::waitForQuota);
+    }
+
+    GoogleDriveApiGateway(GoogleDriveProperties properties, RestClient restClient,
+            java.util.function.LongConsumer quotaWait) {
         this.properties = properties;
         this.restClient = restClient;
+        this.quotaWait = quotaWait;
     }
 
     @Override
     public DriveFileMetadata getMetadata(DriveFileReference reference) {
         long started = System.nanoTime();
         try {
-            DriveApiFile response = restClient.get()
+            DriveApiFile response = readWithQuotaBackoff(() -> restClient.get()
                 .uri(metadataPath(reference.fileId()))
                 .headers(headers -> addResourceKey(headers, reference))
                 .retrieve()
-                .body(DriveApiFile.class);
+                .body(DriveApiFile.class));
             if (response == null) {
                 throw new GoogleDriveUnavailableException("Google Drive returned an empty metadata response.");
             }
@@ -75,7 +82,7 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
     public byte[] download(DriveFileReference reference) {
         long started = System.nanoTime();
         try {
-            byte[] bytes = restClient.get()
+            byte[] bytes = readWithQuotaBackoff(() -> restClient.get()
                 .uri(downloadPath(reference.fileId()))
                 .headers(headers -> addResourceKey(headers, reference))
                 .exchange((request, response) -> {
@@ -91,7 +98,7 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
                         }
                         return body.readNBytes((int) limit + 1);
                     }
-                });
+                }));
             if (bytes == null || bytes.length == 0) {
                 String reason = "The submitted Drive file is empty or could not be downloaded.";
                 throw new GoogleDriveUnavailableException(reason, null, GoogleDriveUnavailableException.Kind.UNKNOWN,
@@ -129,6 +136,58 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
         return "/drive/v3/files/" + encode(fileId)
             + "?alt=media&supportsAllDrives=true&key=" + encode(properties.apiKey());
     }
+
+    /** Retry only read-only requests rejected by a confirmed short-term quota. */
+    private <T> T readWithQuotaBackoff(java.util.function.Supplier<T> read) {
+        long started = System.nanoTime();
+        long waited = 0;
+        for (int retry = 0; ; retry++) {
+            try { return read.get(); }
+            catch (RestClientResponseException failure) {
+                if (retry >= 3 || !timeBasedQuota(failure)) throw failure;
+                long delay = (1L << retry) * 1000
+                    + java.util.concurrent.ThreadLocalRandom.current().nextInt(1001);
+                String retryAfter = failure.getResponseHeaders() == null ? null
+                    : failure.getResponseHeaders().getFirst(HttpHeaders.RETRY_AFTER);
+                if (retryAfter != null) {
+                    if (retryAfter.trim().matches("[0-9]+") && retryAfter.trim().length() > 6) throw failure;
+                    try {
+                        delay = Math.max(delay, Math.multiplyExact(Long.parseLong(retryAfter.trim()), 1000));
+                    } catch (NumberFormatException | ArithmeticException invalid) {
+                        try {
+                            long requested = java.time.Duration.between(java.time.Instant.now(),
+                                java.time.ZonedDateTime.parse(retryAfter, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()).toMillis();
+                            delay = Math.max(delay, requested);
+                        } catch (java.time.DateTimeException ignored) { /* Use the bounded local delay. */ }
+                    }
+                }
+                // Longer provider waits belong in a later user retry, not a blocked web request.
+                if (delay > 8000 || waited + delay > 10000 || elapsedMs(started) + delay > 15000) throw failure;
+                LOG.info("Drive read quota retry upstreamStatus={} retry={} waitMs={}",
+                    failure.getStatusCode().value(), retry + 1, delay);
+                quotaWait.accept(delay);
+                waited += delay;
+            }
+        }
+    }
+
+    private static boolean timeBasedQuota(RestClientResponseException failure) {
+        int status = failure.getStatusCode().value();
+        if (status != 403 && status != 429) return false;
+        var reasons = upstreamReasons(failure.getResponseBodyAsString());
+        if (classify(status, reasons) != GoogleDriveUnavailableException.Kind.RATE_LIMIT
+                || containsAny(reasons, Set.of("dailylimitexceeded", "downloadquotaexceeded", "quotablocked"))) return false;
+        return status == 429 || containsAny(reasons, Set.of("ratelimitexceeded", "userratelimitexceeded"));
+    }
+
+    private static void waitForQuota(long millis) {
+        try { Thread.sleep(millis); }
+        catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw unavailable(GoogleDriveUnavailableException.Kind.PROVIDER_UNAVAILABLE, "quota_wait", 0, interrupted);
+        }
+    }
+
 
     private static void addResourceKey(HttpHeaders headers, DriveFileReference reference) {
         if (reference.resourceKey() != null && !reference.resourceKey().isBlank()) {

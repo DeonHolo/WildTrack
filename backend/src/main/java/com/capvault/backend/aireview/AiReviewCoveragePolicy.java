@@ -171,22 +171,22 @@ final class AiReviewCoveragePolicy {
                     && (!notes.isEmpty() || (criterion.id().startsWith("T") && checks.isEmpty()))) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
                 explanation = !notes.isEmpty() ? accepted.verificationNotes().get(notes.get(0)).issue()
-                    : manualReason(criterion, evidence != null
+                    : manualReason(criterion, mapping.explanation(), evidence != null
                         ? "The quoted passage is present, but it was not enough to confirm the full instruction."
                         : "No matching supporting passage was retained from the submitted PDF.");
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
                     && evidence == null) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = manualReason(criterion, "The AI's cited supporting text could not be verified in the submitted PDF.");
+                explanation = manualReason(criterion, mapping.explanation(), "The AI's cited supporting text could not be verified in the submitted PDF.");
                 evidence = null;
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED) {
                 location = sourceLocation(evidence, pages);
                 if (location == null) { label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                    explanation = manualReason(criterion, "The supporting text could not be located on a PDF page."); evidence = null; }
+                    explanation = manualReason(criterion, mapping.explanation(), "The supporting text could not be located on a PDF page."); evidence = null; }
             } else if (explicit && label == CriterionAssessmentLabel.NEEDS_ATTENTION
                     && findings.isEmpty() && missing.isEmpty()) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = manualReason(criterion, "The AI's proposed concern could not be confirmed from its cited evidence; it is not an established defect.");
+                explanation = manualReason(criterion, mapping.explanation(), "The proposed concern could not be confirmed from its cited evidence; it is not an established defect.");
             }
             if (evidence == null) location = null;
             return row(criterion, checks, findings, missing, List.copyOf(notes), label,
@@ -201,10 +201,21 @@ final class AiReviewCoveragePolicy {
             && key(quote).length() >= 20 && key(quote).split(" ").length >= 4;
     }
 
-    private static String manualReason(Criterion criterion, String reason) {
+    private static String manualReason(Criterion criterion, String modelExplanation, String reason) {
         String title = Objects.requireNonNullElse(criterion.title(), "this instruction").strip();
         if (title.length() > 200) title = title.substring(0, 197) + "...";
-        return title + ": " + reason + " Verify this item in the PDF before making your review decision.";
+        String observation = Objects.requireNonNullElse(modelExplanation, "").replaceAll("\\s+", " ").strip();
+        if (!observation.isEmpty()) {
+            // Keep the model's specific observation as explicitly UNCONFIRMED context, never a retained finding.
+            var sentences = java.text.BreakIterator.getSentenceInstance(java.util.Locale.ENGLISH);
+            sentences.setText(observation);
+            int end = sentences.next();
+            if (end != java.text.BreakIterator.DONE) observation = observation.substring(0, end).strip();
+            if (observation.length() > 450) observation = observation.substring(0, 447) + "...";
+            if (!observation.matches("(?s).*[.!?]$")) observation += ".";
+        }
+        return (observation.isEmpty() ? "" : "Unconfirmed AI observation: " + observation + " ")
+            + reason + " Check " + title + " in the PDF before making your review decision.";
     }
 
     private static EvidenceLocation sourceLocation(String quote, List<PdfInspection.PageText> pages) {

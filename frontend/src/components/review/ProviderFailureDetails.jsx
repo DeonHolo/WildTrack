@@ -1,7 +1,9 @@
 import { Text } from '@mantine/core';
+import { providerRetryAdvice } from '../../lib/providerFailures.js';
 
 export function ProviderFailureDetails({ diagnostic, failureCode, service = 'Gemini' }) {
   const explanation = diagnostic?.explanation || diagnostic?.reason;
+  const retryAdvice = providerRetryAdvice(diagnostic, failureCode, service);
   const fields = Array.isArray(diagnostic?.parameterFields) ? diagnostic.parameterFields.join(', ') : null;
   const rows = [
     ['Service', service],
@@ -24,6 +26,7 @@ export function ProviderFailureDetails({ diagnostic, failureCode, service = 'Gem
       <Text size="sm" mt="xs" style={{ overflowWrap: 'anywhere' }}>
         {explanation || 'No additional error details were saved with this attempt.'}
       </Text>
+      {retryAdvice ? <Text size="sm" mt="xs">{retryAdvice}</Text> : null}
       <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(6rem, 1fr) minmax(0, 2fr)', gap: '0.4rem 0.75rem', fontSize: '0.8rem', marginBottom: 0 }}>
         {rows.map(([label, value]) => <DetailRow key={label} label={label} value={value} />)}
       </dl>

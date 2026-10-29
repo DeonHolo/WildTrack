@@ -24,7 +24,15 @@ public class AiReviewBatchService {
     public record Entry(Target target, AiReviewService.Preview preview, String phase, boolean selected,
                         boolean rerun, UUID retryToken, String checkedAt, boolean newerHistory,
                         String resultStatus, boolean reused, String error, boolean noAiStarted,
-                        AiReviewService.DisplayIdentity identity, String templateChecklistUrl) {
+                        AiReviewService.DisplayIdentity identity, String templateChecklistUrl,
+                        AiReviewProvider.FailureDiagnostic failureDiagnostics) {
+        public Entry(Target target, AiReviewService.Preview preview, String phase, boolean selected,
+                     boolean rerun, UUID retryToken, String checkedAt, boolean newerHistory,
+                     String resultStatus, boolean reused, String error, boolean noAiStarted,
+                     AiReviewService.DisplayIdentity identity, String templateChecklistUrl) {
+            this(target, preview, phase, selected, rerun, retryToken, checkedAt, newerHistory,
+                resultStatus, reused, error, noAiStarted, identity, templateChecklistUrl, null);
+        }
         public Entry(Target target, AiReviewService.Preview preview, String phase, boolean selected,
                      boolean rerun, UUID retryToken, String checkedAt, boolean newerHistory,
                      String resultStatus, boolean reused, String error, boolean noAiStarted,
@@ -43,19 +51,23 @@ public class AiReviewBatchService {
         }
         Entry selected(boolean value, boolean rerunValue, UUID retry) {
             return new Entry(target, preview, value ? "PENDING" : phase, value, rerunValue, retry,
-                checkedAt, newerHistory, resultStatus, reused, error, noAiStarted, identity, templateChecklistUrl);
+                checkedAt, newerHistory, resultStatus, reused, error, noAiStarted, identity, templateChecklistUrl, failureDiagnostics);
         }
         Entry phase(String next) {
             return new Entry(target, preview, next, selected, rerun, retryToken, checkedAt, newerHistory,
-                resultStatus, reused, error, noAiStarted, identity, templateChecklistUrl);
+                resultStatus, reused, error, noAiStarted, identity, templateChecklistUrl, failureDiagnostics);
         }
         Entry result(AiReviewService.View review, String message) {
             // A status read is always reused; keep the original claim's billing/reuse fact.
             boolean claimReused = Set.of("WAITING", "STARTING").contains(phase) ? reused : review.reused();
             String status = "COMPLETED".equals(review.status()) && review.report() == null ? "FAILED" : review.status();
+            var diagnostic = review.failureDiagnostics();
+            if (diagnostic == null && review.failureCode() != null)
+                diagnostic = new AiReviewProvider.FailureDiagnostic("gemini", null, null, null,
+                    review.failureCode(), List.of(), null, null, null, null);
             return new Entry(target, preview, "RUNNING".equals(status) ? "WAITING" : "DONE", selected,
                 rerun, review.retryToken(), checkedAt, newerHistory, status, claimReused, message,
-                "UNAVAILABLE".equals(status) || "QUEUE_FULL".equals(review.failureCode()), identity, templateChecklistUrl);
+                "UNAVAILABLE".equals(status) || "QUEUE_FULL".equals(review.failureCode()), identity, templateChecklistUrl, diagnostic);
         }
         Entry failed(String message, boolean notStarted) {
             return new Entry(target, preview, "DONE", selected, rerun, retryToken, checkedAt, newerHistory,
@@ -63,7 +75,11 @@ public class AiReviewBatchService {
         }
         Entry identity(AiReviewService.DisplayIdentity value) {
             return new Entry(target, preview, phase, selected, rerun, retryToken, checkedAt, newerHistory,
-                resultStatus, reused, error, noAiStarted, value, templateChecklistUrl);
+                resultStatus, reused, error, noAiStarted, value, templateChecklistUrl, failureDiagnostics);
+        }
+        Entry diagnostic(AiReviewProvider.FailureDiagnostic value) {
+            return new Entry(target, preview, phase, selected, rerun, retryToken, checkedAt, newerHistory,
+                resultStatus, reused, error, noAiStarted, identity, templateChecklistUrl, value);
         }
     }
     public record Data(List<Entry> entries, String mode, boolean includeOutdated, boolean retryAcknowledged, String message,
@@ -227,7 +243,8 @@ public class AiReviewBatchService {
         } catch (ResponseStatusException denied) {
             if (denied instanceof AiReviewService.DrivePreparationFailure drive && drive.identity() != null) identity = drive.identity();
             entries.set(index, new Entry(entry.target(), null, "UNVERIFIED", false, false, null, null, false, null, false,
-                denied.getReason() == null ? "This PDF could not be verified. No AI review was started." : denied.getReason(), true));
+                denied.getReason() == null ? "This PDF could not be verified. No AI review was started." : denied.getReason(), true)
+                .diagnostic(denied instanceof AiReviewService.DrivePreparationFailure drive ? drive.diagnostic() : null));
         } catch (IllegalArgumentException invalid) {
             entries.set(index, new Entry(entry.target(), null, "UNVERIFIED", false, false, null, null, false, null, false,
                 "This artifact is unavailable or is not a readable PDF eligible for AI Review. No AI review was started.", true));
@@ -281,7 +298,8 @@ public class AiReviewBatchService {
             if (review.status().equals("UNAVAILABLE") || PAUSE_CODES.contains(review.failureCode() == null ? "" : review.failureCode())) next = "PAUSED";
         } catch (AiReviewService.DrivePreparationFailure beforeClaim) {
             entries.set(index, entry.failed(beforeClaim.getReason(), true)
-                .identity(beforeClaim.identity() == null ? entry.identity() : beforeClaim.identity()));
+                .identity(beforeClaim.identity() == null ? entry.identity() : beforeClaim.identity())
+                .diagnostic(beforeClaim.diagnostic()));
             // A different submitted copy may still be accessible. Its normal job claim deduplicates Gemini.
             transferUnclaimedIntent(entries, entry);
             if (Set.of(com.capvault.backend.drive.GoogleDriveUnavailableException.Kind.CONFIGURATION,

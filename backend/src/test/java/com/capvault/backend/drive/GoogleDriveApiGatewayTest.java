@@ -179,10 +179,11 @@ class GoogleDriveApiGatewayTest {
     private static void assertFailureKind(int status, String body, GoogleDriveUnavailableException.Kind expected) {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://www.googleapis.com");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo(containsString("/drive/v3/files/file-failure")))
+        int attempts = status == 429 || body.contains("rateLimitExceeded") ? 4 : 1;
+        server.expect(org.springframework.test.web.client.ExpectedCount.times(attempts), requestTo(containsString("/drive/v3/files/file-failure")))
             .andRespond(withStatus(HttpStatus.valueOf(status)).contentType(MediaType.APPLICATION_JSON).body(body));
         GoogleDriveApiGateway gateway = new GoogleDriveApiGateway(
-            new GoogleDriveProperties(true, "test-key", 25_000_000), builder.build());
+            new GoogleDriveProperties(true, "test-key", 25_000_000), builder.build(), millis -> { });
 
         assertThatThrownBy(() -> gateway.getMetadata(new DriveFileReference("file-failure", null)))
             .isInstanceOfSatisfying(GoogleDriveUnavailableException.class,

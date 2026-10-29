@@ -44,7 +44,7 @@ class TemplateInstructionProtocolTest {
         var ids = containingIds(pages, "Specify", "identify");
         var result = parse(pages, 1, 1, item("Describe staffing", "INSTRUCTION", ids));
         String joinedSourceUnits = source.replace(";\n", ";\n\n");
-        assertThat(result.getFirst().instruction()).isEqualTo(joinedSourceUnits);
+        assertThat(result.getFirst().instruction()).isEqualTo(TemplateInstructionProtocol.readable(joinedSourceUnits));
         assertThat(result.getFirst().sourceQuote()).isEqualTo(joinedSourceUnits);
     }
 
@@ -56,22 +56,35 @@ class TemplateInstructionProtocolTest {
         var ids = containingIds(pages, "Describe", "identify");
         var result = parse(pages, 1, 1, item("Explain document purpose", "INSTRUCTION", ids));
         assertThat(result.getFirst().instruction()).isEqualTo(
-            "Describe the purpose of this document and\nidentify its audience and the decisions it supports.");
+            "Describe the purpose of this document and identify its audience and the decisions it supports.");
     }
 
     @Test
     void addsOnlyAFixedPrefixForAnOtherwiseUnexplainedBlankContentSlot() {
         var pages = List.of("1. Introduction\n1.2 Scope");
         var result = parse(pages, 1, 1, item("Describe scope", "CONTENT_SLOT", id(pages, "1.2 Scope")));
-        assertThat(result.getFirst().instruction()).isEqualTo("Provide content for:\n1.2 Scope");
+        assertThat(result.getFirst().instruction()).isEqualTo("Provide content for 1.2 Scope.");
         assertThat(result.getFirst().sourceQuote()).isEqualTo("1.2 Scope");
+    }
+
+    @Test void formatsHeadingsAndRemovesOnlyDecorativeEmojiWithoutRewritingSourceEvidence() {
+        var pages = List.of("1. Introduction\n1.3 Definitions and Acronyms");
+        var item = item("Definitions and acronyms", "CONTENT_SLOT", id(pages, "1.3 Definitions and Acronyms"));
+        item.putArray("contextIds").add(id(pages, "1. Introduction"));
+        var draft = parse(pages, 1, 1, item).getFirst();
+        assertThat(draft.instruction()).isEqualTo("Provide content for 1.3 Definitions and Acronyms, under 1. Introduction.");
+        assertThat(draft.sourceQuote()).isEqualTo("1. Introduction\n\n1.3 Definitions and Acronyms");
+        assertThat(TemplateInstructionProtocol.readable("\u2705 List all roles.\n\nIf applicable, include x \u2264 5 and 90%."))
+            .isEqualTo("List all roles. If applicable, include x \u2264 5 and 90%.");
+        assertThat(TemplateInstructionProtocol.readable("Keep ©, ®, ™, x ✕ y, a ➕ b, and x ≤ 5."))
+            .isEqualTo("Keep ©, ®, ™, x ✕ y, a ➕ b, and x ≤ 5.");
     }
 
     @Test
     void retainsASampleFilledBodyHeadingWithoutRequiringTheSampleFacts() {
         var pages = List.of("1. Purpose\nThe Cedar service plans outdoor events.\n\n2. Scope");
         var result = parse(pages, 1, 1, item("Document purpose", "CONTENT_SLOT", id(pages, "1. Purpose")));
-        assertThat(result.getFirst().instruction()).isEqualTo("Provide content for:\n1. Purpose");
+        assertThat(result.getFirst().instruction()).isEqualTo("Provide content for 1. Purpose.");
         assertThat(result.getFirst().instruction()).doesNotContain("Cedar", "outdoor");
     }
 
@@ -108,8 +121,8 @@ class TemplateInstructionProtocolTest {
         var result = parse(pages, 1, 1, item).getFirst();
 
         assertThat(result.instruction()).isEqualTo(
-            "For every actual segment, record the following.\n\n"
-            + "If recorded material is used, identify the file and playback method.\n\nProvide content for:\nFile reference");
+            "For every actual segment, record the following. "
+            + "If recorded material is used, identify the file and playback method. Provide content for File reference.");
         assertThat(result.condition()).isEqualTo(
             "If recorded material is used, identify the file and playback method.");
         assertThat(result.sourceQuote()).contains("For every actual segment", "If recorded material", "File reference");
@@ -194,8 +207,8 @@ class TemplateInstructionProtocolTest {
         var result = parse(pages, 1, 1, security, reliability);
 
         assertThat(result).hasSize(2);
-        assertThat(result.getFirst().instruction()).isEqualTo("3.1 Security\n\nProvide content for:\nDetails");
-        assertThat(result.getLast().instruction()).isEqualTo("3.2 Reliability\n\nProvide content for:\nDetails");
+        assertThat(result.getFirst().instruction()).isEqualTo("Provide content for Details, under 3.1 Security.");
+        assertThat(result.getLast().instruction()).isEqualTo("Provide content for Details, under 3.2 Reliability.");
     }
 
     @Test
@@ -246,7 +259,7 @@ class TemplateInstructionProtocolTest {
             "title", "kind", "sourceIds", "contextIds", "applicability", "conditionIds")
             .doesNotContain("instruction", "sourceQuote", "firstLine", "page");
         assertThat(item.path("additionalProperties").booleanValue()).isFalse();
-        assertThat(TemplateInstructionProtocol.VERSION).isEqualTo("template-instructions-pdf-v7-draft");
+        assertThat(TemplateInstructionProtocol.VERSION).isEqualTo("template-instructions-pdf-v8-readable-draft");
         var order = new ArrayList<String>();
         item.path("properties").fieldNames().forEachRemaining(order::add);
         assertThat(order).containsExactly("sourceIds", "contextIds", "conditionIds", "kind", "applicability", "title");

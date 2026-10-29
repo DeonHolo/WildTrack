@@ -210,6 +210,8 @@ class AiReviewCoveragePolicyTest {
         assertThat(grounded.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
         assertThat(grounded.documentEvidence()).isEqualTo(quote);
         assertThat(grounded.location().page()).isEqualTo(3);
+        assertThat(grounded.explanation()).contains("Unconfirmed AI observation: The schedule is described.",
+            "not enough to confirm the full instruction", "Check Schedule in the PDF");
         var fabricated = new CriterionAssessment("T1", requirement, FindingSource.OFFICIAL_TEMPLATE,
             CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
             CriterionAssessmentLabel.APPEARS_ADDRESSED, "The schedule is described.", "The fabricated milestone schedule is complete.", new EvidenceLocation(99, null));
@@ -217,6 +219,8 @@ class AiReviewCoveragePolicyTest {
         assertThat(rejected.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
         assertThat(rejected.documentEvidence()).isNull();
         assertThat(rejected.location()).isNull();
+        assertThat(rejected.explanation()).contains("Unconfirmed AI observation: The schedule is described.",
+            "No matching supporting passage");
     }
 
     @Test void verifiedSpecificNoteExplainsManualDowngrade() {

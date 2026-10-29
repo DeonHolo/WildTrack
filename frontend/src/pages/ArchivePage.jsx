@@ -318,7 +318,7 @@ export function ArchivePage() {
           <ArchiveIndexTable
             archives={pageRows}
             total={filteredArchives.length}
-            allArchiveCount={archives.length}
+            allArchiveCount={archives.filter(archive => archiveMatchesFilters(archive, { ...EMPTY_FILTERS, lifecycle: filters.lifecycle })).length}
             page={currentPage}
             pageCount={pageCount}
             pageSize={PAGE_SIZE}

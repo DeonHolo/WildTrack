@@ -13,6 +13,29 @@ const entry = (id, error = restricted) => ({ target: { responseId: id, fieldId: 
 const renderView = view => render(<MantineProvider>{view}</MantineProvider>);
 
 describe('AI batch affected PDF presentation', () => {
+  it('puts only the short provider status beside the affected PDF and keeps advice in closed Error details', () => {
+    const failed = { ...entry('STD', unavailable), failureDiagnostics: {
+      provider: 'drive', stage: 'download', httpStatus: 403, reasonCode: 'UPSTREAM_ERROR',
+      explanation: 'Drive refused the request.'
+    } };
+    renderView(<AiReviewBatchFailures entries={[failed]} />);
+    const row = screen.getByRole('link', { name: 'STD.pdf' }).closest('li');
+    expect(row).toHaveTextContent('(Drive HTTP 403)');
+    const details = screen.getByLabelText('Google Drive error details');
+    expect(details).not.toHaveAttribute('open');
+    expect(details).toHaveTextContent('temporary limits may apply');
+    expect(details).not.toHaveTextContent('rate limit reached');
+  });
+
+  it('retains the specific Gemini failure code when there was no HTTP response', () => {
+    renderView(<AiReviewBatchFailures entries={[{ ...entry('AI'), noAiStarted: false, resultStatus: 'UNCERTAIN',
+      error: 'Gemini returned an incomplete or invalid review.',
+      failureDiagnostics: { provider: 'gemini', reasonCode: 'INVALID_RESPONSE' }
+    }]} />);
+    expect(screen.getByRole('link', { name: 'AI.pdf' }).closest('li')).toHaveTextContent('(Gemini · INVALID_RESPONSE)');
+    expect(screen.getByLabelText('Gemini error details')).not.toHaveTextContent('rate limit');
+  });
+
   const completedBatch = blocked => ({ id: 'finished', state: 'COMPLETED', entries: [
     { target: { responseId: 'reviewed', fieldId: 'pdf' }, preview: { key: 'reviewed' }, selected: true,
       phase: 'DONE', resultStatus: 'COMPLETED', noAiStarted: false, error: '' },
@@ -131,8 +154,8 @@ describe('AI batch affected PDF presentation', () => {
     expect(screen.getAllByText('See affected PDFs')).toHaveLength(1);
     expect(screen.getByText('SDD.pdf')).toHaveAttribute('href', 'https://drive.google.com/file/d/SDD/view');
     expect(screen.getByText('STD.pdf')).toHaveAttribute('href', 'https://drive.google.com/file/d/STD/view');
-    expect(screen.getByText(/Student SDD/)).toHaveTextContent('access or download restricted');
-    expect(screen.getByText(/Student STD/)).toHaveTextContent('server retrieval failed');
+    expect(screen.getByText(/Student SDD/)).toHaveTextContent('Access restricted');
+    expect(screen.getByText(/Student STD/)).toHaveTextContent('Drive error');
     expect(screen.queryByText(restricted)).not.toBeInTheDocument();
     expect(screen.queryByText(unavailable)).not.toBeInTheDocument();
     if (view === 'choices') expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();

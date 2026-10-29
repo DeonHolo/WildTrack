@@ -36,6 +36,18 @@ class GeminiAiReviewProviderTest {
             "SRS", "Include functional requirements", "Required sections");
     }
     private AiReviewProvider.Input input() { return input("%PDF-test".getBytes(StandardCharsets.UTF_8)); }
+
+    @Test void studentCitationAidLabelsAbsolutePagesAndDisclosesTruncation() {
+        String complete = GeminiAiReviewProvider.studentCitationAid(List.of("cover", "", "body quotation"));
+        assertThat(complete).contains("Absolute student PDF page 1", "Absolute student PDF page 2",
+            "Absolute student PDF page 3", "body quotation").doesNotContain("truncated");
+        String bounded = GeminiAiReviewProvider.studentCitationAid(List.of("x".repeat(250_000), "later page"));
+        assertThat(bounded).contains("Absolute student PDF page 1", "truncated", "subsequent")
+            .doesNotContain("later page");
+        assertThat(bounded.length()).isLessThan(250_200);
+        assertThat(AiReviewInstructionProtocol.GUIDANCE).contains("attached PDF itself", "including its visuals",
+            "one to three short sentences", "uncertainty");
+    }
     private String response(String report, String finish) throws Exception {
         return json.writeValueAsString(Map.of("candidates", List.of(Map.of("finishReason", finish,
             "content", Map.of("parts", List.of(Map.of("text", report)))))));

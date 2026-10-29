@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 /** Exact group accounting; source grounding is performed by AiReviewService after parsing. */
 public final class AiReviewInstructionProtocol {
-    public static final String VERSION = "instruction-assessment-pdf-v4-specific-manual-checks";
+    public static final String VERSION = "instruction-assessment-pdf-v5-page-text-citation-aid";
     public static final int MAX_GROUP_ITEMS = 16;
     private static final Set<String> TOP = Set.of("complete", "instructionAssessments", "documentOverview", "generalFindings");
     private static final Set<String> ASSESSMENT = Set.of("id", "assessment", "explanation", "documentEvidence", "page", "section");
@@ -25,6 +25,8 @@ public final class AiReviewInstructionProtocol {
     public static final String GUIDANCE = """
         Review the STUDENT SUBMISSION PDF against the supplied fixed instruction group. The separately
         labelled OFFICIAL TEMPLATE PDF supplies authority and layout context, not student evidence.
+        The numbered extracted student page text is a secondary aid for exact quotations and may be incomplete.
+        Continue analyzing the attached PDF itself, including its visuals, even where extraction is absent or truncated.
         Assess the complete source direction, its following qualifiers and its parent/per-entity scope,
         using the saved source passage and the PDF for context. Do not check only a short title or the
         first sentence, or treat one global example as satisfying a direction for each applicable entity.
@@ -217,5 +219,8 @@ public final class AiReviewInstructionProtocol {
     }
     private static Map<String, Object> string(int maximum) { return Map.of("type", "string", "maxLength", maximum); }
     private static Map<String, Object> pageSchema() { return Map.of("type", "integer", "minimum", 0, "maximum", 1000); }
-    private static IllegalArgumentException invalid(String message) { return new IllegalArgumentException(message); }
+    static final class InvalidResponse extends IllegalArgumentException {
+        private InvalidResponse(String message) { super(message); }
+    }
+    private static InvalidResponse invalid(String message) { return new InvalidResponse(message); }
 }
