@@ -361,7 +361,7 @@ describe('archive index', () => {
     expect(screen.queryByRole('button', { name: 'Open Software 004 archive details' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Record view'), { target: { value: 'history' } });
     fireEvent.click(screen.getByRole('button', { name: 'Open Software 004 archive details' }));
-    expect(screen.getByText(/inactive record remains in archive history/)).toBeInTheDocument();
+    expect(screen.getByText('Unarchived — history only')).toBeInTheDocument();
     expect(within(screen.getByRole('dialog', { name: 'Archive record details' })).queryByRole('button', { name: 'Unarchive' })).not.toBeInTheDocument();
   });
 

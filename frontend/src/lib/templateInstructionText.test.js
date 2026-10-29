@@ -12,10 +12,18 @@ describe('readable template instruction formatting', () => {
   });
   it('does not rewrite an ordinary direction', () => {
     expect(formatTemplateInstruction('Describe the purpose.\n\nIdentify its intended users.'))
-      .toBe('Describe the purpose. Identify its intended users.');
+      .toBe('Describe the purpose.\n\nIdentify its intended users.');
   });
   it('preserves symbols that can be meaningful rather than decorative', () => {
     const instruction = 'Keep ©, ®, ™, x ✕ y, a ➕ b, and x ≤ 5.';
     expect(formatTemplateInstruction(instruction)).toBe(instruction);
+  });
+  it('keeps readable draft lists and conditional scope without flattening them', () => {
+    const instruction = 'For each transaction:\n- Provide an ERD or schema.\n- If external services are used, name their interfaces.\n\nA matrix may be used.';
+    expect(formatTemplateInstruction(instruction)).toBe(instruction);
+  });
+  it('cleans historical font bullets without flattening their requirements', () => {
+    expect(formatTemplateInstruction('3. Detailed Design\nProvide content for:\n\uF0B7 Data Design\no ERD or schema'))
+      .toBe('3. Detailed Design\nProvide content for:\n- Data Design\n- ERD or schema');
   });
 });

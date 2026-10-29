@@ -28,7 +28,9 @@ public final class AiReviewInstructionProtocol {
         The numbered extracted student page text is a secondary aid for exact quotations and may be incomplete.
         Continue analyzing the attached PDF itself, including its visuals, even where extraction is absent or truncated.
         Assess the complete source direction, its following qualifiers and its parent/per-entity scope,
-        using the saved source passage and the PDF for context. Do not check only a short title or the
+        using the saved source excerpts and the PDF for context. A […] separator marks separate original
+        template excerpts, not a continuous quotation. The approved instruction is the readable direction;
+        its exact source excerpts preserve the underlying qualifiers. Do not check only a short title or the
         first sentence, or treat one global example as satisfying a direction for each applicable entity.
         Return exactly one instructionAssessments record for every supplied id, with the id unchanged.
         Never invent, rename, combine or omit an id. complete=true means every supplied id was assessed.

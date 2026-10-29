@@ -335,7 +335,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                         + input.firstPage() + " through " + input.lastPage()
                         + " inclusive. Inspect adjacent pages for continuation and context. Use absolute PDF page numbers."),
                     Map.of("fileData", Map.of("mimeType", "application/pdf", "fileUri", template.uri())),
-                    Map.of("text", "SOURCE BLOCKS: select IDs without rewriting text. Use the PDF for layout and interpretation.\n"
+                    Map.of("text", "SOURCE BLOCKS: select exact evidence IDs and write each readable instruction separately. Use the PDF for layout and interpretation.\n"
                         + sourceBlocks)))),
                 "generationConfig", Map.of("maxOutputTokens", 32768,
                     "thinkingConfig", Map.of("thinkingLevel", "HIGH"), "responseMimeType", "application/json",

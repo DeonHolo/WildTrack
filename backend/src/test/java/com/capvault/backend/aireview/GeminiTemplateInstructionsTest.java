@@ -373,7 +373,8 @@ class GeminiTemplateInstructionsTest {
 
     private Map<String, Object> draft(String title, int page) {
         return Map.of("title", title, "kind", "INSTRUCTION", "sourceIds", List.of("p" + page + "l1"),
-            "contextIds", List.of(), "applicability", "REQUIRED", "conditionIds", List.of());
+            "contextIds", List.of(), "applicability", "REQUIRED", "conditionIds", List.of(),
+            "instruction", page == 2 ? USERS : RISKS);
     }
 
     private String envelope(String report, String finish) throws Exception {
