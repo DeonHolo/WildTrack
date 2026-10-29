@@ -178,6 +178,7 @@ export function ArchiveRecordDrawer({ archive, opened, storageReady, action, onC
             </DisabledActionTooltip>
             {archive.lifecycleState === 'Archived' ? <Button variant="default" disabled={Boolean(action)} loading={action === 'unarchive'} onClick={() => onUnarchive?.(archive)}>Unarchive</Button> : null}
           </Group>
+          {archive.lifecycleState === 'Active' ? <Text size="sm" c="dimmed">This inactive record remains in archive history.</Text> : null}
         </section>
       </Stack>
     </Drawer>

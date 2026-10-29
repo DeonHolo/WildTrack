@@ -185,6 +185,31 @@ class ArchiveCaptureIntegrationTest {
         assertThat(current.objects).hasSize(2); assertThat(current.puts.get()).isEqualTo(3);
     }
 
+    @Test void rearchivingInactiveFailureRetriesOnlyMissingCopyAndIsIdempotent() throws Exception {
+        Fixture f = fixture(2); var queued = queue(f); current.failPutAt.set(2); drain();
+        var failed = snapshot(f, queued.id());
+        assertThat(failed.captureState()).isEqualTo("FAILED");
+        assertThatThrownBy(() -> queue(f)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("Open Final archive");
+        var inactive = archive.unarchive(f.workspaceId(), failed.id(), failed.stateVersion(), "admin");
+        assertThat(inactive.lifecycleState()).isEqualTo("Active");
+        current.failPutAt.set(0);
+        var requeued = queue(f);
+        assertThat(requeued.id()).isEqualTo(failed.id());
+        assertThat(requeued.lifecycleState()).isEqualTo("Archived");
+        assertThat(requeued.captureState()).isEqualTo("QUEUED");
+        assertThat(requeued.files()).extracting(ArchiveRecordResponse.StoredFile::status).containsExactlyInAnyOrder("STORED", "QUEUED");
+        var repeated = queue(f);
+        assertThat(repeated.id()).isEqualTo(failed.id());
+        assertThat(archive.list(f.workspaceId())).hasSize(1);
+        assertThat(repeated.history()).extracting(ArchiveRecordResponse.History::action)
+            .contains("ARCHIVE_UNARCHIVED", "ARCHIVE_REACTIVATED", "ARCHIVE_RETRY_REQUESTED");
+        drain();
+        assertThat(snapshot(f, failed.id()).captureState()).isEqualTo("COMPLETE");
+        assertThat(current.objects).hasSize(2);
+        assertThat(current.puts.get()).isEqualTo(3);
+    }
+
     @Test void expiredLeaseRecoversUploadedObjectEvenWhenSourceIsGone() throws Exception {
         Fixture f = fixture(1); var queued = queue(f); var file = files.files(queued.id()).getFirst();
         String objectId = current.reserve(file.captureKey()); byte[] bytes = f.bytes().getFirst();

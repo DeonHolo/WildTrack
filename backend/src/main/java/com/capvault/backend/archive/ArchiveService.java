@@ -133,8 +133,17 @@ public class ArchiveService {
                 return view(record);
             }
             if (Objects.equals(record.getCaptureAcceptanceAt(),acceptance.getAcceptedAt())) {
-                if ("FAILED".equals(record.getCaptureState())) throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "This archive copy failed. Open Final archive to review the error and retry copying.");
+                if ("FAILED".equals(record.getCaptureState())) {
+                    if (record.isActive()) throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "This archive copy failed. Open Final archive to review the error and retry copying.");
+                    files.retry(record.getId());
+                    record.setCaptureState("QUEUED", null);
+                    record.activate(acceptance.getAcceptedAt());
+                    events.record(workspaceId,record.getId(),actor,"ARCHIVE_REACTIVATED",java.util.Map.of("responseId",responseId));
+                    events.record(workspaceId,record.getId(),actor,"ARCHIVE_RETRY_REQUESTED",java.util.Map.of());
+                    archiveRepository.saveAndFlush(record);
+                    return view(record);
+                }
                 if (!record.isActive()) {
                     record.activate(acceptance.getAcceptedAt());
                     events.record(workspaceId,record.getId(),actor,"ARCHIVE_REACTIVATED",java.util.Map.of("responseId",responseId));

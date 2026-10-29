@@ -10,6 +10,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public record ArchiveRecordResponse(
     UUID id,
     UUID attemptId,
+    Instant sourceResponseUpdatedAt,
+    Instant activeAcceptanceAt,
     UUID workspaceId,
     String workspaceName,
     String deliverableTitle,
@@ -62,7 +64,7 @@ public record ArchiveRecordResponse(
             file.stored() ? "/api/archive/" + record.getId() + "/files/" + file.id()
                 + "?workspaceId=" + record.getWorkspaceId() : null, file.providerId())).toList();
         return new ArchiveRecordResponse(
-            record.getId(), record.getResponseId(), record.getWorkspaceId(), record.getWorkspaceName(),
+            record.getId(), record.getResponseId(), record.getSourceResponseUpdatedAt(), record.getActiveAcceptanceAt(), record.getWorkspaceId(), record.getWorkspaceName(),
             record.getDeliverableTitle(), record.getTeamCode(), record.getStudentName(), record.getStudentNumber(),
             record.getProjectTitle(), record.getSoftwareName(), record.getAdviserName(), "v" + record.getVersionNumber(),
             record.getArchivedAt(), record.getSourceLink(), artifacts, record.getMetadataSha256(),

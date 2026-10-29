@@ -85,7 +85,7 @@ export function PublishedFormsTable({
                           className="wt-form-link"
                           size="sm"
                         >
-                          Open form
+                          {new URL(path, window.location.origin).href}
                         </Anchor> : shareLinks?.errors[item.id] ? <Button variant="subtle" onClick={shareLinks.reload}>Retry link</Button> : <Text size="sm" c="dimmed">Loading share link…</Text>}
                       </Group>
                     </Table.Td>
