@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../app/theme.js';
+import { createWorkspaceResourceCache } from '../lib/workspaceResourceCache.js';
 import { FormsPage } from './FormsPage.jsx';
 
 const workflow = vi.hoisted(() => ({
@@ -113,6 +114,8 @@ function renderPage() {
 
 describe('forms management', () => {
   beforeEach(() => {
+    localStorage.clear();
+    workspaceSession.resourceCache = createWorkspaceResourceCache();
     Element.prototype.scrollIntoView = vi.fn();
     notifications.clean();
     workspaceSession.session = { authenticated: true, email: 'admin@example.com' };
@@ -154,9 +157,25 @@ describe('forms management', () => {
       '/s/' + 'a'.repeat(64)
     ));
 
+    expect(within(table).getByRole('link', { name: 'Open SRS submission form' })).toHaveTextContent(window.location.origin + '/s/' + 'a'.repeat(64));
     fireEvent.click(within(table).getByRole('button', { name: 'Copy SRS form link' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('/s/' + 'a'.repeat(64))));
     expect(screen.getByRole('status')).toHaveTextContent('SRS form link copied');
+  });
+
+  it('retains links on revisit without fetching again and isolates accounts', async () => {
+    const view = renderPage();
+    await screen.findByRole('link', { name: 'Open SRS submission form' });
+    expect(shareApi.getDeliverableShareLink).toHaveBeenCalledTimes(2);
+    view.unmount();
+    const next = renderPage();
+    expect(screen.getByRole('link', { name: 'Open SRS submission form' })).toHaveTextContent(window.location.origin + '/s/' + 'a'.repeat(64));
+    expect(screen.queryByText('Loading share link…')).not.toBeInTheDocument();
+    expect(shareApi.getDeliverableShareLink).toHaveBeenCalledTimes(2);
+    workspaceSession.session = { authenticated: true, email: 'other@example.com' };
+    shareApi.getDeliverableShareLink.mockReturnValue(new Promise(() => {}));
+    next.rerender(<PageHarness />);
+    expect(screen.queryByRole('link', { name: 'Open SRS submission form' })).not.toBeInTheDocument();
   });
 
   it('does not claim there are zero forms while the first request is pending', () => {

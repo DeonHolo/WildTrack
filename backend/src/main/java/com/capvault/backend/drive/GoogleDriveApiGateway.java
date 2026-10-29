@@ -180,9 +180,12 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
         int status = exception instanceof RestClientResponseException upstream ? upstream.getStatusCode().value() : 0;
         String kind = exception instanceof RestClientResponseException upstream
             ? classify(status, upstreamReasons(upstream.getResponseBodyAsString())).name() : "TRANSPORT";
-        // Never log request URIs, API keys, file IDs, response bodies or exception messages.
-        LOG.warn("Drive request failed stage={} elapsedMs={} upstreamStatus={} kind={} causeType={}",
-            stage, (System.nanoTime() - started) / 1_000_000, status, kind, cause.getClass().getSimpleName());
+        var reasons = exception instanceof RestClientResponseException upstream
+            ? upstreamReasons(upstream.getResponseBodyAsString()).stream().filter(value -> value.matches("[a-z0-9]{1,64}"))
+                .sorted().limit(8).toList() : List.of();
+        // Log only bounded provider reason codes, never URIs, keys, file IDs, bodies or exception messages.
+        LOG.warn("Drive request failed stage={} elapsedMs={} upstreamStatus={} kind={} providerReasons={} causeType={}",
+            stage, (System.nanoTime() - started) / 1_000_000, status, kind, reasons, cause.getClass().getSimpleName());
     }
 
 

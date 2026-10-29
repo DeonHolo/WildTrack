@@ -11,6 +11,8 @@ for (const width of [375, 820, 1440]) {
       await route.fulfill({ json: path.endsWith('/storage') ? { configured: true, ready: true } : [record] });
     });
     await page.goto('/archive');
+    await expect(page.getByLabel('Record view')).toHaveValue('archived');
+    await expect(page.getByLabel('Archive status')).toHaveValue('');
     await expect(page.getByRole('table', { name: 'Archive records' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const openButton = page.getByRole('button', { name: 'Open Community Resource Manager archive details' });
@@ -23,3 +25,26 @@ for (const width of [375, 820, 1440]) {
     await page.screenshot({ path: `test-results/archive-drawer-${width}.png` });
   });
 }
+
+test('All statuses excludes inactive history until its record view is selected', async ({ page }) => {
+  await installApiFixtures(page, { role: 'admin', submitted: true });
+  let active = true;
+  const record = { id: 'failed-archive', softwareName: 'Failed capture', deliverableTitle: 'SRS', lifecycleState: 'Archived', captureState: 'FAILED', stateVersion: 3, storageStatus: 'Storage failed', files: [], history: [] };
+  await page.route('**/api/archive**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/storage')) return route.fulfill({ json: { configured: true, ready: true } });
+    if (path.endsWith('/unarchive')) { active = false; return route.fulfill({ json: {} }); }
+    return route.fulfill({ json: [{ ...record, lifecycleState: active ? 'Archived' : 'Active' }] });
+  });
+  await page.goto('/archive');
+  await page.getByRole('button', { name: 'Open Failed capture archive details' }).click();
+  await page.getByRole('dialog', { name: 'Archive record details' }).getByRole('button', { name: 'Unarchive', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Unarchive this submission?' }).getByRole('button', { name: 'Unarchive', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Archive record details' })).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open Failed capture archive details' })).not.toBeVisible();
+  await expect(page.getByLabel('Archive status')).toHaveValue('');
+  await page.getByLabel('Record view').selectOption('history');
+  await expect(page.getByRole('button', { name: 'Open Failed capture archive details' })).toBeVisible();
+  await page.getByLabel('Record view').selectOption('all');
+  await expect(page.getByRole('button', { name: 'Open Failed capture archive details' })).toBeVisible();
+});

@@ -345,6 +345,45 @@ describe('archive index', () => {
     await waitFor(() => expect(workflow.unarchive).toHaveBeenCalledWith('workspace-it', 'archive-1', 7));
   });
 
+  it('counts current captures separately from legacy, old and inactive archive history', () => {
+    const timestamp = '2026-07-20T02:00:00Z';
+    const acceptedAt = '2026-07-21T02:00:00Z';
+    const current = { attemptId: 'accepted-1', sourceResponseUpdatedAt: timestamp, activeAcceptanceAt: acceptedAt, lifecycleState: 'Archived', captureState: 'FAILED' };
+    workflow.state = makeState([
+      makeArchive(0, current),
+      makeArchive(1, { ...current, attemptId: 'accepted-2', captureState: 'LEGACY' }),
+      makeArchive(2, { ...current, attemptId: 'accepted-2', sourceResponseUpdatedAt: '2026-01-01T00:00:00Z' }),
+      makeArchive(3, { ...current, attemptId: 'accepted-2', lifecycleState: 'Active' })
+    ]);
+    workflow.state.attempts = workflow.state.attempts.map((attempt) => ({ ...attempt, updatedAt: timestamp, acceptance: { acceptedAt } }));
+    renderPage();
+    expect(screen.getByRole('button', { name: 'Archive accepted finals (1)' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Open Software 004 archive details' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Record view'), { target: { value: 'history' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Open Software 004 archive details' }));
+    expect(screen.getByText(/inactive record remains in archive history/)).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog', { name: 'Archive record details' })).queryByRole('button', { name: 'Unarchive' })).not.toBeInTheDocument();
+  });
+
+  it('unarchives a failed capture and hides it from the default view while retaining history', async () => {
+    const failed = makeArchive(0, { captureState: 'FAILED', lifecycleState: 'Archived', stateVersion: 3, storageStatus: 'Storage failed' });
+    workflow.state = makeState([failed, makeArchive(1, { captureState: 'LEGACY', lifecycleState: 'Active' })]);
+    workflow.unarchive.mockResolvedValue({});
+    workflow.refreshArchive.mockImplementation(async () => { workflow.state = makeState([{ ...failed, lifecycleState: 'Active' }, makeArchive(1, { captureState: 'LEGACY', lifecycleState: 'Active' })]); });
+    const view = renderPage();
+    expect(screen.queryByRole('button', { name: 'Open Software 002 archive details' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Software 001 archive details' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Archive record details' })).getByRole('button', { name: 'Unarchive' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Unarchive this submission?' })).getByRole('button', { name: 'Unarchive' }));
+    await waitFor(() => expect(workflow.unarchive).toHaveBeenCalledWith('workspace-it', 'archive-1', 3));
+    await waitFor(() => expect(workflow.refreshArchive).toHaveBeenCalled());
+    view.rerender(pageTree());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Open Software 001 archive details' })).not.toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('Record view'), { target: { value: 'history' } });
+    expect(screen.getByRole('button', { name: 'Open Software 001 archive details' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open Software 002 archive details' })).toBeInTheDocument();
+  });
+
   it('reports a verification read failure without claiming success', async () => {
     workflow.state = makeState([makeArchive(0, { captureState: 'COMPLETE', lifecycleState: 'Archived', storageStatus: 'Stored', files: [{ id: 'f1', label: 'SRS', status: 'STORED', downloadUrl: '/api/archive/a/files/f1' }] })]);
     workflow.verifyArchive.mockRejectedValue(Object.assign(new Error('Unavailable'), { status: 503 }));

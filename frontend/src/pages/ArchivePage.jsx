@@ -45,6 +45,7 @@ const EMPTY_FILTERS = {
   deliverable: '',
   version: '',
   status: '',
+  lifecycle: 'archived',
   archivedFrom: '',
   archivedTo: ''
 };
@@ -76,8 +77,8 @@ export function ArchivePage() {
     [state.archives]
   );
   const candidates = useMemo(
-    () => (state.attempts || []).filter((attempt) => attempt.reviewStatus === 'Accepted' && attempt.archiveStatus !== 'Archived'),
-    [state.attempts]
+    () => (state.attempts || []).filter((attempt) => attempt.reviewStatus === 'Accepted' && attempt.archiveStatus !== 'Archived' && !archives.some((archive) => currentCapture(archive, attempt))),
+    [state.attempts, archives]
   );
   const filteredArchives = useMemo(
     () => archives.filter((archive) => archiveMatchesFilters(archive, filters)),
@@ -87,7 +88,7 @@ export function ArchivePage() {
   const currentPage = Math.min(page, pageCount);
   const pageRows = filteredArchives.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const selectedArchive = archives.find((archive) => archive.id === selectedArchiveId) || null;
-  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const activeFilterCount = Object.entries(filters).filter(([key, value]) => key === 'lifecycle' ? value !== 'archived' : Boolean(value)).length;
   const storageReady = Boolean(state.archiveStorage?.ready);
   const copying = archives.some((item) => ['QUEUED', 'COPYING'].includes(item.captureState));
   useEffect(() => {
@@ -176,6 +177,7 @@ export function ArchivePage() {
       if (!isCurrentScope()) return;
       await refreshArchive({ background: true });
       if (!isCurrentScope()) return;
+      if (kind === 'unarchive') setSelectedArchiveId('');
       notifications.show({ color: kind === 'verify' && result?.integrityStatus !== 'Verified' ? 'yellow' : 'green', title: kind === 'verify' ? 'Integrity check complete' : kind === 'retry' ? 'Copy queued' : 'Submission unarchived', message: kind === 'verify' ? (result?.integrityStatus === 'Verified' ? 'The retained copies were verified.' : 'Verification is unavailable for this record.') : kind === 'retry' ? 'The archive copy will be retried.' : 'The submission is active again.' });
     } catch (error) {
       if (!isCurrentScope()) return;
@@ -189,7 +191,7 @@ export function ArchivePage() {
   function confirmUnarchive(archive) {
     modals.openConfirmModal({
       title: 'Unarchive this submission?',
-      children: <Text size="sm">The submission will become active again. Preserved copies, answers, and review decisions will remain unchanged.</Text>,
+      children: <Text size="sm">The submission will become active again. Preserved copies, answers, and review decisions will remain unchanged. This record stays in archive history and the accepted submission can be archived again.</Text>,
       labels: { confirm: 'Unarchive', cancel: 'Cancel' },
       onConfirm: () => runAction('unarchive', archive)
     });
@@ -247,12 +249,12 @@ export function ArchivePage() {
           <div className="wt-archive-index-header">
             <div>
               <Title order={2}>Archive records</Title>
-              <Text size="sm" c="dimmed">{filteredArchives.length} of {archives.length} final record{archives.length === 1 ? '' : 's'}</Text>
+              <Text size="sm" c="dimmed">{filteredArchives.length} record{filteredArchives.length === 1 ? '' : 's'} shown</Text>
             </div>
             <Group gap="lg" className="wt-archive-inline-summary">
-              <ArchiveMetric label="Recorded" value={archives.length} />
+              <ArchiveMetric label="Recorded" value={archives.filter((item) => item.lifecycleState !== 'Active').length} />
               <ArchiveMetric label="Waiting" value={candidates.length} />
-              <ArchiveMetric label="Stored copies" value={archives.filter((item) => item.storageStatus === 'Stored').length} />
+              <ArchiveMetric label="Stored copies" value={archives.filter((item) => item.lifecycleState !== 'Active' && item.storageStatus === 'Stored').length} />
             </Group>
           </div>
 
@@ -278,6 +280,12 @@ export function ArchivePage() {
               value={filters.status}
               onChange={(event) => setFilter('status', event.currentTarget.value)}
             />
+            <NativeSelect
+              aria-label="Record view"
+              data={[{ value: 'archived', label: 'Archived records' }, { value: 'history', label: 'Inactive history' }, { value: 'all', label: 'All records' }]}
+              value={filters.lifecycle}
+              onChange={(event) => setFilter('lifecycle', event.currentTarget.value)}
+            />
             <Button variant="default" leftSection={<Funnel size={17} />} onClick={() => setAdvancedOpen((value) => !value)}>
               More filters
             </Button>
@@ -291,6 +299,7 @@ export function ArchivePage() {
             <Text size="xs" c="dimmed">
               {activeFilterCount ? `${activeFilterCount} active filter${activeFilterCount === 1 ? '' : 's'}` : 'No filters applied'}
             </Text>
+            {filters.lifecycle === 'archived' ? <Text size="xs" c="dimmed">Unarchived records are available in Inactive history.</Text> : null}
           </Group>
 
           <Collapse in={advancedOpen}>
@@ -334,6 +343,14 @@ export function ArchivePage() {
   );
 }
 
+function currentCapture(archive, attempt) {
+  const sameInstant = (a, b) => Boolean(a && b && !Number.isNaN(Date.parse(a)) && Date.parse(a) === Date.parse(b));
+  return archive.lifecycleState === 'Archived' && archive.captureState !== 'LEGACY'
+    && archive.attemptId === attempt.id
+    && sameInstant(archive.sourceResponseUpdatedAt, attempt.updatedAt || attempt.submittedAt)
+    && sameInstant(archive.activeAcceptanceAt, attempt.acceptance?.acceptedAt);
+}
+
 function ArchiveMetric({ label, value }) {
   return <div><Text size="xs" c="dimmed">{label}</Text><Text fw={800} className="wt-tabular">{value}</Text></div>;
 }
@@ -342,6 +359,8 @@ function archiveMatchesFilters(archive, filters) {
   const query = filters.query.trim().toLowerCase();
   const status = getArchiveStatus(archive);
   const archivedDate = String(archive.archivedAt || '').slice(0, 10);
+  if (filters.lifecycle === 'archived' && archive.lifecycleState === 'Active') return false;
+  if (filters.lifecycle === 'history' && archive.lifecycleState !== 'Active') return false;
   if (filters.workspace && getWorkspaceLabel(archive) !== filters.workspace) return false;
   if (filters.project && getProjectLabel(archive) !== filters.project) return false;
   if (filters.team && archive.teamCode !== filters.team) return false;

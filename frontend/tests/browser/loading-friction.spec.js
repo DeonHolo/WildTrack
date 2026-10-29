@@ -48,14 +48,24 @@ for (const width of [1440, 375]) {
     const fixture = await installApiFixtures(page, { role: 'admin', submitted: true });
     await page.goto('/forms');
     await expect(page.getByRole('button', { name: 'Edit SRS form' })).toBeVisible();
+    const publicLink = page.getByRole('link', { name: 'Open SRS submission form' });
+    await expect(publicLink).toHaveText(/https?:\/\/[^/]+\/s\/[a-f0-9]{64}/);
     await page.evaluate(() => { history.pushState({}, '', '/'); dispatchEvent(new PopStateEvent('popstate')); });
     await expect(page.getByRole('heading', { name: /Today.s work/ })).toBeVisible();
     await page.waitForLoadState('networkidle');
+    await page.evaluate(() => {
+      window.shareLinkFlashed = false;
+      new MutationObserver(() => {
+        if (document.body.textContent.includes('Loading share link')) window.shareLinkFlashed = true;
+      }).observe(document.body, { childList: true, subtree: true });
+    });
     const refresh = gate();
     await page.route('**/api/monitoring?*', async route => { await refresh.promise; await route.fallback(); });
     await page.evaluate(() => { history.pushState({}, '', '/forms'); dispatchEvent(new PopStateEvent('popstate')); });
     const edit = page.getByRole('button', { name: 'Edit SRS form' });
     await expect(edit).toBeVisible();
+    await expect(publicLink).toBeVisible();
+    expect(await page.evaluate(() => window.shareLinkFlashed)).toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     await edit.focus();
     await page.keyboard.press('Enter');
