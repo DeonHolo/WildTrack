@@ -113,13 +113,18 @@ public class AiReviewBatchService {
         var row = authorized(workspace, id, subject);
         if (!row.state().equals("READY") || row.version() != version) throw conflict("Reload the prepared batch before starting.");
         if (row.updatedAt().isBefore(clock.instant().minus(Duration.ofMinutes(15)))) throw conflict("The preparation expired. Check the PDFs again before starting.");
-        if (mode == null || !Set.of("ATTENTION", "ALL").contains(mode)) throw new IllegalArgumentException("Choose a review scope.");
+        if (mode == null || !Set.of("ATTENTION", "FAILED", "MANUAL", "ALL").contains(mode)) throw new IllegalArgumentException("Choose a review scope.");
         List<Entry> entries = new ArrayList<>();
         Set<String> leaders = new HashSet<>();
         for (var entry : row.data().entries()) {
             var preview = entry.preview();
             boolean selected = preview != null && (includeOutdated || !preview.outdated())
-                && (!preview.category().equals("CLEAN") || mode.equals("ALL"));
+                && switch (mode) {
+                    case "ALL" -> true;
+                    case "FAILED" -> Set.of("FAILED", "UNCERTAIN").contains(preview.category());
+                    case "MANUAL" -> preview.category().equals("INCONCLUSIVE");
+                    default -> !Set.of("CLEAN", "INCONCLUSIVE").contains(preview.category());
+                };
             boolean leader = selected && leaders.add(preview.key());
             UUID retry = leader ? preview.retryToken() : null;
             if (retry != null && !retryAcknowledged) throw new IllegalArgumentException("Confirm the additional-token risk before retrying uncertain reviews.");

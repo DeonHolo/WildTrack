@@ -93,7 +93,7 @@ export function WorkspaceWorkbookImport({ workspaceId, onImported }) {
           loading={busy === 'download'} disabled={Boolean(busy) && busy !== 'download'}>Download Excel template</Button>
       </div>
       <div className="wt-workbook-upload">
-        <FileInput label="Excel workbook (.xlsx)" description="Up to 5 MB" accept=".xlsx" clearable
+        <FileInput label="Excel workbook (.xlsx)" description="Up to 5 MB" placeholder="Choose an Excel workbook" accept=".xlsx" clearable
           value={file} onChange={next => { setFile(next); setError(''); setResult(null); }} disabled={Boolean(busy)} />
         <Button color="wildtrackMaroon" leftSection={<FileArrowUp size={18} />} onClick={inspect}
           loading={busy === 'preview'} disabled={!file || Boolean(busy) && busy !== 'preview'}>Preview import</Button>

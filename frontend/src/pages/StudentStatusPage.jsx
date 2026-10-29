@@ -168,7 +168,7 @@ export function StudentStatusPage() {
           {dashboardError ? <ResourceBoundary status="ready" error={dashboardError} onRetry={refreshDashboard} /> : null}
           {workspaceCatalogError ? <ResourceBoundary status="ready" error={workspaceCatalogError} onRetry={refreshWorkspaceCatalog} /> : null}
           <Alert color="blue" icon={<WarningCircle size={18} />}>
-            Selecting a Student Number or opening a form does not reserve the record. If another account has already completed the first successful submission for that Student Number, WildTrack will block the save and ask for administrator recovery.
+            Selecting a Student Number or opening a form does not reserve the record. If another account is already connected to that Student Number, ask an administrator to review the connection.
           </Alert>
           {identityStudents.length ? <Paper className="wt-student-connect" withBorder radius="sm" p="lg">
             <Stack gap="md">

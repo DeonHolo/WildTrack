@@ -1,6 +1,8 @@
 package com.capvault.backend.drive;
 
 import java.time.OffsetDateTime;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import com.capvault.backend.filecheck.DriveFailureDetails;
 
 import java.util.HashSet;
@@ -76,8 +78,20 @@ final class GoogleDriveApiGateway implements GoogleDriveGateway {
             byte[] bytes = restClient.get()
                 .uri(downloadPath(reference.fileId()))
                 .headers(headers -> addResourceKey(headers, reference))
-                .retrieve()
-                .body(byte[].class);
+                .exchange((request, response) -> {
+                    try (InputStream body = response.getBody()) {
+                        if (response.getStatusCode().isError()) {
+                            byte[] error = body.readNBytes(64 * 1024);
+                            throw new RestClientResponseException("Google Drive HTTP error", response.getStatusCode(),
+                                response.getStatusText(), response.getHeaders(), error, StandardCharsets.UTF_8);
+                        }
+                        long limit = properties.maximumFileSizeBytes();
+                        if (limit < 0 || limit >= Integer.MAX_VALUE) {
+                            throw new IllegalStateException("Invalid Drive file size limit");
+                        }
+                        return body.readNBytes((int) limit + 1);
+                    }
+                });
             if (bytes == null || bytes.length == 0) {
                 String reason = "The submitted Drive file is empty or could not be downloaded.";
                 throw new GoogleDriveUnavailableException(reason, null, GoogleDriveUnavailableException.Kind.UNKNOWN,

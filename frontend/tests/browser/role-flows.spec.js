@@ -244,7 +244,7 @@ test('saved inconclusive AI review survives opening and reload without starting 
 
   for (const navigation of ['open', 'reload']) {
     const previousReads = monitoringReads;
-    if (navigation === 'open') await page.goto('/review');
+    if (navigation === 'open') await page.goto('/review?deliverable=deliverable-srs');
     else await page.reload();
     const status = page.getByRole('table', { name: 'STD submissions' }).getByRole('cell', { name: 'Limited review coverage', exact: true });
     await expect(status).toBeVisible();

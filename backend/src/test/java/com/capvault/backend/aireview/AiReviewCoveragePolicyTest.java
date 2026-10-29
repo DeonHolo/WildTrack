@@ -115,7 +115,8 @@ class AiReviewCoveragePolicyTest {
         var coverage = AiReviewCoveragePolicy.grounded(raw, result(List.of()), plan, quote,
             List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(3, quote, false)));
         assertThat(coverage.criteria().getFirst().assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
-        assertThat(coverage.criteria().getFirst().documentEvidence()).isNull();
+        assertThat(coverage.criteria().getFirst().documentEvidence()).isEqualTo(quote);
+        assertThat(coverage.criteria().getFirst().location().page()).isEqualTo(3);
     }
 
     @Test void unsupportedEvidenceAndUnknownIdsCannotCreateCheckedAreas() {
@@ -194,6 +195,45 @@ class AiReviewCoveragePolicyTest {
             assertThat(row.assessment()).isEqualTo(CriterionAssessmentLabel.APPEARS_ADDRESSED);
             assertThat(row.location().page()).isEqualTo(3);
         });
+    }
+
+    @Test void downgradedAssessmentRetainsOnlyVerifiedPassageAndPage() {
+        String requirement = "Describe the project schedule and milestones.";
+        String quote = "The project manager reviews progress at the weekly milestone meeting.";
+        var row = new CriterionAssessment("T1", requirement, FindingSource.OFFICIAL_TEMPLATE,
+            CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
+            CriterionAssessmentLabel.APPEARS_ADDRESSED, "The schedule is described.", quote, new EvidenceLocation(99, null));
+        var plan = new AiReviewCoveragePolicy.Plan(List.of(
+            new AiReviewCoveragePolicy.Criterion("T1", requirement, FindingSource.OFFICIAL_TEMPLATE, "Schedule")), 0, "Fixed");
+        var pages = List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(3, quote, false));
+        var grounded = AiReviewCoveragePolicy.grounded(with(List.of(), List.of(row)), result(List.of()), plan, quote, pages).criteria().getFirst();
+        assertThat(grounded.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(grounded.documentEvidence()).isEqualTo(quote);
+        assertThat(grounded.location().page()).isEqualTo(3);
+        var fabricated = new CriterionAssessment("T1", requirement, FindingSource.OFFICIAL_TEMPLATE,
+            CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
+            CriterionAssessmentLabel.APPEARS_ADDRESSED, "The schedule is described.", "The fabricated milestone schedule is complete.", new EvidenceLocation(99, null));
+        var rejected = AiReviewCoveragePolicy.grounded(with(List.of(), List.of(fabricated)), result(List.of()), plan, quote, pages).criteria().getFirst();
+        assertThat(rejected.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(rejected.documentEvidence()).isNull();
+        assertThat(rejected.location()).isNull();
+    }
+
+    @Test void verifiedSpecificNoteExplainsManualDowngrade() {
+        String requirement = "Describe the project schedule and milestones.";
+        String quote = "The project manager reviews progress at the weekly milestone meeting.";
+        var note = new Finding("Confirm whether the weekly review covers all milestones.", FindingSource.OFFICIAL_TEMPLATE, quote, requirement);
+        var row = new CriterionAssessment("T1", requirement, FindingSource.OFFICIAL_TEMPLATE, CoverageStatus.NOT_CHECKED,
+            List.of(), List.of(), List.of(), List.of(0), CriterionAssessmentLabel.APPEARS_ADDRESSED, "Addressed.", quote, null);
+        var report = new Result("Review", List.of(), List.of(), List.of(), "Inspect", List.of(), List.of(note), null,
+            new ReviewCoverage(List.of(row), 0, 1, null, null));
+        var plan = new AiReviewCoveragePolicy.Plan(List.of(new AiReviewCoveragePolicy.Criterion("T1", requirement, FindingSource.OFFICIAL_TEMPLATE, "Schedule")), 0, "Fixed");
+        var grounded = AiReviewCoveragePolicy.grounded(report, report, plan, quote,
+            List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(3, quote, false))).criteria().getFirst();
+        assertThat(grounded.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(grounded.explanation()).isEqualTo(note.issue());
+        assertThat(grounded.documentEvidence()).isEqualTo(quote);
+        assertThat(grounded.location().page()).isEqualTo(3);
     }
 
     @Test void headingOnlyQuoteCannotUpgradeAppearsAddressed() {

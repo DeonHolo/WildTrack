@@ -20,6 +20,7 @@ import {
   Sparkle
 } from '@phosphor-icons/react';
 import { compactMissingSections } from './DocumentCheckDialog.jsx';
+import { AiReviewHelp } from './AiReviewHelp.jsx';
 import {
   artifactAiReview,
   artifactAiReviewChange,
@@ -230,7 +231,7 @@ function ArtifactCard({ response, field, checking, reviewing, onDocumentCheck, o
             ) : <Text size="xs" c="dimmed">No Document Check result is available for this PDF yet.</Text>}
             {field.aiReviewEnabled ? (
               <Stack gap={3}>
-                <Group justify="space-between"><Text size="xs" fw={750}>AI Review</Text><StatusIndicator status={reviewing ? 'Reviewing' : aiStatus} /></Group>
+                <Group justify="space-between"><Group gap={4}><Text size="xs" fw={750}>AI Review</Text><AiReviewHelp /></Group><StatusIndicator status={reviewing ? 'Reviewing' : aiStatus} /></Group>
                 {aiState?.status === 'UNCERTAIN' && String(aiState.sourceUrl || '').trim() === value
                   ? <ProviderFailureDetails diagnostic={aiState.failureDiagnostics} failureCode={aiState.failureCode} /> : null}
                 {documentChange ? <Text size="sm" c="orange.8">AI Review may be outdated. The PDF has changed since the content for this review was checked.</Text> : null}

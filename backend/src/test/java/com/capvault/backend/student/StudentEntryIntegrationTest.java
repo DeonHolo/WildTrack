@@ -56,7 +56,24 @@ class StudentEntryIntegrationTest {
         var actions = jdbc.queryForList("select action from domain_audit_events where workspace_id = ?", String.class, f.workspace().getId());
         assertThat(actions).contains("ACCOUNT_BOUND_ON_DIRECT_CONNECTION").doesNotContain("ACCOUNT_BOUND_ON_FIRST_SUCCESSFUL_SUBMISSION", "RESPONSE_SAVED");
         associations.adminDisconnect(f.workspace().getId(), f.record().getId(), "admin", "admin@example.test");
-        assertThatThrownBy(() -> connect(f, owner)).isInstanceOf(StudentAssociationService.AccountBindingConflictException.class);
+        assertThat(connect(f, owner).studentRecordId()).isEqualTo(f.record().getId());
+        var afterReconnect = jdbc.queryForList("select action from domain_audit_events where workspace_id = ?", String.class, f.workspace().getId());
+        assertThat(afterReconnect).contains("ACCOUNT_BINDING_ADMIN_DISCONNECTED", "ACCOUNT_BOUND_ON_DIRECT_CONNECTION");
+    }
+
+    @Test void differentAccountCanClaimAfterDisconnectAndPreviousOwnerCannotTakeOver() {
+        Fixture f = fixture(true, true);
+        String previous = UUID.randomUUID().toString();
+        String next = UUID.randomUUID().toString();
+        connect(f, previous);
+        associations.adminDisconnect(f.workspace().getId(), f.record().getId(), "admin", "admin@example.test");
+        assertThat(associations.activeAssociation(f.workspace().getId(), previous)).isEmpty();
+        assertThat(connect(f, next).studentRecordId()).isEqualTo(f.record().getId());
+        assertThatThrownBy(() -> connect(f, previous)).isInstanceOf(StudentAssociationService.AccountBindingConflictException.class);
+        assertThat(associations.activeAssociation(f.workspace().getId(), previous)).isEmpty();
+        assertThat(associations.activeAssociation(f.workspace().getId(), next)).isPresent();
+        var actions = jdbc.queryForList("select action from domain_audit_events where workspace_id = ?", String.class, f.workspace().getId());
+        assertThat(actions).contains("ACCOUNT_BINDING_ADMIN_DISCONNECTED", "ACCOUNT_BOUND_ON_DIRECT_CONNECTION");
     }
 
     @Test void mismatchesInactiveRecordsAndThrottle() {
@@ -76,6 +93,8 @@ class StudentEntryIntegrationTest {
 
     @Test void concurrentClaimsHaveOneWinner() throws Exception {
         Fixture f = fixture(true, true);
+        connect(f, UUID.randomUUID().toString());
+        associations.adminDisconnect(f.workspace().getId(), f.record().getId(), "admin", "admin@example.test");
         var latch = new CountDownLatch(1);
         try (var pool = Executors.newFixedThreadPool(2)) {
             var a = pool.submit(() -> attempt(f, latch));
@@ -132,7 +151,7 @@ class StudentEntryIntegrationTest {
         assertThat(associations.activeAssociation(f.workspace().getId(),claimant)).isEmpty();
     }
 
-    @Test void httpDisconnectedAccountCannotReclaimItselfAndHasNoWorkspaceCatalogue() throws Exception {
+    @Test void httpDisconnectedAccountCanReconnectAndHasNoWorkspaceCatalogueBeforeReconnecting() throws Exception {
         Fixture f=fixture(true,true);
         String owner=UUID.randomUUID().toString();
         connect(f,owner);
@@ -143,8 +162,8 @@ class StudentEntryIntegrationTest {
         String body="{\"studentNumber\":\""+f.record().getStudentNumber()+"\",\"studentName\":\"Full Student Name\",\"teamCode\":\"Team-7\"}";
         mvc.perform(post("/api/workspace/students/connect").cookie(cookie).with(csrf())
             .contentType(MediaType.APPLICATION_JSON).content(body))
-            .andExpect(status().isConflict())
-            .andExpect(jsonPath("$.error").value("This Google account was disconnected from the Student Number by an administrator. Ask an administrator to recover the account binding."));
-        assertThat(associations.activeAssociation(f.workspace().getId(),owner)).isEmpty();
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.workspaceId").value(f.workspace().getId().toString()));
+        assertThat(associations.activeAssociation(f.workspace().getId(),owner)).isPresent();
     }
 }

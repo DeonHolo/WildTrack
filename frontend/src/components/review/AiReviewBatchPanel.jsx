@@ -1,10 +1,10 @@
 import { Alert, Button, Text } from '@mantine/core';
 import { AiBatchProgress } from './AiBatchPresentation.jsx';
 import { Stop } from '@phosphor-icons/react';
-import { isAiBatchTechnicalFailure } from '../../lib/aiReviewBatch.js';
+import { failedAiBatchTargets, isAiBatchTechnicalFailure } from '../../lib/aiReviewBatch.js';
 import { AiReviewBatchFailures } from './AiReviewBatchFailures.jsx';
 
-export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDismiss, onResume, onStop, onChoose, onCancel, onPrepare, onRefresh, refreshing = false }) {
+export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDismiss, onResume, onStop, onChoose, onCancel, onPrepare, onRetryFailed, onRefresh, refreshing = false }) {
   if (dismissed && batch?.state === 'COMPLETED' && !error) return null;
   if (!batch || batch.state === 'CANCELLED') return error ? <Alert color="red" role="alert">{error}</Alert> : null;
   const running = batch.state === 'RUNNING';
@@ -14,6 +14,7 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
   const attention = batch.entries.filter(entry => entry.error).length;
   const counts = summarizeBatch(batch.entries);
   const technicalFailure = counts.failed > 0 || batch.entries.some(isAiBatchTechnicalFailure);
+  const retryTargets = failedAiBatchTargets(batch);
   const color = running || preparing ? 'blue' : paused || technicalFailure || error ? 'orange' : 'green';
   const message = batch.state === 'COMPLETED' && !technicalFailure && !error
     ? counts.completed ? 'AI Review batch finished. Saved results are available.'
@@ -34,6 +35,7 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
         {(preparing || batch.state === 'READY') && onCancel ? <Button variant="default" disabled={busy} onClick={onCancel}>Cancel precheck</Button> : null}
         {paused && batch.pendingDocuments > 0 ? <Button loading={busy} onClick={onResume}>Continue remaining ({batch.pendingDocuments})</Button> : null}
         {!running && !preparing ? <Button variant="default" loading={refreshing} onClick={onRefresh}>Check saved reviews</Button> : null}
+        {!running && !preparing && retryTargets.length && onRetryFailed ? <Button color="orange" variant="outline" onClick={() => onRetryFailed(retryTargets)}>Retry failed AI Reviews ({retryTargets.length})</Button> : null}
         {paused || batch.state === 'COMPLETED' && (attention || technicalFailure) ? <Button variant="default" onClick={onPrepare}>Review retry options</Button> : null}
     </>}>
       {batch.reusedDocuments ? <Text size="sm">{batch.reusedDocuments} saved {batch.reusedDocuments === 1 ? 'review reused' : 'reviews reused'}.</Text> : null}

@@ -33,6 +33,14 @@ it('opens the selected submission PDF in a separate tab from its AI Review', asy
   expect(body.firstElementChild.firstElementChild).toHaveTextContent(/^Reviewed /);
 });
 
+it('shows AI Review limitations on keyboard focus in the header', async () => {
+  show({ status: 'COMPLETED' }, previousReport);
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.focus(within(dialog).getByRole('button', { name: 'About AI Review' }));
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('AI Review can miss issues or misread a document.');
+  expect(screen.getByRole('tooltip')).toHaveTextContent('AI Review does not accept or grade submissions.');
+});
+
 it.each(['', 'javascript:alert(1)'])('omits the PDF link when it is missing or invalid (%s)', async (url) => {
   show({ status: 'COMPLETED' }, previousReport, null, url);
   expect(within(await screen.findByRole('dialog')).queryByRole('link', { name: 'Open PDF' })).not.toBeInTheDocument();

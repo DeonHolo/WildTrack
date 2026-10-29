@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
 import { ReviewResponseDrawer } from './ReviewResponseDrawer.jsx';
@@ -48,6 +48,8 @@ describe('ReviewResponseDrawer submission artifacts', () => {
     expect(screen.getByText(summary, { exact: false })).toBeInTheDocument();
     expect(screen.queryByText(report.summary)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'View AI Review' })).toBeEnabled();
+    fireEvent.focus(screen.getByRole('button', { name: 'About AI Review' }));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('AI Review does not accept or grade submissions.');
   });
 
   it('renders only file/link artifact fields and never academic identity or ordinary response fields', async () => {

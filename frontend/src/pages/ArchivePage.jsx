@@ -130,7 +130,7 @@ export function ArchivePage() {
       title: `Archive ${candidates.length} accepted finals?`,
       children: (
         <Stack gap="xs">
-          <Text size="sm">This queues independent copies for {candidates.length} accepted response{candidates.length === 1 ? '' : 's'}. Copying may take some time.</Text>
+          <Text size="sm">This preserves the submitted PDFs for {candidates.length} accepted response{candidates.length === 1 ? '' : 's'}. Other answers and links are retained in the record. Linked Google Forms, Sheets and other files are not copied.</Text>
         </Stack>
       ),
       labels: { confirm: `Archive ${candidates.length} finals`, cancel: 'Cancel' },
@@ -203,7 +203,7 @@ export function ArchivePage() {
         <div>
           <Text className="wt-eyebrow">Final records</Text>
           <Title order={1}>Final archive</Title>
-          <Text c="dimmed">Find accepted final submissions, inspect their metadata, and manage preservation status.</Text>
+          <Text c="dimmed">Preserve accepted PDFs and submission records. Other links are retained; their linked content is not copied.</Text>
         </div>
         <Button
           leftSection={<ArchiveIcon size={18} />}
@@ -216,13 +216,13 @@ export function ArchivePage() {
         </Button>
       </header>
 
-      {!storageReady ? (
+      {state.archiveStorage && !storageReady ? (
         <Alert
           className="wt-archive-storage-alert"
           role="status"
           icon={<CloudSlash size={21} />}
           color="gray"
-          title="Independent archive storage is not connected"
+          title={state.archiveStorage.configured === false ? 'Archive storage is not connected' : 'Archive storage is unavailable'}
         >
           {state.archiveStorage?.message || 'Archive storage is not ready. New copies cannot be queued. Existing records and available copies remain accessible.'}
         </Alert>

@@ -170,22 +170,23 @@ final class AiReviewCoveragePolicy {
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
                     && (!notes.isEmpty() || (criterion.id().startsWith("T") && checks.isEmpty()))) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = "The assessment could not be confirmed from its supporting evidence. Check this instruction in the PDF.";
-                evidence = null;
+                explanation = !notes.isEmpty() ? accepted.verificationNotes().get(notes.get(0)).issue()
+                    : manualReason(criterion, evidence != null
+                        ? "The quoted passage is present, but it was not enough to confirm the full instruction."
+                        : "No matching supporting passage was retained from the submitted PDF.");
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
                     && evidence == null) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = "The cited supporting text could not be verified in the PDF. Check this instruction there.";
+                explanation = manualReason(criterion, "The AI's cited supporting text could not be verified in the submitted PDF.");
                 evidence = null;
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED) {
                 location = sourceLocation(evidence, pages);
                 if (location == null) { label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                    explanation = "The cited supporting text could not be located on a PDF page. Check this instruction there."; evidence = null; }
+                    explanation = manualReason(criterion, "The supporting text could not be located on a PDF page."); evidence = null; }
             } else if (explicit && label == CriterionAssessmentLabel.NEEDS_ATTENTION
                     && findings.isEmpty() && missing.isEmpty()) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = "The reported concern could not be confirmed from its cited evidence. Check this instruction in the PDF.";
-                evidence = null;
+                explanation = manualReason(criterion, "The AI's proposed concern could not be confirmed from its cited evidence; it is not an established defect.");
             }
             if (evidence == null) location = null;
             return row(criterion, checks, findings, missing, List.copyOf(notes), label,
@@ -198,6 +199,12 @@ final class AiReviewCoveragePolicy {
         if (quote == null || quote.isBlank() || documentText == null || documentText.isBlank()) return false;
         return AiReviewGroundingPolicy.positiveQuoteOccursInBody(documentText, quote)
             && key(quote).length() >= 20 && key(quote).split(" ").length >= 4;
+    }
+
+    private static String manualReason(Criterion criterion, String reason) {
+        String title = Objects.requireNonNullElse(criterion.title(), "this instruction").strip();
+        if (title.length() > 200) title = title.substring(0, 197) + "...";
+        return title + ": " + reason + " Verify this item in the PDF before making your review decision.";
     }
 
     private static EvidenceLocation sourceLocation(String quote, List<PdfInspection.PageText> pages) {

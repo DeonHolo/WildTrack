@@ -1,1 +1,1 @@
-web: MALLOC_ARENA_MAX=${MALLOC_ARENA_MAX:-2} java ${WILDTRACK_JAVA_MEMORY_OPTS:--Xms64m -Xmx256m -Xss512k -XX:ReservedCodeCacheSize=64m} -Dserver.port=$PORT -jar backend/target/backend-0.1.0-SNAPSHOT.jar --spring.profiles.active=production
+web: MALLOC_ARENA_MAX=${MALLOC_ARENA_MAX:-2} java ${WILDTRACK_JAVA_MEMORY_OPTS:--Xms64m -Xmx224m -Xss512k -XX:+UseSerialGC -XX:ActiveProcessorCount=2 -XX:ReservedCodeCacheSize=48m} -Dserver.port=$PORT -jar backend/target/backend-0.1.0-SNAPSHOT.jar --spring.profiles.active=production

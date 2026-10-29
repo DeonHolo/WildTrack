@@ -38,11 +38,29 @@ export function aiBatchGroups(entries = [], mode = 'ATTENTION', includeOutdated 
   const groups = new Map();
   for (const entry of entries) {
     const preview = entry.preview;
-    if (!preview || !includeOutdated && preview.outdated || mode !== 'ALL' && preview.category === 'CLEAN') continue;
+    if (!preview || !includeOutdated && preview.outdated || !matchesAiBatchCategory(preview.category, mode)) continue;
     if (!groups.has(preview.key)) groups.set(preview.key, []);
     groups.get(preview.key).push(entry);
   }
   return [...groups.values()];
+}
+
+export function matchesAiBatchCategory(category, mode) {
+  if (mode === 'ALL') return true;
+  if (mode === 'FAILED') return ['FAILED', 'UNCERTAIN'].includes(category);
+  if (mode === 'MANUAL') return category === 'INCONCLUSIVE';
+  return !['CLEAN', 'INCONCLUSIVE'].includes(category);
+}
+
+export function failedAiBatchTargets(batch) {
+  const targets = new Map();
+  for (const entry of batch?.entries || []) {
+    const finishedFailure = entry.selected && entry.phase === 'DONE' || entry.phase === 'UNVERIFIED';
+    if (!finishedFailure || !isAiBatchTechnicalFailure(entry) || !entry.target?.responseId) continue;
+    const key = `${entry.target.responseId}:${entry.target.fieldId || ''}`;
+    targets.set(key, entry.target);
+  }
+  return [...targets.values()];
 }
 
 export function aiBatchSelection(plan, mode, includeOutdated) {
@@ -88,7 +106,7 @@ export function aiBatchFailureGroups(entries = []) {
     const advisory = isAiBatchReviewAdvisory(entry);
     const reviewLimit = advisory && /inconclusive|limited (?:review )?coverage|manual verification/i.test(error);
     const message = reviewLimit
-      ? 'Limited review coverage or manual verification needed. These reviews finished; open their results for details.'
+      ? 'These AI Reviews finished with items to check in the PDF. Open the saved reviews for details.'
       : driveAccess || driveRetrieval
         ? 'These PDFs could not be opened from Google Drive. No AI review started for them.' : error;
     if (!groups.has(message)) groups.set(message, { message, advisory, entries: [] });

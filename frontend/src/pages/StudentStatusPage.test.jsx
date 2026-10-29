@@ -846,7 +846,7 @@ describe('student dashboard', () => {
     renderDashboard();
 
     expect(screen.getByRole('alert')).toHaveTextContent(/does not reserve the record/i);
-    expect(screen.getByRole('alert')).toHaveTextContent(/administrator recovery/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/ask an administrator to review the connection/i);
     expect(confirmStudentAssociation).not.toHaveBeenCalled();
   });
 

@@ -108,6 +108,19 @@ class AiReviewInstructionProtocolTest {
         assertThat(result.outcome()).isEqualTo(ReviewOutcome.ISSUES_IDENTIFIED);
     }
 
+    @Test void specificManualExplanationIsRetainedAndBounded() {
+        var group = List.of(instruction("T1", Applicability.REQUIRED));
+        var report = response(group, true);
+        String explanation = "The submission names its users, but their approval responsibilities are unclear. Confirm who approves each request.";
+        assessment(report).put("assessment", "CHECK_MANUALLY").put("explanation", explanation);
+        var result = AiReviewInstructionProtocol.parse(report, template(group), group, true);
+        assertThat(result.coverage().criteria().getFirst().explanation()).isEqualTo(explanation);
+        assertThat(result.verificationNotes().getFirst().issue()).isEqualTo(explanation);
+        assessment(report).put("explanation", "x".repeat(701));
+        rejects(report, group, true);
+        assertThat(AiReviewInstructionProtocol.GUIDANCE).contains("one to three short sentences", "four", "specific");
+    }
+
     @Test void addressedAssessmentNeedsEvidenceAndAnAbsolutePage() {
         var group = List.of(instruction("T1", Applicability.REQUIRED));
         var report = response(group, true);

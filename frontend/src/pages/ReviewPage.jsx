@@ -116,13 +116,11 @@ export function ReviewPage() {
   }), [identityStudents, orderedDeliverables, state.attempts]);
 
   const [selectedDeliverableId, setSelectedDeliverableId] = useState(() => (
-    orderedDeliverables.some((deliverable) => deliverable.id === linkedDeliverableId)
-      ? linkedDeliverableId
-      : ''
+    linkedDeliverableId || ALL_DELIVERABLES
   ));
   const activeDeliverableId = selectedDeliverableId === ALL_DELIVERABLES || summaries.some((summary) => summary.deliverable.id === selectedDeliverableId)
     ? selectedDeliverableId
-    : (summaries.find(summary => summary.needsAction > 0 || summary.unchecked > 0) || summaries.find(summary => summary.received > 0) || summaries[0])?.deliverable.id || '';
+    : ALL_DELIVERABLES;
   useEffect(() => {
     if (!selectedDeliverableId && activeDeliverableId) setSelectedDeliverableId(activeDeliverableId);
   }, [selectedDeliverableId, activeDeliverableId]);
@@ -141,6 +139,7 @@ export function ReviewPage() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [checkDialogTarget, setCheckDialogTarget] = useState(null);
   const [aiReportDialogTarget, setAiReportDialogTarget] = useState(null);
+  const [failedBatchSelection, setFailedBatchSelection] = useState(false);
   const [savedReviews, setSavedReviews] = useState([]);
   const [savedReviewsLoading, setSavedReviewsLoading] = useState(false);
   const [savedReviewsError, setSavedReviewsError] = useState('');
@@ -378,7 +377,7 @@ export function ReviewPage() {
   }
 
   async function requestAiReview(targetsOrIds, retryAcknowledged = false, retryTokens = {}, excludeArchived = false,
-      rerunRequested = false) {
+      rerunRequested = false, immediate = false) {
     if (!isCurrentScope()) return;
     if (aiBusy.current || aiBatch.running) {
       notifications.show({ color: 'blue', title: 'AI Review already running',
@@ -408,8 +407,9 @@ export function ReviewPage() {
           labels: { confirm: 'Understood', cancel: 'Close' } });
         return;
       }
-      if (!rerunRequested || candidates.length > 1) {
+      if (!immediate && (!rerunRequested || candidates.length > 1)) {
         setAiProgress(null);
+        setFailedBatchSelection(false);
         modals.openConfirmModal({ title: 'Prepare AI Review?', centered: true,
           children: <Text size="sm">WildTrack will check current PDFs and saved reviews. This is a precheck only; it does not send an AI request. You will confirm AI Review separately.</Text>,
           labels: { confirm: 'Start precheck', cancel: 'Cancel' },
@@ -699,7 +699,7 @@ export function ReviewPage() {
   function confirmArchive(response) {
     modals.openConfirmModal({
       title: 'Archive this accepted response?',
-      children: <Text size="sm">WildTrack will preserve copies of the accepted PDFs. Copying may take some time; check Final archive for progress.</Text>,
+      children: <Text size="sm">WildTrack will preserve copies of the accepted PDFs. Other answers and links are retained in the record. Linked Google Forms, Sheets and other files are not copied. Check Final archive for progress.</Text>,
       labels: { confirm: 'Archive response', cancel: 'Cancel' },
       confirmProps: { color: 'wildtrackMaroon' },
       centered: true,
@@ -850,6 +850,7 @@ export function ReviewPage() {
       <AiReviewBatchPanel batch={aiBatch.batch} error={aiBatch.error} busy={aiBatch.busy}
         dismissed={aiBatch.panelDismissed} onDismiss={aiBatch.dismiss}
         onResume={aiBatch.resume} onStop={aiBatch.stop} onChoose={aiBatch.open} onCancel={aiBatch.cancel} onRefresh={openSavedBatchReviews} refreshing={savedReviewsScope.current === isCurrentScope && savedReviewsLoading}
+        onRetryFailed={targets => { setFailedBatchSelection(true); aiBatch.prepare(targets, { openWhenReady: true }); }}
         onPrepare={() => requestAiReview(allAiTargets, false, {}, true)} />
       {savedReviewsScope.current === isCurrentScope && savedReviewsError ? <Alert color="orange" role="alert">{savedReviewsError}</Alert> : null}
       <Modal opened={visibleSavedReviews.length > 1 && !visibleAiReportTarget} onClose={() => setSavedReviews([])}
@@ -871,7 +872,8 @@ export function ReviewPage() {
       <Modal opened={aiBatch.opened && aiBatch.batch?.state === 'READY'} onClose={aiBatch.close} title="AI review submissions" centered size="lg"
         closeButtonProps={{ 'aria-label': 'Close AI Review window' }}>
         <AiReviewBatchDialog key={aiBatch.batch?.id || 'new'} plan={aiBatch.batch} error={aiBatch.error}
-          busy={aiBatch.busy} onStart={aiBatch.start} onCancel={aiBatch.close} />
+          busy={aiBatch.busy} onStart={aiBatch.start} onCancel={aiBatch.close}
+          initialMode={failedBatchSelection ? 'ALL' : 'ATTENTION'} failedSelection={failedBatchSelection} />
       </Modal>
       {aiProgress ? <Alert role="status" color={aiProgress.failures.length || aiProgress.skippedInaccessible?.length || aiProgress.savedRefresh?.errors.length ? 'orange' : 'blue'} title={aiProgress.savedRefresh?.done
         ? aiProgress.savedRefresh.checked === aiProgress.savedRefresh.total
@@ -1163,7 +1165,7 @@ export function ReviewPage() {
           const retry = artifactAiReviewStatus(selectedResponse, field) === 'Retry required' && Boolean(review?.retryToken);
           const target = aiTarget(selectedResponse, field);
           requestAiReview([target], retry, retry ? { [target.key]: review.retryToken } : {}, false,
-            !retry && isArtifactAiReviewCurrent(selectedResponse, field));
+            !retry && isArtifactAiReviewCurrent(selectedResponse, field), true);
         }}
         onAccept={() => acceptReview(selectedResponse)}
         onRevoke={() => confirmRevoke(selectedResponse)}

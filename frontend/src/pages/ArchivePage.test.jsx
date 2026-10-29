@@ -268,8 +268,8 @@ describe('archive index', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
     const confirmation = await screen.findByRole('dialog', { name: 'Archive 2 accepted finals?' });
     expect(confirmation).toHaveTextContent('2 accepted responses');
-    expect(confirmation).toHaveTextContent('queues independent copies');
-    expect(confirmation).toHaveTextContent('Copying may take some time');
+    expect(confirmation).toHaveTextContent('preserves the submitted PDFs');
+    expect(confirmation).toHaveTextContent('Linked Google Forms, Sheets and other files are not copied');
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Archive 2 finals' }));
 
     await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledWith('workspace-it', ['accepted-1', 'accepted-2']));
@@ -293,6 +293,7 @@ describe('archive index', () => {
     workflow.state = { ...makeState([]), archiveLoadStatus: 'loading' };
     const view = renderPage();
     expect(screen.getByText('Loading archive records')).toBeInTheDocument();
+    expect(screen.queryByText('No final archive records yet')).not.toBeInTheDocument();
 
     workflow.state = { ...makeState([]), archiveLoadStatus: 'error', archiveLoadError: 'Archive records could not be loaded.' };
     view.rerender(pageTree());

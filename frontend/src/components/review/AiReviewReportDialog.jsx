@@ -1,6 +1,7 @@
 import { Alert, Button, Group, Modal, Stack, Text } from '@mantine/core';
 import { ArrowSquareOut } from '@phosphor-icons/react';
 import { AiReviewReport } from './AiReviewReport.jsx';
+import { AiReviewHelp } from './AiReviewHelp.jsx';
 import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
 import { formatDateTime, makeDriveViewUrl, validateUrl } from '../../lib/workflow.js';
 
@@ -30,6 +31,7 @@ export function AiReviewReportDialog({ opened, onClose, report, review, document
       <Modal.Content>
         <Modal.Header style={{ gap: 12 }}>
           <Modal.Title style={{ flex: 1, minWidth: 0 }}>AI Review: {deliverableTitle}</Modal.Title>
+          <AiReviewHelp />
           <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
             {pdfUrl && !validateUrl(pdfUrl) ? (
               <Button component="a" href={pdfUrl} target="_blank" rel="noreferrer" variant="default" size="xs"

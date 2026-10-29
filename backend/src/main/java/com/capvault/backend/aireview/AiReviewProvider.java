@@ -81,7 +81,7 @@ public interface AiReviewProvider extends com.capvault.backend.template.Template
             findingIndexes = findingIndexes == null ? List.of() : List.copyOf(findingIndexes);
             missingSectionIndexes = missingSectionIndexes == null ? List.of() : List.copyOf(missingSectionIndexes);
             verificationNoteIndexes = verificationNoteIndexes == null ? List.of() : List.copyOf(verificationNoteIndexes);
-            if (explanation != null && explanation.length() > 400) throw new IllegalArgumentException("Assessment explanation exceeds its limit.");
+            if (explanation != null && explanation.length() > 1000) throw new IllegalArgumentException("Assessment explanation exceeds its limit.");
             if (documentEvidence != null && documentEvidence.length() > 1600) throw new IllegalArgumentException("Assessment evidence exceeds its limit.");
         }
     }

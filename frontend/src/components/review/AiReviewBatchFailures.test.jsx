@@ -39,11 +39,11 @@ describe('AI batch affected PDF presentation', () => {
     expect(screen.getByRole('progressbar').style.getPropertyValue('--progress-section-color')).toContain('green');
     expect(screen.getByText('AI Review batch finished. Saved results are available.')).toBeInTheDocument();
     expect(screen.queryByText(/finished with items needing attention/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Limited review coverage or manual verification needed/)).toBeInTheDocument();
+    expect(screen.getByText(/finished with items to check in the PDF/)).toBeInTheDocument();
     expect(screen.getByText(/These PDFs could not be opened/)).toBeInTheDocument();
     expect(screen.getByText('1 AI review available')).toBeInTheDocument();
     const details = screen.getByText('reviewed.pdf').closest('details');
-    fireEvent.click(screen.getByRole('button', { name: 'Show PDFs with review limits' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show PDFs with items to check' }));
     expect(details.open).toBe(true);
     expect(details.querySelector('summary')).toHaveFocus();
     expect(screen.getByRole('link', { name: 'reviewed.pdf' })).toHaveAttribute('href', 'https://drive.google.com/file/d/reviewed/view');
@@ -57,7 +57,7 @@ describe('AI batch affected PDF presentation', () => {
       error: "Gemini rejected WildTrack's AI request (HTTP 400)." });
     renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
     expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('orange');
-    expect(screen.getByText(/Limited review coverage or manual verification needed/)).toBeInTheDocument();
+    expect(screen.getByText(/finished with items to check in the PDF/)).toBeInTheDocument();
     expect(screen.getByText(/Gemini rejected/)).toBeInTheDocument();
     expect(screen.getByText(/1 failed or unconfirmed/)).toBeInTheDocument();
   });
