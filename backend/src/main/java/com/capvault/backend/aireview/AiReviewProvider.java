@@ -58,7 +58,7 @@ public interface AiReviewProvider extends com.capvault.backend.template.Template
     }
     enum CoverageStatus { EVIDENCE_RECORDED, ISSUE_RECORDED, NEEDS_VERIFICATION, NOT_CHECKED }
     /** A compact, advisory assessment for one server-owned criterion. */
-    enum CriterionAssessmentLabel { APPEARS_ADDRESSED, NEEDS_ATTENTION, CHECK_MANUALLY, NOT_APPLICABLE }
+    enum CriterionAssessmentLabel { APPEARS_ADDRESSED, NEEDS_ATTENTION, CHECK_MANUALLY, NOT_APPLICABLE, UNVERIFIED }
     record CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
                                List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
                                List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes,

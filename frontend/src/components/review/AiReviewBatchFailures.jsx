@@ -23,7 +23,8 @@ function FailureGroup({ group }) {
   };
   const warningLabel = group.entries.some(isAiBatchAccessRestriction)
     ? 'Show PDFs with access restrictions'
-    : group.advisory ? 'Show PDFs with items to check' : 'Show PDFs with failed AI Reviews';
+    : group.limited ? 'Show PDFs with review limits'
+      : group.advisory ? 'Show PDFs with items to check' : 'Show PDFs with failed AI Reviews';
   return <div>
       <Group gap="xs" wrap="nowrap" align="flex-start">
         {warningLabel ? <ActionIcon color={group.advisory ? 'blue.7' : 'yellow.7'} variant="transparent" size={20}

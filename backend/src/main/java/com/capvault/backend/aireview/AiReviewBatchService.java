@@ -98,7 +98,7 @@ public class AiReviewBatchService {
     private final FileCheckReportRepository checks;
     private final ObjectMapper json;
     private final Clock clock;
-    private static final String COOLDOWN_MESSAGE = "Waiting for the AI service rate limit before continuing unstarted documents.";
+    private static final String COOLDOWN_MESSAGE = "Waiting for the AI service before continuing unstarted documents.";
     private static final String RUNNING_MESSAGE = "Reviewing on the server. You can leave this page and return to the saved progress.";
 
     public AiReviewBatchService(AiReviewBatchStore store, AiReviewService reviews, FileCheckReportRepository checks,
@@ -292,7 +292,8 @@ public class AiReviewBatchService {
                 ? "No saved AI Review was produced for this document. Check saved reviews before retrying."
                 : review.status().equals("COMPLETED") && review.report() != null
                 && review.report().outcome() == AiReviewProvider.ReviewOutcome.INCONCLUSIVE
-                ? review.report().verificationNotes().isEmpty()
+                 ? review.report().verificationNotes().isEmpty() && (review.report().coverage() == null
+                     || review.report().coverage().criteria().stream().noneMatch(c -> c.assessment() == AiReviewProvider.CriterionAssessmentLabel.CHECK_MANUALLY))
                     ? "Review finished with limited coverage. Open the saved review to see the supported observations."
                     : "Review finished with checks needing manual verification. Open the saved review to inspect the cited areas."
                 : review.status().equals("COMPLETED") ? "" : review.message();

@@ -168,21 +168,21 @@ final class AiReviewCoveragePolicy {
                 explanation = "A retained requirement finding needs attention.";
                 evidence = null;
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
-                    && (!notes.isEmpty() || (criterion.id().startsWith("T") && checks.isEmpty()))) {
+                    && !notes.isEmpty()) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = !notes.isEmpty() ? accepted.verificationNotes().get(notes.get(0)).issue()
-                    : manualReason(criterion, mapping.explanation(), evidence != null
-                        ? "The quoted passage is present, but it was not enough to confirm the full instruction."
-                        : quoteReason(mapping, pages), mapping.location(), pages);
+                explanation = accepted.verificationNotes().get(notes.get(0)).issue();
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
                     && evidence == null) {
+                // A failed quotation check is a review limitation, not a document concern or a pass.
+                label = CriterionAssessmentLabel.UNVERIFIED;
+                checks = List.of();
+                explanation = "The supporting quotation could not be verified. Unverified AI observation: "
+                    + Objects.requireNonNullElse(mapping.explanation(), "").strip();
+            } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
+                    && criterion.id().startsWith("T") && checks.isEmpty()) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = manualReason(criterion, mapping.explanation(), quoteReason(mapping, pages), mapping.location(), pages);
-                evidence = null;
-            } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED) {
-                location = sourceLocation(evidence, pages);
-                if (location == null) { label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                    explanation = manualReason(criterion, mapping.explanation(), "The supporting text could not be located on a PDF page.", mapping.location(), pages); evidence = null; }
+                explanation = manualReason(criterion, mapping.explanation(),
+                    "The quoted passage is present, but it was not enough to confirm the full instruction.", mapping.location(), pages);
             } else if (explicit && label == CriterionAssessmentLabel.NEEDS_ATTENTION
                     && findings.isEmpty() && missing.isEmpty()) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
@@ -199,15 +199,6 @@ final class AiReviewCoveragePolicy {
         if (quote == null || quote.isBlank() || documentText == null || documentText.isBlank()) return false;
         return AiReviewGroundingPolicy.positiveQuoteOccursInBody(documentText, quote)
             && key(quote).length() >= 20 && key(quote).split(" ").length >= 4;
-    }
-
-    private static String quoteReason(CriterionAssessment mapping, List<PdfInspection.PageText> pages) {
-        if (mapping.documentEvidence() == null || mapping.documentEvidence().isBlank())
-            return "Gemini did not provide a supporting quotation for this assessment.";
-        boolean visual = mapping.location() != null && pages.stream().anyMatch(page ->
-            page.pageNumber() == mapping.location().page() && page.hasVisualContent());
-        return visual ? "The cited page contains visual content, but the quotation could not be matched to readable text."
-            : "The quotation could not be matched to the PDF's readable text.";
     }
 
     private static String manualReason(Criterion criterion, String modelExplanation, String reason,

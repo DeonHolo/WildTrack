@@ -1113,7 +1113,8 @@ public class AiReviewService {
         if (!accepted.findings().isEmpty() || !accepted.missingRequiredSections().isEmpty())
             return AiReviewProvider.ReviewOutcome.ISSUES_IDENTIFIED;
         if (!accepted.verificationNotes().isEmpty() || coverage.criteria().stream()
-                .anyMatch(row -> row.assessment() == AiReviewProvider.CriterionAssessmentLabel.CHECK_MANUALLY))
+                .anyMatch(row -> row.assessment() == AiReviewProvider.CriterionAssessmentLabel.CHECK_MANUALLY
+                    || row.assessment() == AiReviewProvider.CriterionAssessmentLabel.UNVERIFIED))
             return AiReviewProvider.ReviewOutcome.INCONCLUSIVE;
         var quotes = new java.util.HashSet<String>();
         accepted.verifiedChecks().stream().map(AiReviewProvider.VerifiedCheck::documentEvidence)

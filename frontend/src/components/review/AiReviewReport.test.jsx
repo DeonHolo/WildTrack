@@ -5,6 +5,48 @@ import { AiReviewReport } from './AiReviewReport.jsx';
 
 function show(report) { render(<MantineProvider><AiReviewReport report={report} /></MantineProvider>); }
 
+it('places quote-only verification limits outside the checklist without counting them as manual checks', () => {
+  show({ outcome: 'INCONCLUSIVE', limitations: [], coverage: { omittedCriteria: 0, criteria: [{
+    id: 'T1', title: 'Change history', requirement: 'Provide a change history.', source: 'OFFICIAL_TEMPLATE',
+    assessment: 'UNVERIFIED', explanation: 'The supporting quotation could not be verified. Unverified AI observation: Versions, dates and descriptions are present.'
+  }] } });
+  expect(screen.queryByRole('region', { name: 'Review checklist' })).not.toBeInTheDocument();
+  expect(screen.getByText('1 unverified observation')).toBeVisible();
+  expect(screen.queryByText(/item.* to check/)).not.toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Review limits');
+  expect(screen.getByRole('status')).toHaveTextContent('See Review limits for details.');
+  expect(screen.queryByText(/No actionable issues identified/)).not.toBeInTheDocument();
+  const limits = screen.getByText('Review limits', { selector: 'summary' }).closest('details');
+  expect(limits).not.toHaveAttribute('open');
+  fireEvent.click(within(limits).getByText('Review limits', { selector: 'summary' }));
+  expect(within(limits).getByText(/Versions, dates and descriptions are present/)).toBeVisible();
+});
+
+it('keeps specific manual concerns visible when other positive observations are unverified', () => {
+  const base = { requirement: 'Describe recovery.', source: 'OFFICIAL_TEMPLATE' };
+  show({ outcome: 'INCONCLUSIVE', coverage: { omittedCriteria: 0, criteria: [
+    { ...base, id: 'T1', title: 'Upload recovery', assessment: 'CHECK_MANUALLY',
+      explanation: 'Confirm whether partially saved files are retained after interruption.' },
+    { ...base, id: 'T2', title: 'Change history', assessment: 'UNVERIFIED', explanation: 'The quotation could not be verified.' }
+  ] } });
+  const checklist = screen.getByRole('region', { name: 'Review checklist' });
+  expect(checklist).toHaveTextContent('partially saved files');
+  expect(checklist).not.toHaveTextContent('Change history');
+  expect(screen.getByRole('status')).toHaveTextContent('Check in PDF');
+  expect(screen.getByText('1 item to check · 1 unverified observation')).toBeVisible();
+});
+
+it('moves the known saved change-history quotation failure into Review limits without a new request', () => {
+  show({ outcome: 'INCONCLUSIVE', coverage: { criteria: [{ id: 'T1', title: 'Change history',
+    requirement: 'Provide a change history.', source: 'OFFICIAL_TEMPLATE', assessment: 'CHECK_MANUALLY',
+    explanation: "Check Change history in the PDF (AI-cited page 2). The cited page contains visual content, but the quotation could not be matched to readable text. Gemini's unconfirmed observation: Versions, dates and descriptions are present." }] } });
+  expect(screen.queryByRole('region', { name: 'Review checklist' })).not.toBeInTheDocument();
+  expect(screen.getByText('1 unverified observation')).toBeVisible();
+  expect(screen.queryByText(/page contains visual content/)).not.toBeInTheDocument();
+  const limits = screen.getByText('Review limits', { selector: 'summary' }).closest('details');
+  expect(within(limits).getByText(/Versions, dates and descriptions/)).not.toBeVisible();
+});
+
 it('shows missing-template scope prominently rather than only inside collapsed review limits', () => {
   show({ documentOverview:{text:'A project plan.',wrongDocument:false},findings:[],
     limitations:['No official template was supplied, so compliance with a specific template structure was not assessed.'] });
