@@ -38,6 +38,7 @@ export function ArchiveRecordDrawer({ archive, opened, storageReady, action, onC
           <Text className="wt-eyebrow">{archive.deliverableTitle || 'Final submission'}</Text>
           <Title order={2}>{archive.softwareName || archive.projectTitle || archive.teamCode}</Title>
           <Text c="dimmed" size="sm">{archive.teamCode} | {archive.studentName}</Text>
+          {archive.lifecycleState === 'Active' ? <Text fw={700} size="sm" mt="xs">Unarchived — history only</Text> : null}
         </div>
 
         <section className="wt-archive-drawer-section">
@@ -49,7 +50,7 @@ export function ArchiveRecordDrawer({ archive, opened, storageReady, action, onC
             <ArchiveIntegrityIcon status={status} />
           </Group>
           <div className="wt-archive-preservation-state">
-            <Text fw={750}>{archive.captureState ? `${archive.storageStatus || status} · ${archive.lifecycleState || 'Archived'}` : stored ? status : 'Independent PDF copy not stored'}</Text>
+            <Text fw={750}>{archive.captureState ? `${archive.storageStatus || status} · ${(archive.lifecycleState === 'Active' ? 'Unarchived' : archive.lifecycleState || 'Archived')}` : stored ? status : 'Independent PDF copy not stored'}</Text>
             <Text size="sm" c="dimmed">
               {archive.captureState === 'LEGACY' || (!archive.captureState && !stored) ? 'This record contains metadata and source references. No independent copy was captured.' : archive.captureState === 'QUEUED' || archive.captureState === 'COPYING' ? 'Copies are being prepared.' : 'See each file below for its preservation state.'}
             </Text>
@@ -178,7 +179,6 @@ export function ArchiveRecordDrawer({ archive, opened, storageReady, action, onC
             </DisabledActionTooltip>
             {archive.lifecycleState === 'Archived' ? <Button variant="default" disabled={Boolean(action)} loading={action === 'unarchive'} onClick={() => onUnarchive?.(archive)}>Unarchive</Button> : null}
           </Group>
-          {archive.lifecycleState === 'Active' ? <Text size="sm" c="dimmed">This inactive record remains in archive history.</Text> : null}
         </section>
       </Stack>
     </Drawer>

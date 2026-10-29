@@ -50,7 +50,8 @@ class GeminiInstructionAssessmentTest {
     private static final String KEY = "assessment-test-key";
     private static final String TEMPLATE_NAME = "files/retained-template";
     private static final String TEMPLATE_URI = ORIGIN + "/v1beta/" + TEMPLATE_NAME;
-    private static final String REQUIREMENT = "Explain named users and their assigned responsibilities.";
+    private static final String SOURCE = "Explain named users and their assigned responsibilities.";
+    private static final String REQUIREMENT = "Name the users and explain their responsibilities.";
     private static final String EVIDENCE = "Students submit deliverables and advisers inspect the received documents.";
     private final ObjectMapper json = new ObjectMapper();
     private final AtomicInteger generations = new AtomicInteger();
@@ -67,15 +68,15 @@ class GeminiInstructionAssessmentTest {
         when(files.find(any(), anyString(), anyString())).thenReturn(Optional.of(new TemplateProviderFileStore.File(
             TEMPLATE_NAME, TEMPLATE_URI, Instant.now().plusSeconds(86_400))));
         provider = new GeminiAiReviewProvider(KEY, builder.build(), json, 0, "MINIMAL", 8192, files);
-        byte[] official = pdf("Official project plan template", REQUIREMENT);
+        byte[] official = pdf("Official project plan template", SOURCE);
         var instruction = new TemplateInstructionPreparation.Instruction("T101", new TemplateInstructionProtocol.Draft(
-            "Named users and responsibilities", REQUIREMENT, REQUIREMENT, "Project roles", 1,
+            "Named users and responsibilities", REQUIREMENT, SOURCE, "Project roles", 1,
             TemplateInstructionProtocol.Applicability.REQUIRED, ""));
         template = new TemplateInstructionPreparation.Prepared(UUID.randomUUID(), AiReviewService.sha256(official),
             official, List.of(instruction));
         byte[] submitted = pdf("Submitted software project plan", EVIDENCE);
         student = new AiReviewProvider.Input("assessment-fixture", submitted, EVIDENCE, "",
-            "Software Project Management Plan", "Assess the project plan.", REQUIREMENT);
+            "Software Project Management Plan", "Assess the project plan.", SOURCE);
     }
 
     @Test void suppliesSeparateTemplateAndSubmissionPdfsWithUnchangedCanonicalInstructionIdentity() throws Exception {
@@ -90,6 +91,11 @@ class GeminiInstructionAssessmentTest {
         assertThat(assessment.title()).isEqualTo("Named users and responsibilities");
         assertThat(assessment.requirement()).isEqualTo(REQUIREMENT);
         assertThat(assessment.documentEvidence()).isEqualTo(EVIDENCE);
+        var inspection = new com.capvault.backend.filecheck.PdfInspector().inspect(student.pdf());
+        var grounded = AiReviewService.groundInstructions(result, student, inspection, template.instructions());
+        assertThat(grounded.coverage().criteria().getFirst().requirement()).isEqualTo(REQUIREMENT);
+        assertThat(grounded.verifiedChecks()).hasSize(1);
+        assertThat(template.instructions().getFirst().source().sourceQuote()).isEqualTo(SOURCE);
         assertThat(result.documentOverview().text()).contains("software project plan");
         assertThat(generations).hasValue(1);
         verify(files, never()).invalidate(any(), anyString(), anyString());

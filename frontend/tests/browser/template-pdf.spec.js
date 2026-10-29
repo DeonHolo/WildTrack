@@ -167,6 +167,7 @@ for (const width of [390, 1024, 1440]) {
     await expect(editor.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
     await editor.getByRole('button', { name: 'Describe project activity 1', exact: true }).click();
     const instruction = editor.getByRole('textbox', { name: 'Instruction', exact: true });
+    await expect(instruction).toHaveValue(items[0].instruction);
     await expect.poll(() => instruction.evaluate(node => node.clientHeight >= node.scrollHeight - 2)).toBe(true);
     expect(await instruction.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(16);
     await expect(editor.getByText('Source: Project planning · PDF page 1')).toBeVisible();

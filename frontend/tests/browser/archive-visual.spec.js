@@ -44,6 +44,12 @@ test('All statuses excludes inactive history until its record view is selected',
   await expect(page.getByRole('button', { name: 'Open Failed capture archive details' })).not.toBeVisible();
   await expect(page.getByLabel('Archive status')).toHaveValue('');
   await page.getByLabel('Record view').selectOption('history');
+  await page.getByRole('button', { name: 'Open Failed capture archive details' }).click();
+  const historyDrawer = page.getByRole('dialog', { name: 'Archive record details' });
+  await expect(historyDrawer.getByText('Unarchived — history only')).toBeInViewport();
+  await expect(historyDrawer.getByRole('button', { name: 'Unarchive', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/archive-unarchived-history.png' });
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Open Failed capture archive details' })).toBeVisible();
   await page.getByLabel('Record view').selectOption('all');
   await expect(page.getByRole('button', { name: 'Open Failed capture archive details' })).toBeVisible();
