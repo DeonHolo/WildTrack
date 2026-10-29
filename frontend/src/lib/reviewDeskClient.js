@@ -245,18 +245,21 @@ export async function runAiReview(workspaceId, responseId, fieldId = null, retry
         review = { ...await getSavedAiReview(workspaceId, responseId, fieldId), reused };
       }
     }
+    const reportAvailable = review.status === 'COMPLETED' && review.report !== null
+      && typeof review.report === 'object' && !Array.isArray(review.report);
     const inconclusive = review.status === 'UNCERTAIN'
       && ['NO_GROUNDED_FINDINGS', 'FINDINGS_FILTERED', 'INSUFFICIENT_REVIEW_EVIDENCE'].includes(review.failureCode)
-      || review.status === 'COMPLETED' && isInconclusiveAiReviewReport(review.report);
-    return { ok: review.status === 'COMPLETED' && !inconclusive,
+      || reportAvailable && isInconclusiveAiReviewReport(review.report);
+    return { ok: reportAvailable,
       unavailable: review.status === 'UNAVAILABLE', inconclusive,
+      advisory: reportAvailable && inconclusive ? 'This review has items to check in the PDF or limited review coverage. Open the saved review for details.' : '',
       pauseBatch: review.status === 'UNAVAILABLE' || review.status === 'RUNNING'
         || ['RATE_LIMITED', 'API_KEY_REJECTED', 'NOT_CONFIGURED', 'QUEUE_FULL',
           'PROVIDER_TIMEOUT', 'PROVIDER_CONNECTION_FAILED', 'MODEL_UNAVAILABLE'].includes(review.failureCode),
       pending: review.status === 'RUNNING', uncertain: review.status === 'UNCERTAIN', review,
-      error: review.status === 'COMPLETED' && inconclusive
-        ? 'The previously saved AI Review contains no source-grounded findings. It is inconclusive, not verification that the PDF is correct.'
-        : review.status === 'COMPLETED' ? '' : review.status === 'RUNNING'
+      error: review.status === 'COMPLETED' && !reportAvailable
+        ? 'The completed AI Review has no valid saved report. Check the saved result before retrying.'
+        : reportAvailable ? '' : review.status === 'RUNNING'
         ? 'The review is still running. Open View AI Review after its saved result is ready; no additional AI request was sent.'
         : review.message || (review.failureCode ? `AI Review failed: ${review.failureCode}.` : 'AI Review could not finish.') };
   } catch (error) {

@@ -35,6 +35,7 @@ import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.
 import { ReviewSubmissionsTable } from '../components/review/ReviewSubmissionsTable.jsx';
 import { buildDeliverableReviewSummaries, filterReviewResponses, REVIEW_FILTERS } from '../lib/review.js';
 import { sortReviewResponses } from '../lib/reviewTable.js';
+import { isAiBatchAccessRestriction } from '../lib/aiReviewBatch.js';
 import { artifactTemplatePreviewUrl } from '../lib/templatePreview.js';
 import {
   acceptResponse,
@@ -460,7 +461,7 @@ export function ReviewPage() {
     setAiRunningKeys(new Set(targets.map(target => target.key)));
     let progress = { batchId: ++aiProgressSequence.current, targets, total: targets.length,
       completed: 0, available: 0, reused: 0, failures: [], uncertainTargets: [],
-      skippedInaccessible: [],
+      skippedInaccessible: [], advisories: 0,
       retryTokens: {}, done: false, phase: 'Starting AI Review', currentItem: reviewTargetLabel(targets[0]) };
     setAiProgress(progress);
     let outcome = null;
@@ -478,10 +479,12 @@ export function ReviewPage() {
             authenticationRequired: Boolean(progress.authenticationRequired || result.authenticationRequired),
             sessionConfirmed: Boolean(progress.sessionConfirmed || result.sessionConfirmed),
             available: progress.available + (result.ok ? 1 : 0),
+            advisories: progress.advisories + (result.ok && result.advisory ? 1 : 0),
             reused: progress.reused + (result.ok && result.review?.reused ? 1 : 0),
             failures: result.ok || result.notStarted ? progress.failures : [...progress.failures, `${label}: ${result.error || 'AI Review could not finish.'}`],
             skippedInaccessible: result.notStarted
-              ? [...progress.skippedInaccessible, { ...target, key: targetKey, label, error: result.error || 'Submitted PDF could not be opened.' }]
+              ? [...progress.skippedInaccessible, { ...target, key: targetKey, label, error: result.error || 'Submitted PDF could not be opened.',
+                technicalFailure: !isAiBatchAccessRestriction({ noAiStarted: true, error: result.error }) }]
               : progress.skippedInaccessible,
             uncertainTargets: result.uncertain ? [...progress.uncertainTargets, target] : progress.uncertainTargets,
             retryTokens: result.uncertain ? { ...progress.retryTokens, [targetKey]: result.review?.retryToken } : progress.retryTokens,
@@ -549,7 +552,7 @@ export function ReviewPage() {
     const batchId = batch.batchId;
     savedRefreshBusy.current = true;
     const refresh = { checked: 0, total: targets.length, available: 0, running: 0,
-      uncertain: 0, unavailable: 0, failed: 0, updated: 0, errors: [], done: false,
+      uncertain: 0, advisories: 0, unavailable: 0, failed: 0, updated: 0, errors: [], done: false,
       currentItem: '', phase: 'Reading saved AI Review status (GET only)' };
     const update = () => {
       if (isCurrentScope()) setAiProgress(current => current?.batchId === batchId
@@ -573,11 +576,9 @@ export function ReviewPage() {
               || !currentUrl || currentUrl !== initialUrl || (saved?.sourceUrl && String(saved.sourceUrl).trim() !== currentUrl)) {
             refresh.unavailable++;
             refresh.errors.push(`${reviewTargetLabel(target)}: Submitted PDF changed; saved review was not applied.`);
-          } else if (saved?.status === 'COMPLETED' && saved.report) {
-            if (isInconclusiveAiReviewReport(saved.report)) {
-              refresh.uncertain++;
-              refresh.errors.push(`${reviewTargetLabel(target)}: The saved review is inconclusive.`);
-            } else refresh.available++;
+          } else if (saved?.status === 'COMPLETED' && saved.report && typeof saved.report === 'object' && !Array.isArray(saved.report)) {
+            refresh.available++;
+            if (isInconclusiveAiReviewReport(saved.report)) refresh.advisories++;
             setState(current => ({ ...current, attempts: current.attempts.map(response => response.id === target.responseId
               ? applyArtifactAiReview(response, saved) : response) }));
             refresh.updated++;
@@ -825,6 +826,12 @@ export function ReviewPage() {
     }
   }
 
+  const aiProgressHasErrors = aiProgress?.savedRefresh?.done
+    ? aiProgress.savedRefresh.errors.length > 0
+    : Boolean(aiProgress?.failures.length || aiProgress?.skippedInaccessible?.some(target => target.technicalFailure));
+  const aiProgressFinished = aiProgress?.savedRefresh?.done
+    ? !aiProgress.savedRefresh.running : aiProgress?.done && !aiProgress.paused;
+
   return (
     <Stack gap="lg" className="wt-review-page">
       <header className="wt-staff-page-heading">
@@ -875,12 +882,12 @@ export function ReviewPage() {
           busy={aiBatch.busy} onStart={aiBatch.start} onCancel={aiBatch.close}
           initialMode={failedBatchSelection ? 'ALL' : 'ATTENTION'} failedSelection={failedBatchSelection} />
       </Modal>
-      {aiProgress ? <Alert role="status" color={aiProgress.failures.length || aiProgress.skippedInaccessible?.length || aiProgress.savedRefresh?.errors.length ? 'orange' : 'blue'} title={aiProgress.savedRefresh?.done
+      {aiProgress ? <Alert role="status" color={aiProgressHasErrors ? 'orange' : aiProgressFinished ? 'green' : 'blue'} title={aiProgress.savedRefresh?.done
         ? aiProgress.savedRefresh.checked === aiProgress.savedRefresh.total
           && aiProgress.savedRefresh.available === aiProgress.savedRefresh.total
           ? 'Saved AI Reviews available'
           : aiProgress.savedRefresh.running ? 'Saved AI Reviews still running' : 'Saved AI Review status checked'
-        : aiProgress.done ? (aiProgress.paused ? 'AI review paused' : aiProgress.failures.length || aiProgress.skippedInaccessible?.length ? 'AI review finished with items needing attention' : 'AI review complete') : 'Reviewing documents'}
+        : aiProgress.done ? (aiProgress.paused ? 'AI review paused' : aiProgressHasErrors ? 'AI review finished with items needing attention' : 'AI review complete') : 'Reviewing documents'}
         withCloseButton={aiProgress.done} onClose={() => setAiProgress(null)}>
         <Stack gap="xs">
           <Group justify="space-between" align="center" wrap="wrap" gap="xs">
@@ -889,6 +896,7 @@ export function ReviewPage() {
             <Text size="sm" fw={700} className="wt-tabular">{progressPercent(aiProgress.completed, aiProgress.total)}%</Text>
           </Group>
           <Progress value={progressPercent(aiProgress.completed, aiProgress.total)} size="lg" radius="xl"
+            color={aiProgressHasErrors ? 'orange' : aiProgressFinished ? 'green' : 'blue'}
             striped animated={!aiProgress.done} aria-label="AI Review batch progress" />
           <Text size="sm">{aiProgress.completed} of {aiProgress.total} PDF artifacts attempted · {aiProgress.reused} saved reviews reused
             {aiProgress.done && aiProgress.completed < aiProgress.total ? ` · ${aiProgress.total - aiProgress.completed} not attempted` : ''}</Text>
@@ -896,13 +904,16 @@ export function ReviewPage() {
           <Text size="sm">{aiProgress.savedRefresh?.done ? aiProgress.savedRefresh.available : aiProgress.available}{' '}
             {(aiProgress.savedRefresh?.done ? aiProgress.savedRefresh.available : aiProgress.available) === 1 ? 'review' : 'reviews'} available
             {aiProgress.skippedInaccessible?.length ? ` · ${aiProgress.skippedInaccessible.length} skipped: inaccessible ${aiProgress.skippedInaccessible.length === 1 ? 'PDF' : 'PDFs'}` : ''}
-            {aiProgress.savedRefresh ? ` · ${aiProgress.savedRefresh.running} still running · ${aiProgress.savedRefresh.uncertain} inconclusive · ${aiProgress.savedRefresh.unavailable} unavailable`
+            {aiProgress.savedRefresh ? ` · ${aiProgress.savedRefresh.running} still running · ${aiProgress.savedRefresh.uncertain} unconfirmed attempts · ${aiProgress.savedRefresh.unavailable} unavailable`
               : ` · ${aiProgress.uncertainTargets.length} awaiting retry`}
             {!aiProgress.savedRefresh && aiProgress.failures.length > aiProgress.uncertainTargets.length
               ? ` · ${aiProgress.failures.length - aiProgress.uncertainTargets.length} incomplete` : ''}</Text>
+          {(aiProgress.savedRefresh?.advisories ?? aiProgress.advisories) > 0 ? <Text size="sm">
+            {aiProgress.savedRefresh?.advisories ?? aiProgress.advisories} completed {(aiProgress.savedRefresh?.advisories ?? aiProgress.advisories) === 1 ? 'review has' : 'reviews have'} items to check in the PDF or review limits. Open the saved review for details.
+          </Text> : null}
           {aiProgress.skippedInaccessible?.length ? (
             <Stack gap="xs">
-              <Text size="xs" c="dimmed">No Gemini request was started for these PDFs. Ask their owners to restore Drive access before trying them again.</Text>
+              <Text size="xs" c="dimmed">No Gemini request was started for these PDFs. Check each message for the access or retrieval problem before trying again.</Text>
               <Button variant="default" size="xs" w="fit-content" aria-expanded={skippedAiOpen}
                 aria-controls="wt-skipped-inaccessible-pdfs"
                 onClick={() => setSkippedAiOpen(open => !open)}>

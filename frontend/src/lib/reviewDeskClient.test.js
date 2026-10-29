@@ -38,8 +38,8 @@ it('treats a completed summary-only zero-issue report as inconclusive even if it
 
   const result = await runAiReview('workspace', 'response');
 
-  expect(result).toMatchObject({ ok: false, inconclusive: true,
-    error: expect.stringContaining('inconclusive, not verification') });
+  expect(result).toMatchObject({ ok: true, inconclusive: true, error: '',
+    advisory: expect.stringContaining('limited review coverage') });
   expect(ai.start).toHaveBeenCalledTimes(1);
   expect(ai.saved).not.toHaveBeenCalled();
 });
@@ -268,18 +268,33 @@ it('retains a previous substantive report in the response model after an uncerta
   expect(updated.artifactAiReviews['field-pdf'].previousReport).toEqual({ summary: 'Original finding' });
 });
 
-it('does not misclassify a pre-existing completed generic fallback as a successful new review', async () => {
+it('keeps a pre-existing completed generic fallback available with its limitations', async () => {
   const generic = {
     summary: 'The AI review returned no grounded findings from the submitted PDF or supplied requirement sources.',
     findings: [], missingRequiredSections: [], limitations: ['No official template was supplied.']
   };
   ai.start.mockResolvedValueOnce({ status: 'COMPLETED', report: generic, reused: true });
   const result = await runAiReview('workspace', 'response', 'field-pdf');
-  expect(result).toMatchObject({ ok: false, inconclusive: true, uncertain: false,
+  expect(result).toMatchObject({ ok: true, inconclusive: true, uncertain: false,
     review: { status: 'COMPLETED', report: generic },
-    error: expect.stringContaining('inconclusive, not verification') });
+    error: '', advisory: expect.stringContaining('limited review coverage') });
   expect(ai.start).toHaveBeenCalledTimes(1);
   expect(ai.saved).not.toHaveBeenCalled();
+});
+
+it('makes a completed checklist with manual checks available without changing its outcome', async () => {
+  const report = { outcome: 'INCONCLUSIVE', verifiedChecks: Array.from({ length: 45 }, (_, i) => ({ aspect: `Check ${i + 1}` })),
+    verificationNotes: ['Check one', 'Check two', 'Check three'], coverage: { criteria: Array.from({ length: 48 }, (_, i) => ({ id: `T${i + 1}` })) } };
+  ai.start.mockResolvedValueOnce({ status: 'COMPLETED', report });
+  const result = await runAiReview('workspace', 'response');
+  expect(result).toMatchObject({ ok: true, inconclusive: true, error: '', advisory: expect.stringContaining('items to check'), review: { report } });
+  expect(result.review.report.outcome).toBe('INCONCLUSIVE');
+  expect(result.review.report.sourceVerified).toBeUndefined();
+});
+
+it.each([null, undefined, 'invalid', []])('rejects a completed review with invalid saved report %s', async report => {
+  ai.start.mockResolvedValueOnce({ status: 'COMPLETED', report });
+  expect(await runAiReview('workspace', 'response')).toMatchObject({ ok: false, error: expect.stringContaining('no valid saved report') });
 });
 
 it('surfaces a failed rerun POST without replacing the saved report with a fictitious result', async () => {
