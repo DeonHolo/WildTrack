@@ -1141,7 +1141,7 @@ public class AiReviewService {
                 || finding.source() == AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS)
                 && containsNormalized(documentText, finding.evidence())
                 && normalizeAuthorityText(finding.evidence()).length() >= 15
-                && identityMismatchWording(finding.issue())).findFirst().orElse(null);
+                && (identityMismatchWording(finding.issue()) || documentTypeContrast(finding.issue()))).findFirst().orElse(null);
         boolean wrong = overview.wrongDocument() && mismatch != null;
         String quote = normalizeAuthorityText(evidence);
         if (quote.isBlank() || !normalizeAuthorityText(documentText).contains(quote)) {
@@ -1160,6 +1160,12 @@ public class AiReviewService {
         return text != null && text.toLowerCase(Locale.ROOT).matches(
             "(?s).*(?:wrong document|different document|document type mismatch|deliverable type mismatch|"
                 + "(?:not|instead of|rather than|unrelated to) (?:the )?(?:required|requested|expected)\\b).*" );
+    }
+
+    private static boolean documentTypeContrast(String text) {
+        return text != null && text.toLowerCase(Locale.ROOT).matches(
+            "(?s).*\\b(?:instead of|rather than)\\s+(?:an?|the)\\s+"
+                + "(?:[\\p{L}-]+\\s+){0,7}(?:specification|document|report|plan|proposal|instrument|questionnaire|deliverable)\\b.*");
     }
 
     private static boolean sameExecutionContradiction(AiReviewProvider.Finding existing,

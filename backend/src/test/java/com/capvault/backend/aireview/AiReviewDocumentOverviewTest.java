@@ -76,6 +76,21 @@ class AiReviewDocumentOverviewTest {
             "A completely fabricated quotation."), List.of(mismatch()))).isNull();
     }
 
+    @Test void plainDocumentTypeContrastsStillNeedTheExplicitFlagAndGroundedEvidence() {
+        for (String phrase : List.of("instead of a Software Requirements Specification", "rather than a project management plan",
+                "instead of the final validation report", "rather than an evaluation instrument")) {
+            var finding = new AiReviewProvider.Finding("The submitted file is a questionnaire " + phrase + ".",
+                AiReviewProvider.FindingSource.DOCUMENT, QUOTE, "");
+            assertThat(ground(OVERVIEW, List.of(finding)).wrongDocument()).as(phrase).isTrue();
+            var neutral = new AiReviewProvider.DocumentOverview(TEXT, "a survey questionnaire", false, QUOTE);
+            assertThat(ground(neutral, List.of(finding)).wrongDocument()).isFalse();
+            assertThat(AiReviewService.groundDocumentOverview(OVERVIEW, "Unrelated text.", List.of(finding))).isNull();
+        }
+        var ordinaryContrast = new AiReviewProvider.Finding("The document uses a table rather than a numbered list.",
+            AiReviewProvider.FindingSource.DOCUMENT, QUOTE, "");
+        assertThat(ground(OVERVIEW, List.of(ordinaryContrast)).wrongDocument()).isFalse();
+    }
+
     @Test void dropsUncitedOrOversizedOverviewsWithoutDiscardingTheReview() {
         assertThat(AiReviewService.groundDocumentOverview(OVERVIEW, "A different document body.", List.of(mismatch()))).isNull();
         assertThat(ground(new AiReviewProvider.DocumentOverview("word ".repeat(91), "a questionnaire", false, QUOTE), List.of())).isNull();

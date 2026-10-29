@@ -343,8 +343,9 @@ function CheckRow({ check }) {
 
 function isLegacyVerification(finding) { return LEGACY_VERIFICATION.test(finding.issue || ''); }
 function isIdentityMismatch(finding) {
-  return /\b(?:instead of the required|rather than the required|not the (?:required|requested) document|(?:document|file|submission) type (?:does not match|mismatch))\b/i
-    .test(`${finding.issue || ''} ${finding.explanation || ''} ${finding.title || ''}`);
+  const text = `${finding.issue || ''} ${finding.explanation || ''} ${finding.title || ''}`;
+  return /\b(?:instead of the required|rather than the required|not the (?:required|requested) document|(?:document|file|submission) type (?:does not match|mismatch))\b/i.test(text)
+    || /\b(?:instead of|rather than)\s+(?:an?|the)\s+(?:[\p{L}-]+\s+){0,7}(?:specification|document|report|plan|proposal|instrument|questionnaire|deliverable)\b/iu.test(text);
 }
 function legacyVerification(finding) {
   const quoted = (finding.issue || '').match(/'([^']+)'/);
