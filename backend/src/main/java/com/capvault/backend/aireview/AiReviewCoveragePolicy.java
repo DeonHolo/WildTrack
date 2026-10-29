@@ -173,20 +173,20 @@ final class AiReviewCoveragePolicy {
                 explanation = !notes.isEmpty() ? accepted.verificationNotes().get(notes.get(0)).issue()
                     : manualReason(criterion, mapping.explanation(), evidence != null
                         ? "The quoted passage is present, but it was not enough to confirm the full instruction."
-                        : "No matching supporting passage was retained from the submitted PDF.");
+                        : quoteReason(mapping, pages), mapping.location(), pages);
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
                     && evidence == null) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = manualReason(criterion, mapping.explanation(), "The AI's cited supporting text could not be verified in the submitted PDF.");
+                explanation = manualReason(criterion, mapping.explanation(), quoteReason(mapping, pages), mapping.location(), pages);
                 evidence = null;
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED) {
                 location = sourceLocation(evidence, pages);
                 if (location == null) { label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                    explanation = manualReason(criterion, mapping.explanation(), "The supporting text could not be located on a PDF page."); evidence = null; }
+                    explanation = manualReason(criterion, mapping.explanation(), "The supporting text could not be located on a PDF page.", mapping.location(), pages); evidence = null; }
             } else if (explicit && label == CriterionAssessmentLabel.NEEDS_ATTENTION
                     && findings.isEmpty() && missing.isEmpty()) {
                 label = CriterionAssessmentLabel.CHECK_MANUALLY;
-                explanation = manualReason(criterion, mapping.explanation(), "The proposed concern could not be confirmed from its cited evidence; it is not an established defect.");
+                explanation = manualReason(criterion, mapping.explanation(), "The proposed concern could not be confirmed from its cited evidence; it is not an established defect.", mapping.location(), pages);
             }
             if (evidence == null) location = null;
             return row(criterion, checks, findings, missing, List.copyOf(notes), label,
@@ -201,7 +201,17 @@ final class AiReviewCoveragePolicy {
             && key(quote).length() >= 20 && key(quote).split(" ").length >= 4;
     }
 
-    private static String manualReason(Criterion criterion, String modelExplanation, String reason) {
+    private static String quoteReason(CriterionAssessment mapping, List<PdfInspection.PageText> pages) {
+        if (mapping.documentEvidence() == null || mapping.documentEvidence().isBlank())
+            return "Gemini did not provide a supporting quotation for this assessment.";
+        boolean visual = mapping.location() != null && pages.stream().anyMatch(page ->
+            page.pageNumber() == mapping.location().page() && page.hasVisualContent());
+        return visual ? "The cited page contains visual content, but the quotation could not be matched to readable text."
+            : "The quotation could not be matched to the PDF's readable text.";
+    }
+
+    private static String manualReason(Criterion criterion, String modelExplanation, String reason,
+            EvidenceLocation hint, List<PdfInspection.PageText> pages) {
         String title = Objects.requireNonNullElse(criterion.title(), "this instruction").strip();
         if (title.length() > 200) title = title.substring(0, 197) + "...";
         String observation = Objects.requireNonNullElse(modelExplanation, "").replaceAll("\\s+", " ").strip();
@@ -214,8 +224,10 @@ final class AiReviewCoveragePolicy {
             if (observation.length() > 450) observation = observation.substring(0, 447) + "...";
             if (!observation.matches("(?s).*[.!?]$")) observation += ".";
         }
-        return (observation.isEmpty() ? "" : "Unconfirmed AI observation: " + observation + " ")
-            + reason + " Check " + title + " in the PDF before making your review decision.";
+        String pageHint = hint != null && pages.stream().anyMatch(page -> page.pageNumber() == hint.page())
+            ? " (AI-cited page " + hint.page() + ")" : "";
+        return "Check " + title + " in the PDF" + pageHint + ". " + reason
+            + (observation.isEmpty() ? "" : " Gemini's unconfirmed observation: " + observation);
     }
 
     private static EvidenceLocation sourceLocation(String quote, List<PdfInspection.PageText> pages) {

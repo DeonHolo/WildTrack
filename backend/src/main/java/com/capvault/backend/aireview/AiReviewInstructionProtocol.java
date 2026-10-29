@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 /** Exact group accounting; source grounding is performed by AiReviewService after parsing. */
 public final class AiReviewInstructionProtocol {
-    public static final String VERSION = "instruction-assessment-pdf-v5-page-text-citation-aid";
+    public static final String VERSION = "instruction-assessment-pdf-v6-citation-format-recovery";
     public static final int MAX_GROUP_ITEMS = 16;
     private static final Set<String> TOP = Set.of("complete", "instructionAssessments", "documentOverview", "generalFindings");
     private static final Set<String> ASSESSMENT = Set.of("id", "assessment", "explanation", "documentEvidence", "page", "section");
@@ -37,6 +37,11 @@ public final class AiReviewInstructionProtocol {
         Only assessment, explanation, documentEvidence, page and section are model-written. Titles,
         instruction wording and authority quotations are fixed by WildTrack; do not return replacements.
         APPEARS_ADDRESSED needs an exact student-PDF quotation supporting that specific instruction.
+        Copy a contiguous passage from the numbered student text where available. Do not insert literal
+        backslash-n or backslash-t sequences into quotations or combine separate table cells as prose.
+        Different accepted terminology is allowed: assess meaning, not whether student wording copies
+        the template. A visual observation can be useful even without an extractable quotation; in that
+        case explain the specific visual check and cite its PDF page without claiming a confirmed defect.
         NEEDS_ATTENTION describes a concrete supported concern, not merely a heading you did not locate.
         A missing-section claim needs examination of the substantive body, not only its contents page.
         If absence cannot be established reliably, use CHECK_MANUALLY and explain the specific uncertainty.
@@ -52,8 +57,9 @@ public final class AiReviewInstructionProtocol {
         Cite the nearest relevant student passage and its page even if it does not establish that the
         whole instruction is addressed. State uncertainty without asserting an unverified defect.
         Use plain text without decorative emoji. Keep the complete source direction and its qualifiers;
-        examples in the template are context, not required project facts. Quote only the student PDF in
-        documentEvidence, never the template. page is the absolute PDF page, counting cover and blank pages;
+        examples in the template are context, not required project facts. Never assign an example project's
+        name or domain to the student submission; describe an unrelated submission using its own contents.
+        Quote only the student PDF in documentEvidence, never the template. page is the absolute PDF page, counting cover and blank pages;
         use 0 only where no supporting passage can be cited, such as an uncertain absence.
         When includeOverview=true, documentOverview describes the actual submission and its main contents
         in two short sentences, without a compliance verdict. Give a short exact identity/purpose quotation.
@@ -155,8 +161,8 @@ public final class AiReviewInstructionProtocol {
                 checkIndexes, findingIndexes, List.of(), noteIndexes, label, explanation, evidence, location, source.title()));
         }
         DocumentOverview overview = overview(report.path("documentOverview"), includeOverview);
-        if (overview != null && overview.wrongDocument() && findings.stream().noneMatch(f -> f.source() == FindingSource.DOCUMENT))
-            throw invalid("A document mismatch needs a supported document finding.");
+        // Identity claims are grounded after parsing. A missing/misclassified general finding
+        // must not discard the complete instruction assessment of an unexpected document.
         ReviewOutcome outcome = !findings.isEmpty() ? ReviewOutcome.ISSUES_IDENTIFIED
             : !notes.isEmpty() ? ReviewOutcome.INCONCLUSIVE : ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS;
         return new Result("The supplied instruction group has been assessed.", List.copyOf(findings), List.of(),
@@ -175,12 +181,54 @@ public final class AiReviewInstructionProtocol {
             catch (IllegalArgumentException failure) { throw invalid("Unknown finding source."); }
             if (source == FindingSource.OFFICIAL_TEMPLATE) throw invalid("Template findings must use a canonical instruction.");
             String requirement = text(value, "requirement", 0, 4000);
-            if (source == FindingSource.DOCUMENT ? !requirement.isEmpty() : requirement.isBlank())
+            if (source == FindingSource.DOCUMENT) requirement = "";
+            else if (requirement.isBlank())
                 throw invalid("The finding authority does not match its source.");
             result.add(new Finding(text(value, "issue", 1, 600), source, text(value, "evidence", 1, 1600),
                 requirement, null, null, location(value)));
         }
         return result;
+    }
+
+    static Result normalizeEvidenceFormatting(Result result, String documentText) {
+        String sourceKey = citationKey(documentText);
+        var checks = result.verifiedChecks().stream().map(check -> new VerifiedCheck(check.aspect(), check.source(),
+            formattedCitation(check.documentEvidence(), sourceKey), check.requirement(), check.location())).toList();
+        var findings = result.findings().stream().map(f -> citationFinding(f, sourceKey)).toList();
+        var notes = result.verificationNotes().stream().map(f -> citationFinding(f, sourceKey)).toList();
+        var coverage = result.coverage();
+        var rows = coverage.criteria().stream().map(row -> new CriterionAssessment(row.id(), row.requirement(), row.source(),
+            row.status(), row.verifiedCheckIndexes(), row.findingIndexes(), row.missingSectionIndexes(), row.verificationNoteIndexes(),
+            row.assessment(), row.explanation(), formattedCitation(row.documentEvidence(), sourceKey), row.location(), row.title())).toList();
+        var overview = result.documentOverview();
+        if (overview != null) overview = new DocumentOverview(overview.text(), overview.actualDocumentType(),
+            overview.wrongDocument(), formattedCitation(overview.evidence(), sourceKey));
+        return new Result(result.summary(), findings, result.missingRequiredSections(), result.limitations(), result.suggestedAction(),
+            checks, notes, result.outcome(), new ReviewCoverage(rows, coverage.omittedCriteria(), coverage.completedPasses(),
+            coverage.followupNotice(), coverage.scopeNote()), overview);
+    }
+
+    private static Finding citationFinding(Finding finding, String sourceKey) {
+        return new Finding(finding.issue(), finding.source(), formattedCitation(finding.evidence(), sourceKey),
+            finding.requirement(), finding.title(), finding.nextAction(), finding.location());
+    }
+
+    static String citationText(String quotation, String documentText) {
+        return formattedCitation(quotation, citationKey(documentText));
+    }
+
+    private static String formattedCitation(String quotation, String source) {
+        if (quotation == null || quotation.isBlank()) return quotation;
+        if (source.contains(citationKey(quotation))) return quotation;
+        String formatted = quotation.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n").replace("\\t", "\t");
+        // Only repair presentation when the same words can actually be located in the PDF.
+        // Never fuzzy-match a paraphrase, change numbers, or invent a supporting passage.
+        return !citationKey(formatted).isBlank() && source.contains(citationKey(formatted)) ? formatted : quotation;
+    }
+
+    private static String citationKey(String value) {
+        return java.util.Objects.requireNonNullElse(value, "").toLowerCase(java.util.Locale.ROOT)
+            .replaceAll("[^\\p{L}\\p{N}]+", " ").strip().replaceAll("\\s+", " ");
     }
 
     private static DocumentOverview overview(JsonNode value, boolean required) {

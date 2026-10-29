@@ -158,21 +158,37 @@ class AiReviewInstructionProtocolTest {
         assertThat(result.findings().getFirst().source()).isEqualTo(FindingSource.DELIVERABLE_REQUIREMENTS);
         assertThat(result.coverage().criteria().getFirst().verifiedCheckIndexes()).containsExactly(0);
         finding.put("source", "DOCUMENT");
-        rejects(report, group, true);
+        assertThat(AiReviewInstructionProtocol.parse(report, template(group), group, true).findings().getFirst().requirement()).isEmpty();
         finding.put("requirement", "");
         assertThat(AiReviewInstructionProtocol.parse(report, template(group), group, true).findings()).hasSize(1);
         finding.put("source", "OFFICIAL_TEMPLATE");
         rejects(report, group, true);
     }
 
-    @Test void wrongDocumentOverviewNeedsASeparateDocumentFinding() {
+    @Test void wrongDocumentClaimsAreGroundedLaterWithoutDiscardingTheInstructionAssessment() {
         var group = List.of(instruction("T1", Applicability.REQUIRED));
         var report = response(group, true);
         ((ObjectNode) report.path("documentOverview")).put("wrongDocument", true);
-        rejects(report, group, true);
+        assertThat(AiReviewInstructionProtocol.parse(report, template(group), group, true).coverage().criteria()).hasSize(1);
         report.withArray("generalFindings").addObject().put("issue", "This is not the required document; it is a reflection.")
             .put("source", "DOCUMENT").put("evidence", "My career reflection.").put("requirement", "").put("page", 1).put("section", "");
         assertThat(AiReviewInstructionProtocol.parse(report, template(group), group, true).documentOverview().wrongDocument()).isTrue();
+        ((ObjectNode) report.withArray("generalFindings").get(0)).put("source", "DELIVERABLE_REQUIREMENTS")
+            .put("requirement", "Submit the software requirements specification.");
+        assertThat(AiReviewInstructionProtocol.parse(report, template(group), group, true).findings().getFirst().source())
+            .isEqualTo(FindingSource.DELIVERABLE_REQUIREMENTS);
+    }
+
+    @Test void citationFormattingRecoveryRequiresTheSameWordsInTheSubmittedPdf() {
+        String source = "Training participants and time\nAll four members attend the planning walkthrough.";
+        assertThat(AiReviewInstructionProtocol.citationText("Training participants and time\\nAll four members attend the planning walkthrough.", source))
+            .isEqualTo(source);
+        assertThat(AiReviewInstructionProtocol.citationText("Training participants\\tand time", source))
+            .isEqualTo("Training participants\tand time");
+        String invented = "Training participants and time\\nAll five members attend the planning walkthrough.";
+        assertThat(AiReviewInstructionProtocol.citationText(invented, source)).isEqualTo(invented);
+        String code = "The program prints the literal sequence \\n in the diagnostic output.";
+        assertThat(AiReviewInstructionProtocol.citationText(code, code)).isEqualTo(code);
     }
 
     @Test void emptyTemplateGetsOneOverviewPassWithoutInventedChecklistItems() {

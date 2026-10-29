@@ -52,7 +52,7 @@ describe('AI batch affected PDF presentation', () => {
     expect(screen.getByRole('button', { name: 'Review retry options' })).toBeInTheDocument();
   });
 
-  it('keeps completed inconclusive reviews green while retaining their warning and affected PDF', () => {
+  it('keeps completed inconclusive reviews green with an informational icon and affected PDF', () => {
     const batch = completedBatch();
     batch.message = 'AI Review batch finished with items needing attention. Open the affected PDFs below.';
     batch.entries[0] = { ...batch.entries[0], error: 'This review is inconclusive; it does not establish a clean result.',
@@ -63,10 +63,14 @@ describe('AI batch affected PDF presentation', () => {
     expect(screen.getByText('AI Review batch finished. Saved results are available.')).toBeInTheDocument();
     expect(screen.queryByText(/finished with items needing attention/)).not.toBeInTheDocument();
     expect(screen.getByText(/finished with items to check in the PDF/)).toBeInTheDocument();
+    const advisoryButton = screen.getByRole('button', { name: 'Show PDFs with items to check' });
+    expect(advisoryButton.style.getPropertyValue('--ai-color')).toContain('blue');
+    expect(advisoryButton.querySelector('svg').innerHTML).not.toBe(
+      screen.getByRole('button', { name: 'Show PDFs with access restrictions' }).querySelector('svg').innerHTML);
     expect(screen.getByText(/These PDFs could not be opened/)).toBeInTheDocument();
     expect(screen.getByText('1 AI review available')).toBeInTheDocument();
     const details = screen.getByText('reviewed.pdf').closest('details');
-    fireEvent.click(screen.getByRole('button', { name: 'Show PDFs with items to check' }));
+    fireEvent.click(advisoryButton);
     expect(details.open).toBe(true);
     expect(details.querySelector('summary')).toHaveFocus();
     expect(screen.getByRole('link', { name: 'reviewed.pdf' })).toHaveAttribute('href', 'https://drive.google.com/file/d/reviewed/view');

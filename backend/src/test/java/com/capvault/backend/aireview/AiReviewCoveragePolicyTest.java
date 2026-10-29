@@ -210,7 +210,7 @@ class AiReviewCoveragePolicyTest {
         assertThat(grounded.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
         assertThat(grounded.documentEvidence()).isEqualTo(quote);
         assertThat(grounded.location().page()).isEqualTo(3);
-        assertThat(grounded.explanation()).contains("Unconfirmed AI observation: The schedule is described.",
+        assertThat(grounded.explanation()).contains("Gemini's unconfirmed observation: The schedule is described.",
             "not enough to confirm the full instruction", "Check Schedule in the PDF");
         var fabricated = new CriterionAssessment("T1", requirement, FindingSource.OFFICIAL_TEMPLATE,
             CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
@@ -219,8 +219,26 @@ class AiReviewCoveragePolicyTest {
         assertThat(rejected.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
         assertThat(rejected.documentEvidence()).isNull();
         assertThat(rejected.location()).isNull();
-        assertThat(rejected.explanation()).contains("Unconfirmed AI observation: The schedule is described.",
-            "No matching supporting passage");
+        assertThat(rejected.explanation()).contains("Gemini's unconfirmed observation: The schedule is described.",
+            "quotation could not be matched").doesNotContain("AI-cited page 99");
+    }
+
+    @Test void unverifiedVisualQuotationKeepsSpecificContextAndAnExplicitlyUnverifiedPageHint() {
+        String requirement = "Show scheduling relationships and concurrent work.";
+        var row = new CriterionAssessment("T1", requirement, FindingSource.OFFICIAL_TEMPLATE,
+            CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(),
+            CriterionAssessmentLabel.APPEARS_ADDRESSED, "The chart shows phases R1 to R4 with overlapping work.",
+            "R1 | R2 | R3 | R4", new EvidenceLocation(5, "Schedule chart"), "Schedule allocation");
+        var plan = new AiReviewCoveragePolicy.Plan(List.of(new AiReviewCoveragePolicy.Criterion(
+            "T1", requirement, FindingSource.OFFICIAL_TEMPLATE, "Schedule allocation")), 0, "Fixed");
+        String body = "5. Schedule allocation\nA chart describes the proposed project schedule.";
+        var pages = List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(5, body, true));
+        var grounded = AiReviewCoveragePolicy.grounded(with(List.of(), List.of(row)), result(List.of()), plan, body, pages).criteria().getFirst();
+        assertThat(grounded.assessment()).isEqualTo(CriterionAssessmentLabel.CHECK_MANUALLY);
+        assertThat(grounded.location()).isNull();
+        assertThat(grounded.documentEvidence()).isNull();
+        assertThat(grounded.explanation()).contains("Check Schedule allocation in the PDF (AI-cited page 5)",
+            "cited page contains visual content", "chart shows phases R1 to R4");
     }
 
     @Test void verifiedSpecificNoteExplainsManualDowngrade() {

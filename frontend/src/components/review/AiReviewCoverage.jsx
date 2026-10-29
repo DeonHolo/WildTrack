@@ -66,15 +66,17 @@ function AssessmentRow({ row, report }) {
     </summary>
     <div className="wt-ai-review-assessment-details">
       <Text component="p" style={{ whiteSpace: 'pre-line' }}><strong>Instruction:</strong> {instruction}</Text>
-      <Text component="p"><strong>Assessment: {STATUS_LABELS[row.assessment]}.</strong> {row.explanation}</Text>
-      {linkedFindings.map((finding, index) => <Text key={index} component="p"><strong>Linked concern:</strong> {finding.issue || finding.explanation || 'Review the linked finding.'}</Text>)}
+      {linkedFindings.map((finding, index) => {
+        const concern = finding.issue || finding.explanation || 'Review the linked finding.';
+        return concern.trim() === row.explanation.trim() ? null : <Text key={index} component="p"><strong>Linked concern:</strong> {concern}</Text>;
+      })}
       {linkedFindings.map((finding, index) => hasText(finding.evidence) && finding.evidence !== row.documentEvidence ? <LinkedExcerpt key={`evidence-${index}`} text={finding.evidence} location={finding.location} /> : null)}
       {linkedNotes.map((note, index) => <div key={`note-${index}`}><Text>{note.issue}</Text>{hasText(note.evidence) && note.evidence !== row.documentEvidence ? <LinkedExcerpt text={note.evidence} location={note.location} /> : null}</div>)}
       {linkedMissing.map((item, index) => <Text key={`missing-${index}`}>Confirm the required section: {item.section}</Text>)}
       {hasText(row.documentEvidence) ? <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Evidence excerpt">{row.documentEvidence}</Text> : null}
       <Text component="p" className="wt-ai-review-reference"><strong>Source:</strong> {location
         ? <>Submitted PDF · page {location.page}{hasText(location.section) ? ` · ${location.section}` : ''}</>
-        : 'Submitted PDF page not established'}</Text>
+        : 'Submitted PDF · quotation unverified'}</Text>
     </div>
   </details>;
 }

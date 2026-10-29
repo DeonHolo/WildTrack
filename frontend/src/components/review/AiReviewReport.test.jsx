@@ -54,6 +54,55 @@ it('emphasizes a supported mismatch without hiding the review checklist', () => 
   expect(screen.getByText('Confirm the submitted file.')).toBeVisible();
 });
 
+it('keeps document findings visible and collapses template checks for a mismatched document', () => {
+  const row = { id: 'T1', title: 'Describe recovery', requirement: 'Describe recovery.', source: 'OFFICIAL_TEMPLATE',
+    assessment: 'NEEDS_ATTENTION', explanation: 'The PDF does not describe recovery.' };
+  show({ documentOverview: { text: 'This questionnaire collects participant feedback.', actualDocumentType: 'a questionnaire', wrongDocument: true },
+    findings: [{ issue: 'The document is a questionnaire.', source: 'DOCUMENT', evidence: 'Participant feedback' },
+      { issue: 'The template introduction is missing.', source: 'OFFICIAL_TEMPLATE', requirement: 'Include an introduction.' }],
+    coverage: { criteria: [row] } });
+  expect(screen.getByText('The document is a questionnaire.')).toBeVisible();
+  const disclosure = screen.getByText('Template checks (2)').closest('details');
+  expect(disclosure).not.toHaveAttribute('open');
+  expect(screen.getByText('The template introduction is missing.')).not.toBeVisible();
+  expect(screen.getByText(/The PDF does not describe recovery/)).not.toBeVisible();
+  fireEvent.click(within(disclosure).getByText('Template checks (2)'));
+  expect(screen.getByText('The template introduction is missing.')).toBeVisible();
+  expect(screen.getByText(/The PDF does not describe recovery/)).toBeVisible();
+});
+
+it.each([false, undefined])('keeps template checks expanded when mismatch is %s', wrongDocument => {
+  show({ documentOverview: { text: 'A project plan.', wrongDocument }, coverage: { criteria: [{
+    id: 'T1', title: 'Describe recovery', requirement: 'Describe recovery.', source: 'OFFICIAL_TEMPLATE',
+    assessment: 'NEEDS_ATTENTION', explanation: 'Check the recovery details.' }] } });
+  expect(screen.queryByText(/Template checks \(/)).not.toBeInTheDocument();
+  expect(screen.getByText(/Check the recovery details/)).toBeVisible();
+});
+
+it('keeps the normal checklist and mismatch warning when any template assessment is positive', () => {
+  show({ documentOverview: { text: 'This is a questionnaire.', actualDocumentType: 'a questionnaire', wrongDocument: true },
+    coverage: { criteria: [
+      { id: 'T1', title: 'Describe recovery', requirement: 'Describe recovery.', source: 'OFFICIAL_TEMPLATE',
+        assessment: 'NEEDS_ATTENTION', explanation: 'Check the recovery details.' },
+      { id: 'T2', title: 'Identify participants', requirement: 'Identify participants.', source: 'OFFICIAL_TEMPLATE',
+        assessment: 'APPEARS_ADDRESSED', explanation: 'Participants are identified.', documentEvidence: 'Students participate.', location: { page: 1 } }
+    ] } });
+  expect(screen.getByRole('region', { name: 'Document overview' })).toHaveTextContent('NOT the required');
+  expect(screen.queryByText(/Template checks \(/)).not.toBeInTheDocument();
+  expect(screen.getByText(/Check the recovery details/)).toBeVisible();
+  expect(screen.getByText('Appears addressed (1)')).toBeVisible();
+});
+
+it('keeps a requirement-sourced identity finding visible even when linked to the checklist', () => {
+  const finding = { issue: 'The student submitted an administrative parental consent form instead of the required Software Requirements Specification document.',
+    source: 'DELIVERABLE_REQUIREMENTS', requirement: 'Submit the Refactored SRS Submission PDF.', evidence: 'AFFIDAVIT OF PARENTAL/GUARDIAN CONSENT' };
+  show({ documentOverview: { text: 'The submitted document is a parental consent form.', actualDocumentType: 'a parental consent form', wrongDocument: true },
+    findings: [finding], coverage: { criteria: [{ id: 'C1', requirement: finding.requirement, source: finding.source,
+      assessment: 'NEEDS_ATTENTION', explanation: 'The submitted file is a consent form.', findingIndexes: [0] }] } });
+  expect(screen.getAllByText(finding.issue).some(element => element.closest('ol') && !element.closest('.wt-ai-review-secondary'))).toBe(true);
+  expect(screen.getByText('Template checks (1)').closest('details')).not.toHaveAttribute('open');
+});
+
 it('does not relabel the old review-result summary as a document overview', () => {
   show({ summary: 'This is not the required document.', findings: [] });
   expect(screen.queryByRole('region', { name: 'Document overview' })).not.toBeInTheDocument();

@@ -43,6 +43,39 @@ class AiReviewDocumentOverviewTest {
         assertThat(ground(OVERVIEW, List.of(other)).wrongDocument()).isFalse();
     }
 
+    @Test void independentlyGroundedDifferentIdentityQuotationsCanSupportAMismatch() {
+        String document = QUOTE + "\nStudents answer the stakeholder questionnaire using the rating scale.";
+        var finding = new AiReviewProvider.Finding("The student submitted a questionnaire instead of the required project management plan.",
+            AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS,
+            "Students answer the stakeholder questionnaire using the rating scale.", "Submit the project management plan.");
+        assertThat(AiReviewService.groundDocumentOverview(OVERVIEW, document, List.of(finding)).wrongDocument()).isTrue();
+    }
+
+    @Test void supportedMismatchTextDoesNotDiscardTheWholeOverview() {
+        var overview = new AiReviewProvider.DocumentOverview("This is not the required document; it is a survey questionnaire.",
+            "a survey questionnaire", true, QUOTE);
+        assertThat(ground(overview, List.of(mismatch())).wrongDocument()).isTrue();
+    }
+
+    @Test void equivalentIdentityMismatchPhrasingDoesNotDependOnOneExactPhrase() {
+        for (String phrase : List.of("instead of the requested", "rather than the required", "not the expected")) {
+            var finding = new AiReviewProvider.Finding("The PDF is a questionnaire " + phrase + " management plan.",
+                AiReviewProvider.FindingSource.DOCUMENT, QUOTE, "");
+            assertThat(ground(OVERVIEW, List.of(finding)).wrongDocument()).as(phrase).isTrue();
+        }
+    }
+
+    @Test void aStitchedIdentityQuoteUsesOnlyItsAlreadyGroundedPassage() {
+        var overview = new AiReviewProvider.DocumentOverview("This is a questionnaire rather than the required plan for ExampleProject.",
+            "a survey questionnaire", true, QUOTE + " Rating questions:");
+        var grounded = ground(overview, List.of(mismatch()));
+        assertThat(grounded.wrongDocument()).isTrue();
+        assertThat(grounded.evidence()).isEqualTo(QUOTE);
+        assertThat(grounded.text()).isEqualTo("The submitted PDF appears to be a survey questionnaire.");
+        assertThat(ground(new AiReviewProvider.DocumentOverview(TEXT, "a questionnaire", true,
+            "A completely fabricated quotation."), List.of(mismatch()))).isNull();
+    }
+
     @Test void dropsUncitedOrOversizedOverviewsWithoutDiscardingTheReview() {
         assertThat(AiReviewService.groundDocumentOverview(OVERVIEW, "A different document body.", List.of(mismatch()))).isNull();
         assertThat(ground(new AiReviewProvider.DocumentOverview("word ".repeat(91), "a questionnaire", false, QUOTE), List.of())).isNull();

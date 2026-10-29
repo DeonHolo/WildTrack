@@ -267,6 +267,8 @@ public class AiReviewService {
             prepared.modifiedAt(), current == null ? null : current.token(), saved == null ? null : saved.retryToken());
     }
 
+    long providerRetryDelayMillis() { return provider.retryDelayMillis(); }
+
     void requireAdministrator(String subject) {
         if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Only administrators can start AI reviews.");
     }
@@ -866,6 +868,18 @@ public class AiReviewService {
         if (raw == null || raw.coverage() == null || !raw.coverage().criteria().stream().map(AiReviewProvider.CriterionAssessment::id).toList()
                 .equals(group.stream().map(com.capvault.backend.template.TemplateInstructionPreparation.Instruction::id).toList()))
             throw invalidReview();
+        raw = AiReviewInstructionProtocol.normalizeEvidenceFormatting(raw, inspection.extractedText());
+        var identitySafeRows = raw.coverage().criteria().stream().map(row -> {
+            if (!AiReviewGroundingPolicy.unsupportedTemplateSampleIdentityClaim(row.explanation(), row.requirement(),
+                    inspection.extractedText(), input.templateText())) return row;
+            return new AiReviewProvider.CriterionAssessment(row.id(), row.requirement(), row.source(), row.status(),
+                row.verifiedCheckIndexes(), row.findingIndexes(), row.missingSectionIndexes(), row.verificationNoteIndexes(),
+                AiReviewProvider.CriterionAssessmentLabel.CHECK_MANUALLY,
+                "Check " + row.title() + " for the submitted project. The AI confused a project name from the template example with this submission.",
+                row.documentEvidence(), row.location(), row.title());
+        }).toList();
+        raw = AiReviewCoveragePolicy.withCoverage(raw, new AiReviewProvider.ReviewCoverage(identitySafeRows,
+            raw.coverage().omittedCriteria(), raw.coverage().completedPasses(), raw.coverage().followupNotice(), raw.coverage().scopeNote()));
         var plan = new AiReviewCoveragePolicy.Plan(group.stream().map(item -> new AiReviewCoveragePolicy.Criterion(
             item.id(), item.source().instruction(), AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE, item.source().title())).toList(),
             0, "Assessment uses fixed instructions from the official template PDF.");
@@ -1122,20 +1136,30 @@ public class AiReviewService {
         String text = overview.text().strip(), type = overview.actualDocumentType().strip(), evidence = overview.evidence().strip();
         if (text.isEmpty() || text.length() > 700 || text.split("\\s+").length > 90 || type.isEmpty() || type.length() > 120
                 || evidence.length() < 15 || evidence.length() > 600) return null;
+        var mismatch = findings.stream().filter(finding ->
+            (finding.source() == AiReviewProvider.FindingSource.DOCUMENT
+                || finding.source() == AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS)
+                && containsNormalized(documentText, finding.evidence())
+                && normalizeAuthorityText(finding.evidence()).length() >= 15
+                && identityMismatchWording(finding.issue())).findFirst().orElse(null);
+        boolean wrong = overview.wrongDocument() && mismatch != null;
         String quote = normalizeAuthorityText(evidence);
-        if (quote.isBlank() || !normalizeAuthorityText(documentText).contains(quote)) return null;
-        // Keep the neutral description separate from an actionable identity allegation.
-        if (identityMismatchWording(text)) return null;
-        boolean wrong = overview.wrongDocument() && findings.stream().anyMatch(finding ->
-            finding.source() == AiReviewProvider.FindingSource.DOCUMENT
-                && quote.equals(normalizeAuthorityText(finding.evidence()))
-                && identityMismatchWording(finding.issue()));
+        if (quote.isBlank() || !normalizeAuthorityText(documentText).contains(quote)) {
+            // An overview can join separate headings. Retain only an independently
+            // grounded identity excerpt already included in that proposed quotation.
+            if (!wrong || !quote.contains(normalizeAuthorityText(mismatch.evidence()))) return null;
+            evidence = mismatch.evidence();
+        }
+        // An identity sentence is retained only when an independently grounded finding supports it.
+        if (identityMismatchWording(text) && !wrong) return null;
+        if (wrong) text = "The submitted PDF appears to be " + type + ".";
         return new AiReviewProvider.DocumentOverview(text, type, wrong, evidence);
     }
 
     private static boolean identityMismatchWording(String text) {
         return text != null && text.toLowerCase(Locale.ROOT).matches(
-            "(?s).*(?:wrong document|different document|not the required|not the requested|document type mismatch|deliverable type mismatch).*" );
+            "(?s).*(?:wrong document|different document|document type mismatch|deliverable type mismatch|"
+                + "(?:not|instead of|rather than|unrelated to) (?:the )?(?:required|requested|expected)\\b).*" );
     }
 
     private static boolean sameExecutionContradiction(AiReviewProvider.Finding existing,

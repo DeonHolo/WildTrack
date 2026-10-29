@@ -10,6 +10,8 @@ import java.util.List;
  */
 public interface AiReviewProvider extends com.capvault.backend.template.TemplateInstructionGateway {
     boolean isConfigured();
+    /** Remaining provider cooldown; querying this never starts or retries a request. */
+    default long retryDelayMillis() { return 0; }
     String cacheVersion();
     Result review(Input input);
     default Result assessInstructions(InstructionInput input) {
