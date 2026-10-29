@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 /** Exact group accounting; source grounding is performed by AiReviewService after parsing. */
 public final class AiReviewInstructionProtocol {
-    public static final String VERSION = "instruction-assessment-pdf-v3-approved-authority";
+    public static final String VERSION = "instruction-assessment-pdf-v4-specific-manual-checks";
     public static final int MAX_GROUP_ITEMS = 16;
     private static final Set<String> TOP = Set.of("complete", "instructionAssessments", "documentOverview", "generalFindings");
     private static final Set<String> ASSESSMENT = Set.of("id", "assessment", "explanation", "documentEvidence", "page", "section");
@@ -41,7 +41,14 @@ public final class AiReviewInstructionProtocol {
         warnings for each header when there is no distinct concern. Do not copy template examples as facts
         required of the submitted project. Preserve optional and conditional scope. NOT_APPLICABLE is allowed
         only for an OPTIONAL or CONDITIONAL instruction and must explain why it does not apply here.
-        Explain each assessment in one short plain-language sentence. Quote only the student PDF in
+        Explain each assessment in plain language, usually one to three short sentences and never more
+        than four. For CHECK_MANUALLY, say what you could establish from this particular submission,
+        what remains uncertain, and what the reviewer should inspect. Do not use a generic statement
+        such as "needs manual verification" as the entire assessment or merely repeat the instruction.
+        Cite the nearest relevant student passage and its page even if it does not establish that the
+        whole instruction is addressed. State uncertainty without asserting an unverified defect.
+        Use plain text without decorative emoji. Keep the complete source direction and its qualifiers;
+        examples in the template are context, not required project facts. Quote only the student PDF in
         documentEvidence, never the template. page is the absolute PDF page, counting cover and blank pages;
         use 0 only where no supporting passage can be cited, such as an uncertain absence.
         When includeOverview=true, documentOverview describes the actual submission and its main contents
@@ -60,7 +67,7 @@ public final class AiReviewInstructionProtocol {
     public static Map<String, Object> schema() {
         var assessment = objectSchema(Map.of("id", string(100), "assessment", Map.of("type", "string", "enum",
                 List.of("APPEARS_ADDRESSED", "NEEDS_ATTENTION", "CHECK_MANUALLY", "NOT_APPLICABLE")),
-            "explanation", string(400), "documentEvidence", string(1600), "page", pageSchema(), "section", string(200)));
+            "explanation", string(700), "documentEvidence", string(1600), "page", pageSchema(), "section", string(200)));
         var overview = objectSchema(Map.of("text", string(1200), "actualDocumentType", string(200),
             "evidence", string(1600), "wrongDocument", Map.of("type", "boolean")));
         var finding = objectSchema(Map.of("issue", string(600), "source", Map.of("type", "string", "enum",
@@ -105,7 +112,7 @@ public final class AiReviewInstructionProtocol {
             CriterionAssessmentLabel label;
             try { label = CriterionAssessmentLabel.valueOf(text(value, "assessment", 1, 30)); }
             catch (IllegalArgumentException failure) { throw invalid("Unknown instruction assessment."); }
-            String explanation = text(value, "explanation", 1, 400);
+            String explanation = text(value, "explanation", 1, 700);
             String evidence = text(value, "documentEvidence", 0, 1600);
             var location = location(value);
             var source = instruction.source();

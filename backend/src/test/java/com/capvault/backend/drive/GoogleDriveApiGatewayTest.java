@@ -140,6 +140,42 @@ class GoogleDriveApiGatewayTest {
         server.verify();
     }
 
+    @Test
+    void boundsDownloadWhenContentLengthIsMissingOrWrong() {
+        for (long declared : new long[] {-1, 2}) {
+            var stream = new java.io.ByteArrayInputStream(new byte[100]);
+            RestClient.Builder builder = RestClient.builder().baseUrl("https://www.googleapis.com");
+            MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+            server.expect(requestTo(containsString("alt=media"))).andRespond(request -> {
+                var response = new org.springframework.mock.http.client.MockClientHttpResponse(new byte[0], HttpStatus.OK) {
+                    @Override public java.io.InputStream getBody() { return stream; }
+                };
+                if (declared >= 0) response.getHeaders().setContentLength(declared);
+                return response;
+            });
+            var gateway = new GoogleDriveApiGateway(new GoogleDriveProperties(true, "key", 10), builder.build());
+            assertThatThrownBy(() -> gateway.download(new DriveFileReference("file", null)))
+                .isInstanceOfSatisfying(GoogleDriveUnavailableException.class,
+                    failure -> assertThat(failure.failureDetails().code()).isEqualTo("FILE_TOO_LARGE"));
+            assertThat(stream.available()).isEqualTo(89);
+            server.verify();
+        }
+    }
+
+    @Test
+    void downloadPreservesAccessFailureClassification() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://www.googleapis.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(containsString("alt=media")))
+            .andRespond(withStatus(HttpStatus.FORBIDDEN).body("{\"error\":{\"reason\":\"insufficientFilePermissions\"}}"));
+        var gateway = new GoogleDriveApiGateway(new GoogleDriveProperties(true, "key", 10), builder.build());
+        assertThatThrownBy(() -> gateway.download(new DriveFileReference("file", null)))
+            .isInstanceOfSatisfying(GoogleDriveUnavailableException.class, failure -> {
+                assertThat(failure.kind()).isEqualTo(GoogleDriveUnavailableException.Kind.FILE_ACCESS);
+                assertThat(failure.failureDetails().code()).isEqualTo("ACCESS_DENIED");
+            });
+    }
+
     private static void assertFailureKind(int status, String body, GoogleDriveUnavailableException.Kind expected) {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://www.googleapis.com");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

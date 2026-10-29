@@ -79,10 +79,10 @@ export function StudentAccountManagement({ workspaceId, opened, onClose, onChang
     <Modal opened={opened} onClose={onClose} title="Student account management" size="lg" centered scrollAreaComponent={ScrollArea.Autosize}>
       <Stack gap="md">
         <Alert color="orange" title="First-claim limitation">
-          {state.data?.firstClaimLimitation || 'Account ownership is self-declared by the first successful submission. It is not verified student ownership.'}
+          {state.data?.firstClaimLimitation || 'The first successful connection through the account entry form or deliverable submission is self-declared and does not prove the student’s identity. Another account cannot replace an active connection.'}
         </Alert>
         <Text size="sm" c="dimmed">
-          Disconnect a mistaken binding or explicitly recover a previously recorded account. Existing submissions and audit records are retained.
+          Disconnect an account to let a student connect again using their details. You can also select a previously recorded account. Existing submissions and audit records are retained.
         </Text>
         <TextInput value={query} onChange={event => setQuery(event.currentTarget.value)} placeholder="Search student, team, or account" aria-label="Search student account bindings" />
         {state.error ? <Alert color="red" role="alert">{state.error}<Button variant="subtle" size="xs" onClick={reload}>Retry</Button></Alert> : null}

@@ -24,6 +24,38 @@ describe('server-owned AI batch lifecycle', () => {
   });
   afterEach(() => vi.useRealTimers());
 
+  it('opens failed-review confirmation when preparation is already ready without starting AI', async () => {
+    api.prepare.mockResolvedValue(plan('retry'));
+    const { result } = renderHook(() => useAiReviewBatch('workspace'));
+    await act(async () => result.current.prepare([{ responseId: 'r', fieldId: 'pdf' }], { openWhenReady: true }));
+    expect(result.current.opened).toBe(true);
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it('opens failed-review confirmation after background preparation finishes', async () => {
+    vi.useFakeTimers();
+    api.prepare.mockResolvedValue(plan('retry', 'PLANNING'));
+    api.get.mockResolvedValue(plan('retry'));
+    const { result } = renderHook(() => useAiReviewBatch('workspace'));
+    await act(async () => result.current.prepare([{ responseId: 'r', fieldId: 'pdf' }], { openWhenReady: true }));
+    expect(result.current.opened).toBe(false);
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(result.current.opened).toBe(true);
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it('does not reopen a closed confirmation when its preparation finishes later', async () => {
+    vi.useFakeTimers();
+    api.prepare.mockResolvedValue(plan('retry', 'PLANNING'));
+    api.get.mockResolvedValue(plan('retry'));
+    const { result } = renderHook(() => useAiReviewBatch('workspace'));
+    await act(async () => result.current.prepare([{ responseId: 'r', fieldId: 'pdf' }], { openWhenReady: true }));
+    act(() => result.current.close());
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(result.current.opened).toBe(false);
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
   it('keeps a finished notice dismissed across navigation and shows the next completion', async () => {
     api.latest.mockResolvedValue(plan('finished', 'COMPLETED'));
     const first = renderHook(() => useAiReviewBatch('workspace'));

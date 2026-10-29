@@ -124,6 +124,25 @@ class AiReviewBatchLifecycleTest {
         assertThat(service.get(workspace, plan.id(), "admin").completedDocuments()).isEqualTo(1);
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "FAILED, FAILED, true", "FAILED, UNCERTAIN, true", "FAILED, INCONCLUSIVE, false",
+        "MANUAL, INCONCLUSIVE, true", "MANUAL, FAILED, false", "MANUAL, MISSING, false",
+        "ATTENTION, FAILED, true", "ATTENTION, MISSING, true", "ATTENTION, ISSUES, true",
+        "ATTENTION, INCONCLUSIVE, false", "ATTENTION, CLEAN, false"
+    })
+    void scopeSelectsMatchingCategories(String mode, String category, boolean selected) {
+        when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin")))
+            .thenAnswer(inv -> preview(inv.getArgument(1), "same-key", category, null));
+        var plan = prepared();
+        if (selected) {
+            start(plan, mode, true);
+            assertThat(service.get(workspace, plan.id(), "admin").entries()).allSatisfy(entry -> assertThat(entry.selected()).isTrue());
+        } else {
+            assertThatThrownBy(() -> start(plan, mode, true)).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
     @Test void uncertainRetryRequiresConsentAndUsesThePreparedToken() {
         UUID retry = UUID.randomUUID();
         when(reviews.preview(eq(workspace), any(), eq("pdf"), eq("admin"))).thenAnswer(inv -> preview(inv.getArgument(1), "same-key", "FAILED", retry));

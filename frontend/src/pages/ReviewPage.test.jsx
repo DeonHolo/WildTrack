@@ -280,7 +280,7 @@ function pageTree(initialEntry = '/review') {
   );
 }
 
-function renderPage(initialEntry = '/review') {
+function renderPage(initialEntry = '/review?deliverable=deliverable-srs') {
   return render(pageTree(initialEntry));
 }
 
@@ -382,6 +382,11 @@ describe('deliverable-first submission review', () => {
     expect(names()[0]).toContain('Taghoy, Ron Luigi F.');
     expect(sort.closest('th')).not.toHaveAttribute('aria-sort');
     expectNoAiRequests();
+  });
+
+  it('defaults to all deliverables when no deep link specifies a scope', () => {
+    renderPage('/review');
+    expect(screen.getByRole('table', { name: 'All deliverables submissions' })).toBeInTheDocument();
   });
 
   it('combines deliverables with the correct per-row status, drawer and PDF', async () => {
@@ -671,6 +676,10 @@ describe('deliverable-first submission review', () => {
     expect(within(drawer).getByRole('button', { name: 'View AI Review' })).toBeDisabled();
     expect(within(drawer).getByRole('button', { name: 'Retry AI review' })).toBeInTheDocument();
     expect(workflow.runAiReviews).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Retry AI review' }));
+    expect(await screen.findByRole('dialog', { name: 'Retry AI reviews?' })).toBeInTheDocument();
+    expect(drawer).toBeInTheDocument();
+    expect(prepareAiReviewBatch).not.toHaveBeenCalled();
   });
 
   it('shows an inconclusive rerun and opens the separately identified previous substantive AI Review', async () => {
@@ -1239,7 +1248,7 @@ describe('deliverable-first submission review', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Review Pacio, Muriel D.' })).getByRole('button', { name: 'Archive response' }));
     const archiveConfirmation = await screen.findByRole('dialog', { name: 'Archive this accepted response?' });
     expect(archiveConfirmation).toHaveTextContent('preserve copies of the accepted PDFs');
-    expect(archiveConfirmation).toHaveTextContent('check Final archive for progress');
+    expect(archiveConfirmation).toHaveTextContent('Check Final archive for progress');
     fireEvent.click(within(archiveConfirmation).getByRole('button', { name: 'Archive response' }));
     await waitFor(() => expect(workflow.archiveAttempt).toHaveBeenCalledWith('response-muriel-srs'));
     expect(await screen.findByText('Copying is in progress. Check Final archive for the latest status.')).toBeInTheDocument();

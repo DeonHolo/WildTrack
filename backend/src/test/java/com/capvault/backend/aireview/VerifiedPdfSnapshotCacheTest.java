@@ -315,6 +315,18 @@ class VerifiedPdfSnapshotCacheTest {
         }
     }
 
+    @Test void cachedSnapshotCannotBeChangedThroughCallerOrReturnedBytes() {
+        byte[] source = BYTES.clone();
+        var snapshot = new VerifiedPdfSnapshotCache.Snapshot(source, INSPECTION, NOW);
+        try (var cache = cache(1000, 256, 10000)) {
+            cache.put(key("immutable"), snapshot);
+            source[0] = 0;
+            snapshot.bytes()[0] = 0;
+            cache.get(key("immutable")).bytes()[0] = 0;
+            assertThat(cache.get(key("immutable")).bytes()).containsExactly(BYTES);
+        }
+    }
+
     @Test void defensiveCopiesAndMd5SizeEligibilityArePreserved() {
         var source = BYTES.clone();
         var snapshot = new VerifiedPdfSnapshotCache.Snapshot(source, INSPECTION, NOW);

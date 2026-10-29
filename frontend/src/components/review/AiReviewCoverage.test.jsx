@@ -30,13 +30,42 @@ it('renders explicit concern and manual assessments as compact labeled rows with
   const region = screen.getByRole('region', { name: 'Template and instruction assessment' });
   expect(region).toHaveTextContent('Needs attention');
   expect(region).toHaveTextContent('Check in PDF');
-  expect(region).toHaveTextContent('Official template');
+  expect(region).toHaveTextContent('Submitted PDF · page 8 · Recovery');
   expect(region).toHaveTextContent('p. 8');
   expect(region).not.toHaveTextContent('Appears addressed');
   expect(screen.getAllByRole('blockquote', { name: 'Evidence excerpt', hidden: true })).toHaveLength(2);
   expect(screen.getAllByRole('blockquote', { name: 'Evidence excerpt', hidden: true })[0]).not.toBeVisible();
   fireEvent.click(screen.getAllByText('Describe recovery behavior.')[0]);
   expect(screen.getAllByRole('blockquote', { name: 'Evidence excerpt', hidden: true })[0]).toHaveTextContent('Users can retry');
+});
+
+it('keeps linked excerpt pages separate and does not attribute them to an unlocated criterion', () => {
+  const requirement = '📌 Explain the process. • Include 2 steps.';
+  const first = criterion('NEEDS_ATTENTION', { requirement, location: null, findingIndexes: [0], explanation: 'x'.repeat(1000) });
+  const second = criterion('CHECK_MANUALLY', { id: 'C2', title: 'Unknown location', location: null });
+  show({ coverage: { criteria: [first, second] }, findings: [{ source: first.source, requirement, issue: 'Missing detail', evidence: 'Excerpt', location: { page: 3, section: 'Process' } }] });
+  const rows = document.querySelectorAll('.wt-ai-review-assessment-row');
+  expect(rows[0].querySelector('summary')).not.toHaveTextContent('p. 3');
+  fireEvent.click(rows[0].querySelector('summary'));
+  const content = rows[0].querySelector('.wt-ai-review-assessment-details');
+  expect(content).not.toHaveTextContent('📌');
+  expect(content.textContent.indexOf('Instruction:')).toBeLessThan(content.textContent.indexOf('Assessment:'));
+  expect(content.textContent.indexOf('Assessment:')).toBeLessThan(content.textContent.indexOf('Linked concern:'));
+  expect(content.querySelector('blockquote')).toHaveClass('wt-ai-review-passage', 'wt-ai-review-quote');
+  expect(content).not.toHaveTextContent('Excerpt from submitted PDF');
+  expect(content.querySelector('blockquote cite')).toHaveTextContent('Submitted PDF · page 3 · Process');
+  expect(content.lastElementChild).toHaveTextContent('Source: Submitted PDF page not established');
+  expect(rows[1].querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('Submitted PDF page not established');
+});
+
+it('retains each excerpt page when the criterion and a linked concern cite different PDF pages', () => {
+  const row = criterion('CHECK_MANUALLY', { findingIndexes: [0] });
+  show({ coverage: { criteria: [row] }, findings: [{ source: row.source, requirement: row.requirement,
+    issue: 'Confirm the second passage.', evidence: 'A different passage.', location: { page: 5 } }] });
+  const item = document.querySelector('.wt-ai-review-assessment-row');
+  expect(item.querySelector('summary')).toHaveTextContent('p. 8');
+  expect(item.querySelector('blockquote cite')).toHaveTextContent('Submitted PDF · page 5');
+  expect(item.querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('Submitted PDF · page 8 · Recovery');
 });
 
 it('keeps positive assessments collapsed and never exposes historical evidence as a pass', () => {

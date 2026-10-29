@@ -31,6 +31,8 @@ describe('Workspace workbook import', () => {
     render(tree());
     expect(screen.getByText(/Student Number, Student Name and Team Code are required/)).toBeVisible();
     expect(screen.getByText(/Teams and Projects and Deliverables are optional tabs/)).toBeVisible();
+    expect(screen.getByText('Choose an Excel workbook')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Excel workbook (.xlsx)' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Preview import' })).toBeDisabled();
     expect(api.preview).not.toHaveBeenCalled(); expect(api.apply).not.toHaveBeenCalled();
   });

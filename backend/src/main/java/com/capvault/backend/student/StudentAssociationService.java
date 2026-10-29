@@ -206,7 +206,7 @@ public class StudentAssociationService {
         canonicalBindingRepository.findByGoogleSubject(googleSubject)
             .filter(other -> !other.getStudentNumberKey().equals(key) && other.isBound())
             .ifPresent(other -> { throw new AccountBindingConflictException(
-                "This Google account is already associated with a different Student Number. Ask an administrator to recover the account binding."); });
+                "This Google account is already associated with a different Student Number. Ask an administrator to review the connection."); });
 
         if (binding.isBound()) {
             if (!googleSubject.equals(binding.getGoogleSubject())) {
@@ -215,11 +215,6 @@ public class StudentAssociationService {
             }
             WorkspaceStudentAssociation workspaceAssociation = upsertWorkspaceAssociation(record, googleSubject, googleEmail, now);
             return toView(workspaceAssociation).orElseThrow();
-        }
-
-        if (googleSubject.equals(binding.getBlockedGoogleSubject())) {
-            throw new AccountBindingConflictException(
-                "This Google account was disconnected from the Student Number by an administrator. Ask an administrator to recover the account binding.");
         }
 
         List<WorkspaceStudentAssociation> activeLegacy = activeLegacyClaims(record.getStudentNumber());
@@ -244,7 +239,7 @@ public class StudentAssociationService {
 
         if (editingExistingResponse) {
             throw new AccountBindingConflictException(
-                "This account is no longer associated with the Student Number for this saved response. Ask an administrator to recover the account binding before editing it.");
+                "This account is no longer connected to the Student Number for this saved response. Connect your account before editing it.");
         }
 
         binding.bind(googleSubject, googleEmail, now);
@@ -354,7 +349,7 @@ public class StudentAssociationService {
             .map(this::accountBindingView)
             .toList();
         return new AccountManagementView(
-            "Account ownership is self-declared through the first successful account connection or submission. Later accounts cannot overwrite it, but the first claim does not prove the student’s identity.",
+            "The first successful connection through the account entry form or deliverable submission is self-declared and does not prove the student’s identity. Another account cannot replace an active connection.",
             accounts);
     }
 

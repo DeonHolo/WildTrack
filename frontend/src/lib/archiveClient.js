@@ -2,14 +2,14 @@ import { archiveResponses, getArchiveRecords, getArchiveStorage } from './api.js
 import { emptyMonitoringState, loadMonitoringState } from './monitoringClient.js';
 
 export function emptyArchiveState() {
-  return { ...emptyMonitoringState(), archives: [], archiveStorage: { configured: false, ready: false } };
+  return { ...emptyMonitoringState(), archives: [], archiveStorage: null };
 }
 
 export async function loadArchiveState(workspaceId) {
   const [monitoring, archives, archiveStorage] = await Promise.all([
     loadMonitoringState(workspaceId),
     getArchiveRecords(workspaceId),
-    getArchiveStorage().catch(() => ({ configured: false, ready: false, message: 'Storage status could not be loaded.' }))
+    getArchiveStorage().catch(() => ({ ready: false, message: 'The archive connection status could not be checked. Try loading it again.' }))
   ]);
   return {
     ...monitoring,

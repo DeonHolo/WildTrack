@@ -23,12 +23,13 @@ export function useAiReviewBatch(workspaceId, onFinished) {
   const [error, setError] = useState('');
   const scope = useRef(0);
   const operation = useRef(0);
+  const autoOpen = useRef(null);
   const finished = useRef(new Set());
   const callback = useRef(onFinished);
   callback.current = onFinished;
   useEffect(() => {
     scope.current += 1; operation.current += 1;
-    setOpened(false); setError(''); setBusy(false); finished.current.clear();
+    setOpened(false); setError(''); setBusy(false); finished.current.clear(); autoOpen.current = null;
     return () => { scope.current += 1; operation.current += 1; };
   }, [workspaceId, accountKey]);
   useEffect(() => {
@@ -41,6 +42,9 @@ export function useAiReviewBatch(workspaceId, onFinished) {
         const saved = await getAiReviewBatch(workspaceId, batch.id);
         if (stopped || scope.current !== current) return;
         setBatch(saved); setError('');
+        if (saved.state === 'READY' && autoOpen.current === saved.id) {
+          autoOpen.current = null; setOpened(true);
+        }
         if (['COMPLETED', 'PAUSED'].includes(saved.state) && !finished.current.has(`${workspaceId}:${saved.id}:${saved.version}`)) {
           finished.current.add(`${workspaceId}:${saved.id}:${saved.version}`);
           callback.current?.();
@@ -56,14 +60,16 @@ export function useAiReviewBatch(workspaceId, onFinished) {
     return () => { stopped = true; clearTimeout(timer); };
   }, [workspaceId, accountKey, batch?.id, batch?.state, setBatch]);
 
-  const prepare = useCallback(async targets => {
+  const prepare = useCallback(async (targets, { openWhenReady = false } = {}) => {
     const current = scope.current;
     const sequence = ++operation.current;
-    setOpened(false); setBusy(true); setError('');
+    setOpened(false); setBusy(true); setError(''); autoOpen.current = null;
     try {
       const saved = await prepareAiReviewBatch(workspaceId, targets.map(({ responseId, fieldId }) => ({ responseId, fieldId })));
       if (scope.current !== current || operation.current !== sequence) return;
       setBatch(saved);
+      if (openWhenReady && saved.state === 'READY') setOpened(true);
+      else if (openWhenReady && saved.state === 'PLANNING') autoOpen.current = saved.id;
       if (saved.state === 'RUNNING') setOpened(false);
     } catch (failure) {
       if (scope.current === current && operation.current === sequence) setError(failure?.message || 'The PDFs could not be prepared. No AI review was started.');
@@ -100,6 +106,7 @@ export function useAiReviewBatch(workspaceId, onFinished) {
   }
   function cancel() {
     operation.current += 1;
+    autoOpen.current = null;
     setOpened(false); setBusy(false);
     if (batch?.id && ['PLANNING', 'READY'].includes(batch.state)) {
       const current = scope.current;
@@ -117,5 +124,5 @@ export function useAiReviewBatch(workspaceId, onFinished) {
     setDismissal({ key: dismissalKey, token: completedToken });
   }
   return { batch, opened, busy, error: error || readError, prepare, start, resume, stop, cancel, dismiss, panelDismissed,
-    open: () => setOpened(batch?.state === 'READY'), close: () => setOpened(false), running: batch?.state === 'RUNNING' };
+    open: () => setOpened(batch?.state === 'READY'), close: () => { autoOpen.current = null; setOpened(false); }, running: batch?.state === 'RUNNING' };
 }

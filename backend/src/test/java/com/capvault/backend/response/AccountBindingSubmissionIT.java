@@ -299,7 +299,7 @@ class AccountBindingSubmissionIT {
     }
 
     @Test
-    void adminDisconnectBlocksOldResponseEditingUntilExplicitRecovery() {
+    void adminDisconnectPreservesHistoryAndReconnectRestoresAccess() {
         Fixture fixture = fixture("recovery");
         FormResponseService.SaveResult first = submit(fixture, "subject-recovery-owner", "recovery-owner@example.test",
             Map.of("answer", "original"), null);
@@ -309,7 +309,7 @@ class AccountBindingSubmissionIT {
         assertThatThrownBy(() -> submit(fixture, "subject-recovery-owner", "recovery-owner@example.test",
             Map.of("answer", "bypass"), first.response().getRevision()))
             .isInstanceOf(StudentAssociationService.AccountBindingConflictException.class)
-            .hasMessageContaining("disconnected");
+            .hasMessageContaining("Connect your account");
         assertThat(responses.ownedResponse(fixture.workspaceId(), fixture.deliverableId(), "subject-recovery-owner")).isEmpty();
         assertThatThrownBy(() -> responses.history(
             fixture.workspaceId(), fixture.deliverableId(), "subject-recovery-owner"))
@@ -320,15 +320,14 @@ class AccountBindingSubmissionIT {
         assertThat(unbound.candidates()).extracting(StudentAssociationService.AccountCandidate::googleSubject)
             .contains("subject-recovery-owner");
 
-        associations.adminRecover(fixture.workspaceId(), fixture.studentRecordId(), "subject-recovery-owner",
-            "admin-subject", "admin@example.test");
+        associations.connectDirectly(fixture.workspaceId(), "subject-recovery-owner", "recovery-owner@example.test", fixture.studentNumber());
         assertThat(responses.ownedResponse(fixture.workspaceId(), fixture.deliverableId(), "subject-recovery-owner").orElseThrow()
             .getValuesJson()).contains("original").doesNotContain("bypass");
         FormResponseService.SaveResult edited = submit(fixture, "subject-recovery-owner", "recovery-owner@example.test",
             Map.of("answer", "recovered edit"), first.response().getRevision());
         assertThat(edited.response().getValuesJson()).contains("recovered edit");
         assertThat(jdbc.queryForList("select action from domain_audit_events where workspace_id = ?", String.class,
-            fixture.workspaceId())).contains("ACCOUNT_BINDING_ADMIN_DISCONNECTED", "ACCOUNT_BINDING_ADMIN_RECOVERED");
+            fixture.workspaceId())).contains("ACCOUNT_BINDING_ADMIN_DISCONNECTED", "ACCOUNT_BOUND_ON_DIRECT_CONNECTION");
     }
 
     private FormResponseService.SaveResult submit(Fixture fixture, String subject, String email,

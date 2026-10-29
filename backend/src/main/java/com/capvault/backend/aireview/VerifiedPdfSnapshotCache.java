@@ -14,8 +14,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** Process-local snapshots with one global LRU and independently bounded RAM and private disk. */
 final class VerifiedPdfSnapshotCache implements AutoCloseable {
-    static final long MAX_WEIGHT_BYTES = 32L * 1024 * 1024;
-    static final long MAX_DISK_WEIGHT_BYTES = 256L * 1024 * 1024;
+    static final long MAX_WEIGHT_BYTES = 8L * 1024 * 1024;
+    static final long MAX_DISK_WEIGHT_BYTES = 64L * 1024 * 1024;
     static final int MAX_ENTRIES = 256;
     static final Duration TTL = Duration.ofMinutes(15);
     static final int MAX_INSPECTION_BYTES = 16 * 1024 * 1024;
@@ -103,16 +103,21 @@ final class VerifiedPdfSnapshotCache implements AutoCloseable {
         return restored;
     }
     synchronized void put(Key key, Snapshot snapshot) {
-        if (snapshot != null) put(key, snapshot.bytes, snapshot.inspection, snapshot.capturedAt);
+        if (snapshot != null) putVerified(key, snapshot);
     }
     synchronized void put(Key key, byte[] bytes, PdfInspection inspection, Instant capturedAt) {
-        if (closed || key == null || bytes == null || inspection == null || capturedAt == null
+        if (bytes == null || inspection == null || capturedAt == null) return;
+        putVerified(key, new Snapshot(bytes, inspection, capturedAt));
+    }
+    private void putVerified(Key key, Snapshot snapshot) {
+        byte[] bytes = snapshot.bytes;
+        if (closed || key == null || bytes == null || snapshot.inspection == null || snapshot.capturedAt == null
                 || key.size == null || key.size != bytes.length || bytes.length > maxPdfBytes
                 || key.md5Checksum == null || !key.md5Checksum.equalsIgnoreCase(hexDigest("MD5", bytes))
-                || !fresh(capturedAt, clock.instant())) return;
+                || !fresh(snapshot.capturedAt, clock.instant())) return;
         cleanupExpired();
         remove(key);
-        Entry entry = new Entry(new Snapshot(bytes, inspection, capturedAt));
+        Entry entry = new Entry(snapshot);
         writeDisk(entry);
         if (entry.ramWeight > maxWeight) entry.ram = null;
         if (entry.ram == null && entry.path == null) return;

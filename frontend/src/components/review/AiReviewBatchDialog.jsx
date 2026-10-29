@@ -6,8 +6,8 @@ import { formatDateTime } from '../../lib/workflow.js';
 import { AiReviewBatchFailures } from './AiReviewBatchFailures.jsx';
 import { TemplateChecklistNotices } from './TemplateChecklistNotices.jsx';
 
-export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
-  const [mode, setMode] = useState('ATTENTION');
+export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel, initialMode = 'ATTENTION', failedSelection = false }) {
+  const [mode, setMode] = useState(initialMode);
   const [includeOutdated, setIncludeOutdated] = useState(true);
   const [retryAcknowledged, setRetryAcknowledged] = useState(false);
   const ready = plan?.state === 'READY';
@@ -20,14 +20,18 @@ export function AiReviewBatchDialog({ plan, error, busy, onStart, onCancel }) {
     <>
       <AiBatchSelectionSummary summary={`${counts.unique} unique ${counts.unique === 1 ? 'review' : 'reviews'} to run`}
         detail={`${plan.totalPdfs} total PDF submissions · ${counts.artifacts} submissions in this selection`} />
-      <Radio.Group label="Which documents should AI Review check?" value={mode} onChange={setMode}>
+      {failedSelection ? <Text size="sm">Only PDFs with technical failures from the last batch are selected. Completed Check in PDF reviews and files blocked by sharing permissions are excluded.</Text> : <Radio.Group label="Which documents should AI Review check?" value={mode} onChange={setMode}>
         <Stack gap="sm" mt="xs">
-          <Radio value="ATTENTION" label="Documents needing attention"
-            description="No review yet, failed or inconclusive reviews, and reviews with issues." />
+          <Radio value="ATTENTION" label="Unreviewed PDFs and reviews needing attention"
+            description="Includes technical failures and reported issues. Completed Check in PDF reviews are excluded." />
+          <Radio value="FAILED" label="Failed AI Reviews only"
+            description="Retry failed or unconfirmed AI requests. Sharing restrictions and completed reviews are excluded." />
+          <Radio value="MANUAL" label="Check in PDF reviews only"
+            description="Rerun completed reviews with unresolved checks. These are not technical failures." />
           <Radio value="ALL" label="Include successful reviews too"
             description="Also send new reviews for documents with a successful no-issues result." />
         </Stack>
-      </Radio.Group>
+      </Radio.Group>}
       {updated.length ? <Alert color="orange" title="Saved reviews no longer match the current files or requirements">
         <Checkbox checked={includeOutdated} onChange={e => setIncludeOutdated(e.currentTarget.checked)}
           label={`Include updated PDFs (${updated.length})`} />

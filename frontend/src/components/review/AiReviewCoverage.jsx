@@ -15,7 +15,7 @@ export function validAssessmentCriteria(report) {
     const assessment = item?.assessment;
     const valid = /^[CT][1-9]\d*$/.test(item?.id || '') && counts.get(item.id) === 1
       && hasText(item.requirement) && Object.hasOwn(SOURCES, item.source) && item.source !== 'DOCUMENT'
-      && ASSESSMENTS.has(assessment) && hasText(item.explanation) && item.explanation.length <= 400
+      && ASSESSMENTS.has(assessment) && hasText(item.explanation) && item.explanation.length <= 1000
       && (assessment !== 'APPEARS_ADDRESSED' || (hasText(item.documentEvidence) && validPage(item.location)));
     return valid ? { ...item, key: `${item.id}-${index}` } : null;
   }).filter(Boolean);
@@ -44,8 +44,8 @@ function compactRequirement(requirement) {
 }
 
 function AssessmentRow({ row, report }) {
-  const page = validPage(row.location) ? `p. ${row.location.page}` : '';
-  const label = hasText(row.title) ? row.title : compactRequirement(row.requirement);
+  const clean = value => value.replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').trim();
+  const label = clean(hasText(row.title) ? row.title : compactRequirement(row.requirement));
   const linkedFindings = Array.isArray(row.findingIndexes) && Array.isArray(report?.findings)
     ? row.findingIndexes.filter(index => Number.isInteger(index) && index >= 0 && index < report.findings.length)
       .map(index => report.findings[index]).filter(finding => finding?.source === row.source
@@ -54,6 +54,9 @@ function AssessmentRow({ row, report }) {
     .filter(note => note?.source === row.source && String(note.requirement || '').trim() === String(row.requirement).trim());
   const linkedMissing = (Array.isArray(row.missingSectionIndexes) ? row.missingSectionIndexes : []).map(index => report?.missingRequiredSections?.[index])
     .filter(item => item?.source === row.source && String(item.requirement || '').trim() === String(row.requirement).trim());
+  const location = validPage(row.location) ? row.location : null;
+  const page = location ? `p. ${location.page}` : '';
+  const instruction = clean(row.requirement).replace(/\s*([•▪◦])\s*/g, '\n$1 ');
   return <details className="wt-ai-review-assessment-row">
     <summary className="wt-ai-review-assessment-summary">
       <VisuallyHidden>{STATUS_LABELS[row.assessment]}. </VisuallyHidden>
@@ -61,18 +64,27 @@ function AssessmentRow({ row, report }) {
       <span className="wt-ai-review-assessment-title">{label} <span className="wt-ai-review-assessment-explanation">— {row.explanation}</span></span>
     </summary>
     <div className="wt-ai-review-assessment-details">
-      <Text component="p"><strong>{STATUS_LABELS[row.assessment]}</strong></Text>
-      <Text component="p"><strong>Instruction:</strong> {row.requirement}</Text>
-      <Text component="p"><strong>Assessment:</strong> {row.explanation}</Text>
-      <Text component="p" className="wt-ai-review-reference"><strong>Source:</strong> {SOURCES[row.source]}</Text>
-      {row.location?.section ? <Text component="p" className="wt-ai-review-reference"><strong>Section:</strong> {row.location.section}</Text> : null}
+      <Text component="p" style={{ whiteSpace: 'pre-line' }}><strong>Instruction:</strong> {instruction}</Text>
+      <Text component="p"><strong>Assessment: {STATUS_LABELS[row.assessment]}.</strong> {row.explanation}</Text>
       {linkedFindings.map((finding, index) => <Text key={index} component="p"><strong>Linked concern:</strong> {finding.issue || finding.explanation || 'Review the linked finding.'}</Text>)}
-      {linkedFindings.map((finding, index) => hasText(finding.evidence) && finding.evidence !== row.documentEvidence ? <Text key={`evidence-${index}`} component="blockquote" className="wt-ai-review-passage" aria-label="Linked evidence excerpt">{finding.evidence}</Text> : null)}
-      {linkedNotes.map((note, index) => <div key={`note-${index}`}><Text>{note.issue}</Text>{hasText(note.evidence) && note.evidence !== row.documentEvidence ? <Text component="blockquote" className="wt-ai-review-passage">{note.evidence}</Text> : null}</div>)}
+      {linkedFindings.map((finding, index) => hasText(finding.evidence) && finding.evidence !== row.documentEvidence ? <LinkedExcerpt key={`evidence-${index}`} text={finding.evidence} location={finding.location} /> : null)}
+      {linkedNotes.map((note, index) => <div key={`note-${index}`}><Text>{note.issue}</Text>{hasText(note.evidence) && note.evidence !== row.documentEvidence ? <LinkedExcerpt text={note.evidence} location={note.location} /> : null}</div>)}
       {linkedMissing.map((item, index) => <Text key={`missing-${index}`}>Confirm the required section: {item.section}</Text>)}
-      {hasText(row.documentEvidence) ? <Text component="blockquote" className="wt-ai-review-passage" aria-label="Evidence excerpt">{row.documentEvidence}</Text> : null}
+      {hasText(row.documentEvidence) ? <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Evidence excerpt">{row.documentEvidence}</Text> : null}
+      <Text component="p" className="wt-ai-review-reference"><strong>Source:</strong> {location
+        ? <>Submitted PDF · page {location.page}{hasText(location.section) ? ` · ${location.section}` : ''}</>
+        : 'Submitted PDF page not established'}</Text>
     </div>
   </details>;
+}
+
+function LinkedExcerpt({ text, location }) {
+  return <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Linked evidence excerpt">
+    {text}
+    <Text component="cite" display="block" className="wt-ai-review-reference">{validPage(location)
+      ? `Submitted PDF · page ${location.page}${hasText(location.section) ? ` · ${location.section}` : ''}`
+      : 'Submitted PDF page not established'}</Text>
+  </Text>;
 }
 
 export function AiReviewCoverage({ report, showHeading = true }) {
