@@ -6,9 +6,12 @@ import { TemplateChecklistNotices } from './TemplateChecklistNotices.jsx';
 import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
 
 export function AiReviewBatchFailures({ entries }) {
+  const groups = aiBatchFailureGroups(entries.filter(entry => entry.resultStatus !== 'TEMPLATE_APPROVAL_REQUIRED'));
+  const showGroup = group => <FailureGroup key={`${group.advisory}:${group.message}`} group={group} />;
   return <Stack gap="sm">
+    {groups.filter(group => group.advisory).map(showGroup)}
     <TemplateChecklistNotices entries={entries} />
-    {aiBatchFailureGroups(entries.filter(entry => entry.resultStatus !== 'TEMPLATE_APPROVAL_REQUIRED')).map(group => <FailureGroup key={`${group.advisory}:${group.message}`} group={group} />)}
+    {groups.filter(group => !group.advisory).map(showGroup)}
   </Stack>;
 }
 

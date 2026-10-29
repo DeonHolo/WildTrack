@@ -79,14 +79,20 @@ describe('AI batch affected PDF presentation', () => {
   it.each(['FAILED', 'UNCERTAIN', undefined])('keeps a %s attempt orange alongside completed review advisories', resultStatus => {
     const batch = completedBatch();
     batch.entries[0].error = 'This review is inconclusive; it does not establish a clean result.';
-    batch.entries.push({ target: { responseId: 'failed', fieldId: 'pdf' }, preview: { key: 'failed' },
+    batch.entries.unshift({ target: { responseId: 'failed', fieldId: 'pdf' }, preview: { key: 'failed' },
       selected: true, phase: 'DONE', resultStatus, noAiStarted: false,
       error: "Gemini rejected WildTrack's AI request (HTTP 400)." });
+    batch.entries.unshift({ ...entry('approval'), selected: false, resultStatus: 'TEMPLATE_APPROVAL_REQUIRED',
+      templateChecklistUrl: '/templates/00000000-0000-0000-0000-000000000001/preview?workspaceId=00000000-0000-0000-0000-000000000002' });
     renderView(<AiReviewBatchPanel batch={batch} onRefresh={vi.fn()} onPrepare={vi.fn()} />);
     expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('orange');
     expect(screen.getByText(/finished with items to check in the PDF/)).toBeInTheDocument();
     expect(screen.getByText(/Gemini rejected/)).toBeInTheDocument();
     expect(screen.getByText(/1 failed or unconfirmed/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Show PDFs with/ })[0])
+      .toHaveAccessibleName('Show PDFs with items to check');
+    expect(screen.getByText(/These AI Reviews finished with items/)
+      .compareDocumentPosition(screen.getByText('Template checklists need approval')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('keeps completed duplicate groups available while showing each advisory only as a review limit', () => {
