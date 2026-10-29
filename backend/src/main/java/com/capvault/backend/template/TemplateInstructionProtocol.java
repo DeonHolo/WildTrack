@@ -13,7 +13,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 /** The model selects source units; it cannot rewrite authoritative instruction wording. */
 public final class TemplateInstructionProtocol {
-    public static final String VERSION = "template-instructions-pdf-v7-draft";
+    public static final String VERSION = "template-instructions-pdf-v8-readable-draft";
     public static final int MAX_GROUP_ITEMS = 128;
     private static final int MAX_GROUP_CHARS = 500_000;
     private static final int MAX_PASSAGE_CHARS = 32_000;
@@ -34,7 +34,7 @@ public final class TemplateInstructionProtocol {
         If a real instruction has no faithful source block, return complete=false; do not invent it.
 
         For each item return:
-        - title: a concise sentence-case label, not a replacement instruction.
+        - title: a concise sentence-case label without emojis, not a replacement instruction.
         - kind: INSTRUCTION for explicit directions, CONTENT_SLOT for a substantive section or response
           slot whose expected content is shown by its heading/field rather than an explicit direction.
         - sourceIds: the exact block IDs holding the COMPLETE direction or named blank output.
@@ -153,7 +153,7 @@ public final class TemplateInstructionProtocol {
         var seen = new HashSet<String>();
         for (JsonNode item : items) {
             object(item, ITEM_FIELDS);
-            String title = text(item, "title", 3, 160);
+            String title = readable(text(item, "title", 3, 160));
             String kind = text(item, "kind", 1, 20);
             if (!Set.of("INSTRUCTION", "CONTENT_SLOT").contains(kind)) throw invalid("An instruction has an unknown source kind.");
             List<String> sourceIds = ids(item, "sourceIds", false);
@@ -181,8 +181,8 @@ public final class TemplateInstructionProtocol {
             if (quote.strip().length() < 3) throw invalid("An instruction has an empty source quotation.");
             String sourceText = passage(catalog.text(orderedIds(sourceIds, catalog)));
             String context = passage(catalog.text(orderedIds(contextIds.stream().filter(id -> !sourceIds.contains(id)).toList(), catalog)));
-            String instruction = kind.equals("INSTRUCTION") ? quote
-                : (context.isBlank() ? "" : context + "\n\n") + "Provide content for:\n" + sourceText;
+            String instruction = kind.equals("INSTRUCTION") ? readable(quote)
+                : contentSlot(sourceText, context);
             passage(instruction);
             var headings = new LinkedHashSet<String>();
             for (var source : sources) headings.addAll(source.headingPath());
@@ -193,6 +193,21 @@ public final class TemplateInstructionProtocol {
             result.add(new Draft(title, instruction, quote, section, page, applicability, condition));
         }
         return List.copyOf(result);
+    }
+
+    static String readable(String text) {
+        return text.replaceAll("[\\x{1F000}-\\x{1FAFF}\\x{26A0}\\x{2705}\\x{2714}\\x{274C}\\x{2757}\\x{2764}\\x{FE0F}\\x{200D}]", "")
+            .replaceAll("\\s+", " ").strip();
+    }
+
+    private static String contentSlot(String sourceText, String context) {
+        String source = readable(sourceText), parent = readable(context);
+        // Only move simple heading context. Narrative conditions and per-entity directions stay first.
+        boolean heading = !parent.isEmpty() && context.lines().filter(line -> !line.isBlank())
+            .allMatch(line -> line.strip().matches("\\d+(?:\\.\\d+)*\\.?\\s+[^.!?;:]{1,160}"));
+        String instruction = heading ? "Provide content for " + source + ", under " + parent
+            : (parent.isEmpty() ? "" : parent + " ") + "Provide content for " + source;
+        return instruction.matches("(?s).*[.!?]$") ? instruction : instruction + ".";
     }
 
     private static List<TemplateSourceCatalog.Block> ordered(List<String> ids, TemplateSourceCatalog.Catalog catalog) {

@@ -1,4 +1,5 @@
 import { Text, VisuallyHidden } from '@mantine/core';
+import { formatTemplateInstruction } from '../../lib/templateInstructionText.js';
 
 const SOURCES = { DOCUMENT: 'Submitted document', DELIVERABLE_REQUIREMENTS: 'Deliverable requirements', OFFICIAL_TEMPLATE: 'Official template' };
 const ASSESSMENTS = new Set(['APPEARS_ADDRESSED', 'NEEDS_ATTENTION', 'CHECK_MANUALLY', 'NOT_APPLICABLE']);
@@ -56,7 +57,7 @@ function AssessmentRow({ row, report }) {
     .filter(item => item?.source === row.source && String(item.requirement || '').trim() === String(row.requirement).trim());
   const location = validPage(row.location) ? row.location : null;
   const page = location ? `p. ${location.page}` : '';
-  const instruction = clean(row.requirement).replace(/\s*([•▪◦])\s*/g, '\n$1 ');
+  const instruction = formatTemplateInstruction(row.requirement);
   return <details className="wt-ai-review-assessment-row">
     <summary className="wt-ai-review-assessment-summary">
       <VisuallyHidden>{STATUS_LABELS[row.assessment]}. </VisuallyHidden>

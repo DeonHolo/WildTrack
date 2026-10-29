@@ -146,7 +146,13 @@ class GeminiInstructionAssessmentTest {
         expectGeneration(incomplete, "STOP", true);
         assertThatThrownBy(() -> provider.assessInstructions(input(true)))
             .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class,
-                failure -> assertThat(failure.code).isEqualTo("INVALID_RESPONSE"));
+                failure -> {
+                    assertThat(failure.code).isEqualTo("INVALID_RESPONSE");
+                    assertThat(failure.diagnostic.stage()).isEqualTo("instruction_validation");
+                    assertThat(failure.diagnostic.explanation()).isEqualTo("The response does not account for every instruction.");
+                    assertThat(failure.diagnostic.httpStatus()).isNull();
+                    assertThat(failure.diagnostic.toString()).doesNotContain(KEY, EVIDENCE);
+                });
         assertThat(generations).hasValue(1);
         server.verify();
     }
@@ -171,8 +177,33 @@ class GeminiInstructionAssessmentTest {
         server.verify();
     }
 
+    @Test void rejectsUnknownIdentityWithoutEchoingModelSuppliedTextInTheDiagnostic() throws Exception {
+        expectActive();
+        var report = validReport(true);
+        ((ObjectNode) report.path("instructionAssessments").get(0)).put("id", "private-model-supplied-id");
+        expectGeneration(report, "STOP", true);
+        assertThatThrownBy(() -> provider.assessInstructions(input(true)))
+            .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class, failure -> {
+                assertThat(failure.code).isEqualTo("INVALID_RESPONSE");
+                assertThat(failure.diagnostic.explanation()).isEqualTo("Unknown or duplicate instruction identity.");
+                assertThat(failure.diagnostic.toString()).doesNotContain("private-model-supplied-id", KEY, EVIDENCE);
+            });
+        assertThat(generations).hasValue(1);
+        server.verify();
+    }
+
     private AiReviewProvider.InstructionInput input(boolean overview) {
         return new AiReviewProvider.InstructionInput(student, template, template.instructions(), overview);
+    }
+
+    @Test void citationAidPreservesAbsolutePagesAndLabelsOmittedText() {
+        String first = "First page exact evidence.";
+        String second = "Second page exact evidence.";
+        assertThat(GeminiAiReviewProvider.studentCitationAid(List.of(first, second)))
+            .contains("Absolute student PDF page 1 ---\n" + first,
+                "Absolute student PDF page 2 ---\n" + second);
+        String bounded = GeminiAiReviewProvider.studentCitationAid(List.of("x".repeat(300_000), "NOT INCLUDED"));
+        assertThat(bounded).hasSizeLessThan(251_000).contains("truncated").doesNotContain("NOT INCLUDED");
     }
 
     private void expectActive() throws Exception {
@@ -189,7 +220,7 @@ class GeminiInstructionAssessmentTest {
                 assertThat(body.path("systemInstruction").path("parts").get(0).path("text").asText())
                     .isEqualTo(AiReviewInstructionProtocol.GUIDANCE);
                 JsonNode parts = body.path("contents").get(0).path("parts");
-                assertThat(parts.size()).isEqualTo(5);
+                assertThat(parts.size()).isEqualTo(6);
                 assertThat(parts.get(0).path("text").asText()).startsWith("OFFICIAL TEMPLATE PDF");
                 assertThat(parts.get(1).path("fileData").path("fileUri").asText()).isEqualTo(TEMPLATE_URI);
                 assertThat(parts.get(2).path("text").asText()).startsWith("SUBMITTED STUDENT PDF");
@@ -203,7 +234,8 @@ class GeminiInstructionAssessmentTest {
                         .isEqualTo(ORIGIN + "/v1beta/files/temporary-submission");
                     assertThat(parts.get(3).has("inlineData")).isFalse();
                 }
-                JsonNode instructions = json.readTree(parts.get(4).path("text").asText());
+                assertThat(parts.get(4).path("text").asText()).contains("Absolute student PDF page 1", "citation aid only");
+                JsonNode instructions = json.readTree(parts.get(5).path("text").asText());
                 assertThat(instructions.path("requestedDeliverable").asText()).isEqualTo(student.deliverableTitle());
                 assertThat(instructions.path("includeOverview").asBoolean()).isEqualTo(overview);
                 assertThat(instructions.path("instructions").get(0).path("id").asText()).isEqualTo("T101");

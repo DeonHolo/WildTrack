@@ -94,6 +94,36 @@ class AiReviewBatchLifecycleTest {
         verify(reviews, never()).reviewPlanned(any(), any(), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
     }
 
+    @Test void driveHttpStatusSurvivesSavedPrecheckAndFreshWorkerReads() {
+        var diagnostic = new AiReviewProvider.FailureDiagnostic("drive", "download", 403, null,
+            "UPSTREAM_ERROR", List.of(), "Drive refused the request.", null, null, 120L);
+        when(reviews.preview(workspace, first, "pdf", "admin")).thenThrow(
+            new AiReviewService.DrivePreparationFailure(Kind.UNKNOWN, "Drive read failed. No AI review was started.", diagnostic));
+        var plan = service.prepare(workspace, "admin", List.of(new AiReviewBatchService.Target(first, "pdf")));
+        service.tick();
+        var restored = new AiReviewBatchService(new AiReviewBatchStore(jdbc, json, clock, manager), reviews, checks, json, clock);
+        var entry = restored.get(workspace, plan.id(), "admin").entries().get(0);
+        assertThat(entry.failureDiagnostics()).isEqualTo(diagnostic);
+        assertThat(entry.phase()).isEqualTo("UNVERIFIED");
+        assertThat(entry.noAiStarted()).isTrue();
+    }
+
+    @Test void geminiHttpStatusSurvivesPauseWithoutLosingEarlierProgress() throws Exception {
+        var diagnostic = new AiReviewProvider.FailureDiagnostic("gemini", "generation", 429, "RESOURCE_EXHAUSTED",
+            "RATE_LIMITED", List.of(), "Gemini quota reached.", null, GeminiAiReviewProvider.MODEL, 200L);
+        var node = json.<com.fasterxml.jackson.databind.node.ObjectNode>valueToTree(result("UNCERTAIN", "RATE_LIMITED", false));
+        node.set("failureDiagnostics", json.valueToTree(diagnostic));
+        var review = json.treeToValue(node, AiReviewService.View.class);
+        var plan = prepared(); start(plan, "ATTENTION", false);
+        when(reviews.reviewPlanned(eq(workspace), eq(first), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any()))
+            .thenReturn(review);
+        service.tick();
+        var saved = service.get(workspace, plan.id(), "admin");
+        assertThat(saved.state()).isEqualTo("PAUSED");
+        assertThat(saved.entries().get(0).failureDiagnostics()).isEqualTo(diagnostic);
+        verify(reviews, never()).reviewPlanned(eq(workspace), eq(second), any(), any(), anyBoolean(), any(), anyBoolean(), any(), any());
+    }
+
     @Test void missingChecklistApprovalIsSetupWorkRatherThanAnInaccessiblePdf() {
         UUID template = UUID.randomUUID();
         when(reviews.preview(workspace, first, "pdf", "admin"))

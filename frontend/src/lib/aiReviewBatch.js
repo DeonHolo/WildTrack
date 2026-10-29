@@ -1,4 +1,5 @@
 import { canonicalDriveFileId } from './driveLinks.js';
+import { providerFailureLabel } from './providerFailures.js';
 
 export function aiBatchUpdatedDocuments(entries = []) {
   const documents = new Map();
@@ -101,8 +102,11 @@ export function aiBatchFailureGroups(entries = []) {
   for (const entry of entries) {
     const error = String(entry.error || '').trim();
     if (!error) continue;
-    const driveAccess = error.startsWith('The submitted Drive PDF could not be opened.');
-    const driveRetrieval = error.startsWith('WildTrack could not retrieve the submitted PDF from Google Drive.');
+    const driveAccess = isAiBatchAccessRestriction(entry);
+    const driveRetrieval = entry.failureDiagnostics?.provider === 'drive'
+      || error.startsWith('WildTrack could not retrieve the submitted PDF from Google Drive.')
+      || error.startsWith('Google Drive is rate-limited.')
+      || error.startsWith("WildTrack's Drive API configuration was rejected.");
     const advisory = isAiBatchReviewAdvisory(entry);
     const reviewLimit = advisory && /inconclusive|limited (?:review )?coverage|manual verification/i.test(error);
     const message = reviewLimit
@@ -111,7 +115,8 @@ export function aiBatchFailureGroups(entries = []) {
         ? 'These PDFs could not be opened from Google Drive. No AI review started for them.' : error;
     if (!groups.has(message)) groups.set(message, { message, advisory, entries: [] });
     groups.get(message).entries.push({ ...entry,
-      failureDetail: driveAccess ? 'Access or download restricted' : driveRetrieval ? 'Server retrieval failed' : '' });
+      failureDetail: providerFailureLabel(entry.failureDiagnostics)
+        || (driveAccess ? 'Access restricted' : driveRetrieval ? 'Drive error' : '') });
   }
   return [...groups.values()];
 }

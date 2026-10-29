@@ -197,17 +197,27 @@ public class AiReviewService {
     static final class DrivePreparationFailure extends ResponseStatusException {
         private final GoogleDriveUnavailableException.Kind kind;
         private final DisplayIdentity identity;
+        private final AiReviewProvider.FailureDiagnostic diagnostic;
         DrivePreparationFailure(GoogleDriveUnavailableException.Kind kind, String reason) {
-            this(kind, reason, null);
+            this(kind, reason, null, null);
         }
-        private DrivePreparationFailure(GoogleDriveUnavailableException.Kind kind, String reason, DisplayIdentity identity) {
+        DrivePreparationFailure(GoogleDriveUnavailableException.Kind kind, String reason,
+                AiReviewProvider.FailureDiagnostic diagnostic) {
+            this(kind, reason, null, diagnostic);
+        }
+        private DrivePreparationFailure(GoogleDriveUnavailableException.Kind kind, String reason,
+                DisplayIdentity identity, AiReviewProvider.FailureDiagnostic diagnostic) {
             super(kind == GoogleDriveUnavailableException.Kind.FILE_ACCESS ? HttpStatus.UNPROCESSABLE_ENTITY
                 : HttpStatus.SERVICE_UNAVAILABLE, reason);
-            this.kind = kind == null ? GoogleDriveUnavailableException.Kind.UNKNOWN : kind; this.identity = identity;
+            this.kind = kind == null ? GoogleDriveUnavailableException.Kind.UNKNOWN : kind;
+            this.identity = identity; this.diagnostic = diagnostic;
         }
         GoogleDriveUnavailableException.Kind kind() { return kind; }
         DisplayIdentity identity() { return identity; }
-        DrivePreparationFailure identified(DisplayIdentity value) { return new DrivePreparationFailure(kind, getReason(), value); }
+        AiReviewProvider.FailureDiagnostic diagnostic() { return diagnostic; }
+        DrivePreparationFailure identified(DisplayIdentity value) {
+            return new DrivePreparationFailure(kind, getReason(), value, diagnostic);
+        }
     }
     private record Prepared(byte[] bytes, PdfInspection inspection, String key, String modifiedAt, java.time.Instant capturedAt) { }
 
@@ -458,19 +468,18 @@ public class AiReviewService {
         try {
             return operation.get();
         } catch (GoogleDriveUnavailableException unavailable) {
-            // Only an explicit file-access classification should send staff to
-            // student sharing settings; Drive 403 also covers key/quota failures.
-            if (unavailable.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS) {
-                throw new DrivePreparationFailure(unavailable.kind(),
-                    "The submitted Drive PDF could not be opened. Google Drive reported a file-access or download restriction. "
-                    + "Check sharing settings and the complete submission link. No AI review was started.");
-            }
             String message = switch (unavailable.kind()) {
+                case FILE_ACCESS -> "The submitted Drive PDF could not be opened. Google Drive reported a file-access or download restriction. "
+                    + "Check sharing settings and the complete submission link.";
                 case CONFIGURATION -> "WildTrack's Drive API configuration was rejected. Check the backend API key/project settings.";
-                case RATE_LIMIT -> "Google Drive is rate-limited. Wait before trying again.";
-                default -> "WildTrack could not retrieve the submitted PDF from Google Drive. The backend access failure could not be confirmed as a sharing problem.";
+                case RATE_LIMIT -> "Google Drive is rate-limited. Try again later.";
+                default -> "WildTrack could not retrieve the submitted PDF from Google Drive. Try again later; if it keeps failing, check Error details.";
             };
-            throw new DrivePreparationFailure(unavailable.kind(), message + " No AI review was started.");
+            var details = unavailable.failureDetails();
+            var diagnostic = details == null ? null : new AiReviewProvider.FailureDiagnostic("drive",
+                details.stage(), details.upstreamStatus(), null, details.code(), List.of(), message,
+                null, null, details.elapsedMs());
+            throw new DrivePreparationFailure(unavailable.kind(), message + " No AI review was started.", diagnostic);
         }
     }
 
@@ -1439,7 +1448,8 @@ public class AiReviewService {
     private static AiReviewProvider.FailureDiagnostic safeFailureDiagnostic(
             AiReviewProvider.FailureDiagnostic diagnostic) {
         if (diagnostic == null || !"gemini".equals(diagnostic.provider())) return null;
-        var stages = List.of("prepare", "file_upload", "file_processing", "generation", "response_validation");
+        var stages = List.of("prepare", "file_upload", "file_processing", "generation", "response_validation",
+            "template_file", "submission_file", "instruction_assessment", "instruction_validation", "template_instructions");
         if (diagnostic.stage() != null && !stages.contains(diagnostic.stage())) return null;
         String code = diagnostic.reasonCode();
         if (!List.of("NOT_CONFIGURED", "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE", "RATE_LIMITED",

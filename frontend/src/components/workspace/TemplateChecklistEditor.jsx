@@ -4,6 +4,7 @@ import { ArrowClockwise, CaretDown, CaretRight, Trash } from '@phosphor-icons/re
 import { ConfirmDialog } from '../ui.jsx';
 import { getDocumentTemplateChecklist, prepareDocumentTemplateChecklist, rerunDocumentTemplateChecklist, saveDocumentTemplateChecklist, approveDocumentTemplateChecklist, unapproveDocumentTemplateChecklist } from '../../lib/api.js';
 import './TemplateChecklistEditor.css';
+import { formatTemplateInstruction } from '../../lib/templateInstructionText.js';
 
 const blank = () => ({ title: '', instruction: '', sourceQuote: '', section: '', page: '', applicability: 'REQUIRED', condition: '', _sourceEditable: true });
 const labels = { UNPREPARED: 'Not prepared', QUEUED: 'Preparing', PREPARING: 'Preparing', DRAFT: 'Draft', APPROVED: 'Approved', FAILED: 'Needs retry' };
@@ -26,7 +27,7 @@ export function TemplateChecklistEditor({ workspaceId, templateId, versionId }) 
   const disclosureId = useId();
   const storageKey = `template-checklist-draft:${workspaceId}:${templateId}:${versionId}`;
   const setChanged = value => { dirtyRef.current = value; setDirty(value); };
-  const apply = useCallback(next => { setView(next); setItems(next.items || []); setChanged(false); setError(''); setConflict(false); setErrors({}); try { sessionStorage.removeItem(storageKey); } catch { /* Storage can be unavailable. */ } }, [storageKey]);
+  const apply = useCallback(next => { setView(next); setItems((next.items || []).map(item => ({ ...item, instruction: formatTemplateInstruction(item.instruction) }))); setChanged(false); setError(''); setConflict(false); setErrors({}); try { sessionStorage.removeItem(storageKey); } catch { /* Storage can be unavailable. */ } }, [storageKey]);
   const load = useCallback(async (replace = false) => {
     try {
       const next = await getDocumentTemplateChecklist(workspaceId, templateId);

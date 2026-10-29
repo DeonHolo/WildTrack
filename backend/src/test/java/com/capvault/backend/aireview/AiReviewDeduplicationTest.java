@@ -143,6 +143,23 @@ class AiReviewDeduplicationTest {
         assertThat(cached.failureDiagnostics()).isEqualTo(diagnostic);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"template_file", "submission_file", "instruction_assessment",
+        "instruction_validation", "template_instructions", "untrusted_stage"})
+    void instructionWorkflowFailureDiagnosticsSurviveSavedViewAndUnknownStagesAreRejected(String stage) throws Exception {
+        run(first);
+            var linked = store.linkedFor(List.of(first.getId())).get(first.getId()).job();
+            var retry = store.claim(linked.key(), workspace, deliverableId, "team-one", "pdf",
+                linked.contextHash(), null, true).job();
+            var diagnostic = new AiReviewProvider.FailureDiagnostic("gemini", stage, null, null,
+                "INVALID_RESPONSE", List.of(), "The response does not account for every instruction.",
+                null, GeminiAiReviewProvider.MODEL, 42L);
+            store.uncertain(retry, "INVALID_RESPONSE", new ObjectMapper().writeValueAsString(diagnostic));
+            var saved = service.saved(workspace, first.getId(), "admin");
+            assertThat(saved.status()).isEqualTo("UNCERTAIN");
+            assertThat(saved.failureDiagnostics()).isEqualTo(stage.equals("untrusted_stage") ? null : diagnostic);
+    }
+
     @Test void preparationHashesDifferentLinksWithoutClaimingOrCallingTheProvider() {
         var one = service.preview(workspace, first.getId(), null, "admin");
         var two = service.preview(workspace, second.getId(), null, "admin");
@@ -292,6 +309,21 @@ class AiReviewDeduplicationTest {
         }
     }
 
+
+    @Test void preclaimFailureRetainsStructuredDriveStatusWithoutLeakingTheProviderBody() {
+        var details = new com.capvault.backend.filecheck.DriveFailureDetails("download", "HTTP",
+            "UPSTREAM_ERROR", 403, "Private provider body must stay private", "HttpClientErrorException", 120L, null, null);
+        doThrow(new GoogleDriveUnavailableException("Private provider body must stay private",
+            GoogleDriveUnavailableException.Kind.UNKNOWN, details)).when(drive).download(any());
+        assertThatThrownBy(() -> run(first)).isInstanceOfSatisfying(AiReviewService.DrivePreparationFailure.class, failure -> {
+            assertThat(failure.diagnostic().provider()).isEqualTo("drive");
+            assertThat(failure.diagnostic().httpStatus()).isEqualTo(403);
+            assertThat(failure.diagnostic().reasonCode()).isEqualTo("UPSTREAM_ERROR");
+            assertThat(failure.diagnostic().explanation()).doesNotContain("Private", "rate-limited");
+            assertThat(failure.identity().sourceUrl()).contains("file-first");
+        });
+        verify(provider, never()).review(any());
+    }
 
     private void assertPreclaimDriveFailure(HttpStatus expectedStatus, String expectedMessage) {
         var tasks = new java.util.ArrayList<Runnable>();
