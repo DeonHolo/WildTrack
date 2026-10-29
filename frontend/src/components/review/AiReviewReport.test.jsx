@@ -93,8 +93,8 @@ it('keeps the normal checklist and mismatch warning when any template assessment
   expect(screen.getByText('Appears addressed (1)')).toBeVisible();
 });
 
-it('keeps a requirement-sourced identity finding visible even when linked to the checklist', () => {
-  const finding = { issue: 'The student submitted an administrative parental consent form instead of the required Software Requirements Specification document.',
+it.each(['instead of the required', 'instead of a'])('keeps a requirement-sourced identity finding visible even when linked to the checklist: %s', contrast => {
+  const finding = { issue: `The student submitted an administrative parental consent form ${contrast} Software Requirements Specification document.`,
     source: 'DELIVERABLE_REQUIREMENTS', requirement: 'Submit the Refactored SRS Submission PDF.', evidence: 'AFFIDAVIT OF PARENTAL/GUARDIAN CONSENT' };
   show({ documentOverview: { text: 'The submitted document is a parental consent form.', actualDocumentType: 'a parental consent form', wrongDocument: true },
     findings: [finding], coverage: { criteria: [{ id: 'C1', requirement: finding.requirement, source: finding.source,
