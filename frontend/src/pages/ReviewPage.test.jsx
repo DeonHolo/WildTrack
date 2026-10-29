@@ -676,10 +676,80 @@ describe('deliverable-first submission review', () => {
     expect(within(drawer).getByRole('button', { name: 'View AI Review' })).toBeDisabled();
     expect(within(drawer).getByRole('button', { name: 'Retry AI review' })).toBeInTheDocument();
     expect(workflow.runAiReviews).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('orange');
     fireEvent.click(within(drawer).getByRole('button', { name: 'Retry AI review' }));
     expect(await screen.findByRole('dialog', { name: 'Retry AI reviews?' })).toBeInTheDocument();
     expect(drawer).toBeInTheDocument();
     expect(prepareAiReviewBatch).not.toHaveBeenCalled();
+  });
+
+  it('counts a completed review with manual checks as available and finishes green', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    const report = { outcome: 'INCONCLUSIVE', summary: 'Completed checklist with three manual checks.',
+      verifiedChecks: Array.from({ length: 45 }, (_, i) => ({ aspect: `Check ${i + 1}` })),
+      verificationNotes: ['Check one', 'Check two', 'Check three'] };
+    workflow.runAiReviews.mockImplementationOnce(async (_workspace, targets, { onResult }) => {
+      onResult(targets[0], { ok: true, inconclusive: true, advisory: 'Items to check in the PDF.',
+        review: { status: 'COMPLETED', sourceUrl: ron.values.documentPdf,
+          sourceResponseUpdatedAt: ron.updatedAt, report } });
+    });
+    renderPage('/review?response=response-ron-srs');
+    const drawer = await screen.findByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun AI Review' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Rerun AI Review?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Rerun review' }));
+    const status = await screen.findByRole('status');
+    await waitFor(() => expect(status).toHaveTextContent('AI review complete'));
+    expect(status).toHaveTextContent('1 review available');
+    expect(status).toHaveTextContent('1 completed review has items to check in the PDF');
+    expect(status).not.toHaveTextContent('incomplete');
+    expect(status.style.getPropertyValue('--alert-color')).toContain('green');
+    expect(workflow.state.attempts.find(item => item.id === ron.id).aiReviewState.report.outcome).toBe('INCONCLUSIVE');
+    expect(drawer).toBeInTheDocument();
+  });
+
+  it('counts a recovered completed manual report as available during a read-only saved-status check', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    workflow.runAiReviews.mockImplementationOnce(async (_workspace, targets, { onResult }) => {
+      onResult(targets[0], { ok: false, uncertain: true, error: 'Provider outcome unknown',
+        review: { status: 'UNCERTAIN', sourceUrl: ron.values.documentPdf,
+          sourceResponseUpdatedAt: ron.updatedAt, retryToken: 'retry' } });
+      return { paused: true };
+    });
+    workflow.getSavedAiReview.mockResolvedValue({ status: 'COMPLETED', sourceUrl: ron.values.documentPdf,
+      sourceResponseUpdatedAt: ron.updatedAt, report: { outcome: 'INCONCLUSIVE', verificationNotes: ['Check one'] } });
+    renderPage('/review?response=response-ron-srs');
+    const drawer = await screen.findByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun AI Review' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Rerun AI Review?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Rerun review' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Check saved reviews' }));
+    const status = await screen.findByRole('status');
+    await waitFor(() => expect(status).toHaveTextContent('Saved AI Reviews available'));
+    expect(status).toHaveTextContent('1 review available');
+    expect(status).toHaveTextContent('0 unconfirmed attempts');
+    expect(status).toHaveTextContent('1 completed review has items to check');
+    expect(status.style.getPropertyValue('--alert-color')).toContain('green');
+    expect(workflow.runAiReviews).toHaveBeenCalledTimes(1);
+    expect(workflow.getSavedAiReview).toHaveBeenCalledExactlyOnceWith('workspace-it', ron.id, null);
+  });
+
+  it.each([
+    ['The submitted Drive PDF could not be opened. Google Drive reported a file-access or download restriction.', 'green'],
+    ['The submitted Drive PDF could not be opened. The server failed to retrieve the file.', 'orange']
+  ])('distinguishes an access skip from a technical retrieval failure: %s', async (error, color) => {
+    workflow.runAiReviews.mockImplementationOnce(async (_workspace, targets, { onResult }) => {
+      onResult(targets[0], { ok: false, notStarted: true, error });
+    });
+    renderPage('/review?response=response-ron-srs');
+    const drawer = await screen.findByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Rerun AI Review' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Rerun AI Review?' });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Rerun review' }));
+    const status = await screen.findByRole('status');
+    await waitFor(() => expect(status).toHaveTextContent('1 skipped: inaccessible PDF'));
+    expect(status.style.getPropertyValue('--alert-color')).toContain(color);
+    expect(status).toHaveTextContent('No Gemini request was started');
   });
 
   it('shows an inconclusive rerun and opens the separately identified previous substantive AI Review', async () => {
