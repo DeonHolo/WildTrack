@@ -33,7 +33,9 @@ public final class AiReviewInstructionProtocol {
         its exact source excerpts preserve the underlying qualifiers. Do not check only a short title or the
         first sentence, or treat one global example as satisfying a direction for each applicable entity.
         Return exactly one instructionAssessments record for every supplied id, with the id unchanged.
-        Never invent, rename, combine or omit an id. complete=true means every supplied id was assessed.
+        Never invent, rename, combine or omit an id. complete refers only to answering this supplied group,
+        not every instruction visible in the template PDF, and not whether the student met the instructions.
+        Return complete=true after giving one assessment for each supplied id, including negative or uncertain assessments.
         Only assessment, explanation, documentEvidence, page and section are model-written. Titles,
         instruction wording and authority quotations are fixed by WildTrack; do not return replacements.
         Choose the assessment from the submission itself, independently of whether its text is extractable.
@@ -104,8 +106,11 @@ public final class AiReviewInstructionProtocol {
         if (template == null || group == null || (group.isEmpty() && !includeOverview) || group.size() > MAX_GROUP_ITEMS)
             throw invalid("Invalid instruction assessment group.");
         object(report, TOP);
-        if (report.toString().length() > 150_000 || !report.path("complete").isBoolean()
-                || !report.path("complete").booleanValue()) throw invalid("The instruction group was not completely assessed.");
+        if (report.toString().length() > 150_000) throw invalid("The instruction assessment response exceeded the supported size.");
+        if (!report.path("complete").isBoolean()) throw invalid("Invalid instruction-group completion marker.");
+        // Completion is established by exact ID accounting and validation of every answer below.
+        // A model-written boolean can contradict a full valid group, especially when the PDF contains
+        // more instructions than this request. It must not discard otherwise complete assessments.
         var expected = new LinkedHashMap<String, TemplateInstructionPreparation.Instruction>();
         for (var instruction : group) {
             if (instruction == null || instruction.id() == null || instruction.id().isBlank()
@@ -114,8 +119,9 @@ public final class AiReviewInstructionProtocol {
                 throw invalid("Invalid fixed instruction identity.");
         }
         JsonNode assessments = report.path("instructionAssessments");
-        if (!assessments.isArray() || assessments.size() != expected.size())
-            throw invalid("The response does not account for every instruction.");
+        if (!assessments.isArray()) throw invalid("The response did not include instruction assessments.");
+        if (assessments.size() != expected.size())
+            throw invalid("Gemini returned " + assessments.size() + " of " + expected.size() + " requested instruction assessments.");
         var received = new LinkedHashMap<String, JsonNode>();
         for (JsonNode assessment : assessments) {
             object(assessment, ASSESSMENT);
