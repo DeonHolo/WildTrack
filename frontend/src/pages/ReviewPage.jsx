@@ -29,6 +29,7 @@ import { AiReviewDialog } from '../components/review/AiReviewDialog.jsx';
 import { AiReviewReportDialog } from '../components/review/AiReviewReportDialog.jsx';
 import { AiReviewBatchDialog } from '../components/review/AiReviewBatchDialog.jsx';
 import { AiReviewBatchPanel } from '../components/review/AiReviewBatchPanel.jsx';
+import { SavedAiReviewsDialog } from '../components/review/SavedAiReviewsDialog.jsx';
 import { useAiReviewBatch } from '../app/useAiReviewBatch.js';
 import { ReviewDeliverablesTable } from '../components/review/ReviewDeliverablesTable.jsx';
 import { ReviewResponseDrawer } from '../components/review/ReviewResponseDrawer.jsx';
@@ -52,6 +53,7 @@ import {
 } from '../lib/reviewDeskClient.js';
 import {
   aiReviewableSubmissionFields,
+  aiReviewReportStatus,
   artifactAiReview,
   artifactAiReviewChange,
   artifactAiReportForDisplay,
@@ -104,6 +106,21 @@ export function ReviewPage() {
     loadReviewDesk,
     emptyReviewDesk, 'monitoring', { refreshIntervalMs: 60_000 });
   const aiBatch = useAiReviewBatch(activeWorkspaceId, reload);
+  const displayedAiBatch = useMemo(() => {
+    if (!aiBatch.batch) return null;
+    const targets = savedBatchReviewTargets(aiBatch.batch, state);
+    return { ...aiBatch.batch, entries: aiBatch.batch.entries.map(entry => {
+      if (entry.resultStatus !== 'COMPLETED' || !entry.error) return entry;
+      const target = targets.find(target => target.responseId === entry.target?.responseId
+        && (target.fieldId === entry.target?.fieldId || !entry.target?.fieldId && target.fieldId === 'documentPdf'));
+      if (!target || target.previous) return entry;
+      const status = aiReviewReportStatus(target.report);
+      return { ...entry, error: status === 'Needs manual verification'
+        ? 'Review finished with checks needing manual verification. Open the saved review to inspect the cited areas.'
+        : status === 'Limited review coverage'
+          ? 'Review finished with limited coverage. Open the saved review to see the supported observations.' : '' };
+    }) };
+  }, [aiBatch.batch, state]);
   const [searchParams] = useSearchParams();
   const linkedResponseId = searchParams.get('response') || '';
   const linkedResponse = state.attempts.find((response) => response.id === linkedResponseId) || null;
@@ -522,7 +539,10 @@ export function ReviewPage() {
       if (!fresh) throw new Error('Saved reviews could not be loaded. Please try again.');
       const results = savedBatchReviewTargets(aiBatch.batch, fresh);
       setSavedReviews(results);
-      if (results.length === 1) setAiReportDialogTarget({ ...results[0], scope: isCurrentScope });
+      if (results.length === 1) {
+        setSelectedResponseId(results[0].responseId);
+        setAiReportDialogTarget({ ...results[0], scope: isCurrentScope });
+      }
       else if (!results.length) setSavedReviewsError('No saved AI Review is available for the current files in this batch. An unfinished or failed attempt does not create a new review.');
     } catch (error) {
       if (isCurrentScope() && request === savedReviewsRequest.current) {
@@ -538,10 +558,24 @@ export function ReviewPage() {
   function openSavedReview(target) {
     if (!isCurrentScope()) return;
     const current = savedBatchReviewTargets({ entries: [{ target, identity: { sourceUrl: target.sourceUrl } }] }, reviewStateRef.current)[0];
-    if (current) setAiReportDialogTarget({ ...current, scope: isCurrentScope });
+    if (current) {
+      setSelectedResponseId(current.responseId);
+      setAiReportDialogTarget({ ...current, scope: isCurrentScope });
+    }
     else {
       setSavedReviews([]);
       setSavedReviewsError('This file or its saved review changed. Check saved reviews again to load the current results.');
+    }
+  }
+
+  function openBatchReview(entry) {
+    if (!isCurrentScope()) return;
+    const target = savedBatchReviewTargets({ entries: [entry] }, reviewStateRef.current)[0];
+    if (target) openSavedReview(target);
+    else {
+      setSelectedResponseId(entry.target?.responseId || '');
+      notifications.show({ color: 'orange', title: 'Saved review unavailable',
+        message: 'Open the submission details to check its latest AI Review status.' });
     }
   }
 
@@ -854,28 +888,15 @@ export function ReviewPage() {
           <Button variant="default" leftSection={<Sparkle size={16} />} disabled={Boolean(aiProgress && !aiProgress.done) || !allAiTargets.length} onClick={() => requestAiReview(allAiTargets, false, {}, true)}>AI review all</Button>
           <Button variant="subtle" onClick={() => setOverviewOpen(value => !value)} aria-expanded={overviewOpen}>{overviewOpen ? 'Hide overview' : 'Deliverable overview'}</Button></Group>
       </Group></Paper>
-      <AiReviewBatchPanel batch={aiBatch.batch} error={aiBatch.error} busy={aiBatch.busy}
+      <AiReviewBatchPanel batch={displayedAiBatch} error={aiBatch.error} busy={aiBatch.busy}
+        onOpenReview={openBatchReview}
         dismissed={aiBatch.panelDismissed} onDismiss={aiBatch.dismiss}
         onResume={aiBatch.resume} onStop={aiBatch.stop} onChoose={aiBatch.open} onCancel={aiBatch.cancel} onRefresh={openSavedBatchReviews} refreshing={savedReviewsScope.current === isCurrentScope && savedReviewsLoading}
         onRetryFailed={targets => { setFailedBatchSelection(true); aiBatch.prepare(targets, { openWhenReady: true }); }}
         onPrepare={() => requestAiReview(allAiTargets, false, {}, true)} />
       {savedReviewsScope.current === isCurrentScope && savedReviewsError ? <Alert color="orange" role="alert">{savedReviewsError}</Alert> : null}
-      <Modal opened={visibleSavedReviews.length > 1 && !visibleAiReportTarget} onClose={() => setSavedReviews([])}
-        title="Saved AI Reviews" centered size="lg">
-        <Stack gap="sm">
-          <Text size="sm" c="dimmed">Choose a saved review to open. This does not run AI Review.</Text>
-          {visibleSavedReviews.map(target => (
-            <Paper withBorder p="sm" key={target.key}>
-              <Stack gap="xs">
-                <Text size="sm" fw={650}>{target.label}</Text>
-                <Button variant="default" onClick={() => openSavedReview(target)} aria-label={`View review: ${target.label}`}>
-                  View AI Review
-                </Button>
-              </Stack>
-            </Paper>
-          ))}
-        </Stack>
-      </Modal>
+      <SavedAiReviewsDialog key={savedReviewsRequest.current} opened={visibleSavedReviews.length > 1 && !visibleAiReportTarget}
+        targets={visibleSavedReviews} onClose={() => setSavedReviews([])} onOpen={openSavedReview} />
       <Modal opened={aiBatch.opened && aiBatch.batch?.state === 'READY'} onClose={aiBatch.close} title="AI review submissions" centered size="lg"
         closeButtonProps={{ 'aria-label': 'Close AI Review window' }}>
         <AiReviewBatchDialog key={aiBatch.batch?.id || 'new'} plan={aiBatch.batch} error={aiBatch.error}
@@ -1239,7 +1260,11 @@ function savedBatchReviewTargets(batch, state) {
     if (!report || seen.has(key)) return [];
     seen.add(key);
     const student = findStudent(state.students, response.studentNumber)?.name || response.studentName || response.studentNumber;
-    return [{ responseId: response.id, fieldId, key, sourceUrl,
+    return [{ responseId: response.id, fieldId, key, sourceUrl, report,
+      studentName: student || 'Student', deliverableTitle: deliverable.title, fieldLabel: field.label,
+      previous: !isArtifactAiReviewCurrent(response, field),
+      generatedAt: review?.report === report ? review.generatedAt : review?.previousReport === report
+        ? review.previousGeneratedAt : review?.lastSubstantiveGeneratedAt,
       label: [student, deliverable.title, field.label].filter(Boolean).join(' · ') }];
   });
 }

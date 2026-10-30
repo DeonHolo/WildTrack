@@ -67,18 +67,18 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
       {missingTemplate ? <Alert color="orange" title="No official template" role="status">
         AI Review could not compare this PDF against an official template. Findings are limited to the available deliverable instructions and PDF content.
       </Alert> : null}
-      {report.documentOverview?.text ? <section aria-label="Document overview">
+      <section aria-label="Document overview">
         <div className="wt-ai-review-overview-heading">
           <Text component="h3" fw={700}>Document overview</Text>
           {reviewedOn ? <Text className="wt-ai-review-reference wt-ai-review-date">{reviewedOn}</Text> : null}
         </div>
-        {report.documentOverview.wrongDocument === true && report.documentOverview.actualDocumentType ? (
+        {report.documentOverview?.wrongDocument === true && report.documentOverview.actualDocumentType ? (
           <Alert color="orange" role="status" mb="sm">
             This is {report.documentOverview.actualDocumentType}, <strong>NOT</strong> the required {deliverableTitle || 'document'}.
           </Alert>
         ) : null}
-        <Text>{report.documentOverview.text}</Text>
-      </section> : reviewedOn ? <Text className="wt-ai-review-reference wt-ai-review-date">{reviewedOn}</Text> : null}
+        <Text>{report.documentOverview?.text?.trim() || 'A document overview was not saved with this review. Run AI Review again to generate one.'}</Text>
+      </section>
       <div className="wt-ai-review-outcome">
         <Text fw={700}>{outcome}</Text>
         <Text mt={4} size="sm">{summary}</Text>

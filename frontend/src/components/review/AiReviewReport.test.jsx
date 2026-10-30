@@ -145,9 +145,9 @@ it.each(['instead of the required', 'instead of a'])('keeps a requirement-source
   expect(screen.getByText('Template checks (1)').closest('details')).not.toHaveAttribute('open');
 });
 
-it('does not relabel the old review-result summary as a document overview', () => {
+it('keeps the overview visible for an older report without inventing it from the result summary', () => {
   show({ summary: 'This is not the required document.', findings: [] });
-  expect(screen.queryByRole('region', { name: 'Document overview' })).not.toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Document overview' })).toHaveTextContent('A document overview was not saved with this review. Run AI Review again to generate one.');
   expect(screen.queryByText('This is not the required document.')).not.toBeInTheDocument();
 });
 it('combines diagram presence checks while retaining locations, excerpts and each requirement once', () => {

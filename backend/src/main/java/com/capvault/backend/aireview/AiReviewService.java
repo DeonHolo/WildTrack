@@ -1081,7 +1081,7 @@ public class AiReviewService {
             : groundedSuggestedAction(groundedFindings, groundedMissing, groundedLimitations, verifiedChecks);
         var accepted = new AiReviewProvider.Result(summary, groundedFindings, groundedMissing, groundedLimitations,
             action, verifiedChecks, verificationNotes, outcome, null,
-            groundDocumentOverview(result.documentOverview(), documentText, groundedFindings));
+            result.documentOverview());
         var coverage = context.plan() == null
             ? AiReviewCoveragePolicy.grounded(result, accepted, context.instructions(), context.template(), documentText, pages)
             : AiReviewCoveragePolicy.grounded(result, accepted, context.plan(), documentText, pages);
@@ -1128,45 +1128,6 @@ public class AiReviewService {
     private static String normalizeOutcomeQuote(String value) {
         return java.util.Objects.requireNonNullElse(value, "").toLowerCase(java.util.Locale.ROOT)
             .replaceAll("\\s+", " ").strip();
-    }
-
-    static AiReviewProvider.DocumentOverview groundDocumentOverview(AiReviewProvider.DocumentOverview overview,
-            String documentText, List<AiReviewProvider.Finding> findings) {
-        if (overview == null || overview.text() == null || overview.actualDocumentType() == null || overview.evidence() == null)
-            return null;
-        String text = overview.text().strip(), type = overview.actualDocumentType().strip(), evidence = overview.evidence().strip();
-        if (text.isEmpty() || text.length() > 700 || text.split("\\s+").length > 90 || type.isEmpty() || type.length() > 120
-                || evidence.length() < 15 || evidence.length() > 600) return null;
-        var mismatch = findings.stream().filter(finding ->
-            (finding.source() == AiReviewProvider.FindingSource.DOCUMENT
-                || finding.source() == AiReviewProvider.FindingSource.DELIVERABLE_REQUIREMENTS)
-                && containsNormalized(documentText, finding.evidence())
-                && normalizeAuthorityText(finding.evidence()).length() >= 15
-                && (identityMismatchWording(finding.issue()) || documentTypeContrast(finding.issue()))).findFirst().orElse(null);
-        boolean wrong = overview.wrongDocument() && mismatch != null;
-        String quote = normalizeAuthorityText(evidence);
-        if (quote.isBlank() || !normalizeAuthorityText(documentText).contains(quote)) {
-            // An overview can join separate headings. Retain only an independently
-            // grounded identity excerpt already included in that proposed quotation.
-            if (!wrong || !quote.contains(normalizeAuthorityText(mismatch.evidence()))) return null;
-            evidence = mismatch.evidence();
-        }
-        // An identity sentence is retained only when an independently grounded finding supports it.
-        if (identityMismatchWording(text) && !wrong) return null;
-        if (wrong) text = "The submitted PDF appears to be " + type + ".";
-        return new AiReviewProvider.DocumentOverview(text, type, wrong, evidence);
-    }
-
-    private static boolean identityMismatchWording(String text) {
-        return text != null && text.toLowerCase(Locale.ROOT).matches(
-            "(?s).*(?:wrong document|different document|document type mismatch|deliverable type mismatch|"
-                + "(?:not|instead of|rather than|unrelated to) (?:the )?(?:required|requested|expected)\\b).*" );
-    }
-
-    private static boolean documentTypeContrast(String text) {
-        return text != null && text.toLowerCase(Locale.ROOT).matches(
-            "(?s).*\\b(?:instead of|rather than)\\s+(?:an?|the)\\s+"
-                + "(?:[\\p{L}-]+\\s+){0,7}(?:specification|document|report|plan|proposal|instrument|questionnaire|deliverable)\\b.*");
     }
 
     private static boolean sameExecutionContradiction(AiReviewProvider.Finding existing,

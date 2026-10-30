@@ -24,7 +24,7 @@ for (const width of [375, 1440]) {
     await page.goto('/review');
     await expect(page.locator('.wt-ai-batch-details')).toHaveCount(2);
     for (const details of await page.locator('.wt-ai-batch-details').all()) await details.locator(':scope > summary').click();
-    const drive = page.locator('li').filter({ has: page.getByRole('link', { name: 'Drive example.pdf' }) });
+    const drive = page.locator('li').filter({ has: page.getByRole('button', { name: /View AI Review: Drive example\.pdf/ }) });
     await expect(drive).toContainText('(Drive HTTP 403)');
     const extra = drive.getByLabel('Google Drive error details');
     await expect(extra).not.toHaveAttribute('open', '');

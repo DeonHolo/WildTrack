@@ -803,9 +803,9 @@ export function statusDisplayLabel(status) {
 export function statusTone(status) {
   const key = String(status).toLowerCase();
   if (['retry required', 'inconclusive', 'limited review coverage', 'needs manual verification', 'check in pdf'].includes(key)) return 'warning';
-  if (key === 'reviewing') return 'info';
+  if (['reviewing', 'review limits'].includes(key)) return 'info';
   if (/^\d+\s+days?\s+late$/.test(key)) return 'warning';
-  if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'looks substantially filled', 'looks filled', 'connected', 'imported', 'published', 'submitted', 'file accessible'].includes(key)) return 'success';
+  if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'looks substantially filled', 'looks filled', 'connected', 'imported', 'published', 'submitted', 'file accessible', 'no issues'].includes(key)) return 'success';
   if (['archived', 'reviewed'].includes(key)) return 'maroon';
   if (['needs review', 'template-like', 'too short', 'missing', 'blank', '#n/a', 'needs check', 'outdated', 'starter data', 'late', 'needs attention', 'needs attention — sparse content', 'could not determine'].includes(key)) return 'warning';
   if (['not pdf', 'editable link', 'inaccessible', 'blocked', 'could not check', 'no file link'].includes(key)) return 'danger';

@@ -112,7 +112,7 @@ export function aiBatchFailureGroups(entries = []) {
     const reviewLimit = advisory && /inconclusive|limited (?:review )?coverage/i.test(error);
     const message = manualCheck
       ? 'These AI Reviews finished with items to check in the PDF. Open the saved reviews for details.'
-      : reviewLimit ? 'These AI Reviews finished with limited coverage. See Review limits in the saved reviews for details.'
+      : reviewLimit ? 'Some AI observations couldn’t be verified by WildTrack. See Review limits in the saved reviews for details.'
       : driveAccess || driveRetrieval
         ? 'These PDFs could not be opened from Google Drive. No AI review started for them.' : error;
     const groupKey = `${advisory ? 'advisory' : 'failure'}:${message}`;
