@@ -13,6 +13,24 @@ const entry = (id, error = restricted) => ({ target: { responseId: id, fieldId: 
 const renderView = view => render(<MantineProvider>{view}</MantineProvider>);
 
 describe('AI batch affected PDF presentation', () => {
+  it('always puts specific PDF checks before unverified observations and technical errors', () => {
+    const limited = { ...entry('limited'), resultStatus: 'COMPLETED', error: 'Review finished with limited coverage.' };
+    const manual = { ...entry('manual'), resultStatus: 'COMPLETED', error: 'Review finished with checks needing manual verification.' };
+    renderView(<AiReviewBatchFailures entries={[entry('failed', unavailable), limited, manual]} />);
+    expect(screen.getAllByRole('button', { name: /Show PDFs with/ }).map(button => button.getAttribute('aria-label')))
+      .toEqual(['Show PDFs with items to check', 'Show PDFs with review limits', 'Show PDFs with failed AI Reviews']);
+  });
+
+  it('opens a matching review through the supplied handler and keeps the provider error details', () => {
+    const onOpenReview = vi.fn();
+    const manual = { ...entry('manual'), resultStatus: 'COMPLETED', error: 'Review finished with checks needing manual verification.' };
+    renderView(<AiReviewBatchFailures entries={[manual]} onOpenReview={onOpenReview} />);
+    const button = screen.getByRole('button', { name: /View AI Review: manual.pdf/ });
+    expect(button).not.toHaveAttribute('href');
+    fireEvent.click(button);
+    expect(onOpenReview).toHaveBeenCalledWith(expect.objectContaining({ target: manual.target, identity: manual.identity }));
+  });
+
   it('puts only the short provider status beside the affected PDF and keeps advice in closed Error details', () => {
     const failed = { ...entry('STD', unavailable), failureDiagnostics: {
       provider: 'drive', stage: 'download', httpStatus: 403, reasonCode: 'UPSTREAM_ERROR',
@@ -103,7 +121,7 @@ describe('AI batch affected PDF presentation', () => {
     expect(screen.getByText('1 AI review available')).toBeInTheDocument();
     expect(screen.queryByText(/failed or unconfirmed/)).not.toBeInTheDocument();
     expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('green');
-    expect(screen.getByText(/finished with limited coverage/)).toBeInTheDocument();
+    expect(screen.getByText(/Some AI observations couldn’t be verified by WildTrack/)).toBeInTheDocument();
     expect(screen.queryByText(/finished with items to check in the PDF/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Show PDFs with review limits' }).style.getPropertyValue('--ai-color')).toContain('blue');
   });

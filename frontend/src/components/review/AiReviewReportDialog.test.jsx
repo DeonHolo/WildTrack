@@ -30,7 +30,7 @@ it('opens the selected submission PDF in a separate tab from its AI Review', asy
   expect(header).toContainElement(within(dialog).getByText('AI Review: Software Requirements Specification'));
   const body = dialog.querySelector('.wt-ai-review-dialog-body');
   expect(body).not.toContainElement(link);
-  expect(body.firstElementChild.firstElementChild).toHaveTextContent(/^Reviewed /);
+  expect(within(dialog).getByRole('region', { name: 'Document overview' })).toHaveTextContent(/Reviewed on /);
 });
 
 it('shows AI Review limitations on keyboard focus in the header', async () => {

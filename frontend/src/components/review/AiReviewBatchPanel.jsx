@@ -4,7 +4,7 @@ import { Stop } from '@phosphor-icons/react';
 import { failedAiBatchTargets, isAiBatchTechnicalFailure } from '../../lib/aiReviewBatch.js';
 import { AiReviewBatchFailures } from './AiReviewBatchFailures.jsx';
 
-export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDismiss, onResume, onStop, onChoose, onCancel, onPrepare, onRetryFailed, onRefresh, refreshing = false }) {
+export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDismiss, onResume, onStop, onChoose, onCancel, onPrepare, onRetryFailed, onRefresh, refreshing = false, onOpenReview }) {
   if (dismissed && batch?.state === 'COMPLETED' && !error) return null;
   if (!batch || batch.state === 'CANCELLED') return error ? <Alert color="red" role="alert">{error}</Alert> : null;
   const running = batch.state === 'RUNNING';
@@ -46,7 +46,7 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
         {counts.pending ? ` · ${counts.pending} pending` : ''}
       </Text> : null}
       {error ? <Text size="sm">{error}</Text> : null}
-      {attention ? <AiReviewBatchFailures entries={batch.entries} /> : null}
+      {attention ? <AiReviewBatchFailures entries={batch.entries} onOpenReview={onOpenReview} /> : null}
   </AiBatchProgress>;
 }
 

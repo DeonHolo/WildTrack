@@ -1,21 +1,23 @@
 import { useRef } from 'react';
-import { ActionIcon, Anchor, Group, Stack, Text } from '@mantine/core';
+import { ActionIcon, Anchor, Group, Stack, Text, Tooltip } from '@mantine/core';
 import { Info, Warning } from '@phosphor-icons/react';
 import { aiBatchFailureGroups, isAiBatchAccessRestriction } from '../../lib/aiReviewBatch.js';
 import { TemplateChecklistNotices } from './TemplateChecklistNotices.jsx';
 import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
+import { AI_REVIEW_VERIFICATION_EXPLANATION } from './AiReviewHelp.jsx';
 
-export function AiReviewBatchFailures({ entries }) {
+export function AiReviewBatchFailures({ entries, onOpenReview }) {
   const groups = aiBatchFailureGroups(entries.filter(entry => entry.resultStatus !== 'TEMPLATE_APPROVAL_REQUIRED'));
-  const showGroup = group => <FailureGroup key={`${group.advisory}:${group.message}`} group={group} />;
+  const showGroup = group => <FailureGroup key={`${group.advisory}:${group.message}`} group={group} onOpenReview={onOpenReview} />;
   return <Stack gap="sm">
-    {groups.filter(group => group.advisory).map(showGroup)}
+    {groups.filter(group => group.advisory && !group.limited).map(showGroup)}
+    {groups.filter(group => group.advisory && group.limited).map(showGroup)}
     <TemplateChecklistNotices entries={entries} />
     {groups.filter(group => !group.advisory).map(showGroup)}
   </Stack>;
 }
 
-function FailureGroup({ group }) {
+function FailureGroup({ group, onOpenReview }) {
   const details = useRef(null);
   const showAffected = () => {
     details.current.open = true;
@@ -27,11 +29,12 @@ function FailureGroup({ group }) {
       : group.advisory ? 'Show PDFs with items to check' : 'Show PDFs with failed AI Reviews';
   return <div>
       <Group gap="xs" wrap="nowrap" align="flex-start">
-        {warningLabel ? <ActionIcon color={group.advisory ? 'blue.7' : 'yellow.7'} variant="transparent" size={20}
+        {warningLabel ? <Tooltip disabled={!group.limited} label={AI_REVIEW_VERIFICATION_EXPLANATION} multiline w={320} withArrow
+          events={{ hover: true, focus: true, touch: true }}><ActionIcon color={group.advisory ? 'blue.7' : 'yellow.7'} variant="transparent" size={20}
           style={{ minHeight: 20, flexShrink: 0 }}
-          aria-label={warningLabel} title={warningLabel} onClick={showAffected}>
+          aria-label={warningLabel} title={group.limited ? undefined : warningLabel} onClick={showAffected}>
           {group.advisory ? <Info size={16} aria-hidden="true" /> : <Warning size={16} weight="fill" aria-hidden="true" />}
-        </ActionIcon> : null}
+        </ActionIcon></Tooltip> : null}
         <Text size="sm">{group.message}</Text>
       </Group>
       <details ref={details} className="wt-ai-batch-details">
@@ -43,7 +46,10 @@ function FailureGroup({ group }) {
             const context = [identity.fileName && identity.deliverableTitle, identity.studentName, identity.artifactLabel].filter(Boolean).join(' — ');
             const url = safeDriveUrl(identity.sourceUrl);
             return <Text component="li" size="sm" key={`${entry.target?.responseId}:${entry.target?.fieldId}:${index}`}>
-              {url ? <Anchor size="sm" href={url} target="_blank" rel="noopener noreferrer">{name}</Anchor> : <span>{name}</span>}
+              {onOpenReview && entry.target?.responseId
+                ? <Anchor component="button" type="button" size="sm" onClick={() => onOpenReview(entry)}
+                    aria-label={`View AI Review: ${[name, context].filter(Boolean).join(' — ')}`}>{name}</Anchor>
+                : url ? <Anchor size="sm" href={url} target="_blank" rel="noopener noreferrer">{name}</Anchor> : <span>{name}</span>}
               {context ? ` — ${context}` : ` — Submission ${index + 1}`}
               {entry.failureDetail ? ` (${entry.failureDetail})` : ''}
               {entry.failureDiagnostics ? <ProviderFailureDetails diagnostic={entry.failureDiagnostics}

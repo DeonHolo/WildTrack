@@ -461,6 +461,39 @@ describe('deliverable-first submission review', () => {
     expectNoAiRequests();
   });
 
+  it('opens the exact artifact report and its submission drawer from a completed batch notice', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    ron.aiReviewState.report = { outcome: 'INCONCLUSIVE', verificationNotes: [{ source: 'DOCUMENT',
+      issue: 'Confirm the recovery diagram arrow direction.', evidence: 'Recovery flow', location: { page: 6 } }] };
+    const entry = { ...savedEntry(), error: 'Review finished with checks needing manual verification.',
+      identity: { sourceUrl: ron.values.documentPdf, deliverableTitle: 'Software Requirements Specification',
+        studentName: ron.studentName, artifactLabel: 'PDF Drive Link' } };
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([entry]));
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /View AI Review: Software Requirements Specification/ }));
+    const report = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
+    expect(report).toHaveTextContent('Confirm the recovery diagram arrow direction.');
+    expect(within(report).getByRole('link', { name: 'Open PDF' })).toHaveAttribute('href', ron.values.documentPdf);
+    fireEvent.click(within(report).getByRole('button', { name: 'Close AI Review details' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Review Taghoy, Ron Luigi F.' });
+    expect(drawer).toBeVisible();
+    expect(within(drawer).getByRole('link', { name: 'Open PDF' })).toHaveAttribute('href', ron.values.documentPdf);
+    expectNoAiRequests();
+  });
+
+  it('uses the saved report classification for old batch notices without treating quote failures as manual checks', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    ron.aiReviewState.report = { outcome: 'INCONCLUSIVE', coverage: { criteria: [{ id: 'T1',
+      source: 'OFFICIAL_TEMPLATE', title: 'Change history', requirement: 'Provide a change history.', assessment: 'CHECK_MANUALLY',
+      documentEvidence: null, location: null,
+      explanation: "Check Change history in the PDF (AI-cited page 2). The quotation could not be matched to the PDF's readable text. Gemini's unconfirmed observation: The change history contains dates." }] } };
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([{ ...savedEntry(), error: 'Review finished with checks needing manual verification.' }]));
+    renderPage();
+    expect(await screen.findByText(/Some AI observations couldn’t be verified by WildTrack/)).toBeVisible();
+    expect(screen.queryByText(/These AI Reviews finished with items to check in the PDF/)).not.toBeInTheDocument();
+    expectNoAiRequests();
+  });
+
   it('opens only batch-selected results and excludes unrelated older saved reviews', async () => {
     const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
     const muriel = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');

@@ -1,4 +1,5 @@
-import { Text, VisuallyHidden } from '@mantine/core';
+import { Group, Text, VisuallyHidden } from '@mantine/core';
+import { AiReviewVerificationHelp } from './AiReviewHelp.jsx';
 import { formatTemplateInstruction } from '../../lib/templateInstructionText.js';
 import { aiReviewAssessment } from '../../lib/workflow.js';
 
@@ -63,7 +64,7 @@ function AssessmentRow({ row, report }) {
     <summary className="wt-ai-review-assessment-summary">
       <VisuallyHidden>{STATUS_LABELS[row.assessment]}. </VisuallyHidden>
       {page ? <span className="wt-ai-review-assessment-page">{page}</span> : null}
-      <span className="wt-ai-review-assessment-title">{label} <span className="wt-ai-review-assessment-explanation">— {row.explanation}</span></span>
+      <span className="wt-ai-review-assessment-title">{label} <span className="wt-ai-review-assessment-explanation">— <AssessmentExplanation row={row} /></span></span>
     </summary>
     <div className="wt-ai-review-assessment-details">
       <Text component="p" style={{ whiteSpace: 'pre-line' }}><strong>Instruction:</strong> {instruction}</Text>
@@ -80,6 +81,14 @@ function AssessmentRow({ row, report }) {
         : 'Submitted PDF · quotation unverified'}</Text>
     </div>
   </details>;
+}
+
+function AssessmentExplanation({ row }) {
+  const marker = 'Unverified AI observation:';
+  const split = row.assessment === 'UNVERIFIED' ? row.explanation.indexOf(marker) : -1;
+  return split < 0 ? row.explanation : <>{row.explanation.slice(0, split).trim()}
+    <span style={{ display: 'block', marginTop: 4 }}>{row.explanation.slice(split)}</span>
+  </>;
 }
 
 function LinkedExcerpt({ text, location }) {
@@ -118,7 +127,7 @@ export function AiReviewVerificationLimits({ report }) {
   const rows = validAssessmentCriteria(report).filter(row => row.assessment === 'UNVERIFIED');
   if (!rows.length) return null;
   return <section aria-label="Unverified AI observations">
-    <Text component="h3" fw={700} mt="sm">Unverified AI observations ({rows.length})</Text>
+    <Group gap={4} mt="sm"><Text component="h3" fw={700}>Unverified AI observations ({rows.length})</Text><AiReviewVerificationHelp /></Group>
     <Text mt="sm">The supporting quotations could not be verified. These observations do not establish a document problem or a confirmed pass.</Text>
     {rows.map(row => <AssessmentRow key={row.key} row={row} report={report} />)}
   </section>;

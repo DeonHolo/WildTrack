@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { AiReviewCoverage, AiReviewVerificationLimits } from './AiReviewCoverage.jsx';
 
@@ -19,6 +19,9 @@ it('shows an unverified positive observation only in Review limits, without a pa
   expect(limits).not.toHaveTextContent('Appears addressed');
   expect(limits).not.toHaveTextContent('Check in PDF');
   expect(limits).toHaveTextContent('The recovery path is described.');
+  const observation = within(limits).getByText('Unverified AI observation: The recovery path is described.');
+  expect(observation).toHaveStyle({ display: 'block' });
+  expect(within(limits).getByRole('button', { name: 'How WildTrack verifies AI evidence' })).toBeInTheDocument();
 });
 
 it('keeps all 113 fixed instructions and distinguishes inapplicable items without warnings', () => {
