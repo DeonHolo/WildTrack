@@ -1,24 +1,14 @@
 import { useState } from 'react';
 import { Button, Group, Modal, NativeSelect, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import { StatusIndicator } from '../ui.jsx';
-import { aiReviewAssessment, aiReviewReportStatus, formatDateTime } from '../../lib/workflow.js';
+import { AiReviewHelp } from './AiReviewHelp.jsx';
+import { aiReviewReportStatus, formatDateTime, hasAiReviewNotes } from '../../lib/workflow.js';
 
-function resultStatus(report) {
-  const rows = (report?.coverage?.criteria || []).map(aiReviewAssessment);
-  if ((report?.findings || report?.flags || []).length
-      || (report?.missingRequiredSections || report?.missingSections || []).length
-      || rows.some(row => row?.assessment === 'NEEDS_ATTENTION')) return 'Needs attention';
-  const status = aiReviewReportStatus(report);
-  return status === 'Needs manual verification' ? 'Check in PDF'
-    : status === 'Limited review coverage' ? 'Review limits' : 'No issues';
-}
-
-const priorities = { 'Needs attention': 0, 'Check in PDF': 1, 'Review limits': 2, 'No issues': 3 };
+const priorities = { 'Needs attention': 0, 'No issues': 1 };
 const filters = [
   { value: 'all', label: 'All saved reviews' },
   { value: 'attention', label: 'Needs attention' },
-  { value: 'Check in PDF', label: 'Check in PDF' },
-  { value: 'Review limits', label: 'Review limits' },
+  { value: 'notes', label: 'With review notes' },
   { value: 'No issues', label: 'No issues' },
   { value: 'previous', label: 'Previous reviews' }
 ];
@@ -26,10 +16,11 @@ const filters = [
 export function SavedAiReviewsDialog({ opened, targets, onClose, onOpen }) {
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState('attention');
-  const reviews = targets.map(target => ({ ...target, result: resultStatus(target.report) }));
+  const reviews = targets.map(target => ({ ...target, result: aiReviewReportStatus(target.report) }));
   const visible = reviews.filter(target => filter === 'all'
-    || (filter === 'attention' ? priorities[target.result] < 2
-      : filter === 'previous' ? target.previous : target.result === filter));
+    || (filter === 'attention' ? target.result === 'Needs attention'
+      : filter === 'notes' ? hasAiReviewNotes(target.report)
+        : filter === 'previous' ? target.previous : target.result === filter));
   const byName = (a, b) => a.studentName.localeCompare(b.studentName, 'en', { sensitivity: 'base' })
     || a.deliverableTitle.localeCompare(b.deliverableTitle, 'en', { sensitivity: 'base' })
     || a.label.localeCompare(b.label, 'en', { sensitivity: 'base' });
@@ -41,7 +32,7 @@ export function SavedAiReviewsDialog({ opened, targets, onClose, onOpen }) {
 
   return <Modal opened={opened} onClose={onClose} title="Saved AI Reviews" centered size="lg">
     <Stack gap="md">
-      <Text size="sm" c="dimmed">Choose a saved review to open. This does not run AI Review.</Text>
+      <Group justify="space-between" wrap="nowrap"><Text size="sm" c="dimmed">Choose a saved review to open. This does not run AI Review.</Text><AiReviewHelp /></Group>
       <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
         <NativeSelect label="Show" value={filter} onChange={event => setFilter(event.currentTarget.value)} data={filters} />
         <NativeSelect label="Sort by" value={sort} onChange={event => setSort(event.currentTarget.value)} data={[
@@ -60,6 +51,7 @@ export function SavedAiReviewsDialog({ opened, targets, onClose, onOpen }) {
               <StatusIndicator status={target.result} />
             </Group>
             <Text size="sm">{target.deliverableTitle} · {target.fieldLabel}</Text>
+            {hasAiReviewNotes(target.report) ? <Text size="sm" c="dimmed">Review notes available</Text> : null}
             <Group justify="space-between" gap="xs">
               <Text size="sm" c="dimmed">{target.previous ? 'Previous review' : 'Reviewed'}{target.generatedAt ? ` ${formatDateTime(target.generatedAt)}` : ''}</Text>
               <Button variant="default" style={{ backgroundColor: 'transparent', color: 'inherit' }} onClick={() => onOpen(target)} aria-label={`View review: ${target.label}`}>View AI Review</Button>

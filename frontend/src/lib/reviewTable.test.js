@@ -112,11 +112,11 @@ describe('sortReviewResponses', () => {
         observedFileHistoryByField: { pdf: { observations: [{ changeType: 'CONTENT_CHANGED', driveModifiedTime: '2026-01-02T00:00:00Z' }] } }
       })
     ];
-    const ascending = ['reviewed', 'retry', 'running', 'manual', 'limited', 'outdated', 'unreviewed', 'na'];
+    const ascending = ['limited', 'manual', 'reviewed', 'retry', 'running', 'outdated', 'unreviewed', 'na'];
     expect(sortIds(rows, 'aiReview')).toEqual(ascending);
-    expect(sortIds(rows, 'aiReview', 'desc')).toEqual([...ascending].reverse());
-    expect(aggregateAiStatus(rows[1], deliverable)).toBe('Limited review coverage');
-    expect(aggregateAiStatus(rows[5], deliverable)).toBe('Needs manual verification');
+    expect(sortIds(rows, 'aiReview', 'desc')).toEqual(['na', 'unreviewed', 'outdated', 'running', 'retry', 'limited', 'manual', 'reviewed']);
+    expect(aggregateAiStatus(rows[1], deliverable)).toBe('Needs attention');
+    expect(aggregateAiStatus(rows[5], deliverable)).toBe('Needs attention');
   });
 
   it('sorts the actual decision labels and applies the Archived override before status', () => {

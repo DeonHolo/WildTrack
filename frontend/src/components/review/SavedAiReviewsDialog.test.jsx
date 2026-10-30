@@ -19,9 +19,9 @@ const open = (targets = items, onOpen = vi.fn()) => render(<MantineProvider><Sav
   onClose={vi.fn()} onOpen={onOpen} /></MantineProvider>);
 const names = () => screen.getAllByRole('listitem').map(row => row.textContent);
 
-it('puts concerns and manual checks first, before review limits and clean results', () => {
+it('puts concerns and manual checks first, then sorts matching results by student', () => {
   open();
-  expect(names()).toEqual(['Dee', 'Cara', 'Bob', 'Alice'].map(name => expect.stringContaining(name)));
+  expect(names()).toEqual(['Cara', 'Dee', 'Alice', 'Bob'].map(name => expect.stringContaining(name)));
   expect(screen.getByRole('status')).toHaveTextContent('4 of 4 saved reviews');
   expect(screen.getByLabelText('Sort by')).toHaveValue('attention');
 });
@@ -31,12 +31,13 @@ it('filters actionable items separately from review limits, with an empty-state 
   fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'attention' } });
   expect(names()).toHaveLength(2);
   expect(screen.queryByText('Bob')).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'Review limits' } });
+  fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'notes' } });
   expect(screen.getByText('Bob')).toBeInTheDocument();
   expect(names()).toHaveLength(1);
   fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'No issues' } });
   expect(screen.getByText('Alice')).toBeInTheDocument();
-  expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+  expect(screen.getByText('Bob')).toBeInTheDocument();
+  expect(names()).toHaveLength(2);
 });
 
 it('sorts alphabetically, by deliverable, and by saved review date without changing target identity', () => {
@@ -64,7 +65,7 @@ it('labels previous results and does not imply the latest attempt succeeded', ()
 
 it('shows no matches and keeps the controls available', () => {
   open([items[0]]);
-  fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'Check in PDF' } });
+  fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'attention' } });
   expect(screen.getByText('No saved reviews match this filter.')).toBeInTheDocument();
   expect(screen.getByRole('status')).toHaveTextContent('0 of 1 saved reviews');
   expect(screen.getByLabelText('Show')).toBeEnabled();
@@ -74,7 +75,8 @@ it('keeps backend-generated positive quote failures out of the attention filter'
   const row = { assessment: 'CHECK_MANUALLY', documentEvidence: null, location: null,
     explanation: "Check Change history in the PDF (AI-cited page 2). The quotation could not be matched to the PDF's readable text. Gemini's unconfirmed observation: The change history includes dates." };
   open([item('legacy', 'Bob', { outcome: 'INCONCLUSIVE', coverage: { criteria: [row] } })]);
-  expect(screen.getByText('Review limits', { selector: 'span' })).toBeInTheDocument();
+  expect(screen.getByText('No issues', { selector: 'span' })).toBeInTheDocument();
+  expect(screen.getByText('Review notes available')).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'attention' } });
   expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
 });

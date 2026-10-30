@@ -494,6 +494,20 @@ describe('deliverable-first submission review', () => {
     expectNoAiRequests();
   });
 
+  it('includes a completed concern in the attention notice even when the batch stored no advisory', async () => {
+    const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
+    ron.aiReviewState.report = { outcome: 'ISSUES_IDENTIFIED', documentOverview: { wrongDocument: true },
+      findings: [{ source: 'DOCUMENT', issue: 'The PDF contains only the word nothing.' }] };
+    getLatestAiReviewBatch.mockResolvedValue(completedBatch([{ ...savedEntry(), error: '', identity: {
+      sourceUrl: ron.values.documentPdf, deliverableTitle: 'Software Requirements Specification',
+      studentName: ron.studentName, artifactLabel: 'PDF Drive Link'
+    } }]));
+    renderPage();
+    expect(await screen.findByText(/These AI Reviews finished with items to check in the PDF/)).toBeVisible();
+    expect(screen.getByRole('button', { name: /View AI Review: Software Requirements Specification/ })).toBeInTheDocument();
+    expectNoAiRequests();
+  });
+
   it('opens only batch-selected results and excludes unrelated older saved reviews', async () => {
     const ron = workflow.state.attempts.find(item => item.id === 'response-ron-srs');
     const muriel = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');

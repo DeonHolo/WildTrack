@@ -102,7 +102,7 @@ for (const width of [390, 1440]) {
     await check.getByRole('button', { name: /Close/i }).click();
     await actions.getByRole('button', { name: 'View AI Review' }).click();
     const ai = page.getByRole('dialog', { name: /AI Review:/i });
-    await expect(ai.getByRole('status')).toContainText('Check in PDF');
+    await expect(ai.getByRole('status')).toContainText('Needs attention');
     await expect(ai).not.toContainText('before requesting a revision');
     const header = ai.locator('.mantine-Modal-header');
     await expect(header.getByRole('link', { name: 'Open PDF', exact: true })).toBeVisible();

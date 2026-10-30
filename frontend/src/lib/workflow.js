@@ -584,9 +584,8 @@ function hasUnresolvedInstructionAssessments(report) {
   return Array.isArray(criteria) && criteria.some(item => ['CHECK_MANUALLY', 'NEEDS_ATTENTION'].includes(aiReviewAssessment(item)?.assessment));
 }
 
-// Old zero-evidence completed reports can be empty or claim a clean result in
-// prose. Two distinct grounded observations are required before the UI may
-// report no actionable issues in the checked areas.
+// Retained for compatibility with earlier reports and their evidence notes.
+// Result pills use aiReviewReportStatus so completion is not mistaken for a result.
 export function isInconclusiveAiReviewReport(report) {
   if (!report) return true;
   if ((report.verificationNotes?.length || hasUnresolvedInstructionAssessments(report))
@@ -602,21 +601,33 @@ export function isInconclusiveAiReviewReport(report) {
 }
 
 export function aiReviewReportStatus(report) {
-  if (!isInconclusiveAiReviewReport(report)) return 'Reviewed';
-  return report?.verificationNotes?.length || hasUnresolvedInstructionAssessments(report)
-    ? 'Needs manual verification' : 'Limited review coverage';
+  if (report?.documentOverview?.wrongDocument === true
+      || (report?.findings || report?.flags || []).length
+      || (report?.missingRequiredSections || report?.missingSections || []).length
+      || report?.coverage?.criteria?.some(row => aiReviewAssessment(row)?.assessment === 'NEEDS_ATTENTION')
+      || report?.outcome === 'ISSUES_IDENTIFIED'
+      || report?.verificationNotes?.length || hasUnresolvedInstructionAssessments(report)
+      || report?.coverage?.omittedCriteria > 0) return 'Needs attention';
+  const assessments = report?.coverage?.criteria?.map(aiReviewAssessment) || [];
+  if (assessments.some(row => !['APPEARS_ADDRESSED', 'UNVERIFIED', 'NOT_APPLICABLE'].includes(row?.assessment))) return 'Needs attention';
+  return report && (assessments.length || aiReviewEvidenceCount(report) >= 2)
+    ? 'No issues' : 'Needs attention';
+}
+
+export function hasAiReviewNotes(report) {
+  return Boolean(report?.coverage?.criteria?.some(row => aiReviewAssessment(row)?.assessment === 'UNVERIFIED')
+    || report && isInconclusiveAiReviewReport(report)
+      && !report.verificationNotes?.length && !hasUnresolvedInstructionAssessments(report));
 }
 
 export function aiReviewReportSummary(report) {
   const status = aiReviewReportStatus(report);
-  if (status === 'Limited review coverage') {
-    const checks = aiReviewEvidenceCount(report);
-    return `Review finished with limited coverage: ${checks} supported observation${checks === 1 ? '' : 's'} recorded. This does not establish a no-issues result or mean the PDF is empty or incorrect.`;
-  }
-  if (status === 'Needs manual verification') {
-    return 'Review finished with checks needing manual verification. Inspect the cited areas in the original PDF.';
-  }
-  return report?.summary || 'AI Review is available.';
+  if (status === 'No issues') return 'The AI did not identify issues in the checked areas.'
+    + (hasAiReviewNotes(report) ? ' See Review notes for supporting text WildTrack could not confirm.' : '');
+  if (String(report?.summary || '').trim() && (report.outcome === 'ISSUES_IDENTIFIED'
+      || report.documentOverview?.wrongDocument || (report.findings || report.flags || []).length
+      || (report.missingRequiredSections || report.missingSections || []).length)) return report.summary;
+  return 'The AI flagged concerns or left items to check. Open AI Review for details.';
 }
 
 export function artifactAiReview(response, field) {
@@ -795,7 +806,9 @@ export function statusDisplayLabel(status) {
   const labels = {
     'ready for review': 'Looks filled',
     'looks substantially filled': 'Looks filled',
-    'needs manual verification': 'Check in PDF'
+    'needs manual verification': 'Needs attention',
+    'check in pdf': 'Needs attention',
+    'limited review coverage': 'Review notes'
   };
   return labels[String(status || '').toLowerCase()] || status;
 }
@@ -803,7 +816,7 @@ export function statusDisplayLabel(status) {
 export function statusTone(status) {
   const key = String(status).toLowerCase();
   if (['retry required', 'inconclusive', 'limited review coverage', 'needs manual verification', 'check in pdf'].includes(key)) return 'warning';
-  if (['reviewing', 'review limits'].includes(key)) return 'info';
+  if (['reviewing', 'review limits', 'review notes'].includes(key)) return 'info';
   if (/^\d+\s+days?\s+late$/.test(key)) return 'warning';
   if (['pdf ok', 'accepted', 'verified', 'on time', 'active', 'ready', 'ready for review', 'looks substantially filled', 'looks filled', 'connected', 'imported', 'published', 'submitted', 'file accessible', 'no issues'].includes(key)) return 'success';
   if (['archived', 'reviewed'].includes(key)) return 'maroon';

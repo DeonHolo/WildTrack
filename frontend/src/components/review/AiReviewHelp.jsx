@@ -1,4 +1,4 @@
-import { ActionIcon, Tooltip } from '@mantine/core';
+import { ActionIcon, Stack, Text, Tooltip } from '@mantine/core';
 import { Info } from '@phosphor-icons/react';
 
 export const AI_REVIEW_VERIFICATION_EXPLANATION = 'Gemini supplies a quotation from the submitted PDF to support its assessment. WildTrack looks for those words, allowing layout differences while preserving words, numbers and comparison signs. Separate passages stay separate. If the full quotation cannot be located, the observation stays unverified. Finding the quotation does not prove the assessment is correct.';
@@ -13,7 +13,12 @@ export function AiReviewVerificationHelp() {
 }
 
 export function AiReviewHelp() {
-  return <Tooltip label="AI Review can miss issues or misread a document. Check important findings and cited PDF pages before making your review decision. AI Review does not accept or grade submissions."
+  return <Tooltip label={<Stack gap="xs">
+    <Text size="sm"><strong>No issues:</strong> The AI did not identify concerns in the checked areas.</Text>
+    <Text size="sm"><strong>Needs attention:</strong> The AI flagged a concern or left something for you to check.</Text>
+    <Text size="sm">Review notes explain supporting text WildTrack could not confirm. They do not establish a document problem.</Text>
+    <Text size="sm">AI Review can make mistakes. Check important findings and cited PDF pages. It does not accept or grade submissions.</Text>
+  </Stack>}
     multiline w={320} withArrow events={{ hover: true, focus: true, touch: true }}>
     <ActionIcon variant="subtle" size={24} radius="sm" color="gray" aria-label="About AI Review">
       <Info size={16} aria-hidden="true" />

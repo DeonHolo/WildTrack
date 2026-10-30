@@ -188,7 +188,8 @@ test('opens the chosen saved submission and returns to a deduplicated chooser', 
   await page.goto('/review');
   await page.getByRole('button', { name: 'Check saved reviews' }).click();
   const chooser = page.getByRole('dialog', { name: 'Saved AI Reviews' });
-  await expect(chooser.getByRole('button')).toHaveCount(3);
+  await expect(chooser.getByRole('button', { name: /^View review:/ })).toHaveCount(2);
+  await expect(chooser.getByRole('status')).toHaveText('2 of 2 saved reviews');
   await chooser.getByRole('button', { name: /View review:.*SECOND STUDENT/ }).click();
   const ai = page.getByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
   await expect(ai.getByText('Second saved PDF review')).toBeVisible();

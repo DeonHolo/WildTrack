@@ -17,8 +17,10 @@ describe('shared status indicator', () => {
     ['Ready for review', 'Looks filled', 'success'],
     ['Looks substantially filled', 'Looks filled', 'success'],
     ['Looks filled', 'Looks filled', 'success'],
-    ['Needs manual verification', 'Check in PDF', 'warning'],
-    ['Check in PDF', 'Check in PDF', 'warning'],
+    ['Needs manual verification', 'Needs attention', 'warning'],
+    ['Check in PDF', 'Needs attention', 'warning'],
+    ['No issues', 'No issues', 'success'],
+    ['Needs attention', 'Needs attention', 'warning'],
     ['Retry required', 'Retry required', 'warning']
   ])('displays %s as %s without changing its meaning or tone', (status, label, tone) => {
     renderStatus(status);
