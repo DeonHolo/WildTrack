@@ -1,7 +1,7 @@
 import { ActionIcon, Tooltip } from '@mantine/core';
 import { Info } from '@phosphor-icons/react';
 
-export const AI_REVIEW_VERIFICATION_EXPLANATION = 'Gemini supplies a quotation from the submitted PDF to support its assessment. WildTrack looks for those words in the text extracted from that PDF, allowing differences in spacing, punctuation and capitalization. If it cannot locate the quotation, the observation stays unverified. A match confirms the quotation exists; it does not prove the assessment is correct.';
+export const AI_REVIEW_VERIFICATION_EXPLANATION = 'Gemini supplies a quotation from the submitted PDF to support its assessment. WildTrack looks for those words, allowing layout differences while preserving words, numbers and comparison signs. Separate passages stay separate. If the full quotation cannot be located, the observation stays unverified. Finding the quotation does not prove the assessment is correct.';
 
 export function AiReviewVerificationHelp() {
   return <Tooltip label={AI_REVIEW_VERIFICATION_EXPLANATION}

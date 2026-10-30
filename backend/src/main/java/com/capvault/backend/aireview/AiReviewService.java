@@ -1177,8 +1177,9 @@ public class AiReviewService {
                     documentText, context.template())) return CheckRejection.TEMPLATE_SAMPLE_IDENTITY;
         String excerpt = normalizeAuthorityText(check.documentEvidence());
         if (excerpt.length() < 15 || excerpt.split(" ").length < 3) return CheckRejection.INSUFFICIENT_DOCUMENT_QUOTE;
-        if (!containsNormalized(documentText, check.documentEvidence())) return CheckRejection.DOCUMENT_QUOTE_NOT_FOUND;
-        if (!AiReviewGroundingPolicy.positiveQuoteOccursInBody(documentText, check.documentEvidence()))
+        if (!AiReviewQuotationLocator.continuous(check.documentEvidence(), documentText)) return CheckRejection.DOCUMENT_QUOTE_NOT_FOUND;
+        if (!AiReviewQuotationLocator.positive(check.documentEvidence(), documentText,
+                context.approvedAuthority() == null ? null : check.aspect()))
             return CheckRejection.FRONT_MATTER_ONLY_EVIDENCE;
         if (AiReviewGroundingPolicy.containsExplicitPlaceholder(check.documentEvidence())
                 || AiReviewCompletenessPolicy.authoringInstruction(check.documentEvidence()))
@@ -1241,16 +1242,14 @@ public class AiReviewService {
 
     private static AiReviewProvider.EvidenceLocation validatedLocation(AiReviewProvider.EvidenceLocation location,
             String evidence, String documentText, List<PdfInspection.PageText> pages) {
+        if (evidence == null || evidence.isBlank()) return null;
         if (location == null) {
-            if (evidence == null || evidence.isBlank()) return null;
-            var matchingPages = pages.stream().filter(source -> containsNormalized(source.text(), evidence)).toList();
-            return matchingPages.size() == 1
-                ? new AiReviewProvider.EvidenceLocation(matchingPages.getFirst().pageNumber(), null) : null;
+            var matching = pages.stream().filter(p -> AiReviewQuotationLocator.continuous(evidence, p.text())).toList();
+            return matching.size() == 1 ? new AiReviewProvider.EvidenceLocation(matching.getFirst().pageNumber(), null) : null;
         }
         Integer requestedPage = location.page();
-        Integer page = requestedPage != null && requestedPage >= 1
-            && pages.stream().anyMatch(source -> source.pageNumber() == requestedPage
-                && containsNormalized(source.text(), evidence)) ? requestedPage : null;
+        Integer page = requestedPage != null && requestedPage >= 1 && pages.stream().anyMatch(p ->
+            p.pageNumber() == requestedPage && AiReviewQuotationLocator.continuous(evidence, p.text())) ? requestedPage : null;
         String section = location.section();
         String sourceText = page == null ? documentText : pages.stream()
             .filter(source -> source.pageNumber() == page).findFirst().orElseThrow().text();

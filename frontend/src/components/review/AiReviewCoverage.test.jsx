@@ -9,6 +9,24 @@ const criterion = (assessment, extra = {}) => ({ id: extra.id || 'C1', title: 'D
   location: { page: 8, section: 'Recovery' }, ...extra });
 function show(report) { render(<MantineProvider><AiReviewCoverage report={report} /></MantineProvider>); }
 
+it('shows separately located source passages with their own pages only in Review limits', () => {
+  const row = criterion('UNVERIFIED', { documentEvidence: null, location: null,
+    explanation: 'Supporting text was located in separate excerpts; it does not confirm the full AI observation.',
+    documentExcerpts: [{ text: 'Users submit a document', location: { page: 8 } },
+      { text: 'and staff review it.', location: { page: 9 } }] });
+  render(<MantineProvider><AiReviewCoverage report={{ coverage: { criteria: [row] } }} />
+    <AiReviewVerificationLimits report={{ coverage: { criteria: [row] } }} /></MantineProvider>);
+  expect(screen.queryByRole('region', { name: 'Template and instruction assessment' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText(/Supporting text was located/));
+  const excerpts = screen.getAllByRole('blockquote', { name: 'Linked evidence excerpt' });
+  expect(excerpts).toHaveLength(2);
+  expect(excerpts[0]).toHaveTextContent('Users submit a document');
+  expect(excerpts[1]).toHaveTextContent('and staff review it.');
+  expect(screen.getByText('Submitted PDF · page 8')).toBeVisible();
+  expect(screen.getByText('Submitted PDF · page 9')).toBeVisible();
+  expect(screen.queryByText('Submitted PDF · quotation unverified')).not.toBeInTheDocument();
+});
+
 it('shows an unverified positive observation only in Review limits, without a pass or manual concern', () => {
   const report = { coverage: { criteria: [criterion('UNVERIFIED', { location: null, documentEvidence: null,
     explanation: 'The supporting quotation could not be verified. Unverified AI observation: The recovery path is described.' })] } };
@@ -69,7 +87,7 @@ it('keeps linked excerpt pages separate and does not attribute them to an unloca
   expect(rows[0].querySelector('summary')).toHaveTextContent(first.explanation);
   expect(content.querySelector('blockquote')).toHaveClass('wt-ai-review-passage', 'wt-ai-review-quote');
   expect(content).not.toHaveTextContent('Excerpt from submitted PDF');
-  expect(content.querySelector('blockquote cite')).toHaveTextContent('Submitted PDF · page 3 · Process');
+  expect(content.querySelector('blockquote + cite')).toHaveTextContent('Submitted PDF · page 3 · Process');
   expect(content.lastElementChild).toHaveTextContent('Source: Submitted PDF · quotation unverified');
   expect(rows[1].querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('Submitted PDF · quotation unverified');
 });
@@ -80,7 +98,7 @@ it('retains each excerpt page when the criterion and a linked concern cite diffe
     issue: 'Confirm the second passage.', evidence: 'A different passage.', location: { page: 5 } }] });
   const item = document.querySelector('.wt-ai-review-assessment-row');
   expect(item.querySelector('summary')).toHaveTextContent('p. 8');
-  expect(item.querySelector('blockquote cite')).toHaveTextContent('Submitted PDF · page 5');
+  expect(item.querySelector('blockquote + cite')).toHaveTextContent('Submitted PDF · page 5');
   expect(item.querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('Submitted PDF · page 8 · Recovery');
 });
 
