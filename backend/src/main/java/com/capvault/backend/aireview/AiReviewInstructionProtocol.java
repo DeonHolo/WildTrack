@@ -135,7 +135,8 @@ public final class AiReviewInstructionProtocol {
             CoverageStatus status;
             switch (label) {
                 case APPEARS_ADDRESSED -> {
-                    if (evidence.isBlank() || location == null) throw invalid("An addressed instruction needs PDF evidence and a page.");
+                    // Grounding locates the quotation and its page. Incomplete citation metadata
+                    // must not discard unrelated assessments from an otherwise complete group.
                     checkIndexes.add(checks.size());
                     checks.add(new VerifiedCheck(source.title(), FindingSource.OFFICIAL_TEMPLATE, evidence, authority, location));
                     status = CoverageStatus.EVIDENCE_RECORDED;

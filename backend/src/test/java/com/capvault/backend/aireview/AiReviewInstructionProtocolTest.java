@@ -121,20 +121,37 @@ class AiReviewInstructionProtocolTest {
         assertThat(AiReviewInstructionProtocol.GUIDANCE).contains("one to three short sentences", "four", "specific");
     }
 
-    @Test void addressedAssessmentNeedsEvidenceAndAnAbsolutePage() {
+    @Test void malformedPageReferencesStillRejectTheResponse() {
         var group = List.of(instruction("T1", Applicability.REQUIRED));
         var report = response(group, true);
-        assessment(report).put("documentEvidence", "");
-        rejects(report, group, true);
-        report = response(group, true);
-        assessment(report).put("page", 0);
-        rejects(report, group, true);
-        report = response(group, true);
         assessment(report).put("page", -1);
         rejects(report, group, true);
         report = response(group, true);
         assessment(report).put("page", 1.5);
         rejects(report, group, true);
+    }
+
+    @Test void missingCitationMetadataIsGroundedPerInstructionWithoutLosingOtherRows() {
+        var group = List.of(instruction("T1", Applicability.REQUIRED),
+            instruction("T2", Applicability.REQUIRED), instruction("T3", Applicability.REQUIRED));
+        var report = response(group, true);
+        assessment(report).put("documentEvidence", "");
+        ((ObjectNode) report.withArray("instructionAssessments").get(1)).put("page", 0);
+        var parsed = AiReviewInstructionProtocol.parse(report, template(group), group, true);
+        String body = "1. Scope\nStudents submit their project documents and advisers inspect their assigned teams.";
+        var inspection = new com.capvault.backend.filecheck.PdfInspection(true, false, 5, 1, body.length(), body, "",
+            List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(5, body, false)));
+        var input = new Input("source", new byte[] {1}, body, "", "SRS", "", "");
+        var grounded = AiReviewService.groundInstructions(parsed, input, inspection, group);
+        var rows = grounded.coverage().criteria();
+        assertThat(rows).hasSize(3);
+        assertThat(rows.get(0).assessment()).isEqualTo(CriterionAssessmentLabel.UNVERIFIED);
+        assertThat(rows.get(0).documentEvidence()).isNull();
+        assertThat(rows.get(0).verifiedCheckIndexes()).isEmpty();
+        assertThat(rows.get(1).assessment()).isEqualTo(CriterionAssessmentLabel.APPEARS_ADDRESSED);
+        assertThat(rows.get(1).location().page()).isEqualTo(5);
+        assertThat(rows.get(2).assessment()).isEqualTo(CriterionAssessmentLabel.APPEARS_ADDRESSED);
+        assertThat(grounded.outcome()).isEqualTo(ReviewOutcome.INCONCLUSIVE);
     }
 
     @Test void firstGroupRequiresOverviewAndLaterGroupsCannotDuplicateIt() {
