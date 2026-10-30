@@ -148,20 +148,17 @@ final class AiReviewCoveragePolicy {
             String evidence = explicit ? mapping.documentEvidence() : null;
             EvidenceLocation location = null;
             String explanation = explicit ? mapping.explanation() : null;
-            if (explicit && label == CriterionAssessmentLabel.NEEDS_ATTENTION && !findings.isEmpty()) {
-                var finding = accepted.findings().get(findings.get(0));
-                if (validDirectQuote(finding.evidence(), documentText)) {
-                    evidence = finding.evidence();
-                    location = sourceLocation(evidence, pages);
-                } else { evidence = null; location = null; }
-            } else if (explicit && label != null && !validDirectQuote(evidence, documentText)) {
-                evidence = null;
-                location = null;
-            }
-            if (explicit && evidence != null) {
-                location = sourceLocation(evidence, pages);
+            if (explicit && label == CriterionAssessmentLabel.NEEDS_ATTENTION && !findings.isEmpty())
+                evidence = accepted.findings().get(findings.get(0)).evidence();
+            var quotation = AiReviewQuotationLocator.locate(evidence, documentText, pages, mapping.location());
+            var excerpts = quotation.excerpts();
+            boolean eligible = evidence != null && key(evidence).length() >= 20 && key(evidence).split(" ").length >= 4
+                && AiReviewQuotationLocator.positive(evidence, documentText, criterion.title());
+            if (explicit && quotation.continuous() && eligible) {
+                evidence = excerpts.getFirst().text();
+                location = excerpts.getFirst().location();
                 if (location == null) evidence = null;
-            }
+            } else evidence = null;
             if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
                     && (!findings.isEmpty() || !missing.isEmpty())) {
                 label = CriterionAssessmentLabel.NEEDS_ATTENTION;
@@ -176,7 +173,9 @@ final class AiReviewCoveragePolicy {
                 // A failed quotation check is a review limitation, not a document concern or a pass.
                 label = CriterionAssessmentLabel.UNVERIFIED;
                 checks = List.of();
-                explanation = "The supporting quotation could not be verified. Unverified AI observation: "
+                explanation = (quotation.located()
+                    ? "Supporting text was located in separate excerpts; it does not confirm the full AI observation."
+                    : "The supporting quotation could not be verified.") + " Unverified AI observation: "
                     + Objects.requireNonNullElse(mapping.explanation(), "").strip();
             } else if (explicit && label == CriterionAssessmentLabel.APPEARS_ADDRESSED
                     && criterion.id().startsWith("T") && checks.isEmpty()) {
@@ -190,14 +189,14 @@ final class AiReviewCoveragePolicy {
             }
             if (evidence == null) location = null;
             return row(criterion, checks, findings, missing, List.copyOf(notes), label,
-                explanation, evidence, location);
+                explanation, evidence, location, quotation.continuous() ? List.of() : excerpts);
         }).toList();
         return new ReviewCoverage(rows, plan.omittedCriteria(), 1, null, plan.scopeNote());
     }
 
     private static boolean validDirectQuote(String quote, String documentText) {
         if (quote == null || quote.isBlank() || documentText == null || documentText.isBlank()) return false;
-        return AiReviewGroundingPolicy.positiveQuoteOccursInBody(documentText, quote)
+        return AiReviewQuotationLocator.positive(quote, documentText, null)
             && key(quote).length() >= 20 && key(quote).split(" ").length >= 4;
     }
 
@@ -222,10 +221,8 @@ final class AiReviewCoveragePolicy {
     }
 
     private static EvidenceLocation sourceLocation(String quote, List<PdfInspection.PageText> pages) {
-        if (quote == null || pages == null) return null;
-        String q = key(quote);
-        for (var page : pages) if (key(page.text()).contains(q)) return new EvidenceLocation(page.pageNumber(), null);
-        return null;
+        var match = AiReviewQuotationLocator.locate(quote, "", pages, null);
+        return match.continuous() ? match.excerpts().getFirst().location() : null;
     }
 
     static Result withCoverage(Result result, ReviewCoverage coverage) {
@@ -286,7 +283,8 @@ final class AiReviewCoveragePolicy {
                 mergedRow.verificationNoteIndexes(), selectedMetadata == null ? null : selectedMetadata.assessment(),
                 selectedMetadata == null ? null : selectedMetadata.explanation(),
                 selectedMetadata == null ? null : selectedMetadata.documentEvidence(),
-                selectedMetadata == null ? null : selectedMetadata.location(), item.title());
+                selectedMetadata == null ? null : selectedMetadata.location(), item.title(),
+                selectedMetadata == null ? List.of() : selectedMetadata.documentExcerpts());
         }).toList();
         return withCoverage(combined, new ReviewCoverage(merged, a.omittedCriteria(), 2, null, a.scopeNote()));
     }
@@ -299,7 +297,7 @@ final class AiReviewCoveragePolicy {
             remap(item.findingIndexes(), from.findings(), into.findings(), AiReviewCoveragePolicy::sameFinding),
             remap(item.missingSectionIndexes(), from.missingRequiredSections(), into.missingRequiredSections(), AiReviewCoveragePolicy::sameMissing),
             remap(item.verificationNoteIndexes(), from.verificationNotes(), into.verificationNotes(), AiReviewCoveragePolicy::sameFinding),
-            item.assessment(), item.explanation(), item.documentEvidence(), item.location())).toList(),
+            item.assessment(), item.explanation(), item.documentEvidence(), item.location(), item.documentExcerpts())).toList(),
             from.coverage().omittedCriteria(), 2, null, from.coverage().scopeNote());
     }
 
@@ -327,11 +325,17 @@ final class AiReviewCoveragePolicy {
     private static CriterionAssessment row(Criterion criterion, List<Integer> checks, List<Integer> findings,
             List<Integer> missing, List<Integer> notes, CriterionAssessmentLabel label, String explanation,
             String evidence, EvidenceLocation location) {
+        return row(criterion, checks, findings, missing, notes, label, explanation, evidence, location, List.of());
+    }
+
+    private static CriterionAssessment row(Criterion criterion, List<Integer> checks, List<Integer> findings,
+            List<Integer> missing, List<Integer> notes, CriterionAssessmentLabel label, String explanation,
+            String evidence, EvidenceLocation location, List<DocumentExcerpt> excerpts) {
         CoverageStatus status = !findings.isEmpty() || !missing.isEmpty() ? CoverageStatus.ISSUE_RECORDED
             : !notes.isEmpty() ? CoverageStatus.NEEDS_VERIFICATION
             : !checks.isEmpty() ? CoverageStatus.EVIDENCE_RECORDED : CoverageStatus.NOT_CHECKED;
         return new CriterionAssessment(criterion.id(), criterion.requirement(), criterion.source(), status,
-            checks, findings, missing, notes, label, explanation, evidence, location, criterion.title());
+            checks, findings, missing, notes, label, explanation, evidence, location, criterion.title(), excerpts);
     }
 
     private static <T> List<Integer> remap(List<Integer> indexes, List<T> before, List<T> after, BiPredicate<T, T> same) {

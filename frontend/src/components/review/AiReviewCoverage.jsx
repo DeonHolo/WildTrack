@@ -57,8 +57,10 @@ function AssessmentRow({ row, report }) {
     .filter(note => note?.source === row.source && String(note.requirement || '').trim() === String(row.requirement).trim());
   const linkedMissing = (Array.isArray(row.missingSectionIndexes) ? row.missingSectionIndexes : []).map(index => report?.missingRequiredSections?.[index])
     .filter(item => item?.source === row.source && String(item.requirement || '').trim() === String(row.requirement).trim());
+  const excerpts = (Array.isArray(row.documentExcerpts) ? row.documentExcerpts : []).filter(item => hasText(item?.text) && validPage(item.location));
+  const excerptPages = [...new Set(excerpts.map(item => item.location.page))];
   const location = validPage(row.location) ? row.location : null;
-  const page = location ? `p. ${location.page}` : '';
+  const page = location ? `p. ${location.page}` : excerptPages.length ? `p. ${excerptPages.join(', ')}` : '';
   const instruction = formatTemplateInstruction(row.requirement);
   return <details className="wt-ai-review-assessment-row">
     <summary className="wt-ai-review-assessment-summary">
@@ -76,9 +78,10 @@ function AssessmentRow({ row, report }) {
       {linkedNotes.map((note, index) => <div key={`note-${index}`}><Text>{note.issue}</Text>{hasText(note.evidence) && note.evidence !== row.documentEvidence ? <LinkedExcerpt text={note.evidence} location={note.location} /> : null}</div>)}
       {linkedMissing.map((item, index) => <Text key={`missing-${index}`}>Confirm the required section: {item.section}</Text>)}
       {hasText(row.documentEvidence) ? <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Evidence excerpt">{row.documentEvidence}</Text> : null}
-      <Text component="p" className="wt-ai-review-reference"><strong>Source:</strong> {location
+      {excerpts.map((item, index) => <LinkedExcerpt key={`source-part-${index}`} text={item.text} location={item.location} />)}
+      {!excerpts.length ? <Text component="p" className="wt-ai-review-reference"><strong>Source:</strong> {location
         ? <>Submitted PDF · page {location.page}{hasText(location.section) ? ` · ${location.section}` : ''}</>
-        : 'Submitted PDF · quotation unverified'}</Text>
+        : 'Submitted PDF · quotation unverified'}</Text> : null}
     </div>
   </details>;
 }
@@ -92,12 +95,12 @@ function AssessmentExplanation({ row }) {
 }
 
 function LinkedExcerpt({ text, location }) {
-  return <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Linked evidence excerpt">
-    {text}
+  return <div>
+    <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Linked evidence excerpt">{text}</Text>
     <Text component="cite" display="block" className="wt-ai-review-reference">{validPage(location)
       ? `Submitted PDF · page ${location.page}${hasText(location.section) ? ` · ${location.section}` : ''}`
       : 'Submitted PDF page not established'}</Text>
-  </Text>;
+  </div>;
 }
 
 export function AiReviewCoverage({ report, showHeading = true }) {
@@ -128,7 +131,7 @@ export function AiReviewVerificationLimits({ report }) {
   if (!rows.length) return null;
   return <section aria-label="Unverified AI observations">
     <Group gap={4} mt="sm"><Text component="h3" fw={700}>Unverified AI observations ({rows.length})</Text><AiReviewVerificationHelp /></Group>
-    <Text mt="sm">The supporting quotations could not be verified. These observations do not establish a document problem or a confirmed pass.</Text>
+    <Text mt="sm">The full supporting quotations could not be verified. These observations do not establish a document problem or a confirmed pass.</Text>
     {rows.map(row => <AssessmentRow key={row.key} row={row} report={report} />)}
   </section>;
 }

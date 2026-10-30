@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 /** Exact group accounting; source grounding is performed by AiReviewService after parsing. */
 public final class AiReviewInstructionProtocol {
-    public static final String VERSION = "instruction-assessment-pdf-v7-supported-document-type-contrast";
+    public static final String VERSION = "instruction-assessment-pdf-v8-layout-safe-source-locations";
     public static final int MAX_GROUP_ITEMS = 16;
     private static final Set<String> TOP = Set.of("complete", "instructionAssessments", "documentOverview", "generalFindings");
     private static final Set<String> ASSESSMENT = Set.of("id", "assessment", "explanation", "documentEvidence", "page", "section");
@@ -39,6 +39,8 @@ public final class AiReviewInstructionProtocol {
         APPEARS_ADDRESSED needs an exact student-PDF quotation supporting that specific instruction.
         Copy a contiguous passage from the numbered student text where available. Do not insert literal
         backslash-n or backslash-t sequences into quotations or combine separate table cells as prose.
+        Keep the complete relevant clause, including negations, conditions, quantities, units and exceptions.
+        Never omit words that change its meaning, or substitute a paraphrase for a quotation.
         Different accepted terminology is allowed: assess meaning, not whether student wording copies
         the template. A visual observation can be useful even without an extractable quotation; in that
         case explain the specific visual check and cite its PDF page without claiming a confirmed defect.
@@ -199,7 +201,7 @@ public final class AiReviewInstructionProtocol {
         var coverage = result.coverage();
         var rows = coverage.criteria().stream().map(row -> new CriterionAssessment(row.id(), row.requirement(), row.source(),
             row.status(), row.verifiedCheckIndexes(), row.findingIndexes(), row.missingSectionIndexes(), row.verificationNoteIndexes(),
-            row.assessment(), row.explanation(), formattedCitation(row.documentEvidence(), sourceKey), row.location(), row.title())).toList();
+            row.assessment(), row.explanation(), formattedCitation(row.documentEvidence(), sourceKey), row.location(), row.title(), row.documentExcerpts())).toList();
         var overview = result.documentOverview();
         if (overview != null) overview = new DocumentOverview(overview.text(), overview.actualDocumentType(),
             overview.wrongDocument(), formattedCitation(overview.evidence(), sourceKey));

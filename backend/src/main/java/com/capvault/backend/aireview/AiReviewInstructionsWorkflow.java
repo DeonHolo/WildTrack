@@ -112,7 +112,7 @@ public class AiReviewInstructionsWorkflow {
             if (overview == null) overview = result.documentOverview();
             for (var row : result.coverage().criteria()) criteria.add(new CriterionAssessment(row.id(), row.requirement(), row.source(), row.status(),
                 offset(row.verifiedCheckIndexes(), c), offset(row.findingIndexes(), f), offset(row.missingSectionIndexes(), m),
-                offset(row.verificationNoteIndexes(), n), row.assessment(), row.explanation(), row.documentEvidence(), row.location(), row.title()));
+                offset(row.verificationNoteIndexes(), n), row.assessment(), row.explanation(), row.documentEvidence(), row.location(), row.title(), row.documentExcerpts()));
             findings.addAll(result.findings()); missing.addAll(result.missingRequiredSections()); checks.addAll(result.verifiedChecks());
             notes.addAll(result.verificationNotes()); limitations.addAll(result.limitations());
         }

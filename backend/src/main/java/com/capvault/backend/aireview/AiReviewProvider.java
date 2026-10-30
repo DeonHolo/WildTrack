@@ -56,6 +56,7 @@ public interface AiReviewProvider extends com.capvault.backend.template.Template
             this(aspect, source, documentEvidence, requirement, null);
         }
     }
+    record DocumentExcerpt(String text, EvidenceLocation location) { }
     enum CoverageStatus { EVIDENCE_RECORDED, ISSUE_RECORDED, NEEDS_VERIFICATION, NOT_CHECKED }
     /** A compact, advisory assessment for one server-owned criterion. */
     enum CriterionAssessmentLabel { APPEARS_ADDRESSED, NEEDS_ATTENTION, CHECK_MANUALLY, NOT_APPLICABLE, UNVERIFIED }
@@ -63,7 +64,15 @@ public interface AiReviewProvider extends com.capvault.backend.template.Template
                                List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
                                List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes,
                                CriterionAssessmentLabel assessment, String explanation, String documentEvidence,
+                               EvidenceLocation location, String title, List<DocumentExcerpt> documentExcerpts) {
+        public CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
+                               List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
+                               List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes,
+                               CriterionAssessmentLabel assessment, String explanation, String documentEvidence,
                                EvidenceLocation location, String title) {
+            this(id, requirement, source, status, verifiedCheckIndexes, findingIndexes, missingSectionIndexes,
+                verificationNoteIndexes, assessment, explanation, documentEvidence, location, title, List.of());
+        }
         public CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
                                List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
                                List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes) {
@@ -79,6 +88,7 @@ public interface AiReviewProvider extends com.capvault.backend.template.Template
                 verificationNoteIndexes, assessment, explanation, documentEvidence, location, null);
         }
         public CriterionAssessment {
+            documentExcerpts = documentExcerpts == null ? List.of() : List.copyOf(documentExcerpts);
             verifiedCheckIndexes = verifiedCheckIndexes == null ? List.of() : List.copyOf(verifiedCheckIndexes);
             findingIndexes = findingIndexes == null ? List.of() : List.copyOf(findingIndexes);
             missingSectionIndexes = missingSectionIndexes == null ? List.of() : List.copyOf(missingSectionIndexes);
