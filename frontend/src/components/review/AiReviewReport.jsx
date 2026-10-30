@@ -19,6 +19,8 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
   const allNotes = uniqueByClaim([...(report.verificationNotes || []), ...legacyNotes]);
   const instructionRows = validAssessmentCriteria(report);
   const unverifiedCount = instructionRows.filter(row => row.assessment === 'UNVERIFIED').length;
+  const referenceNoteCount = instructionRows.filter(row => row.assessment !== 'NOT_APPLICABLE'
+    && ['NOT_LOCATED', 'NOT_PROVIDED'].includes(row.evidenceVerification?.status)).length;
   const checklistRows = instructionRows.filter(row => row.assessment !== 'UNVERIFIED');
   const linkedEvidence = assessedEvidenceIndexes(report);
   const mismatch = report.documentOverview?.wrongDocument === true;
@@ -49,7 +51,6 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
   const summary = [
     concernCount && `${concernCount} concern${concernCount === 1 ? '' : 's'}`,
     manualCheckCount && `${manualCheckCount} item${manualCheckCount === 1 ? '' : 's'} to check`,
-    unverifiedCount && `${unverifiedCount} unverified observation${unverifiedCount === 1 ? '' : 's'}`,
     glossary.length && `${glossary.length} minor check${glossary.length === 1 ? '' : 's'}`
   ].filter(Boolean).join(' · ') || (fixedChecklistComplete
     ? `${instructionRows.length} template instruction${instructionRows.length === 1 ? '' : 's'} assessed`
@@ -87,7 +88,7 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
           The AI did not flag concerns or items needing a manual check. This is advisory feedback, not approval.
         </Alert>
       ) : null}
-      {unverifiedCount ? <Text size="sm" c="dimmed">WildTrack could not confirm the supporting text for {unverifiedCount} AI observation{unverifiedCount === 1 ? '' : 's'}. See Review notes.</Text> : null}
+      {unverifiedCount || referenceNoteCount ? <Text size="sm" c="dimmed">Some supporting PDF text could not be located. See Review notes.</Text> : null}
       {findings.length || missing.length || verificationNotes.length || checklistRows.length || report.coverage?.omittedCriteria > 0 ? (
         <section aria-label="Review checklist">
           <Text component="h3" fw={700}>Review checklist</Text>

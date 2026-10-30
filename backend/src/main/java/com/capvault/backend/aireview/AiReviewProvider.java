@@ -57,14 +57,25 @@ public interface AiReviewProvider extends com.capvault.backend.template.Template
         }
     }
     record DocumentExcerpt(String text, EvidenceLocation location) { }
-    enum CoverageStatus { EVIDENCE_RECORDED, ISSUE_RECORDED, NEEDS_VERIFICATION, NOT_CHECKED }
+    enum CoverageStatus { EVIDENCE_RECORDED, ISSUE_RECORDED, NEEDS_VERIFICATION, NOT_CHECKED, ASSESSED }
+    enum QuotationStatus { LOCATED, SEPARATE_EXCERPTS, NOT_LOCATED, NOT_PROVIDED }
+    record EvidenceVerification(QuotationStatus status, String providerQuotation, EvidenceLocation citedLocation) { }
     /** A compact, advisory assessment for one server-owned criterion. */
     enum CriterionAssessmentLabel { APPEARS_ADDRESSED, NEEDS_ATTENTION, CHECK_MANUALLY, NOT_APPLICABLE, UNVERIFIED }
     record CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
                                List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
                                List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes,
                                CriterionAssessmentLabel assessment, String explanation, String documentEvidence,
+                               EvidenceLocation location, String title, List<DocumentExcerpt> documentExcerpts,
+                               EvidenceVerification evidenceVerification) {
+        public CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
+                               List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
+                               List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes,
+                               CriterionAssessmentLabel assessment, String explanation, String documentEvidence,
                                EvidenceLocation location, String title, List<DocumentExcerpt> documentExcerpts) {
+            this(id, requirement, source, status, verifiedCheckIndexes, findingIndexes, missingSectionIndexes,
+                verificationNoteIndexes, assessment, explanation, documentEvidence, location, title, documentExcerpts, null);
+        }
         public CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,
                                List<Integer> verifiedCheckIndexes, List<Integer> findingIndexes,
                                List<Integer> missingSectionIndexes, List<Integer> verificationNoteIndexes,

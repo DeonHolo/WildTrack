@@ -145,13 +145,34 @@ class AiReviewInstructionProtocolTest {
         var grounded = AiReviewService.groundInstructions(parsed, input, inspection, group);
         var rows = grounded.coverage().criteria();
         assertThat(rows).hasSize(3);
-        assertThat(rows.get(0).assessment()).isEqualTo(CriterionAssessmentLabel.UNVERIFIED);
+        assertThat(rows.get(0).assessment()).isEqualTo(CriterionAssessmentLabel.APPEARS_ADDRESSED);
+        assertThat(rows.get(0).evidenceVerification().status()).isEqualTo(QuotationStatus.NOT_PROVIDED);
         assertThat(rows.get(0).documentEvidence()).isNull();
         assertThat(rows.get(0).verifiedCheckIndexes()).isEmpty();
         assertThat(rows.get(1).assessment()).isEqualTo(CriterionAssessmentLabel.APPEARS_ADDRESSED);
         assertThat(rows.get(1).location().page()).isEqualTo(5);
         assertThat(rows.get(2).assessment()).isEqualTo(CriterionAssessmentLabel.APPEARS_ADDRESSED);
-        assertThat(grounded.outcome()).isEqualTo(ReviewOutcome.INCONCLUSIVE);
+        assertThat(grounded.outcome()).isEqualTo(ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS);
+    }
+
+    @Test void blankOrVisualPdfsKeepTheirOverviewAndSpecificConcernWithoutInventingAQuote() {
+        var group = List.of(instruction("T1", Applicability.REQUIRED));
+        var report = response(group, true);
+        ((ObjectNode) report.path("documentOverview")).put("text", "The PDF contains a scanned drawing with no readable text.")
+            .put("actualDocumentType", "a drawing").put("evidence", "").put("wrongDocument", true);
+        assessment(report).put("assessment", "NEEDS_ATTENTION").put("documentEvidence", "").put("page", 0)
+            .put("explanation", "The PDF contains a drawing rather than the required project scope.");
+        report.withArray("generalFindings").addObject().put("issue", "A drawing was submitted instead of a project plan.")
+            .put("source", "DOCUMENT").put("evidence", "").put("requirement", "").put("page", 0).put("section", "");
+        var parsed = AiReviewInstructionProtocol.parse(report, template(group), group, true);
+        var inspection = new com.capvault.backend.filecheck.PdfInspection(true, false, 1, 0, 0, "", "",
+            List.of(new com.capvault.backend.filecheck.PdfInspection.PageText(1, "", true)));
+        var result = AiReviewService.groundInstructions(parsed, new Input("source", new byte[] {1}, "", "", "SRS", "", ""), inspection, group);
+        assertThat(result.documentOverview().text()).contains("scanned drawing");
+        assertThat(result.documentOverview().wrongDocument()).isTrue();
+        assertThat(result.coverage().criteria().getFirst().assessment()).isEqualTo(CriterionAssessmentLabel.NEEDS_ATTENTION);
+        assertThat(result.findings()).hasSize(2).allSatisfy(finding -> assertThat(finding.evidence()).isEmpty());
+        assertThat(result.outcome()).isEqualTo(ReviewOutcome.ISSUES_IDENTIFIED);
     }
 
     @Test void firstGroupRequiresOverviewAndLaterGroupsCannotDuplicateIt() {
