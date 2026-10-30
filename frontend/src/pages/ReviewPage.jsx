@@ -119,7 +119,7 @@ export function ReviewPage() {
       return { ...entry, error: status === 'Needs attention'
         ? 'Review finished with checks needing manual verification. Open the saved review to inspect the cited areas.'
         : hasAiReviewNotes(target.report)
-          ? 'Review finished with limited coverage. Open the saved review to see the supported observations.' : '' };
+          ? 'Review finished with supporting reference notes. Open the saved review for details.' : '' };
     }) };
   }, [aiBatch.batch, state]);
   const [searchParams] = useSearchParams();

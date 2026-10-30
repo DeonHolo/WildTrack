@@ -489,7 +489,7 @@ describe('deliverable-first submission review', () => {
       explanation: "Check Change history in the PDF (AI-cited page 2). The quotation could not be matched to the PDF's readable text. Gemini's unconfirmed observation: The change history contains dates." }] } };
     getLatestAiReviewBatch.mockResolvedValue(completedBatch([{ ...savedEntry(), error: 'Review finished with checks needing manual verification.' }]));
     renderPage();
-    expect(await screen.findByText(/Some AI observations couldn’t be verified by WildTrack/)).toBeVisible();
+    expect(await screen.findByText(/Some supporting PDF text could not be located/)).toBeVisible();
     expect(screen.queryByText(/These AI Reviews finished with items to check in the PDF/)).not.toBeInTheDocument();
     expectNoAiRequests();
   });
