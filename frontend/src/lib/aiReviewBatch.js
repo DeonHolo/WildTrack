@@ -109,10 +109,10 @@ export function aiBatchFailureGroups(entries = []) {
       || error.startsWith("WildTrack's Drive API configuration was rejected.");
     const advisory = isAiBatchReviewAdvisory(entry);
     const manualCheck = advisory && /manual verification|items to check in the PDF/i.test(error);
-    const reviewLimit = advisory && /inconclusive|limited (?:review )?coverage/i.test(error);
+    const reviewLimit = advisory && /inconclusive|limited (?:review )?coverage|supporting reference notes/i.test(error);
     const message = manualCheck
       ? 'These AI Reviews finished with items to check in the PDF. Open the saved reviews for details.'
-      : reviewLimit ? 'Some AI observations couldn’t be verified by WildTrack. See Review notes in the saved reviews for details.'
+      : reviewLimit ? 'Some supporting PDF text could not be located. See Review notes in the saved reviews for details.'
       : driveAccess || driveRetrieval
         ? 'These PDFs could not be opened from Google Drive. No AI review started for them.' : error;
     const groupKey = `${advisory ? 'advisory' : 'failure'}:${message}`;

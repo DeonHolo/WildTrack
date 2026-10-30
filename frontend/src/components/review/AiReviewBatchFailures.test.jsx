@@ -121,7 +121,7 @@ describe('AI batch affected PDF presentation', () => {
     expect(screen.getByText('1 AI review available')).toBeInTheDocument();
     expect(screen.queryByText(/failed or unconfirmed/)).not.toBeInTheDocument();
     expect(screen.getByRole('status').style.getPropertyValue('--alert-color')).toContain('green');
-    expect(screen.getByText(/Some AI observations couldn’t be verified by WildTrack/)).toBeInTheDocument();
+    expect(screen.getByText(/Some supporting PDF text could not be located/)).toBeInTheDocument();
     expect(screen.queryByText(/finished with items to check in the PDF/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Show PDFs with review limits' }).style.getPropertyValue('--ai-color')).toContain('blue');
   });
