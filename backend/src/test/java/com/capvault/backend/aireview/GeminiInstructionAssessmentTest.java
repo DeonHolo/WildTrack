@@ -213,6 +213,18 @@ class GeminiInstructionAssessmentTest {
         server.verify(); // The retained template must not be deleted with the submission.
     }
 
+    @Test void contradictoryCompletionFlagKeepsEveryValidatedAnswerWithoutAnotherGeneration() throws Exception {
+        expectActive();
+        var contradictory = validReport(true).put("complete", false);
+        expectGeneration(contradictory, "STOP", true);
+        var result = provider.assessInstructions(input(true));
+        assertThat(result.coverage().criteria()).hasSize(1);
+        assertThat(result.coverage().criteria().getFirst().id()).isEqualTo("T101");
+        assertThat(result.coverage().criteria().getFirst().documentEvidence()).isEqualTo(EVIDENCE);
+        assertThat(generations).hasValue(1);
+        server.verify();
+    }
+
     @Test void missingInstructionCannotBecomeAnApparentlyCompleteReviewAndDoesNotRepeatGeneration() throws Exception {
         expectActive();
         var incomplete = validReport(true);
@@ -223,7 +235,7 @@ class GeminiInstructionAssessmentTest {
                 failure -> {
                     assertThat(failure.code).isEqualTo("INVALID_RESPONSE");
                     assertThat(failure.diagnostic.stage()).isEqualTo("instruction_validation");
-                    assertThat(failure.diagnostic.explanation()).isEqualTo("The response does not account for every instruction.");
+                    assertThat(failure.diagnostic.explanation()).isEqualTo("Gemini returned 0 of 1 requested instruction assessments.");
                     assertThat(failure.diagnostic.httpStatus()).isNull();
                     assertThat(failure.diagnostic.toString()).doesNotContain(KEY, EVIDENCE);
                 });

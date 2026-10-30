@@ -49,12 +49,37 @@ class AiReviewInstructionProtocolTest {
         assertThat(row.verifiedCheckIndexes()).containsExactly(0);
     }
 
-    @Test void falseOrMissingCompletionCannotBecomeManualSuccess() {
-        var group = List.of(instruction("T1", Applicability.REQUIRED));
+    @Test void contradictoryCompletionFlagDoesNotDiscardSixteenValidatedAssessments() {
+        var group = java.util.stream.IntStream.rangeClosed(1, 16)
+            .mapToObj(i -> instruction("T" + i, Applicability.REQUIRED)).toList();
         var report = response(group, true);
         report.put("complete", false);
+        var result = AiReviewInstructionProtocol.parse(report, template(group), group, true);
+        assertThat(result.coverage().criteria()).extracting(CriterionAssessment::id)
+            .containsExactlyElementsOf(group.stream().map(Instruction::id).toList());
+        assertThat(result.coverage().criteria()).allMatch(row -> row.assessment() == CriterionAssessmentLabel.APPEARS_ADDRESSED);
+    }
+
+    @Test void missingOrMalformedCompletionMarkerIsStillRejected() {
+        var group = List.of(instruction("T1", Applicability.REQUIRED));
+        var report = response(group, true);
+        report.put("complete", "false");
         rejects(report, group, true);
         report.remove("complete");
+        rejects(report, group, true);
+    }
+
+    @Test void falseCompletionStillRequiresEveryIdAndEveryValidAnswer() {
+        var group = List.of(instruction("T1", Applicability.REQUIRED), instruction("T2", Applicability.REQUIRED));
+        var missing = response(group, true).put("complete", false);
+        missing.withArray("instructionAssessments").remove(1);
+        assertThatThrownBy(() -> AiReviewInstructionProtocol.parse(missing, template(group), group, true))
+            .hasMessageContaining("Gemini returned 1 of 2 requested instruction assessments.");
+        var report = response(group, true).put("complete", false);
+        ((ObjectNode) report.withArray("instructionAssessments").get(1)).put("id", "T1");
+        rejects(report, group, true);
+        report = response(group, true).put("complete", false);
+        assessment(report).put("explanation", " ");
         rejects(report, group, true);
     }
 
