@@ -54,6 +54,7 @@ import {
 import {
   aiReviewableSubmissionFields,
   aiReviewReportStatus,
+  hasAiReviewNotes,
   artifactAiReview,
   artifactAiReviewChange,
   artifactAiReportForDisplay,
@@ -110,14 +111,14 @@ export function ReviewPage() {
     if (!aiBatch.batch) return null;
     const targets = savedBatchReviewTargets(aiBatch.batch, state);
     return { ...aiBatch.batch, entries: aiBatch.batch.entries.map(entry => {
-      if (entry.resultStatus !== 'COMPLETED' || !entry.error) return entry;
+      if (entry.resultStatus !== 'COMPLETED') return entry;
       const target = targets.find(target => target.responseId === entry.target?.responseId
         && (target.fieldId === entry.target?.fieldId || !entry.target?.fieldId && target.fieldId === 'documentPdf'));
       if (!target || target.previous) return entry;
       const status = aiReviewReportStatus(target.report);
-      return { ...entry, error: status === 'Needs manual verification'
+      return { ...entry, error: status === 'Needs attention'
         ? 'Review finished with checks needing manual verification. Open the saved review to inspect the cited areas.'
-        : status === 'Limited review coverage'
+        : hasAiReviewNotes(target.report)
           ? 'Review finished with limited coverage. Open the saved review to see the supported observations.' : '' };
     }) };
   }, [aiBatch.batch, state]);

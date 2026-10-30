@@ -28,10 +28,10 @@ describe('ReviewResponseDrawer submission artifacts', () => {
   it.each([
     [{ outcome: 'INCONCLUSIVE', summary: 'AI Review is inconclusive. Only one independent source-backed check was recorded.',
       verifiedChecks: [{ aspect: 'Scope identifies students', source: 'DOCUMENT', documentEvidence: 'Students submit project documentation.' }] },
-      'Limited review coverage', 'Review finished with limited coverage: 1 supported observation recorded.'],
+      'Needs attention', 'The AI flagged concerns or left items to check.'],
     [{ outcome: 'INCONCLUSIVE', summary: 'AI Review is inconclusive. Unresolved verification requires review of the original PDF.',
       verificationNotes: [{ issue: 'Verify the diagram in the original PDF.' }] },
-      'Check in PDF', 'Review finished with checks needing manual verification.']
+      'Needs attention', 'The AI flagged concerns or left items to check.']
   ])('explains current completed assessment warnings without generic inconclusive copy', async (report, label, summary) => {
     const url = 'https://drive.google.com/file/d/current/view';
     const response = { id: 'response-1', studentName: 'DOE, JANE', studentNumber: '26-0001',
@@ -49,7 +49,7 @@ describe('ReviewResponseDrawer submission artifacts', () => {
     expect(screen.queryByText(report.summary)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'View AI Review' })).toBeEnabled();
     fireEvent.focus(screen.getByRole('button', { name: 'About AI Review' }));
-    expect(await screen.findByRole('tooltip')).toHaveTextContent('AI Review does not accept or grade submissions.');
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('It does not accept or grade submissions.');
   });
 
   it('renders only file/link artifact fields and never academic identity or ordinary response fields', async () => {

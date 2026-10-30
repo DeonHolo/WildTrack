@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Alert, Button, Stack, Text } from '@mantine/core';
-import { aiReviewEvidenceCount, aiReviewReportStatus, hasCompletedTemplateChecklist, isInconclusiveAiReviewReport, statusDisplayLabel, verifiedAiChecks } from '../../lib/workflow.js';
+import { aiReviewEvidenceCount, aiReviewReportStatus, hasCompletedTemplateChecklist, verifiedAiChecks } from '../../lib/workflow.js';
 import { AiReviewCoverage, AiReviewVerificationLimits, assessedEvidenceIndexes, validAssessmentCriteria } from './AiReviewCoverage.jsx';
 
 const CHECK_SOURCE_LABELS = {
@@ -43,16 +43,9 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
     + findings.filter(templateRelated).length + missing.filter(templateRelated).length + verificationNotes.filter(templateRelated).length;
   const issueCount = allFindings.length + allMissing.length;
   const concernCount = groupGlossary(allFindings).filter(group => !group.terms).length + allMissing.length;
-  const inconclusive = issueCount === 0 && (
-    verificationNotes.length > 0 || report.outcome === 'INCONCLUSIVE' || isInconclusiveAiReviewReport({
-      ...report, findings: allFindings, verificationNotes: allNotes
-    })
-  );
   const fixedChecklistComplete = hasCompletedTemplateChecklist(report);
-  const noIssues = issueCount === 0 && !inconclusive && (fixedChecklistComplete || evidenceCount >= 2);
   const reviewStatus = aiReviewReportStatus({ ...report, findings: allFindings, verificationNotes: allNotes });
-  const outcome = inconclusive ? statusDisplayLabel(reviewStatus) : noIssues ? 'No issues in checked areas'
-    : !concernCount && !verificationNotes.length && glossary.length ? 'Minor checks to review' : 'Issues identified';
+  const noIssues = reviewStatus === 'No issues';
   const summary = [
     concernCount && `${concernCount} concern${concernCount === 1 ? '' : 's'}`,
     manualCheckCount && `${manualCheckCount} item${manualCheckCount === 1 ? '' : 's'} to check`,
@@ -80,23 +73,21 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
         <Text>{report.documentOverview?.text?.trim() || 'A document overview was not saved with this review. Run AI Review again to generate one.'}</Text>
       </section>
       <div className="wt-ai-review-outcome">
-        <Text fw={700}>{outcome}</Text>
+        <Text fw={700}>{reviewStatus}</Text>
         <Text mt={4} size="sm">{summary}</Text>
       </div>
-      {inconclusive ? (
-        <Alert color={manualCheckCount || !unverifiedCount ? 'orange' : 'blue'} title={manualCheckCount || !unverifiedCount ? statusDisplayLabel(reviewStatus) : 'Review limits'} role="status">
+      {!noIssues && !issueCount ? (
+        <Alert color="orange" title="Needs attention" role="status">
           {manualCheckCount
             ? 'Confirm the items in the review checklist in the original PDF.'
-            : unverifiedCount ? 'Some positive AI observations remain unverified. See Review limits for details.'
-            : 'Too little supported evidence was recorded for a no-issues conclusion. This does not mean the PDF is empty or incorrect.'}
+            : 'The saved review left items unassessed. Check the PDF before making your review decision.'}
         </Alert>
       ) : noIssues ? (
-        <Alert color="green" title="No actionable issues identified in the checked areas" role="status">
-          {fixedChecklistComplete ? `${instructionRows.length} template instruction${instructionRows.length === 1 ? '' : 's'} assessed. `
-            : `${evidenceCount} distinct observations supported by submitted PDF evidence. `}
-          This is advisory feedback, not approval or a guarantee of full compliance.
+        <Alert color="green" title="No issues identified in the checked areas" role="status">
+          The AI did not flag concerns or items needing a manual check. This is advisory feedback, not approval.
         </Alert>
       ) : null}
+      {unverifiedCount ? <Text size="sm" c="dimmed">WildTrack could not confirm the supporting text for {unverifiedCount} AI observation{unverifiedCount === 1 ? '' : 's'}. See Review notes.</Text> : null}
       {findings.length || missing.length || verificationNotes.length || checklistRows.length || report.coverage?.omittedCriteria > 0 ? (
         <section aria-label="Review checklist">
           <Text component="h3" fw={700}>Review checklist</Text>
@@ -111,7 +102,7 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
         </section>
       ) : null}
       <details className="wt-ai-review-secondary">
-        <summary>Review limits</summary>
+        <summary>Review notes</summary>
         <AiReviewVerificationLimits report={report} />
         {report.limitations?.map((limit, index) => <Text key={index} size="sm" mt="sm">{limit}</Text>)}
       </details>

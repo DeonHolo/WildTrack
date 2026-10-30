@@ -18,6 +18,7 @@ import {
   reviewDecisionStatus
 } from '../../lib/reviewTable.js';
 import { StatusIndicator } from '../ui.jsx';
+import { AiReviewHelp } from './AiReviewHelp.jsx';
 
 function SortHeader({ column, children, className, sort, onSort }) {
   const active = sort?.column === column;
@@ -27,7 +28,7 @@ function SortHeader({ column, children, className, sort, onSort }) {
 
   return (
     <Table.Th className={className} aria-sort={active ? (ascending ? 'ascending' : 'descending') : undefined}>
-      <UnstyledButton
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: className === 'wt-review-status-cell' ? 'center' : undefined }}><UnstyledButton
         aria-label={`Sort by ${children}`}
         title={`Sort ${nextDirection}`}
         data-sort-direction={active ? sort.direction : undefined}
@@ -37,7 +38,7 @@ function SortHeader({ column, children, className, sort, onSort }) {
           alignItems: 'center',
           justifyContent: className === 'wt-review-status-cell' ? 'center' : undefined,
           gap: 5,
-          width: '100%',
+          width: column === 'aiReview' ? 'auto' : '100%',
           minHeight: 32,
           color: active ? 'var(--mantine-color-wildtrackMaroon-7)' : 'inherit',
           fontSize: 'inherit',
@@ -49,6 +50,7 @@ function SortHeader({ column, children, className, sort, onSort }) {
         {children}
         <SortIcon size={14} weight={active ? 'bold' : 'regular'} aria-hidden="true" style={{ flexShrink: 0 }} />
       </UnstyledButton>
+      {column === 'aiReview' ? <AiReviewHelp /> : null}</div>
     </Table.Th>
   );
 }

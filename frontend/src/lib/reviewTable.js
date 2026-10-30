@@ -10,8 +10,7 @@ const textOrder = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }
 const statusOrders = {
   documentCheck: ['Ready for review', 'Needs attention', 'Outdated', 'Not checked', 'Not applicable'],
   aiReview: [
-    'Reviewed', 'Retry required', 'Reviewing', 'Needs manual verification',
-    'Limited review coverage', 'Inconclusive', 'Outdated', 'Not reviewed', 'Not applicable'
+    'Needs attention', 'No issues', 'Retry required', 'Reviewing', 'Outdated', 'Not reviewed', 'Not applicable'
   ],
   decision: ['Received', 'Needs Review', 'Accepted', 'Archived']
 };
@@ -42,11 +41,9 @@ export function aggregateAiStatus(response, deliverable) {
   const statuses = fields.map((field) => artifactAiReviewStatus(response, field));
   if (statuses.includes('Retry required')) return 'Retry required';
   if (statuses.includes('Reviewing')) return 'Reviewing';
-  if (statuses.includes('Needs manual verification')) return 'Needs manual verification';
-  if (statuses.includes('Limited review coverage')) return 'Limited review coverage';
-  if (statuses.includes('Inconclusive')) return 'Inconclusive';
+  if (statuses.includes('Needs attention')) return 'Needs attention';
   if (statuses.includes('Outdated')) return 'Outdated';
-  if (statuses.every((status) => status === 'Reviewed')) return 'Reviewed';
+  if (statuses.every((status) => status === 'No issues')) return 'No issues';
   return 'Not reviewed';
 }
 

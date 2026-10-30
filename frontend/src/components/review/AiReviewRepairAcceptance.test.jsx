@@ -126,7 +126,7 @@ describe('AI Review repair acceptance behavior', () => {
       { source: 'OFFICIAL_TEMPLATE', issue: "Mapped-template body heading 'Validation Results' is absent.", evidence: 'Mapped-template body heading comparison' },
       { source: 'OFFICIAL_TEMPLATE', issue: "Mapped-template transaction artifact 'Validation Form' is absent.", evidence: 'Mapped-template transaction artifact comparison' }
     ], missingRequiredSections: [] });
-    expect(screen.getByRole('status')).toHaveTextContent('Check in PDF');
+    expect(screen.getByRole('status')).toHaveTextContent('Needs attention');
     expect(screen.getByText('2 items to check')).toBeVisible();
     const checklist = screen.getByRole('region', { name: 'Review checklist' });
     expect(checklist).toHaveTextContent('Validation Results');
@@ -136,7 +136,7 @@ describe('AI Review repair acceptance behavior', () => {
 
   it('keeps explicit issues as ISSUES_IDENTIFIED while also exposing verification notes', () => {
     renderReport({ outcome: 'ISSUES_IDENTIFIED', findings: [{ issue: 'Missing acceptance criteria.', source: 'DOCUMENT', evidence: 'Section 4' }], verificationNotes: [{ issue: 'Confirm the template heading in the PDF.', source: 'OFFICIAL_TEMPLATE', evidence: 'Page 2' }], missingRequiredSections: [] });
-    expect(screen.getByText('Issues identified')).toBeInTheDocument();
+    expect(screen.getByText('Needs attention')).toBeInTheDocument();
     const checklist = screen.getByRole('region', { name: 'Review checklist' });
     expect(within(checklist).getByText('Missing acceptance criteria.')).toBeVisible();
     expect(within(checklist).getByText('Confirm the template heading in the PDF.')).toBeVisible();
@@ -156,7 +156,7 @@ describe('AI Review repair acceptance behavior', () => {
     const latest = { summary: 'No grounded findings', findings: [], missingRequiredSections: [], outcome: 'INCONCLUSIVE' };
     renderDialog({ status: 'UNCERTAIN', failureCode: 'NO_GROUNDED_FINDINGS', previousReport: earlier, lastSubstantiveReport: earlier, previousGeneratedAt: '2026-09-21T08:00:00Z', lastSubstantiveGeneratedAt: '2026-09-20T08:00:00Z', generatedAt: '2026-09-22T08:00:00Z' }, latest);
     const dialog = screen.getByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
-    expect(dialog).toHaveTextContent('Limited review coverage');
+    expect(dialog).toHaveTextContent('Needs attention');
     expect(dialog).toHaveTextContent('Reviewed on Sep 22, 2026');
     expect(dialog).toHaveTextContent('Earlier substantive review · Sep 20, 2026');
     expect(dialog).toHaveTextContent('Earlier substantive finding');

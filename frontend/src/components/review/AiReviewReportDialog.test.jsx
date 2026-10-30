@@ -37,8 +37,10 @@ it('shows AI Review limitations on keyboard focus in the header', async () => {
   show({ status: 'COMPLETED' }, previousReport);
   const dialog = await screen.findByRole('dialog');
   fireEvent.focus(within(dialog).getByRole('button', { name: 'About AI Review' }));
-  expect(await screen.findByRole('tooltip')).toHaveTextContent('AI Review can miss issues or misread a document.');
-  expect(screen.getByRole('tooltip')).toHaveTextContent('AI Review does not accept or grade submissions.');
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('AI Review can make mistakes.');
+  expect(screen.getByRole('tooltip')).toHaveTextContent('It does not accept or grade submissions.');
+  expect(screen.getByRole('tooltip')).toHaveTextContent('No issues:');
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Needs attention:');
 });
 
 it.each(['', 'javascript:alert(1)'])('omits the PDF link when it is missing or invalid (%s)', async (url) => {
@@ -94,7 +96,7 @@ it('marks a historical generic fallback inconclusive rather than treating it as 
     previousReport: { summary: 'The AI review returned no grounded findings from the submitted PDF or supplied requirement sources.',
       findings: [], missingRequiredSections: [] }, previousGeneratedAt: '2026-09-20T08:00:00Z' });
   const dialog = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
-  expect(within(dialog).getByRole('status')).toHaveTextContent('Limited review coverage');
+  expect(within(dialog).getByRole('status')).toHaveTextContent('Needs attention');
   expect(dialog).toHaveTextContent('Previously saved AI Review');
 });
 
@@ -132,8 +134,8 @@ it('shows a saved zero-issue report with two verified SRS checks and a clear app
   const dialog = await screen.findByRole('dialog', { name: 'AI Review: Software Requirements Specification' });
 
   expect(dialog).toHaveTextContent('Reviewed on Sep 22, 2026');
-  expect(dialog).toHaveTextContent('No actionable issues identified in the checked areas');
-  expect(dialog).toHaveTextContent('2 distinct observations supported by submitted PDF evidence');
+  expect(dialog).toHaveTextContent('No issues identified in the checked areas');
+  expect(dialog).toHaveTextContent('The AI did not flag concerns or items needing a manual check');
   expect(within(dialog).queryByText(/Other checked items/)).not.toBeInTheDocument();
   expect(within(dialog).queryByText('Section 1.3: The system is for students and advisers.')).not.toBeInTheDocument();
   expect(dialog).not.toHaveTextContent('Identify intended users of the system.');

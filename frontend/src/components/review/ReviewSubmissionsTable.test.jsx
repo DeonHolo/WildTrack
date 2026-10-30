@@ -56,13 +56,13 @@ function renderAiStatus(reviews) {
 }
 
 describe('ReviewSubmissionsTable AI Review status', () => {
-  it('shows a current saved insufficient-evidence report as Limited review coverage', () => {
-    expect(renderAiStatus([savedInconclusive])).toHaveTextContent(/^Limited review coverage$/);
+  it('shows a current saved insufficient-evidence report as Needs attention', () => {
+    expect(renderAiStatus([savedInconclusive])).toHaveTextContent(/^Needs attention$/);
   });
 
   it.each([
-    ['a reviewed PDF', [savedReviewed], 'Limited review coverage'],
-    ['an unreviewed PDF', [null], 'Limited review coverage'],
+    ['a reviewed PDF', [savedReviewed], 'Needs attention'],
+    ['an unreviewed PDF', [null], 'Needs attention'],
     ['a running review', [{ status: 'RUNNING' }], 'Reviewing'],
     ['a retry-required review', [{ status: 'UNCERTAIN' }], 'Retry required'],
     ['running and retry-required reviews', [{ status: 'RUNNING' }, { status: 'UNCERTAIN' }], 'Retry required']
@@ -70,13 +70,13 @@ describe('ReviewSubmissionsTable AI Review status', () => {
     expect(renderAiStatus([savedInconclusive, ...otherReviews])).toHaveTextContent(new RegExp(`^${expected}$`));
   });
 
-  it('keeps Reviewed when every PDF has a current substantive report', () => {
-    expect(renderAiStatus([savedReviewed, savedReviewed])).toHaveTextContent(/^Reviewed$/);
+  it('keeps attention when completed PDFs contain concerns', () => {
+    expect(renderAiStatus([savedReviewed, savedReviewed])).toHaveTextContent(/^Needs attention$/);
   });
 
   it('keeps specific manual-verification questions visible ahead of limited coverage', () => {
     const manual = { status: 'COMPLETED', report: { outcome: 'INCONCLUSIVE', verificationNotes: [{ issue: 'Check the original diagram.' }] } };
-    expect(renderAiStatus([savedInconclusive, manual, savedReviewed])).toHaveTextContent(/^Check in PDF$/);
+    expect(renderAiStatus([savedInconclusive, manual, savedReviewed])).toHaveTextContent(/^Needs attention$/);
   });
 
   it('does not present an inconclusive report for a replaced PDF as current', () => {
@@ -177,7 +177,7 @@ describe('ReviewSubmissionsTable sortable headers', () => {
     const stdRow = screen.getByRole('button', { name: 'Review Example Student response' }).closest('tr');
     expect(within(stdRow).getByText('STD')).toHaveAttribute('title', 'Software Test Document');
     expect(within(stdRow).getByText('Looks filled')).toBeInTheDocument();
-    expect(within(stdRow).getByText('Reviewed')).toBeInTheDocument();
+    expect(within(stdRow).getByText('Needs attention')).toBeInTheDocument();
     const proposalRow = screen.getByRole('button', { name: 'Review Second Student response' }).closest('tr');
     expect(within(proposalRow).getByText('Proposal')).toHaveAttribute('title', 'Project Proposal');
     expect(within(proposalRow).getAllByText('Not applicable')).toHaveLength(2);

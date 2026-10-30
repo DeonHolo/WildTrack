@@ -13,12 +13,12 @@ it('places quote-only verification limits outside the checklist without counting
   expect(screen.queryByRole('region', { name: 'Review checklist' })).not.toBeInTheDocument();
   expect(screen.getByText('1 unverified observation')).toBeVisible();
   expect(screen.queryByText(/item.* to check/)).not.toBeInTheDocument();
-  expect(screen.getByRole('status')).toHaveTextContent('Review limits');
-  expect(screen.getByRole('status')).toHaveTextContent('See Review limits for details.');
+  expect(screen.getByRole('status')).toHaveTextContent('No issues identified in the checked areas');
+  expect(screen.getByText(/See Review notes\./)).toBeVisible();
   expect(screen.queryByText(/No actionable issues identified/)).not.toBeInTheDocument();
-  const limits = screen.getByText('Review limits', { selector: 'summary' }).closest('details');
+  const limits = screen.getByText('Review notes', { selector: 'summary' }).closest('details');
   expect(limits).not.toHaveAttribute('open');
-  fireEvent.click(within(limits).getByText('Review limits', { selector: 'summary' }));
+  fireEvent.click(within(limits).getByText('Review notes', { selector: 'summary' }));
   expect(within(limits).getByText(/Versions, dates and descriptions are present/)).toBeVisible();
 });
 
@@ -32,18 +32,18 @@ it('keeps specific manual concerns visible when other positive observations are 
   const checklist = screen.getByRole('region', { name: 'Review checklist' });
   expect(checklist).toHaveTextContent('partially saved files');
   expect(checklist).not.toHaveTextContent('Change history');
-  expect(screen.getByRole('status')).toHaveTextContent('Check in PDF');
+  expect(screen.getByRole('status')).toHaveTextContent('Needs attention');
   expect(screen.getByText('1 item to check · 1 unverified observation')).toBeVisible();
 });
 
-it('moves the known saved change-history quotation failure into Review limits without a new request', () => {
+it('moves the known saved change-history quotation failure into Review notes without a new request', () => {
   show({ outcome: 'INCONCLUSIVE', coverage: { criteria: [{ id: 'T1', title: 'Change history',
     requirement: 'Provide a change history.', source: 'OFFICIAL_TEMPLATE', assessment: 'CHECK_MANUALLY',
     explanation: "Check Change history in the PDF (AI-cited page 2). The cited page contains visual content, but the quotation could not be matched to readable text. Gemini's unconfirmed observation: Versions, dates and descriptions are present." }] } });
   expect(screen.queryByRole('region', { name: 'Review checklist' })).not.toBeInTheDocument();
   expect(screen.getByText('1 unverified observation')).toBeVisible();
   expect(screen.queryByText(/page contains visual content/)).not.toBeInTheDocument();
-  const limits = screen.getByText('Review limits', { selector: 'summary' }).closest('details');
+  const limits = screen.getByText('Review notes', { selector: 'summary' }).closest('details');
   expect(within(limits).getByText(/Versions, dates and descriptions/)).not.toBeVisible();
 });
 
@@ -67,7 +67,7 @@ it('summarizes a completed one-instruction template without an artificial covera
       requirement: 'Describe project responsibilities.', source: 'OFFICIAL_TEMPLATE', assessment: 'APPEARS_ADDRESSED',
       explanation: 'The manager assigns responsibilities to team members.',
       documentEvidence: 'The project manager assigns and tracks team responsibilities.', location: { page: 4 } }] } });
-  expect(screen.getByRole('status')).toHaveTextContent('1 template instruction assessed');
+  expect(screen.getByText('1 template instruction assessed')).toBeVisible();
   expect(screen.queryByText(/Too little supported evidence/)).not.toBeInTheDocument();
   expect(screen.getByText('Appears addressed (1)')).toBeVisible();
 });
@@ -234,13 +234,13 @@ it('puts manual questions in the visible checklist and does not turn them into a
   show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks, verificationNotes: [{ title: 'Check the sequence diagram', issue: 'Image-only diagram cannot be verified.', evidence: 'Page 8 image', requirement: 'Diagram requirement' }] });
   expect(screen.getByText('Check the sequence diagram')).toBeVisible();
   expect(screen.getByText('Check in PDF', { selector: '.wt-ai-review-item-label' })).toBeVisible();
-  expect(screen.getByRole('status')).toHaveTextContent('Check in PDF');
+  expect(screen.getByRole('status')).toHaveTextContent('Needs attention');
   expect(screen.getByRole('status')).not.toHaveTextContent('No actionable issues');
 });
 
 it('does not render an arbitrary checked-items list for legacy reports', () => {
   show({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: checks });
-  expect(screen.getByRole('status')).toHaveTextContent('No actionable issues identified in the checked areas');
+  expect(screen.getByRole('status')).toHaveTextContent('No issues identified in the checked areas');
   expect(screen.queryByText(/Other checked items/)).not.toBeInTheDocument();
   expect(screen.queryByRole('region', { name: 'Template and instruction assessment' })).not.toBeInTheDocument();
 });
@@ -251,7 +251,7 @@ it('renders a valid assessed finding once through the instruction row', () => {
   expect(screen.getAllByText('Retry is available.')).toHaveLength(1);
   expect(screen.getAllByText('The final state is not specified.', { exact: false }).find(element => element.closest('summary'))).toBeVisible();
   expect(screen.getByText('1 concern')).toBeVisible();
-  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+  expect(screen.queryByText('No issues identified in the checked areas')).not.toBeInTheDocument();
   expect(screen.getByText('Retry rule needs a final-state decision.')).not.toBeVisible();
 });
 
@@ -319,7 +319,7 @@ it('preserves uncertain section evidence without counting it as a supported conc
     { issue: 'The required section “1. Introduction” could not be located.', requirement: '1. Introduction', source: 'OFFICIAL_TEMPLATE', evidence: 'Original introduction observation' },
     { issue: 'The required section “2. Overall Description” could not be located.', requirement: '2. Overall Description', source: 'OFFICIAL_TEMPLATE', evidence: 'Original context observation' }
   ] });
-  expect(screen.getByRole('status')).toHaveTextContent('Check in PDF');
+  expect(screen.getByRole('status')).toHaveTextContent('Needs attention');
   expect(screen.getByText('2 items to check')).toBeVisible();
   expect(screen.getByText('Original introduction observation')).toBeInTheDocument();
   expect(screen.getByText('Original context observation')).toBeInTheDocument();
@@ -337,7 +337,7 @@ it('groups repeated artifact locations and preserves their supporting details', 
     issue: `Text extraction could not verify 'Use Case Description' in transaction '${context}'. Its label was not located in the extracted transaction.`,
     source: 'OFFICIAL_TEMPLATE', requirement: 'Use Case Description', evidence: `${context} original observation`
   })) });
-  expect(screen.getByRole('status')).toHaveTextContent('Check in PDF');
+  expect(screen.getByRole('status')).toHaveTextContent('Needs attention');
   expect(screen.getAllByRole('heading', { name: 'Verify Use Case Description in the PDF' })).toHaveLength(1);
   expect(screen.getByText("transaction '1.2 Upload receipt'")).toBeVisible();
   expect(screen.getByText('1.2 Upload receipt original observation')).toBeInTheDocument();
@@ -355,9 +355,9 @@ it('keeps artifact verification groups separate across requirement sources', () 
 it('does not claim a clean result from an empty or sparse saved review', () => {
   show({ summary: 'The PDF satisfies all requirements.', outcome: 'INCONCLUSIVE', findings: [],
     verifiedChecks: [{ ...checks[0], location: { page: 12 } }] });
-  expect(screen.getByRole('status')).toHaveTextContent('Limited review coverage');
-  expect(screen.getByRole('status')).toHaveTextContent('This does not mean the PDF is empty or incorrect.');
+  expect(screen.getByRole('status')).toHaveTextContent('Needs attention');
+  expect(screen.getByRole('status')).toHaveTextContent('The saved review left items unassessed.');
   expect(screen.queryByText(/Other checked items/)).not.toBeInTheDocument();
   expect(screen.queryByRole('region', { name: 'Template and instruction assessment' })).not.toBeInTheDocument();
-  expect(screen.queryByText('No actionable issues identified in the checked areas')).not.toBeInTheDocument();
+  expect(screen.queryByText('No issues identified in the checked areas')).not.toBeInTheDocument();
 });

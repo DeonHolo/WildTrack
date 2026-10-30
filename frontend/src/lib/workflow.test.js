@@ -35,7 +35,7 @@ describe('saved positive quotation failures', () => {
     expect(aiReviewAssessment(row).assessment).toBe('UNVERIFIED');
     expect(aiReviewAssessment(row).explanation).not.toContain('visual content');
     expect(aiReviewAssessment(row).explanation).toContain('Versions, dates and descriptions');
-    expect(aiReviewReportStatus(report)).toBe('Limited review coverage');
+    expect(aiReviewReportStatus(report)).toBe('No issues');
     expect(aiReviewEvidenceCount(report)).toBe(0);
     expect(row.assessment).toBe('CHECK_MANUALLY');
   });
@@ -99,7 +99,7 @@ describe('instruction assessment evidence', () => {
         positive('C2', 'The lead monitors the approved project schedule.'),
         { id: 'C3', requirement: 'Explain budget controls.', source: 'OFFICIAL_TEMPLATE', assessment: 'CHECK_MANUALLY' }] } };
     expect(aiReviewEvidenceCount(report)).toBe(2);
-    expect(aiReviewReportStatus(report)).toBe('Needs manual verification');
+    expect(aiReviewReportStatus(report)).toBe('Needs attention');
   });
 });
 
@@ -155,7 +155,7 @@ describe('artifact-scoped review currentness', () => {
     const field = { id: 'documentPdf', pdfRequired: true, aiReviewEnabled: true };
     expect(artifactAiReview(response, field)).toBe(legacy);
     expect(isArtifactAiReviewCurrent(response, field)).toBe(true);
-    expect(artifactAiReviewStatus(response, field)).toBe('Reviewed');
+    expect(artifactAiReviewStatus(response, field)).toBe('No issues');
   });
   it('keeps unchanged artifact reviews current when another artifact changes', () => {
     const first = { id: 'frameworkPdf', definitionId: 'field-framework', aiReviewEnabled: true };
@@ -250,23 +250,22 @@ describe('grounded positive AI review evidence', () => {
     const limited = { outcome: 'INCONCLUSIVE', findings: [], verifiedChecks: [first] };
     const manual = { outcome: 'INCONCLUSIVE', findings: [], verifiedChecks: [first, second],
       verificationNotes: [{ issue: 'Verify the original diagram.', evidence: 'Page 8' }] };
-    expect(aiReviewReportStatus(limited)).toBe('Limited review coverage');
-    expect(aiReviewReportStatus(manual)).toBe('Needs manual verification');
-    expect(aiReviewReportSummary(limited)).toContain('1 supported observation recorded');
-    expect(aiReviewReportSummary(limited)).toContain('does not establish a no-issues result');
-    expect(aiReviewReportSummary(manual)).toContain('checks needing manual verification');
+    expect(aiReviewReportStatus(limited)).toBe('Needs attention');
+    expect(aiReviewReportStatus(manual)).toBe('Needs attention');
+    expect(aiReviewReportSummary(limited)).toContain('left items to check');
+    expect(aiReviewReportSummary(manual)).toContain('left items to check');
     expect(isInconclusiveAiReviewReport(limited)).toBe(true);
     expect(isInconclusiveAiReviewReport(manual)).toBe(true);
-    expect(aiReviewReportStatus({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: [first, second] })).toBe('Reviewed');
+    expect(aiReviewReportStatus({ outcome: 'NO_ISSUES_IN_CHECKED_AREAS', verifiedChecks: [first, second] })).toBe('No issues');
     expect(aiReviewReportStatus({ outcome: 'ISSUES_IDENTIFIED', findings: [{ issue: 'A supported concern.' }],
-      verificationNotes: manual.verificationNotes })).toBe('Reviewed');
+      verificationNotes: manual.verificationNotes })).toBe('Needs attention');
     expect(aiReviewReportSummary({ outcome: 'ISSUES_IDENTIFIED', findings: [{ issue: 'A supported concern.' }],
       summary: 'A supported concern was found.' })).toBe('A supported concern was found.');
   });
 
   it.each([
-    [{ outcome: 'INCONCLUSIVE', verifiedChecks: [first] }, 'Limited review coverage'],
-    [{ outcome: 'INCONCLUSIVE', verificationNotes: [{ issue: 'Check the diagram.' }] }, 'Needs manual verification']
+    [{ outcome: 'INCONCLUSIVE', verifiedChecks: [first] }, 'Needs attention'],
+    [{ outcome: 'INCONCLUSIVE', verificationNotes: [{ issue: 'Check the diagram.' }] }, 'Needs attention']
   ])('uses the completed assessment label for current artifact reports', (report, expected) => {
     const url = 'https://drive.google.com/file/d/current/view';
     const field = { id: 'pdf', definitionId: 'pdf', aiReviewEnabled: true };
