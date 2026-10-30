@@ -246,17 +246,17 @@ test('saved inconclusive AI review survives opening and reload without starting 
     const previousReads = monitoringReads;
     if (navigation === 'open') await page.goto('/review?deliverable=deliverable-srs');
     else await page.reload();
-    const status = page.getByRole('table', { name: 'STD submissions' }).getByRole('cell', { name: 'Limited review coverage', exact: true });
+    const status = page.getByRole('table', { name: 'STD submissions' }).getByRole('cell', { name: 'Needs attention', exact: true });
     await expect(status).toBeVisible();
     await expect(status.locator('.wt-status-indicator')).toHaveAttribute('data-tone', 'warning');
     expect(monitoringReads).toBeGreaterThan(previousReads);
     await page.getByRole('button', { name: 'Review Example Student response' }).click();
     const drawer = page.getByRole('dialog', { name: 'Review Example Student', exact: true });
-    await expect(drawer.getByText('Limited review coverage', { exact: true })).toBeVisible();
+    await expect(drawer.getByText('Needs attention', { exact: true })).toBeVisible();
     await drawer.getByRole('button', { name: 'View AI Review', exact: true }).click();
     const savedReport = page.getByRole('dialog', { name: /^AI Review:/ });
-    await expect(savedReport.locator('.wt-ai-review-outcome').getByText('Limited review coverage', { exact: true })).toBeVisible();
-    await savedReport.getByText('Review limits', { exact: true }).click();
+    await expect(savedReport.locator('.wt-ai-review-outcome').getByText('Needs attention', { exact: true })).toBeVisible();
+    await savedReport.getByText('Review notes', { exact: true }).click();
     await expect(savedReport.getByText(reportLimit, { exact: true })).toBeVisible();
     expect(aiWrites).toEqual([]);
   }
