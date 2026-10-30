@@ -32,7 +32,8 @@ describe('saved positive quotation failures', () => {
   const row = { id: 'T1', assessment: 'CHECK_MANUALLY', explanation: "Check Change history in the PDF (AI-cited page 2). The cited page contains visual content, but the quotation could not be matched to readable text. Gemini's unconfirmed observation: Versions, dates and descriptions are present." };
   it('reclassifies only the known backend wrapper without an AI rerun', () => {
     const report = { outcome: 'INCONCLUSIVE', coverage: { criteria: [row] } };
-    expect(aiReviewAssessment(row).assessment).toBe('UNVERIFIED');
+    expect(aiReviewAssessment(row).assessment).toBe('APPEARS_ADDRESSED');
+    expect(aiReviewAssessment(row).evidenceVerification.status).toBe('NOT_LOCATED');
     expect(aiReviewAssessment(row).explanation).not.toContain('visual content');
     expect(aiReviewAssessment(row).explanation).toContain('Versions, dates and descriptions');
     expect(aiReviewReportStatus(report)).toBe('No issues');
@@ -46,6 +47,14 @@ describe('saved positive quotation failures', () => {
     expect(aiReviewAssessment(linked)).toBe(linked);
     const negative = { ...row, explanation: "Check Change history in the PDF. The proposed concern could not be confirmed from its cited evidence; it is not an established defect. Gemini's unconfirmed observation: A date is missing." };
     expect(aiReviewAssessment(negative)).toBe(negative);
+  });
+  it('restores known positive wrappers without promoting unknown historical assessments', () => {
+    const saved = { ...row, assessment: 'UNVERIFIED', explanation: 'The supporting quotation could not be verified. Unverified AI observation: The responsibilities are described.' };
+    expect(aiReviewAssessment(saved)).toMatchObject({ assessment: 'APPEARS_ADDRESSED', explanation: 'The responsibilities are described.' });
+    const unknown = { ...saved, explanation: 'The original judgment was not saved.' };
+    expect(aiReviewAssessment(unknown)).toBe(unknown);
+    const concern = { ...saved, findingIndexes: [0] };
+    expect(aiReviewAssessment(concern)).toBe(concern);
   });
 });
 

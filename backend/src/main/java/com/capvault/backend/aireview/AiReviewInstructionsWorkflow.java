@@ -112,18 +112,19 @@ public class AiReviewInstructionsWorkflow {
             if (overview == null) overview = result.documentOverview();
             for (var row : result.coverage().criteria()) criteria.add(new CriterionAssessment(row.id(), row.requirement(), row.source(), row.status(),
                 offset(row.verifiedCheckIndexes(), c), offset(row.findingIndexes(), f), offset(row.missingSectionIndexes(), m),
-                offset(row.verificationNoteIndexes(), n), row.assessment(), row.explanation(), row.documentEvidence(), row.location(), row.title(), row.documentExcerpts()));
+                offset(row.verificationNoteIndexes(), n), row.assessment(), row.explanation(), row.documentEvidence(), row.location(), row.title(), row.documentExcerpts(), row.evidenceVerification()));
             findings.addAll(result.findings()); missing.addAll(result.missingRequiredSections()); checks.addAll(result.verifiedChecks());
             notes.addAll(result.verificationNotes()); limitations.addAll(result.limitations());
         }
-        boolean attention = !findings.isEmpty() || !missing.isEmpty() || criteria.stream().anyMatch(c -> c.assessment() == CriterionAssessmentLabel.NEEDS_ATTENTION);
+        boolean attention = !findings.isEmpty() || !missing.isEmpty() || overview != null && overview.wrongDocument()
+            || criteria.stream().anyMatch(c -> c.assessment() == CriterionAssessmentLabel.NEEDS_ATTENTION);
         boolean manual = criteria.isEmpty() || !notes.isEmpty() || criteria.stream().anyMatch(c -> c.assessment() == CriterionAssessmentLabel.CHECK_MANUALLY);
         boolean limited = criteria.stream().anyMatch(c -> c.assessment() == CriterionAssessmentLabel.UNVERIFIED);
         ReviewOutcome outcome = attention ? ReviewOutcome.ISSUES_IDENTIFIED : manual || limited ? ReviewOutcome.INCONCLUSIVE : ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS;
         String summary = attention ? "The review identified items needing attention." : manual
             ? "The review includes items to check in the original PDF." : limited
-                ? "Some positive AI observations could not be verified. See Review limits for details."
-                : "No actionable issues were identified in the assessed instructions.";
+                ? "Some supporting references could not be located. See Review notes for details."
+                : "The AI did not identify issues in the assessed instructions.";
         return new Result(summary, List.copyOf(findings), List.copyOf(missing), List.copyOf(limitations),
             "Use the cited PDF evidence to make the review decision.", List.copyOf(checks), List.copyOf(notes), outcome,
             new ReviewCoverage(List.copyOf(criteria), 0, results.size(), null,

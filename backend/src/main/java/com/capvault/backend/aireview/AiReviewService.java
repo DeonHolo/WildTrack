@@ -868,6 +868,8 @@ public class AiReviewService {
         if (raw == null || raw.coverage() == null || !raw.coverage().criteria().stream().map(AiReviewProvider.CriterionAssessment::id).toList()
                 .equals(group.stream().map(com.capvault.backend.template.TemplateInstructionPreparation.Instruction::id).toList()))
             throw invalidReview();
+        if (raw.coverage().criteria().stream().anyMatch(row -> row.assessment() == null
+                || row.assessment() == AiReviewProvider.CriterionAssessmentLabel.UNVERIFIED)) throw invalidReview();
         raw = AiReviewInstructionProtocol.normalizeEvidenceFormatting(raw, inspection.extractedText());
         var identitySafeRows = raw.coverage().criteria().stream().map(row -> {
             if (!AiReviewGroundingPolicy.unsupportedTemplateSampleIdentityClaim(row.explanation(), row.requirement(),
@@ -880,14 +882,13 @@ public class AiReviewService {
         }).toList();
         raw = AiReviewCoveragePolicy.withCoverage(raw, new AiReviewProvider.ReviewCoverage(identitySafeRows,
             raw.coverage().omittedCriteria(), raw.coverage().completedPasses(), raw.coverage().followupNotice(), raw.coverage().scopeNote()));
-        var plan = new AiReviewCoveragePolicy.Plan(group.stream().map(item -> new AiReviewCoveragePolicy.Criterion(
-            item.id(), item.source().instruction(), AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE, item.source().title())).toList(),
-            0, "Assessment uses fixed instructions from the official template PDF.");
-        String authority = String.join("\n\n", group.stream().map(item -> item.source().instruction()).toList());
-        var context = new Context("", input.deliverableTitle(), input.instructions(), input.templateText(), null, null, plan, authority);
-        var result = groundPass(raw, context, inspection, 1);
-        if (result.coverage().criteria().stream().anyMatch(row -> row.assessment() == null)) throw invalidReview();
-        return result;
+        var authoritySafe = new AiReviewProvider.Result(raw.summary(), raw.findings().stream()
+            .filter(finding -> finding.source() == AiReviewProvider.FindingSource.OFFICIAL_TEMPLATE
+                || finding.source() == AiReviewProvider.FindingSource.DOCUMENT
+                || !finding.requirement().isBlank() && containsNormalized(input.instructions(), finding.requirement())).toList(),
+            raw.missingRequiredSections(), raw.limitations(), raw.suggestedAction(), raw.verifiedChecks(),
+            raw.verificationNotes(), raw.outcome(), raw.coverage(), raw.documentOverview());
+        return AiReviewInstructionEvidencePolicy.locate(authoritySafe, inspection);
     }
 
 

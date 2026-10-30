@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 /** Exact group accounting; source grounding is performed by AiReviewService after parsing. */
 public final class AiReviewInstructionProtocol {
-    public static final String VERSION = "instruction-assessment-pdf-v8-layout-safe-source-locations";
+    public static final String VERSION = "instruction-assessment-pdf-v9-separate-judgment-and-citations";
     public static final int MAX_GROUP_ITEMS = 16;
     private static final Set<String> TOP = Set.of("complete", "instructionAssessments", "documentOverview", "generalFindings");
     private static final Set<String> ASSESSMENT = Set.of("id", "assessment", "explanation", "documentEvidence", "page", "section");
@@ -36,14 +36,21 @@ public final class AiReviewInstructionProtocol {
         Never invent, rename, combine or omit an id. complete=true means every supplied id was assessed.
         Only assessment, explanation, documentEvidence, page and section are model-written. Titles,
         instruction wording and authority quotations are fixed by WildTrack; do not return replacements.
-        APPEARS_ADDRESSED needs an exact student-PDF quotation supporting that specific instruction.
+        Choose the assessment from the submission itself, independently of whether its text is extractable.
+        APPEARS_ADDRESSED means you judge the applicable instruction addressed; it is not academic approval.
+        Give a representative exact student-PDF quotation as a supporting reference where available.
+        A quotation is not a pass trigger: concerns and partial answers may also have supporting quotations.
+        If visual content supports your judgment but no faithful quotation is available, use empty
+        documentEvidence and page=0; explain the actual visual observation and its page in your explanation.
+        Never invent a quotation to satisfy a positive assessment. Citation availability does not determine
+        the assessment. CHECK_MANUALLY is for uncertainty about the instruction itself, not text extraction.
         Copy a contiguous passage from the numbered student text where available. Do not insert literal
         backslash-n or backslash-t sequences into quotations or combine separate table cells as prose.
         Keep the complete relevant clause, including negations, conditions, quantities, units and exceptions.
         Never omit words that change its meaning, or substitute a paraphrase for a quotation.
         Different accepted terminology is allowed: assess meaning, not whether student wording copies
         the template. A visual observation can be useful even without an extractable quotation; in that
-        case explain the specific visual check and cite its PDF page without claiming a confirmed defect.
+        case explain the specific visual observation and cite its PDF page without claiming a confirmed defect.
         NEEDS_ATTENTION describes a concrete supported concern, not merely a heading you did not locate.
         A missing-section claim needs examination of the substantive body, not only its contents page.
         If absence cannot be established reliably, use CHECK_MANUALLY and explain the specific uncertainty.
@@ -64,7 +71,8 @@ public final class AiReviewInstructionProtocol {
         Quote only the student PDF in documentEvidence, never the template. page is the absolute PDF page, counting cover and blank pages;
         use 0 only where no supporting passage can be cited, such as an uncertain absence.
         When includeOverview=true, documentOverview describes the actual submission and its main contents
-        in two short sentences, without a compliance verdict. Give a short exact identity/purpose quotation.
+        in two short sentences, without a compliance verdict. Give a short exact identity/purpose quotation
+        where available; use empty evidence when the PDF has no quotable text. Always supply the overview.
         wrongDocument=true requires a clear substantive identity mismatch, not different headings or format;
         also include a DOCUMENT generalFinding explaining that it is not the required document. General
         findings are optional and only allowed in that first group. A DOCUMENT finding has empty requirement;
@@ -187,7 +195,7 @@ public final class AiReviewInstructionProtocol {
             if (source == FindingSource.DOCUMENT) requirement = "";
             else if (requirement.isBlank())
                 throw invalid("The finding authority does not match its source.");
-            result.add(new Finding(text(value, "issue", 1, 600), source, text(value, "evidence", 1, 1600),
+            result.add(new Finding(text(value, "issue", 1, 600), source, text(value, "evidence", 0, 1600),
                 requirement, null, null, location(value)));
         }
         return result;
@@ -242,7 +250,7 @@ public final class AiReviewInstructionProtocol {
         object(value, OVERVIEW);
         if (!value.path("wrongDocument").isBoolean()) throw invalid("Invalid document overview identity.");
         return new DocumentOverview(text(value, "text", 1, 1200), text(value, "actualDocumentType", 1, 200),
-            value.path("wrongDocument").booleanValue(), text(value, "evidence", 1, 1600));
+            value.path("wrongDocument").booleanValue(), text(value, "evidence", 0, 1600));
     }
 
     private static EvidenceLocation location(JsonNode value) {

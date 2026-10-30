@@ -563,20 +563,30 @@ export function hasCompletedTemplateChecklist(report) {
   return report?.outcome === 'NO_ISSUES_IN_CHECKED_AREAS' && Array.isArray(rows) && rows.length > 0
     && report.coverage.omittedCriteria === 0 && rows.every((row, index) => row?.id === `T${index + 1}`
       && row.source === 'OFFICIAL_TEMPLATE' && String(row.requirement || '').trim()
-      && String(row.explanation || '').trim() && row.explanation.length <= 400
+      && String(row.explanation || '').trim() && row.explanation.length <= 700
       && (row.assessment === 'NOT_APPLICABLE' || (row.assessment === 'APPEARS_ADDRESSED'
-        && String(row.documentEvidence || '').trim() && Number.isInteger(row.location?.page) && row.location.page > 0)));
+        && (hasSeparateAiReference(row) || String(row.documentEvidence || '').trim() && Number.isInteger(row.location?.page) && row.location.page > 0))));
+}
+
+export function hasSeparateAiReference(row) {
+  return ['LOCATED', 'SEPARATE_EXCERPTS', 'NOT_LOCATED', 'NOT_PROVIDED'].includes(row?.evidenceVerification?.status);
 }
 
 export function aiReviewAssessment(row) {
   // Earlier saved results used this exact backend-generated wrapper for positive quote failures.
   // Do not reclassify a model's own manual concern or a row linked to an actual finding.
+  if (row?.assessment === 'UNVERIFIED' && !row.findingIndexes?.length && !row.missingSectionIndexes?.length
+      && !row.verificationNoteIndexes?.length) {
+    const positive = String(row.explanation || '').match(/^(?:The supporting quotation could not be verified\.|Supporting text was located in separate excerpts; it does not confirm the full AI observation\.) Unverified AI observation: (.+)$/s);
+    if (positive) return { ...row, assessment: 'APPEARS_ADDRESSED', explanation: positive[1],
+      evidenceVerification: { status: row.documentExcerpts?.length ? 'SEPARATE_EXCERPTS' : 'NOT_LOCATED' } };
+  }
   if (row?.assessment !== 'CHECK_MANUALLY' || row.documentEvidence || row.location
       || ['verifiedCheckIndexes', 'findingIndexes', 'missingSectionIndexes', 'verificationNoteIndexes']
         .some(key => row[key]?.length)) return row;
   const match = String(row.explanation || '').match(/^Check .+ in the PDF(?: \(AI-cited page \d+\))?\. (?:The cited page contains visual content, but the quotation could not be matched to readable text\.|The quotation could not be matched to the PDF's readable text\.|Gemini did not provide a supporting quotation for this assessment\.|The supporting text could not be located on a PDF page\.) Gemini's unconfirmed observation: (.+)$/s);
-  return match ? { ...row, assessment: 'UNVERIFIED',
-    explanation: `The supporting quotation could not be verified. Unverified AI observation: ${match[1]}` } : row;
+  return match ? { ...row, assessment: 'APPEARS_ADDRESSED', explanation: match[1],
+    evidenceVerification: { status: 'NOT_LOCATED' } } : row;
 }
 
 function hasUnresolvedInstructionAssessments(report) {
@@ -615,7 +625,11 @@ export function aiReviewReportStatus(report) {
 }
 
 export function hasAiReviewNotes(report) {
-  return Boolean(report?.coverage?.criteria?.some(row => aiReviewAssessment(row)?.assessment === 'UNVERIFIED')
+  return Boolean(report?.coverage?.criteria?.some(raw => {
+    const row = aiReviewAssessment(raw);
+    return row?.assessment === 'UNVERIFIED' || row?.assessment !== 'NOT_APPLICABLE'
+      && ['NOT_LOCATED', 'NOT_PROVIDED'].includes(row?.evidenceVerification?.status);
+  })
     || report && isInconclusiveAiReviewReport(report)
       && !report.verificationNotes?.length && !hasUnresolvedInstructionAssessments(report));
 }

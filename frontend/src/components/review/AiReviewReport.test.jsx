@@ -5,13 +5,13 @@ import { AiReviewReport } from './AiReviewReport.jsx';
 
 function show(report) { render(<MantineProvider><AiReviewReport report={report} /></MantineProvider>); }
 
-it('places quote-only verification limits outside the checklist without counting them as manual checks', () => {
+it('keeps the model positive judgment in the checklist and quotation availability in secondary notes', () => {
   show({ outcome: 'INCONCLUSIVE', limitations: [], coverage: { omittedCriteria: 0, criteria: [{
     id: 'T1', title: 'Change history', requirement: 'Provide a change history.', source: 'OFFICIAL_TEMPLATE',
     assessment: 'UNVERIFIED', explanation: 'The supporting quotation could not be verified. Unverified AI observation: Versions, dates and descriptions are present.'
   }] } });
-  expect(screen.queryByRole('region', { name: 'Review checklist' })).not.toBeInTheDocument();
-  expect(screen.getByText('1 unverified observation')).toBeVisible();
+  expect(screen.getByText('Appears addressed (1)')).toBeVisible();
+  expect(screen.queryByText('1 unverified observation')).not.toBeInTheDocument();
   expect(screen.queryByText(/item.* to check/)).not.toBeInTheDocument();
   expect(screen.getByRole('status')).toHaveTextContent('No issues identified in the checked areas');
   expect(screen.getByText(/See Review notes\./)).toBeVisible();
@@ -19,7 +19,8 @@ it('places quote-only verification limits outside the checklist without counting
   const limits = screen.getByText('Review notes', { selector: 'summary' }).closest('details');
   expect(limits).not.toHaveAttribute('open');
   fireEvent.click(within(limits).getByText('Review notes', { selector: 'summary' }));
-  expect(within(limits).getByText(/Versions, dates and descriptions are present/)).toBeVisible();
+  expect(within(limits).getByText('Change history')).toBeVisible();
+  expect(within(limits).queryByText(/Versions, dates and descriptions are present/)).not.toBeInTheDocument();
 });
 
 it('keeps specific manual concerns visible when other positive observations are unverified', () => {
@@ -33,18 +34,19 @@ it('keeps specific manual concerns visible when other positive observations are 
   expect(checklist).toHaveTextContent('partially saved files');
   expect(checklist).not.toHaveTextContent('Change history');
   expect(screen.getByRole('status')).toHaveTextContent('Needs attention');
-  expect(screen.getByText('1 item to check · 1 unverified observation')).toBeVisible();
+  expect(screen.getByText('1 item to check')).toBeVisible();
 });
 
-it('moves the known saved change-history quotation failure into Review notes without a new request', () => {
+it('recovers the original judgment from a known saved change-history quotation failure without a new request', () => {
   show({ outcome: 'INCONCLUSIVE', coverage: { criteria: [{ id: 'T1', title: 'Change history',
     requirement: 'Provide a change history.', source: 'OFFICIAL_TEMPLATE', assessment: 'CHECK_MANUALLY',
     explanation: "Check Change history in the PDF (AI-cited page 2). The cited page contains visual content, but the quotation could not be matched to readable text. Gemini's unconfirmed observation: Versions, dates and descriptions are present." }] } });
-  expect(screen.queryByRole('region', { name: 'Review checklist' })).not.toBeInTheDocument();
-  expect(screen.getByText('1 unverified observation')).toBeVisible();
+  expect(screen.getByText('Appears addressed (1)')).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent('No issues identified in the checked areas');
   expect(screen.queryByText(/page contains visual content/)).not.toBeInTheDocument();
   const limits = screen.getByText('Review notes', { selector: 'summary' }).closest('details');
-  expect(within(limits).getByText(/Versions, dates and descriptions/)).not.toBeVisible();
+  expect(within(limits).queryByText(/Versions, dates and descriptions/)).not.toBeInTheDocument();
+  expect(within(limits).getByText('Change history')).not.toBeVisible();
 });
 
 it('shows missing-template scope prominently rather than only inside collapsed review limits', () => {

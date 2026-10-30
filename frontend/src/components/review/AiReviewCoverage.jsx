@@ -1,7 +1,7 @@
 import { Group, Text, VisuallyHidden } from '@mantine/core';
 import { AiReviewVerificationHelp } from './AiReviewHelp.jsx';
 import { formatTemplateInstruction } from '../../lib/templateInstructionText.js';
-import { aiReviewAssessment } from '../../lib/workflow.js';
+import { aiReviewAssessment, hasSeparateAiReference } from '../../lib/workflow.js';
 
 const SOURCES = { DOCUMENT: 'Submitted document', DELIVERABLE_REQUIREMENTS: 'Deliverable requirements', OFFICIAL_TEMPLATE: 'Official template' };
 const ASSESSMENTS = new Set(['APPEARS_ADDRESSED', 'NEEDS_ATTENTION', 'CHECK_MANUALLY', 'NOT_APPLICABLE', 'UNVERIFIED']);
@@ -19,7 +19,7 @@ export function validAssessmentCriteria(report) {
     const valid = /^[CT][1-9]\d*$/.test(item?.id || '') && counts.get(item.id) === 1
       && hasText(item.requirement) && Object.hasOwn(SOURCES, item.source) && item.source !== 'DOCUMENT'
       && ASSESSMENTS.has(assessment) && hasText(item.explanation) && item.explanation.length <= 1000
-      && (assessment !== 'APPEARS_ADDRESSED' || (hasText(item.documentEvidence) && validPage(item.location)));
+      && (assessment !== 'APPEARS_ADDRESSED' || hasSeparateAiReference(item) || (hasText(item.documentEvidence) && validPage(item.location)));
     return valid ? { ...item, key: `${item.id}-${index}` } : null;
   }).filter(Boolean);
 }
@@ -75,13 +75,15 @@ function AssessmentRow({ row, report }) {
         return concern.trim() === row.explanation.trim() ? null : <Text key={index} component="p"><strong>Linked concern:</strong> {concern}</Text>;
       })}
       {linkedFindings.map((finding, index) => hasText(finding.evidence) && finding.evidence !== row.documentEvidence ? <LinkedExcerpt key={`evidence-${index}`} text={finding.evidence} location={finding.location} /> : null)}
-      {linkedNotes.map((note, index) => <div key={`note-${index}`}><Text>{note.issue}</Text>{hasText(note.evidence) && note.evidence !== row.documentEvidence ? <LinkedExcerpt text={note.evidence} location={note.location} /> : null}</div>)}
+      {linkedNotes.map((note, index) => <div key={`note-${index}`}>{note.issue?.trim() !== row.explanation.trim() ? <Text>{note.issue}</Text> : null}{hasText(note.evidence) && note.evidence !== row.documentEvidence ? <LinkedExcerpt text={note.evidence} location={note.location} /> : null}</div>)}
       {linkedMissing.map((item, index) => <Text key={`missing-${index}`}>Confirm the required section: {item.section}</Text>)}
       {hasText(row.documentEvidence) ? <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Evidence excerpt">{row.documentEvidence}</Text> : null}
       {excerpts.map((item, index) => <LinkedExcerpt key={`source-part-${index}`} text={item.text} location={item.location} />)}
       {!excerpts.length ? <Text component="p" className="wt-ai-review-reference"><strong>Source:</strong> {location
         ? <>Submitted PDF · page {location.page}{hasText(location.section) ? ` · ${location.section}` : ''}</>
-        : 'Submitted PDF · quotation unverified'}</Text> : null}
+        : row.evidenceVerification?.status === 'NOT_PROVIDED' ? 'No supporting quotation supplied by Gemini.'
+          : row.evidenceVerification?.status === 'LOCATED' ? 'Submitted PDF · page not established'
+            : 'Matching PDF text was not located.'}</Text> : null}
     </div>
   </details>;
 }
@@ -127,11 +129,15 @@ export function AiReviewCoverage({ report, showHeading = true }) {
 }
 
 export function AiReviewVerificationLimits({ report }) {
-  const rows = validAssessmentCriteria(report).filter(row => row.assessment === 'UNVERIFIED');
-  if (!rows.length) return null;
-  return <section aria-label="Unverified AI observations">
-    <Group gap={4} mt="sm"><Text component="h3" fw={700}>Unverified AI observations ({rows.length})</Text><AiReviewVerificationHelp /></Group>
-    <Text mt="sm">The full supporting quotations could not be verified. These observations do not establish a document problem or a confirmed pass.</Text>
-    {rows.map(row => <AssessmentRow key={row.key} row={row} report={report} />)}
+  const criteria = validAssessmentCriteria(report);
+  const rows = criteria.filter(row => row.assessment !== 'NOT_APPLICABLE'
+    && ['NOT_LOCATED', 'NOT_PROVIDED'].includes(row.evidenceVerification?.status));
+  const legacy = criteria.filter(row => row.assessment === 'UNVERIFIED');
+  if (!rows.length && !legacy.length) return null;
+  return <section aria-label="Supporting reference notes">
+    <Group gap={4} mt="sm"><Text component="h3" fw={700}>Supporting references ({rows.length + legacy.length})</Text><AiReviewVerificationHelp /></Group>
+    <Text mt="sm">WildTrack could not locate supporting PDF text for these AI assessments. Their checklist categories reflect Gemini’s judgment, not quotation matching.</Text>
+    {rows.length ? <ul>{rows.map(row => <li key={row.key}>{hasText(row.title) ? row.title : compactRequirement(row.requirement)}</li>)}</ul> : null}
+    {legacy.length ? <Text mt="sm">{legacy.length} earlier assessment{legacy.length === 1 ? ' has' : 's have'} no recoverable original judgment. Run AI Review again to replace the earlier result.</Text> : null}
   </section>;
 }

@@ -9,15 +9,17 @@ const criterion = (assessment, extra = {}) => ({ id: extra.id || 'C1', title: 'D
   location: { page: 8, section: 'Recovery' }, ...extra });
 function show(report) { render(<MantineProvider><AiReviewCoverage report={report} /></MantineProvider>); }
 
-it('shows separately located source passages with their own pages only in Review limits', () => {
-  const row = criterion('UNVERIFIED', { documentEvidence: null, location: null,
-    explanation: 'Supporting text was located in separate excerpts; it does not confirm the full AI observation.',
+it('keeps an AI judgment with separately located source passages and their own pages', () => {
+  const row = criterion('APPEARS_ADDRESSED', { documentEvidence: null, location: null,
+    evidenceVerification: { status: 'SEPARATE_EXCERPTS' },
+    explanation: 'The submission and review steps are described.',
     documentExcerpts: [{ text: 'Users submit a document', location: { page: 8 } },
       { text: 'and staff review it.', location: { page: 9 } }] });
   render(<MantineProvider><AiReviewCoverage report={{ coverage: { criteria: [row] } }} />
     <AiReviewVerificationLimits report={{ coverage: { criteria: [row] } }} /></MantineProvider>);
-  expect(screen.queryByRole('region', { name: 'Template and instruction assessment' })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByText(/Supporting text was located/));
+  expect(screen.getByText('Appears addressed (1)')).toBeVisible();
+  fireEvent.click(screen.getByText('Appears addressed (1)'));
+  fireEvent.click(document.querySelector('.wt-ai-review-assessment-summary'));
   const excerpts = screen.getAllByRole('blockquote', { name: 'Linked evidence excerpt' });
   expect(excerpts).toHaveLength(2);
   expect(excerpts[0]).toHaveTextContent('Users submit a document');
@@ -27,19 +29,45 @@ it('shows separately located source passages with their own pages only in Review
   expect(screen.queryByText('Submitted PDF · quotation unverified')).not.toBeInTheDocument();
 });
 
-it('shows an unverified positive observation only in Review limits, without a pass or manual concern', () => {
+it('restores the model positive judgment and keeps reference notes secondary for a known saved wrapper', () => {
   const report = { coverage: { criteria: [criterion('UNVERIFIED', { location: null, documentEvidence: null,
     explanation: 'The supporting quotation could not be verified. Unverified AI observation: The recovery path is described.' })] } };
   render(<MantineProvider><AiReviewCoverage report={report} /><AiReviewVerificationLimits report={report} /></MantineProvider>);
-  expect(screen.queryByRole('region', { name: 'Template and instruction assessment' })).not.toBeInTheDocument();
-  const limits = screen.getByRole('region', { name: 'Unverified AI observations' });
-  expect(limits).toHaveTextContent('do not establish a document problem or a confirmed pass');
-  expect(limits).not.toHaveTextContent('Appears addressed');
-  expect(limits).not.toHaveTextContent('Check in PDF');
-  expect(limits).toHaveTextContent('The recovery path is described.');
-  const observation = within(limits).getByText('Unverified AI observation: The recovery path is described.');
-  expect(observation).toHaveStyle({ display: 'block' });
+  expect(screen.getByText('Appears addressed (1)')).toBeVisible();
+  const limits = screen.getByRole('region', { name: 'Supporting reference notes' });
+  expect(limits).toHaveTextContent('Their checklist categories reflect');
+  expect(limits).not.toHaveTextContent('The recovery path is described.');
+  fireEvent.click(screen.getByText('Appears addressed (1)'));
+  expect(screen.getByText(/The recovery path is described/)).toBeVisible();
+  expect(screen.queryByText(/Unverified AI observation:/)).not.toBeInTheDocument();
   expect(within(limits).getByRole('button', { name: 'How WildTrack verifies AI evidence' })).toBeInTheDocument();
+});
+
+it('keeps an explicit positive assessment without a quotation and never renders the unlocated provider text', () => {
+  show({ coverage: { criteria: [criterion('APPEARS_ADDRESSED', { location: null, documentEvidence: null,
+    evidenceVerification: { status: 'NOT_LOCATED', providerQuotation: 'Invented provider quotation.' },
+    explanation: 'The diagram shows the approval flow.' })] } });
+  fireEvent.click(screen.getByText('Appears addressed (1)'));
+  fireEvent.click(document.querySelector('.wt-ai-review-assessment-summary'));
+  expect(screen.getByText(/The diagram shows the approval flow/)).toBeVisible();
+  expect(screen.getByText('Matching PDF text was not located.')).toBeVisible();
+  expect(screen.queryByText('Invented provider quotation.')).not.toBeInTheDocument();
+  expect(screen.queryByRole('blockquote', { hidden: true })).not.toBeInTheDocument();
+});
+
+it('keeps a concern without a quotation and renders a manual explanation only once', () => {
+  const explanation = 'The timeout is stated, but the recovery action is unclear.';
+  const row = criterion('CHECK_MANUALLY', { documentEvidence: null, location: null, explanation,
+    evidenceVerification: { status: 'NOT_PROVIDED' }, verificationNoteIndexes: [0] });
+  show({ coverage: { criteria: [row, criterion('NEEDS_ATTENTION', { id: 'T2', title: 'Conflicting timeout',
+    location: null, documentEvidence: null, explanation: 'Two different timeout values are given.',
+    evidenceVerification: { status: 'NOT_LOCATED' } })] },
+    verificationNotes: [{ source: row.source, requirement: row.requirement, issue: explanation }] });
+  fireEvent.click(document.querySelector('.wt-ai-review-assessment-summary'));
+  expect(screen.getAllByText(new RegExp(explanation.replace('.', '\\.')))).toHaveLength(1);
+  expect(screen.getByText(/Two different timeout values/)).toBeVisible();
+  expect(screen.queryByText('Appears addressed (1)')).not.toBeInTheDocument();
+  expect(screen.getByText('No supporting quotation supplied by Gemini.')).toBeVisible();
 });
 
 it('keeps all 113 fixed instructions and distinguishes inapplicable items without warnings', () => {
@@ -88,8 +116,8 @@ it('keeps linked excerpt pages separate and does not attribute them to an unloca
   expect(content.querySelector('blockquote')).toHaveClass('wt-ai-review-passage', 'wt-ai-review-quote');
   expect(content).not.toHaveTextContent('Excerpt from submitted PDF');
   expect(content.querySelector('blockquote + cite')).toHaveTextContent('Submitted PDF · page 3 · Process');
-  expect(content.lastElementChild).toHaveTextContent('Source: Submitted PDF · quotation unverified');
-  expect(rows[1].querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('Submitted PDF · quotation unverified');
+  expect(content.lastElementChild).toHaveTextContent('Source: Matching PDF text was not located.');
+  expect(rows[1].querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('Matching PDF text was not located.');
 });
 
 it('retains each excerpt page when the criterion and a linked concern cite different PDF pages', () => {

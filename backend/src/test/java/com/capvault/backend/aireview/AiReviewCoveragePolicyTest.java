@@ -282,7 +282,7 @@ class AiReviewCoveragePolicyTest {
             null, null, "Change history");
         var limited = AiReviewInstructionsWorkflow.combine(List.of(with(List.of(), List.of(row))));
         assertThat(limited.outcome()).isEqualTo(ReviewOutcome.INCONCLUSIVE);
-        assertThat(limited.summary()).contains("Review limits").doesNotContain("items to check");
+        assertThat(limited.summary()).contains("Review notes").doesNotContain("items to check");
         assertThat(limited.findings()).isEmpty();
         assertThat(limited.verificationNotes()).isEmpty();
         assertThat(limited.coverage().criteria().getFirst()).isEqualTo(row);
