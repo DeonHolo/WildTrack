@@ -421,6 +421,10 @@ textarea:focus-visible {
   line-height: 1.25;
 }
 
+.wt-file-monitor-section .panel-header p {
+  max-width: none;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

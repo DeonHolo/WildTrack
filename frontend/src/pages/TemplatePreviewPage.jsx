@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Accordion, Alert, Anchor, Button, Group, Loader, Paper, Stack, Text, Title, Tooltip } from '@mantine/core';
+import { Accordion, Alert, Anchor, Button, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
+import { InfoTooltip } from '../components/InfoTooltip.jsx';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
@@ -53,10 +54,8 @@ export function TemplatePreviewPage() {
             <Accordion.Item value="headings">
               <Group gap="xs" wrap="nowrap" pr="md">
                 <Accordion.Control style={{ flex: 1 }}><Text component="span" fw={600} size="lg">Template headings</Text></Accordion.Control>
-                <Tooltip multiline withArrow w={320} events={{hover:true,focus:true,touch:true}}
-                  label="Shows the section headings found in the Template PDF. Document Check looks for matching headings in submissions. AI Review uses the Review checklist to assess what those sections contain.">
-                  <Button variant="subtle" size="compact-xs" radius="xl" aria-label="About Template headings">?</Button>
-                </Tooltip>
+                <InfoTooltip ariaLabel="About Template headings"
+                  label="Shows the section headings found in the Template PDF. Document Check looks for matching headings in submissions. AI Review uses the Review checklist to assess what those sections contain." />
               </Group>
               <Accordion.Panel>
                 <Stack gap="md">

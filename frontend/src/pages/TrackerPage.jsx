@@ -18,6 +18,8 @@ import {
   normalizeStudentNumber
 } from '../lib/workflow.js';
 import { getStoredPreviewAdviser } from '../hooks/usePreviewRole.js';
+import { SortHeader } from '../components/SortHeader.jsx';
+import { compareSortValues, nextSort } from '../lib/sortValues.js';
 
 const PAGE_SIZE = 25;
 const COMPACT_LABELS = {
@@ -32,6 +34,7 @@ export function TrackerPage() {
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState(state.activeStudentNumber || getStudentKey(state.students[0]) || '');
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
   const activeColumns = getActiveTrackerColumns(state);
@@ -43,8 +46,12 @@ export function TrackerPage() {
     const filtered = needle
       ? scopeStudents.filter((student) => `${student.name} ${student.teamCode} ${student.studentNumber}`.toLowerCase().includes(needle))
       : scopeStudents;
-    return [...filtered].sort((first, second) => String(first.teamCode).localeCompare(String(second.teamCode)) || Number(first.memberNumber || 0) - Number(second.memberNumber || 0));
-  }, [query, scopeStudents]);
+    return [...filtered].sort((first, second) => {
+      if (!sort) return compareSortValues(first.teamCode, second.teamCode) || compareSortValues(first.memberNumber, second.memberNumber);
+      const value = (student) => sort.column.startsWith('milestone:') ? student.milestones?.[sort.column.slice(10)] : student[sort.column];
+      return compareSortValues(value(first), value(second)) * (sort.direction === 'asc' ? 1 : -1);
+    });
+  }, [query, scopeStudents, sort]);
   const pageCount = showAllRows ? 1 : Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const pageRows = showAllRows ? rows : rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const selected = pageRows.find((student) => getStudentKey(student) === selectedKey || student.studentNumber === selectedKey) || pageRows[0] || rows[0];
@@ -151,7 +158,7 @@ export function TrackerPage() {
             </Group>
           </div>
 
-          <TrackerGrid rows={pageRows} columns={activeColumns} selectedKey={getStudentKey(selected)} onSelect={(student) => setSelectedKey(getStudentKey(student))} />
+          <TrackerGrid rows={pageRows} columns={activeColumns} selectedKey={getStudentKey(selected)} onSelect={(student) => setSelectedKey(getStudentKey(student))} sort={sort} onSort={(column) => { setSort((current) => nextSort(current, column)); setPage(1); }} />
         </section>
       </Paper>
       </ResourceBoundary>
@@ -159,7 +166,7 @@ export function TrackerPage() {
   );
 }
 
-function TrackerGrid({ rows, columns, selectedKey, onSelect }) {
+function TrackerGrid({ rows, columns, selectedKey, onSelect, sort, onSort }) {
   return (
     <div className="wt-tracker-grid-viewport" tabIndex={0} aria-label="Scrollable tracker rows">
       <table
@@ -172,10 +179,10 @@ function TrackerGrid({ rows, columns, selectedKey, onSelect }) {
           {columns.map((column) => <col className="tracker-col-milestone" key={column.id} />)}
         </colgroup>
         <thead><tr>
-          <th className="tracker-sticky tracker-sticky-name">Name of Student</th>
-          <th className="tracker-sticky tracker-sticky-team">Team Code</th>
-          <th className="tracker-sticky tracker-sticky-member">Member #</th>
-          {columns.map((column) => <th key={column.id} title={column.label}>{compactTrackerLabel(column.label)}</th>)}
+          <SortHeader className="tracker-sticky tracker-sticky-name" column="name" sort={sort} onSort={onSort}>Name of Student</SortHeader>
+          <SortHeader className="tracker-sticky tracker-sticky-team" column="teamCode" sort={sort} onSort={onSort}>Team Code</SortHeader>
+          <SortHeader className="tracker-sticky tracker-sticky-member" column="memberNumber" sort={sort} onSort={onSort}>Member #</SortHeader>
+          {columns.map((column) => <SortHeader key={column.id} column={`milestone:${column.key}`} label={column.label} sort={sort} onSort={onSort}>{compactTrackerLabel(column.label)}</SortHeader>)}
         </tr></thead>
         <tbody>
           {rows.map((student) => {

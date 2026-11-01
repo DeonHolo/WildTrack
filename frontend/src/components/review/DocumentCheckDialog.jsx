@@ -1,6 +1,7 @@
-import { ActionIcon, Alert, Badge, Modal, Tabs, Tooltip } from '@mantine/core';
+import { Alert, Badge, Modal, Tabs } from '@mantine/core';
 import { useEffect, useState } from 'react';
-import { ArrowSquareOut, CheckCircle, Info, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
+import { ArrowSquareOut, CheckCircle, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
+import { InfoTooltip } from '../InfoTooltip.jsx';
 import { Button, StatusIndicator } from '../ui.jsx';
 import { documentCheckFlags, documentCheckSummary, formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../../lib/workflow.js';
 import { SubmittedFileHistory } from './SubmittedFileHistory.jsx';
@@ -65,11 +66,7 @@ export function DocumentCheckDialog({
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span>{historyOnly ? 'File history' : 'Document Check'}</span>
         {!historyOnly ? (
-          <Tooltip label={checkExplanation} multiline w={320} withArrow events={{ hover: true, focus: true, touch: true }}>
-            <ActionIcon variant="subtle" size={24} radius="sm" color="gray" aria-label="About Document Check">
-              <Info size={16} aria-hidden="true" />
-            </ActionIcon>
-          </Tooltip>
+          <InfoTooltip label={checkExplanation} ariaLabel="About Document Check" />
         ) : null}
       </div>
       <h2>{metadata?.name || 'Submitted PDF'}</h2>
