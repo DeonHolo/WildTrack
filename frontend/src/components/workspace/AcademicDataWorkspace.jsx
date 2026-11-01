@@ -18,6 +18,8 @@ import { ArrowClockwise, ArrowUDownLeft, ArrowUUpLeft, DownloadSimple, Magnifyin
 import { addAcademicDeliverableColumn, clearAcademicDataSnapshot, deleteAcademicRow, getAcademicDataSnapshot, loadAcademicData, saveAcademicRows } from '../../lib/academicDataClient.js';
 import { downloadAcademicCsv } from '../../lib/academicDataCsv.js';
 import { downloadAcademicWorkbook } from '../../lib/academicDataWorkbook.js';
+import { SortHeader } from '../SortHeader.jsx';
+import { compareSortValues, nextSort } from '../../lib/sortValues.js';
 
 const PAGE_SIZE_OPTIONS = ['25', '50', '100'];
 const HISTORY_LIMIT = 150;
@@ -92,6 +94,7 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   const [pasteOpened, setPasteOpened] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState(null);
   const [pageSize, setPageSize] = useState(50);
   const [search, setSearch] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
@@ -173,9 +176,10 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   const rows = data[activeGrid] || [];
   const filteredRows = useMemo(() => {
     const query = normalize(search);
-    return query ? rows.filter((row) => config.columns.some((item) => normalize(row[item.key]).includes(query))
+    const matching = query ? rows.filter((row) => config.columns.some((item) => normalize(row[item.key]).includes(query))
       || normalize(row._sourceColumn || row.sourceGroupCode || row.teamFormationCode).includes(query)) : rows;
-  }, [rows, config, search]);
+    return sort ? [...matching].sort((a, b) => compareSortValues(a[sort.column], b[sort.column]) * (sort.direction === 'asc' ? 1 : -1)) : matching;
+  }, [rows, config, search, sort]);
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const firstVisible = filteredRows.length ? ((page - 1) * pageSize) + 1 : 0;
   const lastVisible = Math.min(page * pageSize, filteredRows.length);
@@ -192,6 +196,7 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   );
 
   useEffect(() => setPage(1), [activeGrid, pageSize]);
+  useEffect(() => setSort(null), [activeGrid]);
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
   }, [page, pageCount]);
@@ -322,6 +327,7 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   function jumpToRow(row, nextRows) {
     setSearch('');
     setSearchDraft('');
+    setSort(null);
     setPage(Math.ceil((nextRows.findIndex((item) => rowKey(item) === rowKey(row)) + 1) / pageSize));
     setFocusRow(rowKey(row));
   }
@@ -471,6 +477,8 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
               </Group>
 
               <AcademicGrid
+                sort={sort}
+                onSort={(column) => { setSort((current) => nextSort(current, column)); setPage(1); }}
                 gridRef={gridRef}
                 kind={activeGrid}
                 rows={pageRows}
@@ -577,7 +585,7 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   );
 }
 
-function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColumns, dirtyKeys, onChange, onDelete, gridRef }) {
+function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColumns, dirtyKeys, onChange, onDelete, gridRef, sort, onSort }) {
   return (
     <div className="wt-academic-grid-scroll" ref={gridRef} tabIndex={0} aria-label={`${GRID_CONFIG[kind].label} editable grid`}>
       <table className="wt-academic-grid" aria-label={`${GRID_CONFIG[kind].label} academic data`}>
@@ -585,7 +593,7 @@ function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColum
           <tr>
             <th className="wt-academic-row-number" aria-label="Row number">#</th>
             <th>Source</th>
-            {columns.map((item) => <th key={item.key}>{item.label}{item.required ? ' *' : ''}</th>)}
+            {columns.map((item) => <SortHeader key={item.key} column={item.key} label={item.label} sort={sort} onSort={onSort}>{item.label}{item.required ? ' *' : ''}</SortHeader>)}
             <th>Actions</th>
           </tr>
         </thead>

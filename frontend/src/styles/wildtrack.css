@@ -1413,6 +1413,7 @@
     min-width: 0;
   }
 
+  .wt-tracker-grid-table .tracker-sticky-name,
   .wt-tracker-grid-table .tracker-sticky-team,
   .wt-tracker-grid-table .tracker-sticky-member {
     position: static;

@@ -19,6 +19,7 @@ import {
   Trash
 } from '@phosphor-icons/react';
 import { Badge, Button as MantineButton, Collapse, Input, Modal, NativeSelect, Tabs, TextInput, Tooltip } from '@mantine/core';
+import { InfoTooltip } from '../components/InfoTooltip.jsx';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, ConfirmDialog, PageHeader, StatusIndicator } from '../components/ui.jsx';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
@@ -659,14 +660,8 @@ export function WorkspacePage() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <h2>Deadline PDF monitoring</h2>
-                <Tooltip multiline withArrow w={320} events={{hover:true,focus:true,touch:true}} label={(
-                  <span>
-                    Checks submitted Google Drive PDFs for file changes or lost access. Checks run about hourly, or every five minutes from 24 hours before to 48 hours after each deadline (Philippine time). Drive limits can delay checks. This does not run AI Review.
-                  </span>
-                )}>
-                  <MantineButton type="button" variant="subtle" size="compact-xs" radius="xl"
-                    aria-label="How deadline PDF monitoring works">?</MantineButton>
-                </Tooltip>
+                <InfoTooltip ariaLabel="How deadline PDF monitoring works"
+                  label="Checks submitted Google Drive PDFs for file changes or lost access. Checks run about hourly, or every five minutes from 24 hours before to 48 hours after each deadline (Philippine time). Drive limits can delay checks. This does not run AI Review." />
               </div>
               <p>Choose which deliverables in the selected workspace receive automatic Google Drive PDF change checks. Drive checks use API quota.</p>
             </div>
