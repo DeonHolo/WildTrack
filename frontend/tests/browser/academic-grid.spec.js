@@ -215,10 +215,10 @@ for (const viewport of viewports) {
     await expect(students.getByRole('textbox', { name: 'Student Number for 26-0999' })).toHaveCount(0);
 
     await page.getByRole('textbox', { name: 'Search students' }).fill('26-0001');
-    await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(students.getByRole('textbox', { name: 'Student Number for 26-0002' })).toHaveCount(0);
     const csvDownload = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export Students CSV' }).click();
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Export Students CSV' }).click();
     const csv = await csvDownload;
     expect(csv.suggestedFilename()).toMatch(/^wildtrack-students-\d{4}-\d{2}-\d{2}\.csv$/);
     const csvBody = await readFile(await csv.path(), 'utf8');
@@ -227,7 +227,8 @@ for (const viewport of viewports) {
     expect(csvBody).toContain('UNSAVED STUDENT');
 
     const workbookDownload = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export all XLSX' }).click();
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Export all XLSX' }).click();
     const workbook = await workbookDownload;
     expect(workbook.suggestedFilename()).toMatch(/^wildtrack-academic-data-\d{4}-\d{2}-\d{2}\.xlsx$/);
     const workbookBytes = await readFile(await workbook.path());
