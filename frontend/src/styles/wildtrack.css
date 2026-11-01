@@ -3268,8 +3268,36 @@
   border-bottom: 1px solid var(--wt-border);
 }
 
-.wt-academic-sheet-toolbar {
+.wt-academic-sheet-heading {
   padding: 2px 2px 4px;
+}
+
+.wt-academic-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wt-academic-search {
+  flex: 1 1 200px;
+  min-width: 160px;
+  max-width: 360px;
+}
+
+.wt-academic-actions > :not(.wt-academic-search) { flex-shrink: 0; }
+.wt-academic-save { margin-left: auto; }
+
+@media (max-width: 1100px) {
+  .wt-academic-actions { flex-wrap: wrap; }
+  .wt-academic-search { max-width: none; }
+}
+
+@media (max-width: 600px) {
+  .wt-academic-search { flex-basis: 100%; }
+  .wt-academic-history-actions .mantine-ActionIcon-root { width: 44px; height: 44px; }
+  .wt-academic-actions .mantine-Button-root { min-height: 44px; }
+  .wt-academic-save { margin-left: 0; }
 }
 
 .wt-academic-grid-scroll {

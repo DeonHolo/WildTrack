@@ -1,5 +1,6 @@
 import { MantineProvider } from '@mantine/core';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
 import { AcademicDataWorkspace } from './AcademicDataWorkspace.jsx';
@@ -77,7 +78,7 @@ function snapshot(overrides = {}) {
 
 function renderWorkspace(props = {}) {
   return render(
-    <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
+    <MantineProvider theme={wildTrackTheme} forceColorScheme="light" env="test">
       <AcademicDataWorkspace workspaceId="workspace-it" {...props} />
     </MantineProvider>
   );
@@ -316,17 +317,20 @@ describe('AcademicDataWorkspace', () => {
     await openStudents();
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Search students' }), { target: { value: '26-0055' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     const table = screen.getByRole('table', { name: 'Students academic data' });
     expect(within(table).getByRole('textbox', { name: 'Student Number for 26-0055' })).toBeInTheDocument();
     expect(within(table).queryByRole('textbox', { name: 'Student Number for 26-0001' })).not.toBeInTheDocument();
     expect(screen.getByText('1–1 of 1 matching of 55')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Export Students CSV' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Export', exact: true })).toHaveAttribute('aria-expanded', 'false'));
+    await userEvent.click(screen.getByRole('button', { name: 'Export', exact: true }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export Students CSV' }));
     expect(csv.downloadAcademicCsv.mock.calls[0][2]).toHaveLength(55);
     expect(csv.downloadAcademicCsv.mock.calls[0][2][54]).toMatchObject({ studentNumber: '26-0055' });
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
     expect(screen.getByText('1–50 of 55')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Export Students CSV' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Export', exact: true })).toHaveAttribute('aria-expanded', 'false'));
+    await userEvent.click(screen.getByRole('button', { name: 'Export', exact: true }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export Students CSV' }));
     expect(csv.downloadAcademicCsv.mock.calls[1][2]).toHaveLength(55);
   });
 
@@ -442,7 +446,9 @@ describe('AcademicDataWorkspace', () => {
     renderWorkspace();
     await openStudents();
     fireEvent.change(screen.getByRole('textbox', { name: 'Student name for 26-0001' }), { target: { value: 'UNSAVED EXPORT' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Export all XLSX' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Export', exact: true })).toHaveAttribute('aria-expanded', 'false'));
+    await userEvent.click(screen.getByRole('button', { name: 'Export', exact: true }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export all XLSX' }));
     const sheets = workbook.downloadAcademicWorkbook.mock.calls[0][0];
     expect(Object.keys(sheets)).toEqual(['students', 'projects', 'deliverables', 'trackerColumns']);
     expect(sheets.students.rows[0]).toMatchObject({
@@ -454,7 +460,9 @@ describe('AcademicDataWorkspace', () => {
     expect(sheets.trackerColumns.rows).toHaveLength(2);
     expect(sheets.projects.rows).toHaveLength(1);
     fireEvent.click(screen.getByRole('tab', { name: /Deliverables/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Export tracker columns CSV' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Export', exact: true })).toHaveAttribute('aria-expanded', 'false'));
+    await userEvent.click(screen.getByRole('button', { name: 'Export', exact: true }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export tracker columns CSV' }));
     expect(csv.downloadAcademicCsv).toHaveBeenCalledWith('tracker-columns', expect.any(Array), sheets.trackerColumns.rows);
   });
 

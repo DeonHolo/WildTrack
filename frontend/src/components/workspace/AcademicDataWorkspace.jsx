@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  ActionIcon,
   Badge,
   Button,
   Checkbox,
   Group,
   Modal,
+  Menu,
   Pagination,
   Select,
   Stack,
   Tabs,
   Text,
   Textarea,
-  TextInput
+  TextInput,
+  Tooltip
 } from '@mantine/core';
-import { ArrowClockwise, ArrowUDownLeft, ArrowUUpLeft, DownloadSimple, MagnifyingGlass, Plus, Trash, UploadSimple } from '@phosphor-icons/react';
+import { ArrowClockwise, ArrowUDownLeft, ArrowUUpLeft, CaretDown, DownloadSimple, MagnifyingGlass, Plus, Trash, UploadSimple, X } from '@phosphor-icons/react';
 import { addAcademicDeliverableColumn, clearAcademicDataSnapshot, deleteAcademicRow, getAcademicDataSnapshot, loadAcademicData, saveAcademicRows } from '../../lib/academicDataClient.js';
 import { downloadAcademicCsv } from '../../lib/academicDataCsv.js';
 import { downloadAcademicWorkbook } from '../../lib/academicDataWorkbook.js';
@@ -97,7 +100,6 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
   const [sort, setSort] = useState(null);
   const [pageSize, setPageSize] = useState(50);
   const [search, setSearch] = useState('');
-  const [searchDraft, setSearchDraft] = useState('');
   const [newDeliverableOpened, setNewDeliverableOpened] = useState(false);
   const [newDeliverableName, setNewDeliverableName] = useState('');
   const [newDeliverablePdf, setNewDeliverablePdf] = useState(true);
@@ -123,7 +125,6 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
     setNotice('');
     setPage(1);
     setSearch('');
-    setSearchDraft('');
     setFocusRow('');
     historyRef.current = emptyHistory();
     setHistoryVersion((value) => value + 1);
@@ -178,7 +179,14 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
     const query = normalize(search);
     const matching = query ? rows.filter((row) => config.columns.some((item) => normalize(row[item.key]).includes(query))
       || normalize(row._sourceColumn || row.sourceGroupCode || row.teamFormationCode).includes(query)) : rows;
-    return sort ? [...matching].sort((a, b) => compareSortValues(a[sort.column], b[sort.column]) * (sort.direction === 'asc' ? 1 : -1)) : matching;
+    return sort ? [...matching].sort((a, b) => {
+      if (sort.column === 'sourceRowNumber') {
+        const aMissing = !a.sourceRowNumber;
+        const bMissing = !b.sourceRowNumber;
+        if (aMissing !== bMissing) return aMissing ? 1 : -1;
+      }
+      return compareSortValues(a[sort.column], b[sort.column]) * (sort.direction === 'asc' ? 1 : -1);
+    }) : matching;
   }, [rows, config, search, sort]);
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const firstVisible = filteredRows.length ? ((page - 1) * pageSize) + 1 : 0;
@@ -326,7 +334,6 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
 
   function jumpToRow(row, nextRows) {
     setSearch('');
-    setSearchDraft('');
     setSort(null);
     setPage(Math.ceil((nextRows.findIndex((item) => rowKey(item) === rowKey(row)) + 1) / pageSize));
     setFocusRow(rowKey(row));
@@ -435,7 +442,7 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
         {status === 'loading' ? <Text size="sm" c="dimmed">Loading academic records…</Text> : null}
         {status === 'refreshing' ? <Text size="xs" c="dimmed">Refreshing academic records…</Text> : null}
         {status !== 'loading' ? (
-          <Tabs value={activeGrid} onChange={(value) => { if (value && status !== 'saving') { setActiveGrid(value); setSearch(''); setSearchDraft(''); } }}>
+          <Tabs value={activeGrid} onChange={(value) => { if (value && status !== 'saving') { setActiveGrid(value); setSearch(''); } }}>
             <Tabs.List className="wt-academic-sheet-tabs">
               <Tabs.Tab value="students">Students ({data.students.length})</Tabs.Tab>
               <Tabs.Tab value="projects">Teams / Projects ({data.projects.length})</Tabs.Tab>
@@ -443,38 +450,46 @@ export function AcademicDataWorkspace({ workspaceId, cacheScope, onSaved }) {
             </Tabs.List>
 
             <Stack gap="sm" mt="md">
-              <Group className="wt-academic-sheet-toolbar" justify="space-between" align="flex-end" gap="sm" wrap="wrap">
+              <div className="wt-academic-sheet-heading">
                 <div>
                   <Text fw={750}>{config.label}</Text>
                   <Text size="xs" c="dimmed">Columns marked * are required. Existing imported source references stay attached when you edit values.</Text>
                 </div>
-                <Group gap="xs" wrap="wrap">
-                  <TextInput aria-label={`Search ${config.label.toLowerCase()}`} placeholder={`Search ${config.label.toLowerCase()}…`} value={searchDraft}
-                    onChange={(event) => setSearchDraft(event.currentTarget.value)}
-                    onKeyDown={(event) => { if (event.key === 'Enter') { setSearch(searchDraft); setPage(1); } }} />
-                  <Button variant="default" leftSection={<MagnifyingGlass size={16} />} onClick={() => { setSearch(searchDraft); setPage(1); }}>Search</Button>
-                  {search ? <Button variant="subtle" onClick={() => { setSearch(''); setSearchDraft(''); setPage(1); }}>Clear search</Button> : null}
-                  <Button variant="default" leftSection={<ArrowClockwise size={16} />} onClick={reload} disabled={status === 'saving'}>Reload</Button>
+              </div>
+              <div className="wt-academic-actions" aria-label="Academic data actions">
+                  <TextInput className="wt-academic-search" aria-label={`Search ${config.label.toLowerCase()}`} placeholder={`Search ${config.label.toLowerCase()}…`} value={search}
+                    leftSection={<MagnifyingGlass size={16} aria-hidden="true" />}
+                    rightSection={search ? <ActionIcon variant="subtle" color="gray" aria-label="Clear search" onClick={() => { setSearch(''); setPage(1); }}><X size={16} /></ActionIcon> : null}
+                    onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} />
+                <Group className="wt-academic-history-actions" gap={4} wrap="nowrap">
+                  <Tooltip label="Reload" events={{ hover: true, focus: true, touch: true }}><ActionIcon variant="default" size={36} aria-label="Reload" onClick={reload} disabled={status === 'saving'}><ArrowClockwise size={18} /></ActionIcon></Tooltip>
+                  <Tooltip label="Undo" events={{ hover: true, focus: true, touch: true }}><ActionIcon variant="default" size={36} aria-label="Undo" onClick={() => restoreHistory('undo')} disabled={!activeHistory.past.length || status === 'saving'}><ArrowUDownLeft size={18} /></ActionIcon></Tooltip>
+                  <Tooltip label="Redo" events={{ hover: true, focus: true, touch: true }}><ActionIcon variant="default" size={36} aria-label="Redo" onClick={() => restoreHistory('redo')} disabled={!activeHistory.future.length || status === 'saving'}><ArrowUUpLeft size={18} /></ActionIcon></Tooltip>
+                </Group>
+                <Group className="wt-academic-edit-actions" gap="xs" wrap="nowrap">
                   <Button variant="default" leftSection={<UploadSimple size={16} />} disabled={status === 'saving'} onClick={() => { setPasteText(''); setPasteOpened(true); }}>Paste rows</Button>
                   <Button variant="default" leftSection={<Plus size={16} />} disabled={status === 'saving'} onClick={addRow}>Add row</Button>
-                  <Button variant="default" leftSection={<ArrowUDownLeft size={16} />} onClick={() => restoreHistory('undo')} disabled={!activeHistory.past.length || status === 'saving'}>Undo</Button>
-                  <Button variant="default" leftSection={<ArrowUUpLeft size={16} />} onClick={() => restoreHistory('redo')} disabled={!activeHistory.future.length || status === 'saving'}>Redo</Button>
-                  <Button variant="default" leftSection={<DownloadSimple size={16} />} onClick={() => {
+                </Group>
+                <Menu position="bottom-end" withinPortal>
+                  <Menu.Target><Button variant="default" leftSection={<DownloadSimple size={16} />} rightSection={<CaretDown size={14} />}>Export</Button></Menu.Target>
+                  <Menu.Dropdown>
+                  <Menu.Item leftSection={<DownloadSimple size={16} />} onClick={() => {
                     const sheet = exportDataset(activeGrid, rows, dirtyKeys);
                     downloadAcademicCsv(activeGrid, sheet.columns, sheet.rows);
                   }}
-                    disabled={!rows.length}>Export {config.label} CSV</Button>
-                  {activeGrid === 'deliverables' ? <Button variant="default" leftSection={<DownloadSimple size={16} />}
+                    disabled={!rows.length}>Export {config.label} CSV</Menu.Item>
+                  {activeGrid === 'deliverables' ? <Menu.Item leftSection={<DownloadSimple size={16} />}
                     onClick={() => downloadAcademicCsv('tracker-columns', exportColumns('trackerColumns', data.trackerColumns), data.trackerColumns)}
-                    disabled={!data.trackerColumns.length}>Export tracker columns CSV</Button> : null}
-                  <Button variant="default" leftSection={<DownloadSimple size={16} />} onClick={() => downloadAcademicWorkbook(Object.fromEntries(
+                    disabled={!data.trackerColumns.length}>Export tracker columns CSV</Menu.Item> : null}
+                  <Menu.Item leftSection={<DownloadSimple size={16} />} onClick={() => downloadAcademicWorkbook(Object.fromEntries(
                     ['students', 'projects', 'deliverables', 'trackerColumns'].map((kind) => [kind, exportDataset(kind, data[kind], dirty[kind])])
-                  ))}>Export all XLSX</Button>
-                  <Button color="wildtrackMaroon" onClick={save} loading={status === 'saving'} disabled={!dirtyRows.length || dirtyHasErrors || status === 'refreshing'}>
+                  ))}>Export all XLSX</Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+                  <Button className="wt-academic-save" color="wildtrackMaroon" onClick={save} loading={status === 'saving'} disabled={!dirtyRows.length || dirtyHasErrors || status === 'refreshing'}>
                     Save changes{dirtyRows.length ? ` (${dirtyRows.length})` : ''}
                   </Button>
-                </Group>
-              </Group>
+              </div>
 
               <AcademicGrid
                 sort={sort}
@@ -592,7 +607,7 @@ function AcademicGrid({ kind, rows, rowOffset = 0, columns, errors, trackerColum
         <thead>
           <tr>
             <th className="wt-academic-row-number" aria-label="Row number">#</th>
-            <th>Source</th>
+            <SortHeader column="sourceRowNumber" sort={sort} onSort={onSort}>Source</SortHeader>
             {columns.map((item) => <SortHeader key={item.key} column={item.key} label={item.label} sort={sort} onSort={onSort}>{item.label}{item.required ? ' *' : ''}</SortHeader>)}
             <th>Actions</th>
           </tr>
