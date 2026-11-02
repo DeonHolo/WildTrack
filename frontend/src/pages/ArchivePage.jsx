@@ -58,6 +58,7 @@ const EMPTY_FILTERS = {
 export function ArchivePage() {
   const [searchParams] = useSearchParams();
   const linkedArchiveId = searchParams.get('record') || '';
+  const linkedResponseId = searchParams.get('response') || '';
   const { activeWorkspace, activeWorkspaceId, workspaces = [], resourceCache } = useWorkspaceSession();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
   const { data: state, setData: setState, status: archiveStatus, error: archiveError, reload: refreshArchive } = useWorkspaceResource(
@@ -97,6 +98,12 @@ export function ArchivePage() {
   const currentPage = Math.min(page, pageCount);
   const pageRows = filteredArchives.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const selectedArchive = archives.find((archive) => archive.id === selectedArchiveId) || null;
+  const linkedResponseRecordId = linkedResponseId ? (
+    archives.find(archive => (archive.responseId || archive.attemptId) === linkedResponseId && archive.lifecycleState === 'Archived')
+      || archives.find(archive => (archive.responseId || archive.attemptId) === linkedResponseId))?.id : '';
+  useEffect(() => {
+    if (linkedResponseRecordId) setSelectedArchiveId(linkedResponseRecordId);
+  }, [isCurrentScope, linkedResponseRecordId]);
   const activeFilterCount = Object.entries(filters).filter(([key, value]) => key === 'lifecycle' ? value !== 'archived' : Boolean(value)).length;
   const storageReady = Boolean(state.archiveStorage?.ready);
   const copying = archives.some((item) => ['QUEUED', 'COPYING'].includes(item.captureState));

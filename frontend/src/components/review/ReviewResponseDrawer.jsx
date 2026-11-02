@@ -60,6 +60,8 @@ export function ReviewResponseDrawer({
   onAiReview,
   onAccept,
   onRevoke,
+  onOpenArchive,
+  decisionBusy = false,
   onArchive
 }) {
   if (!response || !student || !deliverable) return null;
@@ -139,18 +141,20 @@ export function ReviewResponseDrawer({
 
         <Divider />
         <Group justify="flex-end" gap="sm" className="wt-review-decision-actions">
-          {accepted ? (
-            <Button variant="default" leftSection={<ArrowCounterClockwise size={17} />} onClick={onRevoke}>
+          {archived ? (
+            <Button variant="default" leftSection={<Archive size={17} />} onClick={onOpenArchive}>Open in Archive</Button>
+          ) : accepted ? (
+            <Button variant="default" disabled={decisionBusy} leftSection={<ArrowCounterClockwise size={17} />} onClick={onRevoke}>
               Revoke acceptance
             </Button>
           ) : (
-            <Button variant="default" leftSection={<CheckCircle size={17} aria-hidden="true" />} onClick={onAccept}>
+            <Button variant="default" disabled={decisionBusy} leftSection={<CheckCircle size={17} aria-hidden="true" />} onClick={onAccept}>
               Accept response
             </Button>
           )}
-          <Button color="wildtrackMaroon" leftSection={<Archive size={17} aria-hidden="true" />} disabled={!accepted || archived} onClick={onArchive}>
-            {archived ? 'Archived' : 'Archive response'}
-          </Button>
+          {!archived ? <Button color="wildtrackMaroon" leftSection={<Archive size={17} aria-hidden="true" />} disabled={!accepted || decisionBusy} onClick={onArchive}>
+            Archive response
+          </Button> : null}
         </Group>
       </Stack>
     </Drawer>

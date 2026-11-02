@@ -412,7 +412,7 @@ describe('deliverable-first submission review', () => {
     const rows = within(table).getAllByRole('row').filter(row => within(row).queryByText('Pacio, Muriel D.'));
     expect(rows).toHaveLength(2);
     rows.forEach(row => fireEvent.click(within(row).getByRole('checkbox')));
-    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    fireEvent.click(screen.getByRole('button', { name: /Accept selected/ }));
     const confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
     expect(confirmation).toHaveTextContent('2 selected responses: 2 eligible for acceptance, 0 skipped');
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Accept 2 eligible responses' }));
@@ -1382,11 +1382,11 @@ describe('deliverable-first submission review', () => {
 
   it('accepts only the specifically checked response after explicit academic confirmation, not the class or archive', async () => {
     renderPage();
-    expect(screen.queryByRole('button', { name: 'Accept All Response' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Accept selected/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Pacio, Muriel D. response' }));
-    expect(screen.getByRole('button', { name: 'Accept All Response' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Accept selected/ })).toBeEnabled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    fireEvent.click(screen.getByRole('button', { name: /Accept selected/ }));
     let confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
     expect(confirmation).toHaveTextContent('1 selected response: 1 eligible for acceptance, 0 skipped');
     expect(confirmation).toHaveTextContent('Acceptance is an academic decision made by staff, not an automated AI Review result');
@@ -1394,7 +1394,7 @@ describe('deliverable-first submission review', () => {
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
     expect(workflow.markAccepted).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    fireEvent.click(screen.getByRole('button', { name: /Accept selected/ }));
     confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Accept 1 eligible response' }));
     await waitFor(() => expect(workflow.markAccepted).toHaveBeenCalledExactlyOnceWith('response-muriel-srs'));
@@ -1408,6 +1408,93 @@ describe('deliverable-first submission review', () => {
     expect(workflow.state.attempts.find(item => item.id === 'response-mark-srs').archiveStatus).toBe('Archived');
   });
 
+  it('selects all filtered matching responses across pages and accepts only that selection', async () => {
+    const original = workflow.state.attempts.find(item => item.id === 'response-muriel-srs');
+    const students = Array.from({ length: 55 }, (_, index) => ({ id: `bulk-student-${index}`, studentNumber: `bulk-${index}`,
+      name: `Bulk Student ${index}`, teamCode: 'BULK-01' }));
+    workflow.state = { ...workflow.state, students: [...workflow.state.students, ...students], attempts: [
+      ...workflow.state.attempts, ...students.map((student, index) => ({ ...original, id: `bulk-${index}`,
+        studentName: student.name, studentNumber: student.studentNumber, teamCode: student.teamCode }))
+    ] };
+    renderPage();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search submissions' }), { target: { value: 'Bulk Student' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Select all matching responses (55)' }));
+    expect(screen.getByRole('button', { name: 'Accept selected (55)' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Accept selected (55)' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
+    expect(dialog).toHaveTextContent('Search: Bulk Student');
+    expect(dialog).toHaveTextContent('55 selected responses: 55 eligible for acceptance');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept 55 eligible responses' }));
+    await waitFor(() => expect(workflow.markAccepted).toHaveBeenCalledTimes(55), { timeout: 10000 });
+    expect(workflow.markAccepted.mock.calls.map(([id]) => id)).toEqual(students.map((_, index) => `bulk-${index}`));
+  }, 20000);
+
+  it('revokes eligible selected responses while skipping archived and unaccepted records', async () => {
+    workflow.state.attempts = workflow.state.attempts.map(item => item.id === 'response-muriel-srs'
+      ? { ...item, reviewStatus: 'Accepted', primaryStatus: 'Accepted', acceptance: { acceptedAt: checkedAt, sourceResponseUpdatedAt: item.updatedAt } } : item);
+    workflow.revokeAcceptance.mockResolvedValue({ feedback: [], acceptance: null });
+    renderPage();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'All' }));
+    fireEvent.click(screen.getByRole('button', { name: /Select all matching responses/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Revoke acceptance for selected/ }));
+    let dialog = await screen.findByRole('dialog', { name: 'Revoke selected acceptances?' });
+    expect(dialog).toHaveTextContent('1 eligible for revocation, 2 skipped');
+    expect(dialog).toHaveTextContent('Archived responses are skipped');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Keep accepted' }));
+    expect(workflow.revokeAcceptance).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Revoke acceptance for selected/ }));
+    dialog = await screen.findByRole('dialog', { name: 'Revoke selected acceptances?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Revoke 1 acceptance' }));
+    await waitFor(() => expect(workflow.revokeAcceptance).toHaveBeenCalledExactlyOnceWith('response-muriel-srs'));
+    expect(await screen.findByText('Selected acceptance revocation complete')).toBeVisible();
+    expect(screen.getByText(/1 revoked · 0 failed · 2 skipped/)).toBeVisible();
+    expect(workflow.archiveAttempt).not.toHaveBeenCalled();
+  });
+
+  it('continues bulk revocation after a failure and retains the failed response for retry', async () => {
+    workflow.state.attempts = workflow.state.attempts.map(item => item.archiveStatus === 'Archived' ? item : {
+      ...item, reviewStatus: 'Accepted', primaryStatus: 'Accepted', acceptance: { acceptedAt: checkedAt, sourceResponseUpdatedAt: item.updatedAt }
+    });
+    workflow.revokeAcceptance.mockRejectedValueOnce(new Error('This response is archived. Unarchive first.'))
+      .mockResolvedValue({ feedback: [], acceptance: null });
+    renderPage();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'Accepted' }));
+    fireEvent.click(screen.getByRole('button', { name: /Select all matching responses/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Revoke acceptance for selected/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Revoke 2 acceptances' }));
+    await waitFor(() => expect(workflow.revokeAcceptance).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/1 revoked · 1 failed · 1 skipped/)).toBeVisible();
+    expect(screen.getByText(/This response is archived. Unarchive first./)).toBeVisible();
+  });
+
+  it.each(['workspace', 'account'])('stops unstarted revocations after changing %s', async change => {
+    workflow.state.attempts = workflow.state.attempts.map(item => ({ ...item, archiveStatus: 'Not Archived',
+      reviewStatus: 'Accepted', primaryStatus: 'Accepted', acceptance: { acceptedAt: checkedAt, sourceResponseUpdatedAt: item.updatedAt } }));
+    let finish;
+    workflow.revokeAcceptance.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const view = renderPage();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'Accepted' }));
+    fireEvent.click(screen.getByRole('button', { name: /Select all matching responses/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Revoke acceptance for selected/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Revoke 3 acceptances' }));
+    expect(workflow.revokeAcceptance).toHaveBeenCalledTimes(1);
+    if (change === 'workspace') workflow.workspaceId = 'workspace-cs';
+    else workflow.session = { authenticated: true, email: 'other@school.edu' };
+    view.rerender(pageTree('/review'));
+    await act(async () => finish({ feedback: [], acceptance: null }));
+    expect(workflow.revokeAcceptance).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Selected acceptance revocation complete')).not.toBeInTheDocument();
+  });
+
+  it('opens Archive for an archived response instead of offering direct revocation', () => {
+    renderPage();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'Archived' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review Barangan, Mark Lorenz L. response' }));
+    const drawer = screen.getByRole('dialog', { name: 'Review Barangan, Mark Lorenz L.' });
+    expect(within(drawer).queryByRole('button', { name: 'Revoke acceptance' })).not.toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: 'Open in Archive' })).toBeVisible();
+  });
+
   it('preserves failed selected responses and reports partial backend acceptance accurately', async () => {
     workflow.markAccepted.mockImplementation(async id => {
       if (id === 'response-ron-srs') throw new Error('Adviser lacks access to this team.');
@@ -1416,7 +1503,7 @@ describe('deliverable-first submission review', () => {
     });
     renderPage();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select all visible responses' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    fireEvent.click(screen.getByRole('button', { name: /Accept selected/ }));
     const confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
     expect(confirmation).toHaveTextContent('2 selected responses: 2 eligible for acceptance, 0 skipped');
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Accept 2 eligible responses' }));
@@ -1438,7 +1525,7 @@ describe('deliverable-first submission review', () => {
     fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'All' }));
     expect(await screen.findByText('Identity conflict')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select all visible responses' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    fireEvent.click(screen.getByRole('button', { name: /Accept selected/ }));
     const confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
     expect(confirmation).toHaveTextContent('3 selected responses: 1 eligible for acceptance, 2 skipped');
     expect(confirmation).toHaveTextContent('1 archived, 1 identity conflicts');
@@ -1461,7 +1548,7 @@ describe('deliverable-first submission review', () => {
     fireEvent.click(within(screen.getByRole('group', { name: 'Review filter' })).getByRole('button', { name: 'All' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Taghoy, Ron Luigi F. response' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Barangan, Mark Lorenz L. response' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    fireEvent.click(screen.getByRole('button', { name: /Accept selected/ }));
     const confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
     expect(confirmation).toHaveTextContent('2 selected responses: 0 eligible for acceptance, 2 skipped');
     expect(confirmation).toHaveTextContent('1 already accepted, 1 archived');
@@ -1475,7 +1562,7 @@ describe('deliverable-first submission review', () => {
     getIdentityConflicts.mockImplementation(() => new Promise(resolve => { resolveConflicts = resolve; }));
     renderPage();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Taghoy, Ron Luigi F. response' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Accept All Response' }));
+    fireEvent.click(screen.getByRole('button', { name: /Accept selected/ }));
     const confirmation = await screen.findByRole('dialog', { name: 'Accept selected responses?' });
     expect(confirmation).toHaveTextContent('1 eligible for acceptance');
     await act(async () => resolveConflicts([{ status: 'OPEN', studentRecordId: 'student-2' }]));

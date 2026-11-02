@@ -2,7 +2,7 @@ import { useStaffIdentity } from '../app/StaffIdentity.jsx';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { ResponseTimingSummary } from '../components/ResponseTimingSummary.jsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   ActionIcon,
   Alert,
@@ -393,7 +393,7 @@ export function AdviserViewPage() {
   }
 
   function confirmRevoke() {
-    if (previewModeRef.current || !selectedResponse) return;
+    if (previewModeRef.current || !selectedResponse || selectedResponse.archiveStatus === 'Archived') return;
     modals.openConfirmModal({
       title: 'Revoke this acceptance?',
       children: <Text size="sm">The selected group output returns to the review queue. Its member responses and feedback remain recorded.</Text>,
@@ -619,6 +619,7 @@ export function AdviserViewPage() {
                   onAccept={confirmAccept}
                   onRevoke={confirmRevoke}
                   readOnlyPreview={isReadOnlyPreview}
+                  isAdmin={isAdmin}
                 />
               ) : null}
             </>
@@ -687,7 +688,8 @@ function SelectedGroupOutput({
   onCheckPending,
   onAccept,
   onRevoke,
-  readOnlyPreview = false
+  readOnlyPreview = false,
+  isAdmin = false
 }) {
   const currentFeedback = response?.feedback?.find((item) => item.visibility !== 'Staff') || null;
   const pendingChecks = row.responses.flatMap((item) => (
@@ -706,7 +708,10 @@ function SelectedGroupOutput({
           <Text size="sm" c="dimmed">{team.teamCode} | {row.receivedMemberCount} of {team.members.length} members submitted</Text>
         </div>
         <Group gap="xs" wrap="wrap">
-          {!readOnlyPreview && (accepted ? (
+          {!readOnlyPreview && (response?.archiveStatus === 'Archived' ? (
+            isAdmin ? <Button component={Link} to={`/archive?response=${encodeURIComponent(response.id)}`} variant="default">Open in Archive</Button>
+              : <Text size="sm" c="dimmed">Ask an administrator to unarchive this output before revoking acceptance.</Text>
+          ) : accepted ? (
             <Button color="red" variant="light" leftSection={<XCircle size={17} aria-hidden="true" />} onClick={onRevoke}>Revoke acceptance</Button>
           ) : (
             <Button color="wildtrackMaroon" leftSection={<CheckCircle size={17} aria-hidden="true" />} disabled={!response} onClick={onAccept}>Accept group output</Button>

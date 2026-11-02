@@ -22,6 +22,7 @@ public class ReviewFeedbackService {
     private final DomainEventRecorder events;
     private final CanonicalResponseService canonical;
     private final AcceptedPdfSnapshotService acceptedPdfSnapshots;
+    private final com.capvault.backend.archive.ArchiveRecordRepository archives;
 
     public ReviewFeedbackService(
         FormResponseRepository responseRepository,
@@ -31,7 +32,8 @@ public class ReviewFeedbackService {
         Clock clock,
         DomainEventRecorder events,
         CanonicalResponseService canonical,
-        AcceptedPdfSnapshotService acceptedPdfSnapshots
+        AcceptedPdfSnapshotService acceptedPdfSnapshots,
+        com.capvault.backend.archive.ArchiveRecordRepository archives
     ) {
         this.responseRepository = responseRepository;
         this.feedbackRepository = feedbackRepository;
@@ -41,6 +43,7 @@ public class ReviewFeedbackService {
         this.events = events;
         this.canonical = canonical;
         this.acceptedPdfSnapshots = acceptedPdfSnapshots;
+        this.archives = archives;
     }
 
     /** Staff can create or update ONE current student-visible note per response (edits in place). */
@@ -130,6 +133,7 @@ public class ReviewFeedbackService {
     @Transactional
     public void revoke(UUID responseId) {
         responseRepository.findByIdForUpdate(responseId).orElseThrow(() -> new IllegalArgumentException("Response not found."));
+        requireUnarchived(responseId);
         acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId)
             .ifPresent(acceptance -> {
                 acceptance.setRevokedAt(clock.instant());
@@ -141,9 +145,17 @@ public class ReviewFeedbackService {
     public void revoke(UUID responseId, String subject, String role) {
         var response = responseRepository.findByIdForUpdate(responseId).orElseThrow(() -> new IllegalArgumentException("Response not found."));
         requireTeamAccess(response, subject, role, "revoke");
+        requireUnarchived(responseId);
         if (acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId).isPresent()) {
             events.record(response.getWorkspaceId(), responseId, subject, "ACCEPTANCE_REVOKED", java.util.Map.of("role", role));
             revoke(responseId);
+        }
+    }
+
+    private void requireUnarchived(UUID responseId) {
+        if (archives.existsByResponseIdAndActiveTrue(responseId)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                "This response is archived. Open Archive and choose Unarchive with Also revoke acceptance.");
         }
     }
 
