@@ -49,6 +49,9 @@ wildtrack:
   gemini:
     api-key: ${GEMINI_API_KEY:}
     minimum-interval-seconds: ${WILDTRACK_GEMINI_MINIMUM_INTERVAL_SECONDS:15}
+    input-tokens-per-minute: ${WILDTRACK_GEMINI_INPUT_TOKENS_PER_MINUTE:200000}
+    requests-per-minute: ${WILDTRACK_GEMINI_REQUESTS_PER_MINUTE:12}
+    quota-scope: ${WILDTRACK_GEMINI_QUOTA_SCOPE:primary}
   staff:
     bootstrap:
       assignments: ${WILDTRACK_STAFF_BOOTSTRAP_ASSIGNMENTS:}

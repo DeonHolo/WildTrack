@@ -92,7 +92,8 @@ public class AiReviewBatchService {
     }
     public record View(UUID id, String state, long version, String updatedAt, List<Entry> entries,
                        int totalPdfs, int preparedPdfs, int uniqueDocuments, int selectedDocuments,
-                       int completedDocuments, int pendingDocuments, int reusedDocuments, String message, boolean stopRequested) { }
+                       int completedDocuments, int pendingDocuments, int reusedDocuments, String message, boolean stopRequested,
+                       AiReviewProvider.WaitStatus providerWait) { }
     private final AiReviewBatchStore store;
     private final AiReviewService reviews;
     private final FileCheckReportRepository checks;
@@ -375,7 +376,8 @@ public class AiReviewBatchService {
         int pending = (int) selected.stream().filter(g -> g.stream().anyMatch(e -> e.selected() && e.phase().equals("PENDING"))).count();
         int reused = (int) selected.stream().filter(g -> g.stream().filter(Entry::selected).allMatch(e -> e.phase().equals("DONE") && "COMPLETED".equals(e.resultStatus()) && e.reused())).count();
         return new View(row.id(), row.state(), row.version(), row.updatedAt().toString(), entries, entries.size(),
-            (int) entries.stream().filter(e -> !e.phase().equals("PREPARING")).count(), groups.size(), selected.size(), complete, pending, reused, row.state().equals("COMPLETED") ? finishedMessage(entries) : row.data().message(), row.data().stopRequested());
+            (int) entries.stream().filter(e -> !e.phase().equals("PREPARING")).count(), groups.size(), selected.size(), complete, pending, reused, row.state().equals("COMPLETED") ? finishedMessage(entries) : row.data().message(), row.data().stopRequested(),
+            row.state().equals("RUNNING") ? reviews.providerWaitStatus() : null);
     }
     private Entry restoredIdentity(UUID workspace, Entry entry, String subject) {
         if (entry.identity() != null) return entry;

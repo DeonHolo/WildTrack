@@ -260,6 +260,20 @@ class AiReviewInstructionProtocolTest {
         rejects(response(List.of(), false), List.of(), false);
     }
 
+    @Test void visualDescriptionIsParsedSeparatelyFromTextQuotation() {
+        var group = List.of(instruction("T1", Applicability.REQUIRED));
+        var report = response(group, true);
+        assessment(report).put("documentEvidence", "").put("page", 0)
+            .put("visualObservation", "The sequence diagram shows the login request and its response.").put("visualPage", 9);
+        var row = AiReviewInstructionProtocol.parse(report, template(group), group, true).coverage().criteria().getFirst();
+        assertThat(row.documentEvidence()).isEmpty();
+        assertThat(row.location()).isNull();
+        assertThat(row.evidenceVerification().visualObservation().description()).contains("sequence diagram");
+        assertThat(row.evidenceVerification().visualObservation().location().page()).isEqualTo(9);
+        assertThat(row.evidenceVerification().visualObservation().pageValid()).isFalse();
+        assertThat(row.assessment()).isEqualTo(CriterionAssessmentLabel.APPEARS_ADDRESSED);
+    }
+
     @Test void groupBoundIsPerRequestRatherThanAWholeTemplateCutoff() {
         var group = IntStream.rangeClosed(1, 17).mapToObj(i -> instruction("T" + i, Applicability.REQUIRED)).toList();
         rejects(response(group, true), group, true);

@@ -1,7 +1,7 @@
 import { Stack, Text } from '@mantine/core';
 import { InfoTooltip } from '../InfoTooltip.jsx';
 
-export const AI_REVIEW_VERIFICATION_EXPLANATION = 'Gemini judges each instruction and supplies a supporting quotation where available. WildTrack matches those words to the submitted PDF text, allowing layout differences while preserving words, numbers and comparison signs. Separate passages stay separate. A shortened quotation or differences in extracted PDF text can prevent a match even when the words appear in the PDF. An unmatched or missing quotation stays unconfirmed; Gemini’s assessment does not change. A matched quotation does not prove the assessment is correct.';
+export const AI_REVIEW_VERIFICATION_EXPLANATION = 'Gemini judges each instruction. WildTrack looks for its supporting quotation in the submitted PDF text. Exact excerpts, separate excerpts and closest matching text have different labels. A close match shows the original PDF wording, which may differ from Gemini’s quotation. Diagram descriptions are labelled AI visual observations and need a visual check. Missing references stay in Review notes. Reference matching never changes Gemini’s assessment or proves it correct.';
 
 export function AiReviewVerificationHelp() {
   return <InfoTooltip label={AI_REVIEW_VERIFICATION_EXPLANATION} ariaLabel="How WildTrack verifies AI evidence" />;

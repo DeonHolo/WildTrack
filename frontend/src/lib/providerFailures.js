@@ -19,6 +19,9 @@ export function providerRetryAdvice(diagnostic, failureCode, service = 'Gemini')
   const name = providerName(diagnostic, service);
   const status = diagnostic?.httpStatus ?? diagnostic?.upstreamStatus;
   const code = errorCode(diagnostic, failureCode);
+  if (code === 'DAILY_LIMIT_REACHED') return 'Gemini’s daily allowance is used up. Retry after midnight Pacific time.';
+  if (code === 'INPUT_TOKEN_BUDGET_EXCEEDED') return 'This request exceeds the configured minute allowance. Waiting will not make it fit.';
+  if (code === 'TOKEN_COUNT_UNAVAILABLE') return 'Gemini’s input-token count was unavailable. This instruction group was not sent for AI Review.';
   if (status === 429 || ['RATE_LIMIT', 'RATE_LIMITED'].includes(code))
     return `${name} rate limit reached. Try again later.`;
   if (name === 'Drive' && status === 403 && (!code || code === 'UPSTREAM_ERROR'))

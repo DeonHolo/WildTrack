@@ -21,7 +21,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.UnknownContentTypeException;
 
-/** One generation attempt, no SDK retries, credentials/Google error bodies never returned to users. */
+/** Bounded retries of explicit quota rejections only. Ambiguous transport failures are never repeated. */
 final class GeminiAiReviewProvider implements AiReviewProvider {
     static final String MODEL = "gemini-3.5-flash-lite";
     private static final Logger LOG = LoggerFactory.getLogger(GeminiAiReviewProvider.class);
@@ -159,6 +159,10 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     private final String thinkingLevel;
     private final int maxOutputTokens;
     private final com.capvault.backend.template.TemplateProviderFileStore templateFiles;
+    private final GeminiRequestBudget budget;
+    private final java.time.Clock clock;
+    private final java.util.function.LongConsumer sleeper;
+    private volatile WaitStatus waiting;
     private long nextRequestAt;
     private volatile long quotaBlockedUntil;
     private int consecutiveRateLimits;
@@ -183,6 +187,20 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     GeminiAiReviewProvider(String key, RestClient http, ObjectMapper json, int minimumIntervalSeconds,
             String thinkingLevel, int maxOutputTokens,
             com.capvault.backend.template.TemplateProviderFileStore templateFiles) {
+        this(key, http, json, minimumIntervalSeconds, thinkingLevel, maxOutputTokens, templateFiles, null);
+    }
+
+    GeminiAiReviewProvider(String key, RestClient http, ObjectMapper json, int minimumIntervalSeconds,
+            String thinkingLevel, int maxOutputTokens,
+            com.capvault.backend.template.TemplateProviderFileStore templateFiles, GeminiRequestBudget budget) {
+        this(key, http, json, minimumIntervalSeconds, thinkingLevel, maxOutputTokens, templateFiles, budget,
+            java.time.Clock.systemUTC(), GeminiAiReviewProvider::pause);
+    }
+
+    GeminiAiReviewProvider(String key, RestClient http, ObjectMapper json, int minimumIntervalSeconds,
+            String thinkingLevel, int maxOutputTokens,
+            com.capvault.backend.template.TemplateProviderFileStore templateFiles, GeminiRequestBudget budget,
+            java.time.Clock clock, java.util.function.LongConsumer sleeper) {
         this.key = Objects.requireNonNullElse(key, "").trim();
         this.http = http;
         this.json = json;
@@ -197,13 +215,131 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         }
         this.maxOutputTokens = maxOutputTokens;
         this.templateFiles = templateFiles;
+        this.budget = budget;
+        this.clock = clock;
+        this.sleeper = sleeper;
     }
 
     @Override public boolean isConfigured() { return !key.isBlank(); }
-    @Override public long retryDelayMillis() { return Math.max(0, quotaBlockedUntil - System.currentTimeMillis()); }
+    @Override public long retryDelayMillis() { return Math.max(0, quotaBlockedUntil - clock.millis()); }
+    @Override public WaitStatus waitStatus() { return waiting; }
+
+    /** Count the complete request, then reserve shared capacity before each inference. */
+    private JsonNode generate(Map<String, ?> payload, String stage) throws JsonProcessingException {
+        int inputTokens = 0;
+        if (budget != null) {
+            String fingerprint = AiReviewService.sha256(json.writeValueAsBytes(List.of(MODEL, payload)));
+            var request = new java.util.LinkedHashMap<String, Object>(payload);
+            request.put("model", "models/" + MODEL);
+            try { inputTokens = budget.count(fingerprint, () -> countTokens(request)); }
+            catch (org.springframework.dao.DataAccessException unavailable) {
+                throw new Failure("TOKEN_COUNT_UNAVAILABLE", "token_count_store_unavailable");
+            }
+        }
+        for (int retry = 0; ; retry++) {
+            awaitCapacity(Math.max(nextRequestAt, quotaBlockedUntil), "REQUEST_SPACING", inputTokens);
+            GeminiRequestBudget.Reservation reservation = null;
+            if (budget != null) while (true) {
+                try { reservation = budget.reserve(inputTokens); }
+                catch (org.springframework.dao.DataAccessException unavailable) {
+                    throw new Failure("TOKEN_COUNT_UNAVAILABLE", "quota_store_unavailable");
+                }
+                if (reservation.acquired()) break;
+                awaitCapacity(reservation.retryAt().toEpochMilli(), "MINUTE_BUDGET", inputTokens);
+            }
+            nextRequestAt = clock.millis() + intervalMillis;
+            try {
+                JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
+                    .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON).body(payload).retrieve().body(JsonNode.class);
+                Integer actual = response != null && response.path("usageMetadata").path("promptTokenCount").canConvertToInt()
+                    ? response.path("usageMetadata").path("promptTokenCount").asInt() : null;
+                recordUsage(reservation, actual, 200);
+                LOG.info("Gemini input usage: stage={} countedTokens={} actualTokens={} automaticRetries={}", stage, inputTokens, actual, retry);
+                return response;
+            } catch (RestClientResponseException rejected) {
+                int status = rejected.getStatusCode().value();
+                recordUsage(reservation, null, status);
+                // Older transport-only fixtures retain their one-attempt contract. Production uses the budget.
+                if (budget == null || status != 429) throw rejected;
+                String kind = quotaKind(rejected);
+                if (kind.equals("DAILY")) {
+                    var reset = GeminiRequestBudget.dailyReset(clock.instant());
+                    recordQuotaBlock(reset, "DAILY_LIMIT_REACHED");
+                    throw new Failure("DAILY_LIMIT_REACHED", "daily_quota").withHttpStatus(429, requestId(rejected));
+                }
+                if (retry >= (kind.equals("MINUTE") ? 2 : 1))
+                    throw new Failure("RATE_LIMITED", "automatic_quota_retries_exhausted").withHttpStatus(429, requestId(rejected));
+                cooldown(rejected);
+                long until = Math.max(quotaBlockedUntil, clock.millis() + (kind.equals("MINUTE") ? 65_000L : 30_000L));
+                quotaBlockedUntil = until;
+                recordQuotaBlock(Instant.ofEpochMilli(until), "RATE_LIMITED");
+                LOG.info("Gemini quota wait: stage={} kind={} retry={} delayMs={}", stage, kind, retry + 1, until - clock.millis());
+                awaitCapacity(until, kind.equals("MINUTE") ? "MINUTE_LIMIT" : "UNSPECIFIED_LIMIT", inputTokens);
+            }
+        }
+    }
+
+    private void recordUsage(GeminiRequestBudget.Reservation reservation, Integer actualTokens, int status) {
+        if (budget == null || reservation == null) return;
+        try { budget.complete(reservation.id(), actualTokens, status); }
+        catch (org.springframework.dao.DataAccessException unavailable) {
+            // The reservation remains conservative. Never discard a valid provider response over telemetry.
+            LOG.warn("Gemini usage update unavailable; reserved input count retained. HTTP status={}", status);
+        }
+    }
+
+    private void recordQuotaBlock(Instant until, String reason) {
+        try { budget.block(until, reason); }
+        catch (org.springframework.dao.DataAccessException unavailable) {
+            // The current worker still honors its in-memory cooldown; the next reservation must succeed.
+            LOG.warn("Gemini shared cooldown update unavailable; local cooldown retained. Reason={}", reason);
+        }
+    }
+
+    private int countTokens(Map<String, Object> request) {
+        try {
+            JsonNode count = http.post().uri("/v1beta/models/" + MODEL + ":countTokens")
+                .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("generateContentRequest", request)).retrieve().body(JsonNode.class);
+            if (count == null || !count.path("totalTokens").canConvertToInt() || count.path("totalTokens").asInt() <= 0)
+                throw new Failure("TOKEN_COUNT_UNAVAILABLE", "invalid_token_count");
+            // Account for framing differences between countTokens and inference without logging input.
+            return (int) Math.min(Integer.MAX_VALUE, Math.ceil(count.path("totalTokens").asInt() * 1.03) + 128);
+        } catch (RestClientResponseException rejected) {
+            throw new Failure("TOKEN_COUNT_UNAVAILABLE", "token_count_http_" + rejected.getStatusCode().value())
+                .withHttpStatus(rejected.getStatusCode().value(), requestId(rejected));
+        } catch (RestClientException failure) {
+            throw new Failure("TOKEN_COUNT_UNAVAILABLE", "token_count_transport");
+        }
+    }
+
+    private void awaitCapacity(long until, String reason, int tokens) {
+        if (until <= clock.millis()) return;
+        waiting = new WaitStatus(reason, Instant.ofEpochMilli(until).toString(), tokens);
+        try { sleeper.accept(until - clock.millis()); }
+        finally { waiting = null; }
+    }
+
+    static String quotaKind(RestClientResponseException response) {
+        // QuotaFailure metric/ID fields are authoritative. A generic 429 does not identify RPM/TPM/RPD.
+        try {
+            if (response.getResponseBodyAsByteArray().length > 65_536) return "UNKNOWN";
+            JsonNode details = new ObjectMapper().readTree(response.getResponseBodyAsByteArray()).path("error").path("details");
+            boolean minute = false;
+            if (details.isArray()) for (JsonNode detail : details) {
+                if (!"type.googleapis.com/google.rpc.QuotaFailure".equals(detail.path("@type").asText())) continue;
+                for (JsonNode violation : detail.path("violations")) {
+                    String id = (violation.path("quotaMetric").asText() + " " + violation.path("quotaId").asText()).toLowerCase(Locale.ROOT);
+                    if (id.contains("perday") || id.contains("per_day") || id.contains("daily")) return "DAILY";
+                    minute |= id.contains("perminute") || id.contains("per_minute");
+                }
+            }
+            return minute ? "MINUTE" : "UNKNOWN";
+        } catch (Exception ignored) { return "UNKNOWN"; }
+    }
 
     private void cooldown(RestClientResponseException response) {
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         long hinted = cooldownHintMillis(response, now);
         boolean unavailable = response.getStatusCode().value() == 503;
         int exponent = Math.min(unavailable ? consecutiveUnavailable++ : consecutiveRateLimits++, 4);
@@ -217,7 +353,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     }
 
     private void checkCooldown() {
-        if (System.currentTimeMillis() < quotaBlockedUntil)
+        if (clock.millis() < quotaBlockedUntil)
             throw new Failure(cooldownCode, "provider_cooldown");
     }
 
@@ -333,16 +469,13 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 Map.of("text", json.writeValueAsString(Map.of("requestedDeliverable", input.review().deliverableTitle(),
                     "deliverableInstructions", input.review().instructions(), "instructions", input.instructions(),
                     "includeOverview", input.includeOverview()))));
-            pause(Math.max(0, nextRequestAt - System.currentTimeMillis()));
-            nextRequestAt = System.currentTimeMillis() + intervalMillis;
             stage = "instruction_assessment";
             var payload = Map.of("systemInstruction", Map.of("parts", List.of(Map.of("text", AiReviewInstructionProtocol.GUIDANCE))),
                 "contents", List.of(Map.of("role", "user", "parts", parts)),
                 "generationConfig", Map.of("maxOutputTokens", Math.min(32768, Math.max(8192, 4096 + input.instructions().size() * 1400)),
                     "thinkingConfig", Map.of("thinkingLevel", thinkingLevel), "responseMimeType", "application/json",
                     "responseJsonSchema", wireSchema(AiReviewInstructionProtocol.schema())));
-            JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
-                .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON).body(payload).retrieve().body(JsonNode.class);
+            JsonNode response = generate(payload, stage);
             clearFailureCounts();
             stage = "instruction_validation";
             return AiReviewInstructionProtocol.parse(report(response, 200_000), input.template(), input.instructions(), input.includeOverview());
@@ -389,8 +522,6 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
             if (sourceBlocks.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 2_000_000)
                 throw new Failure("DOCUMENT_TOO_LARGE", "template_source_context_too_large");
             var template = sharedTemplateFile(input.versionId(), input.pdf(), input.pdfSha256());
-            pause(Math.max(0, nextRequestAt - System.currentTimeMillis()));
-            nextRequestAt = System.currentTimeMillis() + intervalMillis;
             stage = "template_instructions";
             var payload = Map.of(
                 "systemInstruction", Map.of("parts", List.of(Map.of("text",
@@ -405,9 +536,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 "generationConfig", Map.of("maxOutputTokens", 32768,
                     "thinkingConfig", Map.of("thinkingLevel", "HIGH"), "responseMimeType", "application/json",
                     "responseJsonSchema", wireSchema(com.capvault.backend.template.TemplateInstructionProtocol.schema())));
-            JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
-                .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON)
-                .body(payload).retrieve().body(JsonNode.class);
+            JsonNode response = generate(payload, stage);
             clearFailureCounts();
             stage = "template_validation";
             JsonNode proposed = report(response, 500_000);
@@ -501,8 +630,6 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
         String stage = "prepare";
         long startedAt = System.nanoTime();
         try {
-            pause(Math.max(0, nextRequestAt - System.currentTimeMillis()));
-            nextRequestAt = System.currentTimeMillis() + intervalMillis;
             Map<String, Object> document;
             if (input.pdf().length <= INLINE_LIMIT) {
                 document = Map.of("inlineData", Map.of("mimeType", "application/pdf",
@@ -539,9 +666,7 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
                 GeminiRequestFingerprint.describe(json, input.pdf(), input.systemInstruction() + "\n" + GUIDANCE,
                     requirements, payload.get("generationConfig")));
             stage = "generation";
-            JsonNode response = http.post().uri("/v1beta/models/" + MODEL + ":generateContent")
-                .header("x-goog-api-key", key).contentType(MediaType.APPLICATION_JSON)
-                .body(payload).retrieve().body(JsonNode.class);
+            JsonNode response = generate(payload, stage);
             clearFailureCounts();
             stage = "response_validation";
             return parse(response, input, passages, plan);
