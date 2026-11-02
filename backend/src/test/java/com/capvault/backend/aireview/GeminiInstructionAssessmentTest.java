@@ -253,12 +253,14 @@ class GeminiInstructionAssessmentTest {
         server.verify();
     }
 
-    @Test void aLaterGroupCannotSmuggleAnotherOverviewIntoTheSavedReport() throws Exception {
+    @Test void repeatedOverviewDoesNotDiscardALaterGroupsCompleteAssessmentsOrRepeatTheRequest() throws Exception {
         expectActive();
         expectGeneration(validReport(true), "STOP", false);
-        assertThatThrownBy(() -> provider.assessInstructions(input(false)))
-            .isInstanceOfSatisfying(GeminiAiReviewProvider.Failure.class,
-                failure -> assertThat(failure.code).isEqualTo("INVALID_RESPONSE"));
+        var result = provider.assessInstructions(input(false));
+        assertThat(result.documentOverview()).isNull();
+        assertThat(result.coverage().criteria()).hasSize(1);
+        assertThat(result.coverage().criteria().getFirst().assessment())
+            .isEqualTo(AiReviewProvider.CriterionAssessmentLabel.APPEARS_ADDRESSED);
         assertThat(generations).hasValue(1);
         server.verify();
     }
