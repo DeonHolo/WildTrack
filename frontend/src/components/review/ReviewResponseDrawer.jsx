@@ -125,7 +125,7 @@ export function ReviewResponseDrawer({
           </Stack>
         </section>
 
-        <EarlierSubmissions workspaceId={response.workspaceId || state.workspaceId} responseId={response.id} fields={deliverable.fields || []} />
+        <EarlierSubmissions workspaceId={response.workspaceId || state.workspaceId} responseId={response.id} fields={[...(deliverable.fields || []), ...(deliverable.retiredFields || [])]} />
 
         {hasProjectContext ? (
           <section className="wt-review-detail-section" aria-labelledby="project-context-heading">

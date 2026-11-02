@@ -40,10 +40,11 @@ export function EarlierSubmissions({ workspaceId, responseId, fields = [] }) {
             <Text fw={600} size="sm">Saved {formatDateTime(row.updatedAt || row.submittedAt)}</Text>
             <Text size="sm" c="dimmed">{row.googleEmail}</Text>
             {Object.entries(values).map(([key, value]) => {
-              const field = fields.find(item => (item.id === key || item.fieldKey === key));
-              const text = String(value ?? '');
+              const field = fields.find(item => (item.id === key || item.definitionId === key || item.fieldKey === key));
+              const displayValue = answer => field?.options?.find(option => option.id === answer)?.label || String(answer ?? '');
+              const text = Array.isArray(value) ? value.map(displayValue).join(', ') : displayValue(value);
               return <Text key={key} size="sm" style={{ overflowWrap: 'anywhere' }}>
-                <Text component="span" fw={600}>{field?.label || key}: </Text>
+                <Text component="span" fw={600}>{field?.label || (/^(?:field-)?[0-9a-f]{8}-[0-9a-f-]+$/i.test(key) ? 'Earlier field' : key)}: </Text>
                 {/^https?:\/\//i.test(text) ? <a href={text} target="_blank" rel="noreferrer">Open submitted file or link</a> : text}
               </Text>;
             })}
