@@ -16,6 +16,7 @@ const workflow = vi.hoisted(() => ({
   verifyArchive: vi.fn(),
   retryArchive: vi.fn(),
   unarchive: vi.fn(),
+  setArchiveState: vi.fn(),
   refreshArchive: vi.fn()
 }));
 
@@ -37,6 +38,7 @@ vi.mock('../app/WorkspaceSession.jsx', () => ({
 vi.mock('../hooks/useWorkspaceResource.js', () => ({
   useWorkspaceResource: () => ({
     data: workflow.state,
+    setData: (...args) => workflow.setArchiveState(...args),
     status: workflow.state?.archiveLoadStatus === 'loading'
       ? 'loading'
       : workflow.state?.archiveLoadStatus === 'error' ? 'error' : 'ready',
@@ -124,6 +126,7 @@ describe('archive index', () => {
       { responseId: 'accepted-2', ready: true, pdfCount: 2, message: 'PDFs checked.' }
     ]);
     workflow.verifyArchive.mockResolvedValue({ ok: true });
+    workflow.setArchiveState.mockImplementation(update => { workflow.state = update(workflow.state); });
     workflow.retryArchive.mockResolvedValue({ ok: true });
   });
 
@@ -322,6 +325,44 @@ describe('archive index', () => {
     expect(await within(confirmation).findByText('Storage temporarily unavailable.')).toBeVisible();
     expect(await within(confirmation).findByText('Queued for copying')).toBeVisible();
     expect(await within(confirmation).findByRole('button', { name: 'Close', exact: true })).toBeVisible();
+  });
+
+  it('keeps preparation disabled from queueing until the server reports copying finished', async () => {
+    const queued = makeArchive(0, { captureState: 'QUEUED', lifecycleState: 'Archived' });
+    workflow.archiveAttempts.mockResolvedValue({ ok: true, queued: 1, records: [queued] });
+    let finishRefresh;
+    workflow.refreshArchive.mockReturnValueOnce(new Promise(resolve => { finishRefresh = resolve; }));
+    const view = renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive 2 finals' }));
+    await waitFor(() => expect(workflow.refreshArchive).toHaveBeenCalledTimes(1));
+    view.rerender(pageTree());
+    expect(screen.getByRole('button', { name: 'Archiving PDFs…' })).toBeDisabled();
+    await act(async () => { finishRefresh(); });
+    fireEvent.click(await screen.findByRole('button', { name: 'Close', exact: true }));
+    expect(screen.getByRole('button', { name: 'Archiving PDFs…' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Archiving PDFs…' }));
+    expect(workflow.prepareArchiveAttempts).toHaveBeenCalledTimes(1);
+    workflow.state = { ...workflow.state, archives: [{ ...queued, captureState: 'COMPLETE' }] };
+    view.rerender(pageTree());
+    expect(screen.getByRole('button', { name: /Archive accepted finals/ })).toBeEnabled();
+  });
+
+  it('shows the three newest archive events and collapses older records', () => {
+    workflow.state = makeState([makeArchive(0, { history: Array.from({ length: 8 }, (_, index) => ({
+      action: `Event ${index + 1}`, occurredAt: `2026-11-02T01:0${index}:00Z`, actor: 'archive-worker'
+    })) })]);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Software 001 archive details' }));
+    const history = screen.getByRole('region', { name: 'Archive history' });
+    expect(within(history).getByRole('heading', { name: 'History (8)' })).toBeVisible();
+    expect(history.querySelectorAll(':scope > ol > li')).toHaveLength(3);
+    expect(history.querySelector(':scope > ol > li')).toHaveTextContent('Event 8');
+    const older = within(history).getByText('Older archive records (5)').closest('details');
+    expect(older).not.toHaveAttribute('open');
+    fireEvent.click(within(history).getByText('Older archive records (5)'));
+    expect(older).toHaveAttribute('open');
+    expect(within(history).getAllByRole('listitem')).toHaveLength(8);
   });
 
   it('can revoke acceptance in the same unarchive action', async () => {

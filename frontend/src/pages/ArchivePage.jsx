@@ -60,7 +60,7 @@ export function ArchivePage() {
   const linkedArchiveId = searchParams.get('record') || '';
   const { activeWorkspace, activeWorkspaceId, workspaces = [], resourceCache } = useWorkspaceSession();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
-  const { data: state, status: archiveStatus, error: archiveError, reload: refreshArchive } = useWorkspaceResource(
+  const { data: state, setData: setState, status: archiveStatus, error: archiveError, reload: refreshArchive } = useWorkspaceResource(
     activeWorkspaceId,
     loadArchiveState,
     emptyArchiveState, 'archive');
@@ -135,7 +135,7 @@ export function ArchivePage() {
   }
 
   async function confirmArchiveAccepted() {
-    if (!candidates.length || !storageReady) return;
+    if (!isCurrentScope() || !candidates.length || !storageReady || archiving || copying || preparation || action === 'retry') return;
     const epoch = ++preparationEpoch.current;
     const current = () => isCurrentScope() && preparationEpoch.current === epoch;
     setPreparation({ checking: true, targets: [...candidates], results: [], progress: { completed: 0, total: candidates.length } });
@@ -151,7 +151,7 @@ export function ArchivePage() {
   }
 
   async function archivePrepared() {
-    if (!isCurrentScope() || archiving || preparation?.checking || preparation?.done) return;
+    if (!isCurrentScope() || archiving || copying || preparation?.checking || preparation?.done) return;
     const ready = preparation?.results.filter(item => item.ready) || [];
     if (!ready.length) return;
     const epoch = preparationEpoch.current;
@@ -163,6 +163,7 @@ export function ArchivePage() {
       try {
         const result = await archiveServerAttempts(activeWorkspaceId, [item.responseId]);
         if (!result?.ok) throw new Error(result?.error || 'This final could not be archived.');
+        if (current() && result.records?.length) retainArchiveRecords(result.records);
         outcome = { ...item, actionState: result.queued ? 'Queued for copying' : 'Archived' };
       } catch (error) {
         outcome = { ...item, ready: false, actionState: 'Needs attention', message: error?.message || 'This final could not be archived. Try again.' };
@@ -170,10 +171,16 @@ export function ArchivePage() {
       if (current()) setPreparation(value => ({ ...value, results: value.results.map(row => row.responseId === item.responseId ? outcome : row) }));
     }
     if (current()) {
-      setArchiving(false);
       setPreparation(value => ({ ...value, done: true }));
       await refreshArchive({ background: true });
+      if (current()) setArchiving(false);
     }
+  }
+
+  function retainArchiveRecords(records) {
+    setState(current => ({ ...current, archives: [
+      ...records, ...(current.archives || []).filter(record => !records.some(updated => updated.id === record.id))
+    ] }));
   }
 
   async function runAction(kind, archive, revoke = false) {
@@ -181,10 +188,11 @@ export function ArchivePage() {
     setAction(kind);
     try {
       let result;
-      if (kind === 'retry') await retryArchiveRecord(activeWorkspaceId, archive.id, archive.stateVersion);
+      if (kind === 'retry') result = await retryArchiveRecord(activeWorkspaceId, archive.id, archive.stateVersion);
       if (kind === 'unarchive') await unarchiveRecord(activeWorkspaceId, archive.id, archive.stateVersion, revoke);
       if (kind === 'verify') result = await verifyArchiveRecord(activeWorkspaceId, archive.id);
       if (!isCurrentScope()) return;
+      if (kind === 'retry' && result?.id) retainArchiveRecords([result]);
       if (kind === 'unarchive' && revoke) syncReviewDecisionCache(resourceCache, activeWorkspaceId, archive.responseId || archive.attemptId, { acceptance: null });
       await refreshArchive({ background: true });
       if (!isCurrentScope()) return;
@@ -225,11 +233,11 @@ export function ArchivePage() {
         <Button
           leftSection={<ArchiveIcon size={18} />}
           color="wildtrackMaroon"
-          disabled={!candidates.length || !storageReady}
-          loading={archiving || preparation?.checking}
+          disabled={!candidates.length || !storageReady || Boolean(preparation) || copying || archiving || action === 'retry'}
+          loading={archiving || preparation?.checking || copying}
           onClick={confirmArchiveAccepted}
         >
-          Archive accepted finals ({candidates.length})
+          {copying ? 'Archiving PDFs…' : `Archive accepted finals (${candidates.length})`}
         </Button>
       </header>
 

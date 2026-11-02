@@ -3,6 +3,8 @@ import { ArrowSquareOut, CheckCircle, Copy, DownloadSimple, ShieldCheck, Warning
 import { notifications } from '@mantine/notifications';
 import { formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 import { getArchiveStatus, getArchiveVersion } from '../../lib/archive.js';
+import { newestHistoryEntries } from '../../lib/fileHistoryPresentation.js';
+import '../review/FileHistory.css';
 
 export function ArchiveRecordDrawer({ archive, opened, storageReady, action, onClose, onVerify, onRetry, onUnarchive }) {
   if (!archive) return null;
@@ -68,10 +70,7 @@ export function ArchiveRecordDrawer({ archive, opened, storageReady, action, onC
           <Stack gap="sm">{files.map((file) => <PaperFile key={file.id} file={file} onCopy={copyValue} />)}</Stack>
         </section> : null}
 
-        {archive.history?.length ? <section className="wt-archive-drawer-section">
-          <Title order={3}>History</Title>
-          <Stack gap="xs">{archive.history.map((event, index) => <Text size="sm" key={`${event.action}-${event.occurredAt}-${index}`}>{historyLabel(event.action)} · {formatDateTime(event.occurredAt)}{event.actor ? ` · ${event.actor === 'archive-worker' ? 'WildTrack' : event.actor}` : ''}</Text>)}</Stack>
-        </section> : null}
+        {archive.history?.length ? <ArchiveHistory key={archive.id} events={archive.history} /> : null}
 
         <Divider />
 
@@ -183,6 +182,26 @@ export function ArchiveRecordDrawer({ archive, opened, storageReady, action, onC
       </Stack>
     </Drawer>
   );
+}
+
+function ArchiveHistory({ events }) {
+  const history = newestHistoryEntries(events, event => event.occurredAt);
+  const rows = items => <ol className="file-history-timeline">{items.map((event, index) => (
+    <li className="file-history-entry" key={`${event.action}-${event.occurredAt}-${index}`}>
+      <Text size="sm" fw={600}>{historyLabel(event.action)}</Text>
+      <Text size="sm" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
+        {formatDateTime(event.occurredAt)}{event.actor ? ` · ${event.actor === 'archive-worker' ? 'WildTrack' : event.actor}` : ''}
+      </Text>
+    </li>
+  ))}</ol>;
+  return <section className="wt-archive-drawer-section" aria-label="Archive history">
+    <Title order={3}>History ({history.length})</Title>
+    {rows(history.slice(0, 3))}
+    {history.length > 3 ? <details className="file-history-technical">
+      <summary>Older archive records ({history.length - 3})</summary>
+      {rows(history.slice(3))}
+    </details> : null}
+  </section>;
 }
 
 function PaperFile({ file, onCopy }) {
