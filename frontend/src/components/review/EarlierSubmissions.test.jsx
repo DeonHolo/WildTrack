@@ -15,3 +15,17 @@ it('loads earlier accounts only when expanded and makes their original answers a
   expect(screen.getByText('Earlier answer')).toBeVisible();
   expect(screen.getByRole('link', { name: 'Open submitted file or link' })).toHaveAttribute('href', 'https://drive.google.com/file/d/old/view');
 });
+
+it('shows field labels and selected option labels for earlier form definitions', async () => {
+  api.history.mockResolvedValue([{ id: 'old-options', googleEmail: 'old@test.invalid',
+    valuesJson: JSON.stringify({ 'field-old-step': 'old-option', retiredChecks: ['first', 'second'] }) }]);
+  render(<MantineProvider><EarlierSubmissions workspaceId="workspace" responseId="latest-options" fields={[
+    { id: 'validationStep', definitionId: 'field-old-step', label: 'Validation Step', options: [{ id: 'old-option', label: 'MVP Validation' }] },
+    { id: 'retiredChecks', label: 'Selected activities', options: [{ id: 'first', label: 'Survey' }, { id: 'second', label: 'Interview' }] }
+  ]} /></MantineProvider>);
+  fireEvent.click(screen.getByText('Earlier submissions'));
+  expect(await screen.findByText('Validation Step:')).toBeVisible();
+  expect(screen.getByText('MVP Validation')).toBeVisible();
+  expect(screen.getByText('Survey, Interview')).toBeVisible();
+  expect(screen.queryByText(/field-old-step:|old-option/)).not.toBeInTheDocument();
+});
