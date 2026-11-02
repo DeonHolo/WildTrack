@@ -15,14 +15,23 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 /** Exact group accounting; source grounding is performed by AiReviewService after parsing. */
 public final class AiReviewInstructionProtocol {
-    public static final String VERSION = "instruction-assessment-pdf-v10-continuous-quotations";
+    public static final String VERSION = "instruction-assessment-pdf-v11-visual-references";
     public static final int MAX_GROUP_ITEMS = 16;
     private static final Set<String> TOP = Set.of("complete", "instructionAssessments", "documentOverview", "generalFindings");
-    private static final Set<String> ASSESSMENT = Set.of("id", "assessment", "explanation", "documentEvidence", "page", "section");
+    private static final Set<String> ASSESSMENT = Set.of("id", "assessment", "explanation", "documentEvidence", "page", "section", "visualObservation", "visualPage");
     private static final Set<String> OVERVIEW = Set.of("text", "actualDocumentType", "evidence", "wrongDocument");
     private static final Set<String> FINDING = Set.of("issue", "source", "evidence", "requirement", "page", "section");
 
     public static final String GUIDANCE = """
+        Keep text quotations and visual observations separate. documentEvidence is ONLY a verbatim,
+        continuous passage of student-PDF text. Never put your own description of a diagram, screenshot,
+        table or image into documentEvidence. For visual evidence, put a short factual description in
+        visualObservation and its absolute student-PDF page in visualPage. This includes words read
+        inside an image. Do not call that description a quotation. Use an empty visualObservation and
+        visualPage=0 when no visual reference is needed. Both reference kinds may be supplied when useful.
+        Example: a diagram of client, API and database layers belongs in visualObservation; a sentence
+        printed in the surrounding prose belongs in documentEvidence. These fields support your assessment;
+        their presence or absence does not decide whether the instruction is addressed.
         Review the STUDENT SUBMISSION PDF against the supplied fixed instruction group. The separately
         labelled OFFICIAL TEMPLATE PDF supplies authority and layout context, not student evidence.
         The numbered extracted student page text is a secondary aid for exact quotations and may be incomplete.
@@ -36,14 +45,14 @@ public final class AiReviewInstructionProtocol {
         Never invent, rename, combine or omit an id. complete refers only to answering this supplied group,
         not every instruction visible in the template PDF, and not whether the student met the instructions.
         Return complete=true after giving one assessment for each supplied id, including negative or uncertain assessments.
-        Only assessment, explanation, documentEvidence, page and section are model-written. Titles,
+        Only assessment, explanation, documentEvidence, page, section, visualObservation and visualPage are model-written. Titles,
         instruction wording and authority quotations are fixed by WildTrack; do not return replacements.
         Choose the assessment from the submission itself, independently of whether its text is extractable.
         APPEARS_ADDRESSED means you judge the applicable instruction addressed; it is not academic approval.
         Give one short exact student-PDF quotation as a supporting reference where available.
         A quotation is not a pass trigger: concerns and partial answers may also have supporting quotations.
         If visual content supports your judgment but no faithful quotation is available, use empty
-        documentEvidence and page=0; explain the actual visual observation and its page in your explanation.
+        documentEvidence and page=0; put the description and its page in visualObservation and visualPage.
         Never invent a quotation to satisfy a positive assessment. Citation availability does not determine
         the assessment. CHECK_MANUALLY is for uncertainty about the instruction itself, not text extraction.
         Copy one continuous passage from one student PDF page, using the numbered student text where available.
@@ -93,7 +102,8 @@ public final class AiReviewInstructionProtocol {
     public static Map<String, Object> schema() {
         var assessment = objectSchema(Map.of("id", string(100), "assessment", Map.of("type", "string", "enum",
                 List.of("APPEARS_ADDRESSED", "NEEDS_ATTENTION", "CHECK_MANUALLY", "NOT_APPLICABLE")),
-            "explanation", string(700), "documentEvidence", string(1600), "page", pageSchema(), "section", string(200)));
+            "explanation", string(700), "documentEvidence", string(1600), "page", pageSchema(), "section", string(200),
+            "visualObservation", string(700), "visualPage", pageSchema()));
         var overview = objectSchema(Map.of("text", string(1200), "actualDocumentType", string(200),
             "evidence", string(1600), "wrongDocument", Map.of("type", "boolean")));
         var finding = objectSchema(Map.of("issue", string(600), "source", Map.of("type", "string", "enum",
@@ -128,7 +138,8 @@ public final class AiReviewInstructionProtocol {
             throw invalid("Gemini returned " + assessments.size() + " of " + expected.size() + " requested instruction assessments.");
         var received = new LinkedHashMap<String, JsonNode>();
         for (JsonNode assessment : assessments) {
-            object(assessment, ASSESSMENT);
+            object(assessment, assessment.has("visualObservation") || assessment.has("visualPage") ? ASSESSMENT
+                : Set.of("id", "assessment", "explanation", "documentEvidence", "page", "section"));
             String id = text(assessment, "id", 1, 100);
             if (!expected.containsKey(id) || received.putIfAbsent(id, assessment) != null)
                 throw invalid("Unknown or duplicate instruction identity.");
@@ -178,8 +189,13 @@ public final class AiReviewInstructionProtocol {
                 }
                 default -> throw invalid("Unsupported instruction assessment.");
             }
+            String visual = value.has("visualObservation") ? text(value, "visualObservation", 0, 700) : "";
+            int visualPage = value.path("visualPage").canConvertToInt() ? value.path("visualPage").asInt() : 0;
+            var visualReference = visual.isBlank() ? null : new VisualObservation(visual,
+                visualPage > 0 && visualPage <= 1000 ? new EvidenceLocation(visualPage, null) : null, false);
             rows.add(new CriterionAssessment(instruction.id(), authority, FindingSource.OFFICIAL_TEMPLATE, status,
-                checkIndexes, findingIndexes, List.of(), noteIndexes, label, explanation, evidence, location, source.title()));
+                checkIndexes, findingIndexes, List.of(), noteIndexes, label, explanation, evidence, location, source.title(),
+                List.of(), new EvidenceVerification(null, evidence, location, visualReference)));
         }
         DocumentOverview overview = overview(report.path("documentOverview"), includeOverview);
         // Identity claims are grounded after parsing. A missing/misclassified general finding
@@ -220,7 +236,7 @@ public final class AiReviewInstructionProtocol {
         var coverage = result.coverage();
         var rows = coverage.criteria().stream().map(row -> new CriterionAssessment(row.id(), row.requirement(), row.source(),
             row.status(), row.verifiedCheckIndexes(), row.findingIndexes(), row.missingSectionIndexes(), row.verificationNoteIndexes(),
-            row.assessment(), row.explanation(), formattedCitation(row.documentEvidence(), sourceKey), row.location(), row.title(), row.documentExcerpts())).toList();
+            row.assessment(), row.explanation(), formattedCitation(row.documentEvidence(), sourceKey), row.location(), row.title(), row.documentExcerpts(), row.evidenceVerification())).toList();
         var overview = result.documentOverview();
         if (overview != null) overview = new DocumentOverview(overview.text(), overview.actualDocumentType(),
             overview.wrongDocument(), formattedCitation(overview.evidence(), sourceKey));

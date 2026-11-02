@@ -569,7 +569,7 @@ export function hasCompletedTemplateChecklist(report) {
 }
 
 export function hasSeparateAiReference(row) {
-  return ['LOCATED', 'SEPARATE_EXCERPTS', 'NOT_LOCATED', 'NOT_PROVIDED'].includes(row?.evidenceVerification?.status);
+  return ['LOCATED', 'SEPARATE_EXCERPTS', 'CLOSE_MATCH', 'VISUAL_REFERENCE', 'NOT_LOCATED', 'NOT_PROVIDED'].includes(row?.evidenceVerification?.status);
 }
 
 export function aiReviewAssessment(row) {

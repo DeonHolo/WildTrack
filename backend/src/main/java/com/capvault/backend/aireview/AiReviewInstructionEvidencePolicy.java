@@ -23,8 +23,14 @@ final class AiReviewInstructionEvidencePolicy {
         var rows = new ArrayList<CriterionAssessment>();
         for (var row : raw.coverage().criteria()) {
             var match = AiReviewQuotationLocator.locate(row.documentEvidence(), inspection.extractedText(), inspection.pages(), row.location());
-            var status = row.documentEvidence() == null || row.documentEvidence().isBlank() ? QuotationStatus.NOT_PROVIDED
-                : match.continuous() ? QuotationStatus.LOCATED : match.located() ? QuotationStatus.SEPARATE_EXCERPTS : QuotationStatus.NOT_LOCATED;
+            var suppliedVisual = row.evidenceVerification() == null ? null : row.evidenceVerification().visualObservation();
+            var visual = suppliedVisual == null ? null : new VisualObservation(suppliedVisual.description(), suppliedVisual.location(),
+                suppliedVisual.location() != null && suppliedVisual.location().page() != null
+                    && suppliedVisual.location().page() > 0 && suppliedVisual.location().page() <= inspection.pageCount());
+            var status = row.documentEvidence() == null || row.documentEvidence().isBlank()
+                ? visual == null ? QuotationStatus.NOT_PROVIDED : QuotationStatus.VISUAL_REFERENCE
+                : match.continuous() ? QuotationStatus.LOCATED : match.approximate() ? QuotationStatus.CLOSE_MATCH
+                    : match.located() ? QuotationStatus.SEPARATE_EXCERPTS : QuotationStatus.NOT_LOCATED;
             String evidence = match.continuous() ? match.excerpts().getFirst().text() : null;
             EvidenceLocation location = match.continuous() ? match.excerpts().getFirst().location() : null;
             var checkIndexes = new ArrayList<Integer>();
@@ -48,7 +54,7 @@ final class AiReviewInstructionEvidencePolicy {
             rows.add(new CriterionAssessment(row.id(), row.requirement(), row.source(), coverageStatus,
                 checkIndexes, findingIndexes, List.of(), noteIndexes, row.assessment(), row.explanation(), evidence,
                 location, row.title(), match.continuous() ? List.of() : match.excerpts(),
-                new EvidenceVerification(status, row.documentEvidence(), row.location())));
+                new EvidenceVerification(status, row.documentEvidence(), row.location(), visual)));
         }
         boolean attention = !findings.isEmpty() || raw.documentOverview() != null && raw.documentOverview().wrongDocument();
         ReviewOutcome outcome = attention ? ReviewOutcome.ISSUES_IDENTIFIED

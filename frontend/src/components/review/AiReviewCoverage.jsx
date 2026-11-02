@@ -60,7 +60,10 @@ function AssessmentRow({ row, report }) {
   const excerpts = (Array.isArray(row.documentExcerpts) ? row.documentExcerpts : []).filter(item => hasText(item?.text) && validPage(item.location));
   const excerptPages = [...new Set(excerpts.map(item => item.location.page))];
   const location = validPage(row.location) ? row.location : null;
-  const page = location ? `p. ${location.page}` : excerptPages.length ? `p. ${excerptPages.join(', ')}` : '';
+  const visual = row.evidenceVerification?.visualObservation;
+  const closest = row.evidenceVerification?.status === 'CLOSE_MATCH';
+  const page = location ? `p. ${location.page}` : excerptPages.length ? `p. ${excerptPages.join(', ')}`
+    : visual?.pageValid && validPage(visual.location) ? `p. ${visual.location.page}` : '';
   const instruction = formatTemplateInstruction(row.requirement);
   return <details className="wt-ai-review-assessment-row">
     <summary className="wt-ai-review-assessment-summary">
@@ -78,8 +81,15 @@ function AssessmentRow({ row, report }) {
       {linkedNotes.map((note, index) => <div key={`note-${index}`}>{note.issue?.trim() !== row.explanation.trim() ? <Text>{note.issue}</Text> : null}{hasText(note.evidence) && note.evidence !== row.documentEvidence ? <LinkedExcerpt text={note.evidence} location={note.location} /> : null}</div>)}
       {linkedMissing.map((item, index) => <Text key={`missing-${index}`}>Confirm the required section: {item.section}</Text>)}
       {hasText(row.documentEvidence) ? <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Evidence excerpt">{row.documentEvidence}</Text> : null}
+      {closest ? <Text fw={600} mt="sm">Closest matching text</Text> : null}
       {excerpts.map((item, index) => <LinkedExcerpt key={`source-part-${index}`} text={item.text} location={item.location} />)}
-      {!excerpts.length ? <Text component="p" className="wt-ai-review-reference"><strong>Source:</strong> {location
+      {closest ? <Text size="sm" c="dimmed">This is the closest passage WildTrack found. It differs from Gemini’s quotation.</Text> : null}
+      {hasText(visual?.description) ? <div className="wt-ai-review-visual-reference">
+        <Text fw={600} mt="sm">AI visual observation{visual.pageValid && validPage(visual.location) ? ` · PDF page ${visual.location.page}` : ''}</Text>
+        <Text mt={4}>{visual.description}</Text>
+        <Text size="sm" c="dimmed">{visual.pageValid ? 'Gemini described visual content on this page. Check the PDF to confirm it.' : 'The cited PDF page could not be established. Check the original PDF.'}</Text>
+      </div> : null}
+      {!excerpts.length && !hasText(visual?.description) ? <Text component="p" className="wt-ai-review-reference"><strong>Source:</strong> {location
         ? <>Submitted PDF · page {location.page}{hasText(location.section) ? ` · ${location.section}` : ''}</>
         : row.evidenceVerification?.status === 'NOT_PROVIDED' ? 'No supporting quotation supplied by Gemini.'
           : row.evidenceVerification?.status === 'LOCATED' ? 'Submitted PDF · page not established'

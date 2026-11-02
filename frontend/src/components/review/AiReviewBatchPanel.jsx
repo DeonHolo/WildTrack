@@ -8,6 +8,7 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
   if (dismissed && batch?.state === 'COMPLETED' && !error) return null;
   if (!batch || batch.state === 'CANCELLED') return error ? <Alert color="red" role="alert">{error}</Alert> : null;
   const running = batch.state === 'RUNNING';
+  const waiting = running && batch.providerWait;
   const paused = batch.state === 'PAUSED';
   const preparing = batch.state === 'PLANNING';
   const precheck = preparing || batch.state === 'READY';
@@ -19,10 +20,13 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
   const message = batch.state === 'COMPLETED' && !technicalFailure && !error
     ? counts.completed ? 'AI Review batch finished. Saved results are available.'
       : 'AI Review batch finished. No reviews were produced; check the file-access notices below.'
+    : waiting ? batch.providerWait.reason === 'REQUEST_SPACING'
+      ? 'Waiting briefly before the next Gemini request. Progress is saved; you can leave this page.'
+      : `Waiting for Gemini’s ${batch.providerWait.reason === 'UNSPECIFIED_LIMIT' ? 'quota' : 'minute allowance'}. Progress is saved. The batch will continue automatically.`
     : batch.message;
   return <AiBatchProgress color={color} onDismiss={batch.state === 'COMPLETED' && !busy ? onDismiss : undefined}
     closeButtonLabel="Dismiss finished AI Review batch"
-    title={preparing ? 'Preparing AI Review' : running ? batch.stopRequested ? 'Stopping AI Review' : 'AI Review running' : paused ? 'AI Review paused' : batch.state === 'READY' ? 'AI Review ready to start' : 'AI Review batch finished'}
+    title={preparing ? 'Preparing AI Review' : running ? batch.stopRequested ? 'Stopping AI Review' : waiting ? 'AI Review waiting' : 'AI Review running' : paused ? 'AI Review paused' : batch.state === 'READY' ? 'AI Review ready to start' : 'AI Review batch finished'}
     summary={precheck ? `${batch.preparedPdfs} of ${batch.totalPdfs} PDF submissions checked`
       : `${batch.completedDocuments ?? 0} of ${batch.selectedDocuments ?? 0} unique review attempts finished · ${batch.totalPdfs} total PDF submissions`}
     value={precheck ? batch.preparedPdfs / Math.max(1, batch.totalPdfs) * 100
@@ -39,6 +43,7 @@ export function AiReviewBatchPanel({ batch, error, busy, dismissed = false, onDi
         {paused || batch.state === 'COMPLETED' && (attention || technicalFailure) ? <Button variant="default" onClick={onPrepare}>Review retry options</Button> : null}
     </>}>
       {batch.reusedDocuments ? <Text size="sm">{batch.reusedDocuments} saved {batch.reusedDocuments === 1 ? 'review reused' : 'reviews reused'}.</Text> : null}
+      {waiting && Number.isFinite(Date.parse(batch.providerWait.retryAt)) ? <Text size="sm">Next attempt after {new Date(batch.providerWait.retryAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}.</Text> : null}
       {!precheck ? <Text size="sm">
         {counts.completed} AI {counts.completed === 1 ? 'review' : 'reviews'} available
         {counts.blocked ? ` · ${counts.blocked} blocked before AI` : ''}

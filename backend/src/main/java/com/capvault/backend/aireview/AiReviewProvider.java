@@ -12,6 +12,8 @@ public interface AiReviewProvider extends com.capvault.backend.template.Template
     boolean isConfigured();
     /** Remaining provider cooldown; querying this never starts or retries a request. */
     default long retryDelayMillis() { return 0; }
+    default WaitStatus waitStatus() { return null; }
+    record WaitStatus(String reason, String retryAt, int inputTokens) { }
     String cacheVersion();
     Result review(Input input);
     default Result assessInstructions(InstructionInput input) {
@@ -58,8 +60,14 @@ public interface AiReviewProvider extends com.capvault.backend.template.Template
     }
     record DocumentExcerpt(String text, EvidenceLocation location) { }
     enum CoverageStatus { EVIDENCE_RECORDED, ISSUE_RECORDED, NEEDS_VERIFICATION, NOT_CHECKED, ASSESSED }
-    enum QuotationStatus { LOCATED, SEPARATE_EXCERPTS, NOT_LOCATED, NOT_PROVIDED }
-    record EvidenceVerification(QuotationStatus status, String providerQuotation, EvidenceLocation citedLocation) { }
+    enum QuotationStatus { LOCATED, SEPARATE_EXCERPTS, CLOSE_MATCH, VISUAL_REFERENCE, NOT_LOCATED, NOT_PROVIDED }
+    record VisualObservation(String description, EvidenceLocation location, boolean pageValid) { }
+    record EvidenceVerification(QuotationStatus status, String providerQuotation, EvidenceLocation citedLocation,
+                                VisualObservation visualObservation) {
+        public EvidenceVerification(QuotationStatus status, String providerQuotation, EvidenceLocation citedLocation) {
+            this(status, providerQuotation, citedLocation, null);
+        }
+    }
     /** A compact, advisory assessment for one server-owned criterion. */
     enum CriterionAssessmentLabel { APPEARS_ADDRESSED, NEEDS_ATTENTION, CHECK_MANUALLY, NOT_APPLICABLE, UNVERIFIED }
     record CriterionAssessment(String id, String requirement, FindingSource source, CoverageStatus status,

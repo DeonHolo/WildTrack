@@ -268,6 +268,7 @@ public class AiReviewService {
     }
 
     long providerRetryDelayMillis() { return provider.retryDelayMillis(); }
+    AiReviewProvider.WaitStatus providerWaitStatus() { return provider.waitStatus(); }
 
     void requireAdministrator(String subject) {
         if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Only administrators can start AI reviews.");
@@ -744,7 +745,10 @@ public class AiReviewService {
 
     private static String failureMessage(String code) {
         String reason = switch (Objects.requireNonNullElse(code, "")) {
-            case "RATE_LIMITED" -> "Gemini's quota or rate limit was reached. Wait and check the project's limits in AI Studio before retrying.";
+            case "RATE_LIMITED" -> "Gemini's quota limit persisted after automatic waiting. Progress is saved. Check AI Studio before retrying.";
+            case "DAILY_LIMIT_REACHED" -> "Gemini's daily quota was reached. Progress is saved. Retry after midnight Pacific time, when the daily allowance resets.";
+            case "INPUT_TOKEN_BUDGET_EXCEEDED" -> "This request exceeds the configured input-token allowance for one minute. Waiting cannot make it fit. Review the quota settings before retrying.";
+            case "TOKEN_COUNT_UNAVAILABLE" -> "Gemini's input-token count could not be checked. No AI Review request was sent for this instruction group. Completed groups are saved.";
             case "API_KEY_REJECTED" -> "Gemini rejected the API key or its permissions. Check the backend's GEMINI_API_KEY and API access.";
             case "MODEL_UNAVAILABLE" -> "Google returned Not Found during the Gemini AI Review request. The model or uploaded file may be unavailable.";
             case "NOT_CONFIGURED" -> "The Gemini API key is not configured.";
@@ -1445,7 +1449,7 @@ public class AiReviewService {
             "template_file", "submission_file", "instruction_assessment", "instruction_validation", "template_instructions");
         if (diagnostic.stage() != null && !stages.contains(diagnostic.stage())) return null;
         String code = diagnostic.reasonCode();
-        if (!List.of("NOT_CONFIGURED", "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE", "RATE_LIMITED",
+        if (!List.of("NOT_CONFIGURED", "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE", "RATE_LIMITED", "DAILY_LIMIT_REACHED", "INPUT_TOKEN_BUDGET_EXCEEDED", "TOKEN_COUNT_UNAVAILABLE",
                 "API_KEY_REJECTED", "MODEL_UNAVAILABLE", "PROVIDER_OUTCOME_UNKNOWN", "PROVIDER_TIMEOUT",
                 "PROVIDER_CONNECTION_FAILED", "INVALID_RESPONSE", "FILE_PROCESSING_FAILED", "CONTENT_BLOCKED",
                 "OUTPUT_TRUNCATED", "REQUEST_SCHEMA_REJECTED", "REQUEST_PARAMETER_REJECTED",
@@ -1474,7 +1478,7 @@ public class AiReviewService {
 
     private static String diagnosticFailureCode(String code) {
         return switch (Objects.requireNonNullElse(code, "")) {
-            case "NOT_CONFIGURED", "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE", "RATE_LIMITED",
+            case "NOT_CONFIGURED", "DOCUMENT_TOO_LARGE", "REQUIREMENTS_TOO_LARGE", "RATE_LIMITED", "DAILY_LIMIT_REACHED", "INPUT_TOKEN_BUDGET_EXCEEDED", "TOKEN_COUNT_UNAVAILABLE",
                  "API_KEY_REJECTED", "MODEL_UNAVAILABLE", "PROVIDER_OUTCOME_UNKNOWN", "PROVIDER_TIMEOUT",
                  "PROVIDER_CONNECTION_FAILED", "INVALID_RESPONSE", "FILE_PROCESSING_FAILED", "CONTENT_BLOCKED",
                  "OUTPUT_TRUNCATED", "REQUEST_SCHEMA_REJECTED", "REQUEST_PARAMETER_REJECTED", "REQUEST_DOCUMENT_REJECTED",

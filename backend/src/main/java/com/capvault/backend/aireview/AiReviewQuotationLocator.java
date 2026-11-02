@@ -17,7 +17,8 @@ final class AiReviewQuotationLocator {
     private record Atom(String value, int start, int end) { }
     private record Span(int start, int end) { }
     private record Piece(String text, int page) { }
-    record Match(List<AiReviewProvider.DocumentExcerpt> excerpts, boolean continuous) {
+    record Match(List<AiReviewProvider.DocumentExcerpt> excerpts, boolean continuous, boolean approximate) {
+        Match(List<AiReviewProvider.DocumentExcerpt> excerpts, boolean continuous) { this(excerpts, continuous, false); }
         Match { excerpts = List.copyOf(excerpts); }
         static Match absent() { return new Match(List.of(), false); }
         boolean located() { return !excerpts.isEmpty(); }
@@ -44,7 +45,8 @@ final class AiReviewQuotationLocator {
             var parts = separated(quotation, page.text(), page.pageNumber());
             if (parts.located()) return parts;
         }
-        return acrossPages(quotation, sourcePages);
+        var spanning = acrossPages(quotation, sourcePages);
+        return spanning.located() ? spanning : AiReviewApproximateQuotationLocator.locate(quotation, ordered);
     }
 
     static boolean continuous(String quotation, String source) {

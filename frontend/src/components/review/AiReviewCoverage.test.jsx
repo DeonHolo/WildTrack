@@ -9,6 +9,46 @@ const criterion = (assessment, extra = {}) => ({ id: extra.id || 'C1', title: 'D
   location: { page: 8, section: 'Recovery' }, ...extra });
 function show(report) { render(<MantineProvider><AiReviewCoverage report={report} /></MantineProvider>); }
 
+it('labels recovered source text as a close match without changing the model category', () => {
+  const row = criterion('APPEARS_ADDRESSED', { documentEvidence: null, location: null,
+    evidenceVerification: { status: 'CLOSE_MATCH', providerQuotation: 'The paraphrased request.' },
+    documentExcerpts: [{ text: 'The application launches within 5 seconds.', location: { page: 50 } }] });
+  render(<MantineProvider><AiReviewCoverage report={{ coverage: { criteria: [row] } }} />
+    <AiReviewVerificationLimits report={{ coverage: { criteria: [row] } }} /></MantineProvider>);
+  fireEvent.click(screen.getByText('Appears addressed (1)'));
+  fireEvent.click(document.querySelector('.wt-ai-review-assessment-summary'));
+  expect(screen.getByText('Closest matching text')).toBeVisible();
+  expect(screen.getByText('The application launches within 5 seconds.')).toBeVisible();
+  expect(screen.getByText('Submitted PDF · page 50')).toBeVisible();
+  expect(screen.queryByText('The paraphrased request.')).not.toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Supporting reference notes' })).not.toBeInTheDocument();
+});
+
+it('shows a visual observation as prose and a page reference without a quotation-failure warning', () => {
+  const row = criterion('APPEARS_ADDRESSED', { documentEvidence: null, location: null,
+    evidenceVerification: { status: 'VISUAL_REFERENCE', visualObservation: {
+      description: 'The diagram shows client, API and database layers.', location: { page: 9 }, pageValid: true } } });
+  render(<MantineProvider><AiReviewCoverage report={{ coverage: { criteria: [row] } }} />
+    <AiReviewVerificationLimits report={{ coverage: { criteria: [row] } }} /></MantineProvider>);
+  fireEvent.click(screen.getByText('Appears addressed (1)'));
+  fireEvent.click(document.querySelector('.wt-ai-review-assessment-summary'));
+  expect(screen.getByText('AI visual observation · PDF page 9')).toBeVisible();
+  expect(screen.getByText('The diagram shows client, API and database layers.')).toBeVisible();
+  expect(screen.queryByRole('blockquote', { hidden: true })).not.toBeInTheDocument();
+  expect(screen.queryByText(/couldn’t match/)).not.toBeInTheDocument();
+});
+
+it('does not show an out-of-range visual page as an established PDF reference', () => {
+  show({ coverage: { criteria: [criterion('APPEARS_ADDRESSED', { documentEvidence: null, location: null,
+    evidenceVerification: { status: 'VISUAL_REFERENCE', visualObservation: {
+      description: 'A diagram was described.', location: { page: 999 }, pageValid: false } } })] } });
+  fireEvent.click(screen.getByText('Appears addressed (1)'));
+  fireEvent.click(document.querySelector('.wt-ai-review-assessment-summary'));
+  expect(screen.getByText('AI visual observation')).toBeVisible();
+  expect(screen.getByText(/cited PDF page could not be established/)).toBeVisible();
+  expect(screen.queryByText(/PDF page 999/)).not.toBeInTheDocument();
+});
+
 it('keeps an AI judgment with separately located source passages and their own pages', () => {
   const row = criterion('APPEARS_ADDRESSED', { documentEvidence: null, location: null,
     evidenceVerification: { status: 'SEPARATE_EXCERPTS' },
