@@ -40,10 +40,14 @@ public class DeliverableController {
     @GetMapping
     public List<DeliverableResponse> listDeliverables(
         @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
-        jakarta.servlet.http.HttpServletRequest http
+        jakarta.servlet.http.HttpServletRequest http,
+        jakarta.servlet.http.HttpServletResponse response
     ) {
         if (!security.isAdmin(http)) throw new org.springframework.security.access.AccessDeniedException("Admin authorization required.");
-        return service.listDeliverables(workspaceId);
+        response.setHeader("Cache-Control", "no-store");
+        var paths = shareLinks.pathsForWorkspace(workspaceId);
+        return service.listDeliverables(workspaceId).stream()
+            .map(form -> form.withSharePath(paths.get(form.id()))).toList();
     }
 
     @GetMapping("/{id}")

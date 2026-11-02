@@ -118,6 +118,7 @@ export function mapDeliverable(deliverable) {
   return {
     id: deliverable.id,
     slug: deliverable.slug,
+    sharePath: deliverable.sharePath || null,
     title: deliverable.title,
     shortTitle: deliverable.trackerColumnKey,
     dueAt: normalizeDueAt(deliverable.dueAt),

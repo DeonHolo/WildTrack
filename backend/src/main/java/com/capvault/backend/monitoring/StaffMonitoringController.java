@@ -47,6 +47,7 @@ public class StaffMonitoringController {
     private final TrackerRowRepository rowRepository;
     private final TrackerCellRepository cellRepository;
     private final DeliverableService deliverableService;
+    private final com.capvault.backend.deliverable.DeliverableShareLinkService shareLinks;
     private final FormResponseService responseService;
     private final ResponseTimingService responseTimingService;
     private final ArchiveRecordRepository archiveRepository;
@@ -64,6 +65,7 @@ public class StaffMonitoringController {
         TrackerRowRepository rowRepository,
         TrackerCellRepository cellRepository,
         DeliverableService deliverableService,
+        com.capvault.backend.deliverable.DeliverableShareLinkService shareLinks,
         FormResponseService responseService,
         ResponseTimingService responseTimingService,
         ArchiveRecordRepository archiveRepository,
@@ -80,6 +82,7 @@ public class StaffMonitoringController {
         this.rowRepository = rowRepository;
         this.cellRepository = cellRepository;
         this.deliverableService = deliverableService;
+        this.shareLinks = shareLinks;
         this.responseService = responseService;
         this.responseTimingService = responseTimingService;
         this.archiveRepository = archiveRepository;
@@ -113,7 +116,8 @@ public class StaffMonitoringController {
     @GetMapping
     @Transactional(readOnly = true)
     public MonitoringResponse monitoring(@RequestParam UUID workspaceId,
-            @RequestParam(defaultValue = "false") boolean includeReviews, HttpServletRequest http) {
+            @RequestParam(defaultValue = "false") boolean includeReviews, HttpServletRequest http,
+            jakarta.servlet.http.HttpServletResponse httpResponse) {
         var session = security.requireSession(http);
         Set<StaffRole> roles = security.activeRoles(http);
         boolean allTeams = roles.contains(StaffRole.ADMIN);
@@ -125,6 +129,9 @@ public class StaffMonitoringController {
         } else {
             throw new AccessDeniedException("Staff authorization required.");
         }
+
+        var paths = allTeams ? shareLinks.pathsForWorkspace(workspaceId) : java.util.Map.<UUID, String>of();
+        if (allTeams) httpResponse.setHeader("Cache-Control", "no-store");
 
         var responses = allTeams ? responseService.responsesForWorkspace(workspaceId)
             : responseService.responsesForTeams(workspaceId, teams);
@@ -178,7 +185,8 @@ public class StaffMonitoringController {
                     .sorted(Comparator.comparing(cell -> cell.getTrackerColumn().getDisplayOrder()))
                     .toList()))
                 .toList(),
-            deliverableService.listDeliverables(workspaceId),
+            deliverableService.listDeliverables(workspaceId).stream()
+                .map(form -> form.withSharePath(paths.get(form.id()))).toList(),
             responses,
             responseTimingService.forResponses(responses),
             archivedResponseIds,

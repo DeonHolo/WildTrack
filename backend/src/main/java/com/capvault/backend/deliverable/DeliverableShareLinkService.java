@@ -41,13 +41,43 @@ public class DeliverableShareLinkService {
             .orElseThrow(() -> new IllegalArgumentException("Deliverable not found."));
         var existing = jdbc.query("select token from deliverable_share_links where deliverable_id = ?",
             (rs, row) -> rs.getString(1), form.getId());
-        if (!existing.isEmpty()) return new ShareLink(existing.get(0), "/s/" + existing.get(0));
+        if (!existing.isEmpty()) return link(form, existing.get(0));
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         String token = HexFormat.of().formatHex(bytes);
         jdbc.update("insert into deliverable_share_links (deliverable_id, token, created_at) values (?, ?, ?)",
             form.getId(), token, java.sql.Timestamp.from(Instant.now()));
-        return new ShareLink(token, "/s/" + token);
+        return link(form, token);
+    }
+
+    /** Only call after checking administrator authorization. Locks rows in a stable order,
+     * matching single-link issuance, so concurrent list and issuance calls reuse one token. */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public java.util.Map<UUID, String> pathsForWorkspace(UUID workspaceId) {
+        var forms = deliverables.lockAllByWorkspaceId(workspaceId);
+        if (forms.isEmpty()) return java.util.Map.of();
+        var tokens = new java.util.HashMap<UUID, String>();
+        jdbc.query("select l.deliverable_id, l.token from deliverable_share_links l join academic_deliverables d on d.id = l.deliverable_id where d.workspace_id = ?",
+            rs -> { tokens.put(rs.getObject(1, UUID.class), rs.getString(2)); }, workspaceId);
+        var missing = new java.util.ArrayList<Object[]>();
+        for (var form : forms) {
+            if (!tokens.containsKey(form.getId())) {
+                byte[] bytes = new byte[32];
+                random.nextBytes(bytes);
+                String token = HexFormat.of().formatHex(bytes);
+                tokens.put(form.getId(), token);
+                missing.add(new Object[] { form.getId(), token, java.sql.Timestamp.from(Instant.now()) });
+            }
+        }
+        if (!missing.isEmpty()) jdbc.batchUpdate(
+            "insert into deliverable_share_links (deliverable_id, token, created_at) values (?, ?, ?)", missing);
+        var paths = new java.util.HashMap<UUID, String>();
+        for (var form : forms) paths.put(form.getId(), link(form, tokens.get(form.getId())).path());
+        return paths;
+    }
+
+    private static ShareLink link(Deliverable form, String token) {
+        return new ShareLink(token, "/s/" + form.getSlug() + "/" + token);
     }
 
     @Transactional(readOnly = true)

@@ -31,6 +31,7 @@ export default function App() {
         <Route path="/terms" element={<PublicInformationPage page="terms" />} />
         <Route path="/w/:workspaceKey/submit/:slug" element={<PublicSubmissionPage />} />
         <Route path="/s/:shareToken" element={<PublicSubmissionPage />} />
+        <Route path="/s/:slug/:shareToken" element={<PublicSubmissionPage />} />
         <Route path="/submit/:slug" element={<PublicSubmissionPage />} />
         <Route path="/register" element={<StudentApplicationShell><RegisterPage /></StudentApplicationShell>} />
         <Route path="/login" element={<StudentApplicationShell><RegisterPage /></StudentApplicationShell>} />
