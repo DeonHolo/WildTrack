@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 /** Exact group accounting; source grounding is performed by AiReviewService after parsing. */
 public final class AiReviewInstructionProtocol {
-    public static final String VERSION = "instruction-assessment-pdf-v9-separate-judgment-and-citations";
+    public static final String VERSION = "instruction-assessment-pdf-v10-continuous-quotations";
     public static final int MAX_GROUP_ITEMS = 16;
     private static final Set<String> TOP = Set.of("complete", "instructionAssessments", "documentOverview", "generalFindings");
     private static final Set<String> ASSESSMENT = Set.of("id", "assessment", "explanation", "documentEvidence", "page", "section");
@@ -40,14 +40,18 @@ public final class AiReviewInstructionProtocol {
         instruction wording and authority quotations are fixed by WildTrack; do not return replacements.
         Choose the assessment from the submission itself, independently of whether its text is extractable.
         APPEARS_ADDRESSED means you judge the applicable instruction addressed; it is not academic approval.
-        Give a representative exact student-PDF quotation as a supporting reference where available.
+        Give one short exact student-PDF quotation as a supporting reference where available.
         A quotation is not a pass trigger: concerns and partial answers may also have supporting quotations.
         If visual content supports your judgment but no faithful quotation is available, use empty
         documentEvidence and page=0; explain the actual visual observation and its page in your explanation.
         Never invent a quotation to satisfy a positive assessment. Citation availability does not determine
         the assessment. CHECK_MANUALLY is for uncertainty about the instruction itself, not text extraction.
-        Copy a contiguous passage from the numbered student text where available. Do not insert literal
-        backslash-n or backslash-t sequences into quotations or combine separate table cells as prose.
+        Copy one continuous passage from one student PDF page, using the numbered student text where available.
+        Do not use ellipses (..., … or […]) to shorten a quotation, paraphrase it, or join separate passages
+        or table cells. Do not add a heading, bullet or label unless it is part of that same continuous passage.
+        If a passage is too long, select a shorter continuous passage instead of removing words from its middle.
+        If no faithful quotation is available, leave documentEvidence empty and keep your assessment and explanation.
+        Do not insert literal backslash-n or backslash-t sequences into quotations.
         Keep the complete relevant clause, including negations, conditions, quantities, units and exceptions.
         Never omit words that change its meaning, or substitute a paraphrase for a quotation.
         Different accepted terminology is allowed: assess meaning, not whether student wording copies
