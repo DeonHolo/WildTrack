@@ -15,7 +15,8 @@ public record DeliverableResponse(
     DeliverableStatus status,
     LocalDateTime createdAt,
     LocalDateTime updatedAt,
-    List<DeliverableFieldResponse> fields
+    List<DeliverableFieldResponse> fields,
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String sharePath
 ) {
 
     public static DeliverableResponse from(
@@ -33,7 +34,13 @@ public record DeliverableResponse(
             deliverable.getStatus(),
             deliverable.getCreatedAt(),
             deliverable.getUpdatedAt(),
-            fields
+            fields,
+            null
         );
+    }
+
+    public DeliverableResponse withSharePath(String path) {
+        return new DeliverableResponse(id, trackerColumnKey, title, slug, instructions, dueAt, pdfRequired,
+            status, createdAt, updatedAt, fields, path);
     }
 }

@@ -71,6 +71,7 @@ vi.mock('../lib/api.js', () => ({
 }));
 
 vi.mock('../lib/reviewDeskClient.js', () => ({
+  syncReviewDecisionCache: vi.fn(),
   emptyReviewDesk: () => ({}),
   loadReviewDesk: vi.fn(),
   applyDocumentCheck: (response, report) => report?.fieldId

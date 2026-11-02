@@ -17,6 +17,10 @@ for (const viewport of [{ name: 'desktop', width: 1280, height: 800 }, { name: '
     const mascot = page.getByRole('img', { name: 'WildTrack mascot welcoming students' });
     await expect(mascot).toBeVisible();
     await expect(page.getByRole('combobox')).toHaveCount(0);
+    const numberHelp = page.getByRole('button', { name: 'Student Number help' });
+    await numberHelp.focus();
+    await expect(page.getByRole('tooltip')).toContainText('including its dashes');
+    await page.keyboard.press('Tab');
     const number = page.getByRole('textbox', { name: 'Student Number' });
     const name = page.getByRole('textbox', { name: 'Student Name' });
     const team = page.getByRole('textbox', { name: 'Team Code' });
@@ -31,6 +35,8 @@ for (const viewport of [{ name: 'desktop', width: 1280, height: 800 }, { name: '
     await number.fill(studentNumber); await name.fill(studentName); await team.fill('Wrong Team');
     await page.getByRole('button', { name: 'Connect account' }).click();
     await expect(page.getByRole('alert')).toContainText('Student details do not match an active class record.');
+    await expect(page.getByRole('alert')).toContainText('Compare all three fields with your class record');
+    await page.screenshot({ path: `test-results/student-entry-mismatch-help-${viewport.name}.png`, fullPage: true });
     expect(fixture.association()).toBeNull();
     await expect(team).toHaveValue('Wrong Team');
     await team.fill('2526-sem2-it332-11');

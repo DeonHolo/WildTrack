@@ -1,9 +1,9 @@
 import { WildTrackMark } from '../layout/WildTrackMark.jsx';
 import './SessionLoadingScreen.css';
 
-export function SessionLoadingScreen() {
+export function SessionLoadingScreen({ overlay = false, message = 'Loading…' }) {
   return (
-    <main className="wt-session-loading" aria-label="Loading WildTrack" aria-busy="true">
+    <main className={`wt-session-loading${overlay ? ' wt-session-loading--overlay' : ''}`} aria-label="Loading WildTrack" aria-busy="true">
       <div className="wt-session-loading-content">
         <div className="wt-session-loading-spinner" aria-hidden="true">
           <svg className="wt-session-loading-rings" viewBox="0 0 120 120" fill="none">
@@ -13,7 +13,7 @@ export function SessionLoadingScreen() {
           </svg>
           <WildTrackMark className="wt-session-loading-mark" size={64} />
         </div>
-        <p className="wt-session-loading-status" role="status">Loading…</p>
+        <p className="wt-session-loading-status" role="status">{message}</p>
       </div>
     </main>
   );

@@ -114,6 +114,7 @@ describe('role-specific application shells', () => {
     expect(screen.queryByRole('region', { name: 'Choose a capstone section' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: "Today's work page" })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Academic workspace' })).toHaveValue('IT Capstone - IT332');
+    expect(screen.queryByLabelText('Active workspace')).not.toBeInTheDocument();
     expect(screen.getByText('Ralph Laviste')).toBeInTheDocument();
 
     const navigation = screen.getByRole('navigation', { name: 'Staff navigation' });
@@ -133,6 +134,7 @@ describe('role-specific application shells', () => {
     renderApp('/review');
 
     expect(await screen.findByRole('heading', { name: 'Team review page' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Active workspace')).toBeInTheDocument();
     const navigation = screen.getByRole('navigation', { name: 'Staff navigation' });
     screen.getAllByRole('link', { name: 'WildTrack home' })
       .forEach((link) => expect(link).toHaveAttribute('href', '/adviser'));

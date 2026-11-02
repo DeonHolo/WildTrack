@@ -33,7 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest(properties = {"wildtrack.archive.worker-enabled=false", "spring.datasource.url=jdbc:h2:mem:archive-capture-it;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DEFAULT_NULL_ORDERING=HIGH"})
+@SpringBootTest(properties = {"wildtrack.archive.worker-enabled=false", "capvault.google.drive.enabled=true", "spring.datasource.url=jdbc:h2:mem:archive-capture-it;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DEFAULT_NULL_ORDERING=HIGH"})
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class ArchiveCaptureIntegrationTest {
@@ -47,6 +47,7 @@ class ArchiveCaptureIntegrationTest {
     @Autowired FormResponseRepository responses;
     @Autowired ResponseAcceptanceRepository acceptances;
     @Autowired FileCheckReportRepository checks;
+    @Autowired FileCheckService fileChecks;
     @Autowired ReviewFeedbackService review;
     @Autowired StaffRoleAssignmentRepository roles;
     @Autowired WildTrackSessionService sessions;
@@ -69,6 +70,7 @@ class ArchiveCaptureIntegrationTest {
             if (provider == null) throw new ArchiveStorageException("Unavailable."); return provider;
         });
         when(drive.getMetadata(any())).thenAnswer(call -> metadata(call.getArgument(0)));
+        when(drive.isConfigured()).thenReturn(true);
         when(drive.download(any())).thenAnswer(call -> {
             DriveFileReference ref = call.getArgument(0); byte[] bytes = sources.get(ref.fileId());
             if (bytes == null) throw new IllegalStateException("Source inaccessible"); return bytes.clone();
@@ -124,6 +126,44 @@ class ArchiveCaptureIntegrationTest {
         assertThat(archive.download(f.workspaceId(), captured.id(), file.id())).isEqualTo(f.bytes().getFirst());
         assertThat(active.history()).extracting(ArchiveRecordResponse.History::action).contains("ARCHIVE_UNARCHIVED");
         var again = queue(f); assertThat(again.id()).isEqualTo(captured.id()); assertThat(again.lifecycleState()).isEqualTo("Archived");
+    }
+
+    @Test void unarchiveCanAtomicallyRevokeAcceptanceWithoutRemovingPreservedFiles() throws Exception {
+        Fixture f = fixture(1); var queued = queue(f); drain(); var captured = snapshot(f, queued.id());
+        var file = captured.files().getFirst();
+        var inactive = archive.unarchive(f.workspaceId(), captured.id(), captured.stateVersion(), "admin", true);
+        assertThat(inactive.lifecycleState()).isEqualTo("Active");
+        assertThat(acceptances.findByResponseIdAndRevokedAtIsNull(f.responseId())).isEmpty();
+        assertThat(archive.download(f.workspaceId(), captured.id(), file.id())).isEqualTo(f.bytes().getFirst());
+        assertThat(sources.get(f.fileIds().getFirst())).isEqualTo(f.bytes().getFirst());
+        assertThatThrownBy(() -> queue(f)).hasMessageContaining("Only accepted responses");
+    }
+
+    @Test void freshDocumentCheckRepairsAnOlderAcceptanceAndArchivesWithoutReaccepting() throws Exception {
+        Fixture f = fixture(1);
+        String fieldId = UUID.randomUUID().toString();
+        deliverableFields.saveAndFlush(new DeliverableField(fieldId, f.deliverableId(), "pdf0", "PDF 0",
+            DeliverableFieldType.DRIVE_PDF, true, 0, DocumentCheckPolicy.AUTO, false, true));
+        byte[] pdf;
+        try (var document = new org.apache.pdfbox.pdmodel.PDDocument(); var out = new java.io.ByteArrayOutputStream()) {
+            document.addPage(new org.apache.pdfbox.pdmodel.PDPage());
+            document.save(out); pdf = out.toByteArray();
+        }
+        sources.put(f.fileIds().getFirst(), pdf);
+        var accepted = acceptances.findByResponseIdAndRevokedAtIsNull(f.responseId()).orElseThrow();
+        Instant acceptedAt = accepted.getAcceptedAt();
+        accepted.setSourceArtifactsJson(null); acceptances.saveAndFlush(accepted);
+        var response = responses.findById(f.responseId()).orElseThrow();
+        var check = fileChecks.check(f.workspaceId(), new FileCheckRequest(f.responseId().toString(), fieldId, "Form",
+            "https://drive.google.com/file/d/" + f.fileIds().getFirst() + "/view", response.getUpdatedAt().toString()));
+        assertThat(check.status()).as(check.summary()).isEqualTo("COMPLETED");
+        var prepared = archive.prepare(f.workspaceId(), List.of(f.responseId()), "admin").getFirst();
+        assertThat(prepared.ready()).as(prepared.message()).isTrue();
+        assertThat(acceptances.findByResponseIdAndRevokedAtIsNull(f.responseId()).orElseThrow().getAcceptedAt()).isEqualTo(acceptedAt);
+        var queued = queue(f); drain();
+        var captured = snapshot(f, queued.id());
+        assertThat(captured.captureState()).isEqualTo("COMPLETE");
+        assertThat(archive.download(f.workspaceId(), captured.id(), captured.files().getFirst().id())).isEqualTo(pdf);
     }
 
     @Test void explicitRearchiveWhileCopyingReusesThePendingCapture() throws Exception {

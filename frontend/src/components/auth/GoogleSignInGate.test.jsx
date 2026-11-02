@@ -44,6 +44,9 @@ function show(path = '/student') {
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/w/:workspace/submit/:slug" element={<h1>Public submission form</h1>} />
             <Route path="/submit/:slug" element={<h1>Public submission form</h1>} />
+            <Route path="/s/:slug/:shareToken" element={<h1>Public submission form</h1>} />
+            <Route path="/s/:workspaceKey/:slug/:shareToken" element={<h1>Public submission form</h1>} />
+            <Route path="/s/:shareToken" element={<h1>Public submission form</h1>} />
             <Route path="/about" element={<h1>Public information</h1>} />
             <Route path="/privacy" element={<h1>Public information</h1>} />
             <Route path="/terms" element={<h1>Public information</h1>} />
@@ -111,7 +114,7 @@ describe('Google sign-in and route isolation', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/login?returnTo=');
   });
 
-  it.each(['/w/section-a/submit/srs', '/submit/srs'])('keeps public form metadata available on %s', async path => {
+  it.each(['/w/section-a/submit/srs', '/submit/srs', `/s/${'a'.repeat(64)}`, `/s/week-9-srs/${'a'.repeat(64)}`, '/s/it411-2627-sem2/refactored-srs/SrS_7aB-9xY3'])('keeps public form metadata available on %s', async path => {
     const session = deferred();
     api.getCurrentSession.mockReturnValueOnce(session.promise);
     show(path);

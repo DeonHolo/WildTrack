@@ -234,7 +234,7 @@ export function FormsPage() {
         </Paper>
       ) : null}
 
-      {formsStatus === 'loading' ? (
+      {formsStatus === 'loading' || (formsStatus === 'ready' && shareLinks.loading) ? (
         <Paper withBorder p="lg" role="status" aria-label="Loading published forms">
           <Stack gap="md">
             <Skeleton height={24} width="35%" animate={false} />
@@ -248,7 +248,7 @@ export function FormsPage() {
         <Button variant="default" onClick={() => reload()}>Retry loading forms</Button>
       </Stack> : null}
 
-      {formsStatus === 'ready' ? <PublishedFormsTable
+      {formsStatus === 'ready' && !shareLinks.loading ? <PublishedFormsTable
         deliverables={orderedDeliverables}
         shareLinks={shareLinks}
         onCopy={copyLink}

@@ -18,6 +18,7 @@ const payload = {
     dueAt: '2026-09-30T23:59:00',
     pdfRequired: false,
     status: 'PUBLISHED',
+    sharePath: '/s/forms-test/srs/SrS_7aB-9xY3',
     updatedAt: '2026-09-18T10:00:00'
   }],
   trackerColumns: [{ columnKey: 'SRS', label: 'SRS', active: true }],

@@ -12,6 +12,7 @@ const workflow = vi.hoisted(() => ({
   activeWorkspace: null,
   workspaces: [],
   archiveAttempts: vi.fn(),
+  prepareArchiveAttempts: vi.fn(),
   verifyArchive: vi.fn(),
   retryArchive: vi.fn(),
   unarchive: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock('../hooks/useWorkspaceResource.js', () => ({
 
 vi.mock('../lib/archiveClient.js', () => ({
   archiveAttempts: (...args) => workflow.archiveAttempts(...args),
+  prepareArchiveAttempts: (...args) => workflow.prepareArchiveAttempts(...args),
   emptyArchiveState: () => ({ archives: [], attempts: [] }),
   loadArchiveState: vi.fn()
 }));
@@ -93,7 +95,7 @@ function makeState(archives = [makeArchive(0)]) {
 
 function pageTree(initialEntry = '/archive') {
   return (
-    <MantineProvider theme={wildTrackTheme} forceColorScheme="light">
+    <MantineProvider theme={wildTrackTheme} forceColorScheme="light" env="test">
       <ModalsProvider>
         <Notifications />
         <MemoryRouter initialEntries={[initialEntry]} future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
@@ -117,6 +119,10 @@ describe('archive index', () => {
     workflow.workspaces = [workflow.activeWorkspace, { id: 'workspace-cs', name: 'CS Capstone' }];
     Object.values(workflow).forEach((value) => value?.mockReset?.());
     workflow.archiveAttempts.mockResolvedValue({ ok: true, archived: 0, queued: 2 });
+    workflow.prepareArchiveAttempts.mockResolvedValue([
+      { responseId: 'accepted-1', ready: true, pdfCount: 1, message: 'PDF checked.' },
+      { responseId: 'accepted-2', ready: true, pdfCount: 2, message: 'PDFs checked.' }
+    ]);
     workflow.verifyArchive.mockResolvedValue({ ok: true });
     workflow.retryArchive.mockResolvedValue({ ok: true });
   });
@@ -266,13 +272,13 @@ describe('archive index', () => {
     renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
-    const confirmation = await screen.findByRole('dialog', { name: 'Archive 2 accepted finals?' });
-    expect(confirmation).toHaveTextContent('2 accepted responses');
-    expect(confirmation).toHaveTextContent('preserves the submitted PDFs');
+    const confirmation = await screen.findByRole('dialog', { name: 'Archive accepted finals', exact: true });
+    expect(confirmation).toHaveTextContent('checks the submitted PDFs');
     expect(confirmation).toHaveTextContent('Linked Google Forms, Sheets and other files are not copied');
-    fireEvent.click(within(confirmation).getByRole('button', { name: 'Archive 2 finals' }));
+    fireEvent.click(await within(confirmation).findByRole('button', { name: 'Archive 2 finals' }));
 
-    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledWith('workspace-it', ['accepted-1', 'accepted-2']));
+    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledWith('workspace-it', ['accepted-1']));
+    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledWith('workspace-it', ['accepted-2']));
     await waitFor(() => expect(workflow.refreshArchive).toHaveBeenCalledTimes(1));
   });
 
@@ -287,6 +293,47 @@ describe('archive index', () => {
     await act(async () => { fail(new Error('Private old archive failure')); });
     expect(screen.queryByText('Private old archive failure')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Archive accepted finals (2)' })).toBeEnabled();
+  });
+
+  it('shows blocked PDFs and queues only ready responses', async () => {
+    workflow.prepareArchiveAttempts.mockResolvedValue([
+      { responseId: 'accepted-1', ready: false, message: 'PDF inaccessible. Check sharing settings.' },
+      { responseId: 'accepted-2', ready: true, pdfCount: 1, message: 'PDF checked.' }
+    ]);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Archive accepted finals', exact: true });
+    expect(await within(confirmation).findByText('PDF inaccessible. Check sharing settings.')).toBeVisible();
+    expect(workflow.archiveAttempts).not.toHaveBeenCalled();
+    expect(within(confirmation).getByRole('link', { name: 'Review response' })).toHaveAttribute('href', '/review?response=accepted-1');
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Archive 1 final' }));
+    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledTimes(1));
+    expect(workflow.archiveAttempts).toHaveBeenCalledWith('workspace-it', ['accepted-2']);
+  });
+
+  it('continues archiving other prepared responses after one queue request fails', async () => {
+    workflow.archiveAttempts.mockRejectedValueOnce(new Error('Storage temporarily unavailable.'));
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Archive accepted finals', exact: true });
+    fireEvent.click(await within(confirmation).findByRole('button', { name: 'Archive 2 finals' }));
+    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledTimes(2));
+    expect(workflow.archiveAttempts).toHaveBeenNthCalledWith(2, 'workspace-it', ['accepted-2']);
+    expect(await within(confirmation).findByText('Storage temporarily unavailable.')).toBeVisible();
+    expect(await within(confirmation).findByText('Queued for copying')).toBeVisible();
+    expect(await within(confirmation).findByRole('button', { name: 'Close', exact: true })).toBeVisible();
+  });
+
+  it('can revoke acceptance in the same unarchive action', async () => {
+    workflow.state = makeState([makeArchive(0, { captureState: 'COMPLETE', lifecycleState: 'Archived', stateVersion: 4 })]);
+    workflow.unarchive.mockResolvedValue({});
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Software 001 archive details' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Archive record details' })).getByRole('button', { name: 'Unarchive' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Unarchive this submission?' });
+    fireEvent.click(within(confirmation).getByRole('checkbox', { name: 'Also revoke acceptance' }));
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Unarchive' }));
+    await waitFor(() => expect(workflow.unarchive).toHaveBeenCalledWith('workspace-it', 'archive-1', 4, true));
   });
 
   it('renders complete loading, error, empty, failed, retrying, and verified states', () => {
@@ -340,9 +387,9 @@ describe('archive index', () => {
     expect(drawer).toHaveTextContent('Adviser');
     fireEvent.click(within(drawer).getByRole('button', { name: 'Unarchive' }));
     const confirmation = await screen.findByRole('dialog', { name: 'Unarchive this submission?' });
-    expect(confirmation).toHaveTextContent('Preserved copies, answers, and review decisions will remain unchanged');
+    expect(confirmation).toHaveTextContent('Unarchive does not delete files');
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Unarchive' }));
-    await waitFor(() => expect(workflow.unarchive).toHaveBeenCalledWith('workspace-it', 'archive-1', 7));
+    await waitFor(() => expect(workflow.unarchive).toHaveBeenCalledWith('workspace-it', 'archive-1', 7, false));
   });
 
   it('counts current captures separately from legacy, old and inactive archive history', () => {
@@ -375,7 +422,7 @@ describe('archive index', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Software 001 archive details' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Archive record details' })).getByRole('button', { name: 'Unarchive' }));
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'Unarchive this submission?' })).getByRole('button', { name: 'Unarchive' }));
-    await waitFor(() => expect(workflow.unarchive).toHaveBeenCalledWith('workspace-it', 'archive-1', 3));
+    await waitFor(() => expect(workflow.unarchive).toHaveBeenCalledWith('workspace-it', 'archive-1', 3, false));
     await waitFor(() => expect(workflow.refreshArchive).toHaveBeenCalled());
     view.rerender(pageTree());
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Open Software 001 archive details' })).not.toBeInTheDocument());

@@ -94,6 +94,53 @@ public class ArchiveService {
         return archive(workspaceId, responseIds, "system");
     }
 
+    public record Preparation(UUID responseId, boolean ready, int pdfCount, boolean evidenceAdded, String message) {}
+
+    public List<Preparation> prepare(UUID workspaceId, List<UUID> responseIds, String actor) {
+        if (responseIds == null || responseIds.isEmpty() || responseIds.size() > 100 || responseIds.stream().anyMatch(Objects::isNull))
+            throw new IllegalArgumentException("Select between 1 and 100 accepted responses.");
+        return responseIds.stream().distinct().map(id -> {
+            try { return transactions.execute(status -> prepareOne(workspaceId, id, actor)); }
+            catch (IllegalArgumentException | ResponseStatusException blocked) {
+                return new Preparation(id, false, 0, false, blocked instanceof ResponseStatusException response
+                    ? response.getReason() : blocked.getMessage());
+            }
+        }).toList();
+    }
+
+    private Preparation prepareOne(UUID workspaceId, UUID responseId, String actor) {
+        var response = responseRepository.findByIdForUpdate(responseId)
+            .filter(item -> workspaceId.equals(item.getWorkspaceId()))
+            .orElseThrow(() -> new IllegalArgumentException("Response not found in this workspace."));
+        if (!workspaceRepository.findById(workspaceId).orElseThrow().isActive())
+            throw new IllegalArgumentException("Restore the workspace before archiving.");
+        var acceptance = acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId)
+            .orElseThrow(() -> new IllegalArgumentException("This response is no longer accepted."));
+        if (!acceptance.getSourceResponseUpdatedAt().equals(response.getUpdatedAt()))
+            throw new IllegalArgumentException("The response changed after acceptance. Review and accept it again.");
+        String captured = snapshots.capture(response);
+        var current = snapshots.read(captured);
+        if (!current.complete())
+            throw new IllegalArgumentException("One or more PDFs are missing, inaccessible or could not be verified. Open Document Check for details.");
+        var earliest = java.time.LocalDateTime.ofInstant(clock.instant(), java.time.ZoneOffset.UTC).minusMinutes(15);
+        if (current.artifacts().stream().anyMatch(pdf -> java.time.LocalDateTime.parse(pdf.checkedAt()).isBefore(earliest)))
+            throw new IllegalArgumentException("The PDF checks are out of date. Prepare the archive again.");
+        var accepted = snapshots.read(acceptance.getSourceArtifactsJson());
+        if (accepted.complete() && (accepted.artifacts().size() != current.artifacts().size()
+                || accepted.artifacts().stream().anyMatch(old -> current.artifacts().stream().noneMatch(now ->
+                    old.fieldKey().equals(now.fieldKey()) && old.fileId().equals(now.fileId())
+                        && old.md5().equalsIgnoreCase(now.md5()) && old.size() == now.size()))))
+            throw new IllegalArgumentException("A PDF changed after acceptance. Review and accept the current PDF again.");
+        if (!accepted.complete()) {
+            acceptance.setSourceArtifactsJson(captured);
+            acceptanceRepository.saveAndFlush(acceptance);
+            events.record(workspaceId, responseId, actor, "ARCHIVE_EVIDENCE_PREPARED", java.util.Map.of("files", current.artifacts().size()));
+        }
+        return new Preparation(responseId, true, current.artifacts().size(), !accepted.complete(),
+            accepted.complete() ? "PDFs checked against the accepted files."
+                : "PDFs checked. This older acceptance had no saved file fingerprint; archiving will preserve the current files.");
+    }
+
     public List<ArchiveRecordResponse> archive(UUID workspaceId, List<UUID> responseIds, String actor) {
         if (responseIds == null || responseIds.isEmpty() || responseIds.size() > 100 || responseIds.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("Select between 1 and 100 accepted responses.");
@@ -187,12 +234,28 @@ public class ArchiveService {
     }
 
     public ArchiveRecordResponse unarchive(UUID workspaceId, UUID id, long version, String actor) {
+        return unarchive(workspaceId, id, version, actor, false);
+    }
+
+    public ArchiveRecordResponse unarchive(UUID workspaceId, UUID id, long version, String actor, boolean revokeAcceptance) {
         return transactions.execute(status -> {
+            var existing = archiveRepository.findById(id).filter(item -> workspaceId.equals(item.getWorkspaceId()))
+                .orElseThrow(() -> new IllegalArgumentException("Archive record not found."));
+            // Match archive creation's response-before-archive locking order.
+            responseRepository.findByIdForUpdate(existing.getResponseId()).orElseThrow();
             var record=locked(workspaceId,id);
-            if (!record.isActive()) return view(record);
+            if (!record.isActive()) {
+                if (revokeAcceptance) throw new ResponseStatusException(HttpStatus.CONFLICT,"This record is already inactive. Refresh before changing its acceptance.");
+                return view(record);
+            }
             requireVersion(record,version);
             record.deactivate();
             events.record(workspaceId,id,actor,"ARCHIVE_UNARCHIVED",java.util.Map.of("responseId",record.getResponseId()));
+            if (revokeAcceptance) acceptanceRepository.findByResponseIdAndRevokedAtIsNull(record.getResponseId()).ifPresent(acceptance -> {
+                acceptance.setRevokedAt(clock.instant());
+                acceptanceRepository.saveAndFlush(acceptance);
+                events.record(workspaceId, record.getResponseId(), actor, "ACCEPTANCE_REVOKED", java.util.Map.of("role", "ADMIN", "fromArchive", true));
+            });
             archiveRepository.saveAndFlush(record);
             return view(record);
         });

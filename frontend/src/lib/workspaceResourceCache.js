@@ -78,6 +78,14 @@ export function createWorkspaceResourceCache({ storageKey = 'wildtrack.resource-
       persist();
     },
     remove(key) { entries.delete(key); persist(); },
+    updateMatching(predicate, update) {
+      for (const [key, entry] of entries) {
+        if (entry.data !== undefined && predicate(key)) {
+          entries.set(key, { ...entry, data: update(entry.data), pending: null });
+        }
+      }
+      persist();
+    },
     invalidate(key) {
       // Keep display data, but detach reads started before a server mutation.
       if (key !== undefined) {

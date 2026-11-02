@@ -163,6 +163,26 @@ describe('forms management', () => {
     expect(screen.getByRole('status')).toHaveTextContent('SRS form link copied');
   });
 
+  it('renders inline readable share paths without per-form requests', async () => {
+    const token = 'b'.repeat(64);
+    workflow.state.deliverables = workflow.state.deliverables.map((item) => ({ ...item, sharePath: `/s/${item.slug}/${token}` }));
+    renderPage();
+    expect(await screen.findByRole('link', { name: 'Open SRS submission form' })).toHaveAttribute('href', `/s/week-9-srs/${token}`);
+    expect(shareApi.getDeliverableShareLink).not.toHaveBeenCalled();
+    expect(screen.queryByText('Loading share link…')).not.toBeInTheDocument();
+  });
+
+  it('waits for missing fallback links before rendering rows', async () => {
+    let finish;
+    workflow.state.deliverables[0].sharePath = `/s/week-9-srs/${'b'.repeat(64)}`;
+    shareApi.getDeliverableShareLink.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    renderPage();
+    await waitFor(() => expect(shareApi.getDeliverableShareLink).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('table', { name: 'Submission forms' })).not.toBeInTheDocument();
+    await act(async () => finish({ path: `/s/week-10-sdd/${'c'.repeat(64)}` }));
+    expect(await screen.findByRole('link', { name: 'Open SDD submission form' })).toHaveAttribute('href', `/s/week-10-sdd/${'c'.repeat(64)}`);
+  });
+
   it('retains links on revisit without fetching again and isolates accounts', async () => {
     const view = renderPage();
     await screen.findByRole('link', { name: 'Open SRS submission form' });

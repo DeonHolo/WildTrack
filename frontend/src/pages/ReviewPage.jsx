@@ -40,6 +40,7 @@ import { isAiBatchAccessRestriction } from '../lib/aiReviewBatch.js';
 import { artifactTemplatePreviewUrl } from '../lib/templatePreview.js';
 import {
   acceptResponse,
+  syncReviewDecisionCache,
   applyArtifactAiReview,
   applyDocumentCheck,
   applyReviewMutation,
@@ -99,7 +100,7 @@ function currentSkippedDriveUrl(target, attempts) {
 }
 
 export function ReviewPage() {
-  const { activeWorkspaceId, refreshSession } = useWorkspaceSession();
+  const { activeWorkspaceId, refreshSession, resourceCache } = useWorkspaceSession();
   const navigate = useNavigate();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
   const { data: state, setData: setState, status: reviewStatus, error: reviewError, reload } = useWorkspaceResource(
@@ -664,6 +665,7 @@ export function ReviewPage() {
     try {
       const serverState = await acceptResponse(response.id);
       if (!isCurrentScope()) return;
+      syncReviewDecisionCache(resourceCache, activeWorkspaceId, response.id, serverState);
       setState((current) => ({
         ...current,
         attempts: current.attempts.map((attempt) => attempt.id === response.id ? applyReviewMutation(attempt, serverState) : attempt)
@@ -688,6 +690,7 @@ export function ReviewPage() {
         try {
           const serverState = await revokeAcceptance(response.id);
           if (!isCurrentScope()) return;
+          syncReviewDecisionCache(resourceCache, activeWorkspaceId, response.id, serverState);
           setState((current) => ({
             ...current,
             attempts: current.attempts.map((attempt) => attempt.id === response.id ? applyReviewMutation(attempt, serverState) : attempt)

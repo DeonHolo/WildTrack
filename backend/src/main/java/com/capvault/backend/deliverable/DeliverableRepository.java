@@ -12,6 +12,10 @@ public interface DeliverableRepository extends JpaRepository<Deliverable, UUID> 
     @org.springframework.data.jpa.repository.Query("select d from Deliverable d where d.id = :id")
     Optional<Deliverable> lockById(@org.springframework.data.repository.query.Param("id") UUID id);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select d from Deliverable d where d.workspaceId = :workspaceId order by d.id")
+    List<Deliverable> lockAllByWorkspaceId(@org.springframework.data.repository.query.Param("workspaceId") UUID workspaceId);
+
     Optional<Deliverable> findByWorkspaceIdAndSlug(UUID workspaceId, String slug);
 
     boolean existsByWorkspaceIdAndSlug(UUID workspaceId, String slug);

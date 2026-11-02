@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { disableGoogleAutoSelect, GoogleSignInButton } from './GoogleSignInButton.jsx';
 import { wildTrackTheme } from '../../app/theme.js';
@@ -67,6 +67,21 @@ describe('GoogleSignInButton', () => {
       subject: 'google-subject-123',
       email: 'student@gmail.com'
     }));
+  });
+
+  it('shows the branded loading screen while verification is pending and restores retry after failure', async () => {
+    let rejectVerification;
+    authenticateGoogle.mockReturnValue(new Promise((_resolve, reject) => { rejectVerification = reject; }));
+    const googleIdentity = installGoogleIdentity();
+    renderButton({ clientId: 'test-client-id' });
+    await waitFor(() => expect(googleIdentity.initialize).toHaveBeenCalled());
+    act(() => { googleIdentity.initialize.mock.calls[0][0].callback({ credential: 'credential' }); });
+    expect(screen.getByRole('status')).toHaveTextContent('Verifying Google account');
+    expect(screen.getByLabelText('Loading WildTrack')).toHaveClass('wt-session-loading--overlay');
+    await act(async () => { rejectVerification(new Error('Verification failed')); });
+    expect(screen.queryByLabelText('Loading WildTrack')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Verification failed');
+    expect(screen.getByLabelText('Continue with Google')).toHaveTextContent('Continue with Google');
   });
 
   it('offers One Tap with automatic selection while retaining the fallback button', async () => {

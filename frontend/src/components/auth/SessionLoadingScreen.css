@@ -9,6 +9,12 @@
   color: var(--wt-text);
 }
 
+.wt-session-loading--overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
 .wt-session-loading-content {
   width: min(360px, 100%);
   text-align: center;

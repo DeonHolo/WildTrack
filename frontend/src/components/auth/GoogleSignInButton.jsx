@@ -1,9 +1,11 @@
 import { Alert, Box, Loader, Stack, Text } from '@mantine/core';
 import { WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { authenticateGoogle } from '../../lib/api.js';
 import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { clearGoogleAutoPromptSuppression, isGoogleAutoPromptSuppressed } from '../../lib/googleIdentitySession.js';
+import { SessionLoadingScreen } from './SessionLoadingScreen.jsx';
 
 export { disableGoogleAutoSelect } from '../../lib/googleIdentitySession.js';
 
@@ -112,10 +114,11 @@ export function GoogleSignInButton({
     <Stack gap="xs" className="wt-google-sign-in">
       <Box ref={buttonRef} className="wt-google-sign-in-button" aria-label="Continue with Google"
         style={status === 'loading' ? { display: 'none' } : undefined} />
-      {status === 'loading' || status === 'verifying' ? (
+      {status === 'verifying' ? createPortal(<SessionLoadingScreen overlay message="Verifying Google account…" />, document.body) : null}
+      {status === 'loading' ? (
         <Text size="sm" c="dimmed" role="status">
           <Loader size="xs" mr="xs" />
-          {status === 'verifying' ? 'Verifying Google account...' : 'Loading Google sign-in...'}
+          Loading Google sign-in...
         </Text>
       ) : null}
       {error ? <Alert color="red" variant="light" icon={<WarningCircle size={19} />} role="alert">{error}</Alert> : null}

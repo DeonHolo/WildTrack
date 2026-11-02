@@ -1,6 +1,36 @@
 import { expect, test } from '@playwright/test';
 import { installApiFixtures } from './api-fixtures.js';
 
+test('shows branded loading while Google verification is pending', async ({ page }, testInfo) => {
+  await installApiFixtures(page, { role: 'student', connected: true });
+  await page.addInitScript(() => {
+    let callback;
+    window.google = { accounts: { id: {
+      initialize: (options) => { callback = options.callback; },
+      renderButton: (element) => {
+        const button = document.createElement('button');
+        button.textContent = 'Continue with Google';
+        button.onclick = () => callback({ credential: 'test-credential' });
+        element.appendChild(button);
+      },
+      prompt: () => {}, disableAutoSelect: () => {}
+    } } };
+  });
+  await page.route('**/api/auth/session', (route) => route.fulfill({ json: { authenticated: false, roles: [] } }));
+  let complete;
+  const pending = new Promise((resolve) => { complete = resolve; });
+  await page.route('**/api/auth/google/session', async (route) => { await pending; await route.fulfill({ status: 401, json: { message: 'Verification failed' } }); });
+  await page.goto('/login');
+  await page.getByRole('button', { name: 'Continue with Google', exact: true }).click();
+  await expect(page.getByLabel('Loading WildTrack')).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText('Verifying Google account…');
+  await page.screenshot({ path: testInfo.outputPath('google-verification.png') });
+  complete();
+  await expect(page.getByLabel('Loading WildTrack')).toHaveCount(0);
+  await expect(page.getByRole('alert')).toContainText('Verification failed');
+  await expect(page.getByRole('button', { name: 'Continue with Google', exact: true })).toBeVisible();
+});
+
 for (const { role, path } of [
   { role: 'student', path: '/student' },
   { role: 'admin', path: '/forms' },

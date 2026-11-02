@@ -166,7 +166,7 @@ export function StaffApplicationShell({ children }) {
             subtitle={isAdviser ? 'Adviser workspace' : null}
           />
         </Box>
-        <Box className="wt-navbar-context" aria-label="Active workspace">
+        {isAdviser ? <Box className="wt-navbar-context" aria-label="Active workspace">
           <Text component="span" size="xs">Active workspace</Text>
           <Text component="strong" size="sm" fw={750}>{activeWorkspace?.name}</Text>
           {isAdviser && assignedWorkspaces.length > 1 ? <Stack gap={2} mt="xs">
@@ -175,7 +175,7 @@ export function StaffApplicationShell({ children }) {
               aria-pressed={activeWorkspaceId === workspace.id} title={workspace.name}
               onClick={() => switchWorkspace(workspace.id)}>{workspace.program} · {workspace.courseCode} · {workspace.semester}</Button>)}
           </Stack> : null}
-        </Box>
+        </Box> : null}
         <Divider />
         <ScrollArea className="wt-navbar-scroll" type="auto" offsetScrollbars>
           <Stack gap="md" py="sm">

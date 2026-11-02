@@ -106,6 +106,7 @@ function FormHarness({ path = '/submit/week-9-srs' }) {
             <Route path="/submit/:slug" element={<PublicSubmissionPage />} />
             <Route path="/w/:workspaceKey/submit/:slug" element={<PublicSubmissionPage />} />
             <Route path="/s/:shareToken" element={<PublicSubmissionPage />} />
+            <Route path="/s/:slug/:shareToken" element={<PublicSubmissionPage />} />
           </Routes>
         </MemoryRouter>
       </ModalsProvider>
@@ -157,11 +158,11 @@ describe('public submission form', () => {
       'workspace-it', '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.', 'deliv-srs'));
   });
 
-  it('carries the shared link through verification and the first successful save without storing it', async () => {
+  it.each(['', 'week-9-srs/'])('carries the shared link%s through verification and the first successful save without storing it', async (prefix) => {
     const token = 'a'.repeat(64);
     api.getSharedSubmissionForm.mockResolvedValue(await api.getPublicSubmissionForm());
     api.getPublicSubmissionForm.mockClear();
-    renderForm('/s/' + token);
+    renderForm('/s/' + prefix + token);
     await selectStudent();
     expect(api.confirmStudentAssociation).toHaveBeenCalledWith('workspace-it', '22-1001-001', 'DELA CRUZ, JUAN CARLOS M.', 'deliv-srs', token);
     fireEvent.change(screen.getByRole('textbox', { name: 'PDF Drive Link' }), { target: { value: 'https://drive.google.com/file/d/shared-test/view' } });

@@ -29,10 +29,11 @@ import {
 } from '../lib/workflow.js';
 import { emptyStudentDashboardState, loadStudentDashboard } from '../lib/studentDashboardClient.js';
 import { submissionArtifactFields } from '../lib/submissionArtifacts.js';
+import { isDeliverableSharePath } from '../lib/deliverableSharePath.js';
 
 export function StudentStatusPage() {
   const location = useLocation();
-  const submissionPath = /^\/s\/[0-9a-f]{64}$/.test(location.state?.submissionPath || '') ? location.state.submissionPath : '';
+  const submissionPath = isDeliverableSharePath(location.state?.submissionPath) ? location.state.submissionPath : '';
   const {
     account: sessionAccount,
     workspaces,

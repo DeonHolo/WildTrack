@@ -1,13 +1,17 @@
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
-import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Alert,
   Button,
+  Badge,
+  Checkbox,
   Collapse,
   Group,
+  Modal,
   NativeSelect,
   Paper,
+  Progress,
   Skeleton,
   Stack,
   Text,
@@ -29,7 +33,8 @@ import { ArchiveIndexTable } from '../components/archive/ArchiveIndexTable.jsx';
 import { ArchiveRecordDrawer } from '../components/archive/ArchiveRecordDrawer.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
-import { archiveAttempts as archiveServerAttempts, emptyArchiveState, loadArchiveState } from '../lib/archiveClient.js';
+import { archiveAttempts as archiveServerAttempts, emptyArchiveState, loadArchiveState, prepareArchiveAttempts } from '../lib/archiveClient.js';
+import { syncReviewDecisionCache } from '../lib/reviewDeskClient.js';
 import { getArchiveStatus, getArchiveVersion } from '../lib/archive.js';
 import { retryArchiveRecord, unarchiveRecord, verifyArchiveRecord } from '../lib/api.js';
 
@@ -53,7 +58,7 @@ const EMPTY_FILTERS = {
 export function ArchivePage() {
   const [searchParams] = useSearchParams();
   const linkedArchiveId = searchParams.get('record') || '';
-  const { activeWorkspace, activeWorkspaceId, workspaces = [] } = useWorkspaceSession();
+  const { activeWorkspace, activeWorkspaceId, workspaces = [], resourceCache } = useWorkspaceSession();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
   const { data: state, status: archiveStatus, error: archiveError, reload: refreshArchive } = useWorkspaceResource(
     activeWorkspaceId,
@@ -65,11 +70,15 @@ export function ArchivePage() {
   const [page, setPage] = useState(1);
   const [archiving, setArchiving] = useState(false);
   const [action, setAction] = useState('');
+  const [preparation, setPreparation] = useState(null);
+  const preparationEpoch = useRef(0);
 
   useEffect(() => {
     setArchiving(false);
     setAction('');
     setSelectedArchiveId(linkedArchiveId);
+    preparationEpoch.current++;
+    setPreparation(null);
   }, [isCurrentScope, linkedArchiveId]);
 
   const archives = useMemo(
@@ -125,60 +134,62 @@ export function ArchivePage() {
     setPage(1);
   }
 
-  function confirmArchiveAccepted() {
+  async function confirmArchiveAccepted() {
     if (!candidates.length || !storageReady) return;
-    modals.openConfirmModal({
-      title: `Archive ${candidates.length} accepted finals?`,
-      children: (
-        <Stack gap="xs">
-          <Text size="sm">This preserves the submitted PDFs for {candidates.length} accepted response{candidates.length === 1 ? '' : 's'}. Other answers and links are retained in the record. Linked Google Forms, Sheets and other files are not copied.</Text>
-        </Stack>
-      ),
-      labels: { confirm: `Archive ${candidates.length} finals`, cancel: 'Cancel' },
-      confirmProps: { color: 'wildtrackMaroon', loading: archiving },
-      onConfirm: async () => {
-        if (!isCurrentScope()) return;
-        setArchiving(true);
-        let result;
-        try {
-          result = await archiveServerAttempts(activeWorkspaceId, candidates.map((attempt) => attempt.id));
-          await refreshArchive();
-        } catch (error) {
-          result = { ok: false, error: error?.message || 'The accepted finals could not be archived.' };
-        }
-        if (!isCurrentScope()) return;
-        setArchiving(false);
-        if (result?.ok) {
-          const count = result.queued ?? 0;
-          notifications.show({
-            color: count ? 'blue' : 'green',
-            title: count ? 'Archive copies queued' : 'Finals archived',
-            message: count ? `${count} accepted final${count === 1 ? '' : 's'} queued for copying.` : `${result.archived} accepted final${result.archived === 1 ? '' : 's'} archived.`
-          });
-        } else {
-          notifications.show({
-            color: 'red',
-            title: 'Archive failed',
-            message: result?.error || 'The accepted finals could not be archived.'
-          });
-        }
-      }
-    });
+    const epoch = ++preparationEpoch.current;
+    const current = () => isCurrentScope() && preparationEpoch.current === epoch;
+    setPreparation({ checking: true, targets: [...candidates], results: [], progress: { completed: 0, total: candidates.length } });
+    try {
+      const results = await prepareArchiveAttempts(activeWorkspaceId, candidates, state.deliverables || [], {
+        shouldContinue: current,
+        onProgress: progress => { if (current()) setPreparation(value => ({ ...value, progress })); }
+      });
+      if (current()) setPreparation(value => ({ ...value, checking: false, results }));
+    } catch (error) {
+      if (current()) setPreparation(value => ({ ...value, checking: false, error: error?.message || 'Archive preparation could not finish. Try again.' }));
+    }
   }
 
-  async function runAction(kind, archive) {
+  async function archivePrepared() {
+    if (!isCurrentScope() || archiving || preparation?.checking || preparation?.done) return;
+    const ready = preparation?.results.filter(item => item.ready) || [];
+    if (!ready.length) return;
+    const epoch = preparationEpoch.current;
+    const current = () => isCurrentScope() && preparationEpoch.current === epoch;
+    setArchiving(true);
+    for (const item of ready) {
+      if (!current()) break;
+      let outcome;
+      try {
+        const result = await archiveServerAttempts(activeWorkspaceId, [item.responseId]);
+        if (!result?.ok) throw new Error(result?.error || 'This final could not be archived.');
+        outcome = { ...item, actionState: result.queued ? 'Queued for copying' : 'Archived' };
+      } catch (error) {
+        outcome = { ...item, ready: false, actionState: 'Needs attention', message: error?.message || 'This final could not be archived. Try again.' };
+      }
+      if (current()) setPreparation(value => ({ ...value, results: value.results.map(row => row.responseId === item.responseId ? outcome : row) }));
+    }
+    if (current()) {
+      setArchiving(false);
+      setPreparation(value => ({ ...value, done: true }));
+      await refreshArchive({ background: true });
+    }
+  }
+
+  async function runAction(kind, archive, revoke = false) {
     if (!isCurrentScope() || action) return;
     setAction(kind);
     try {
       let result;
       if (kind === 'retry') await retryArchiveRecord(activeWorkspaceId, archive.id, archive.stateVersion);
-      if (kind === 'unarchive') await unarchiveRecord(activeWorkspaceId, archive.id, archive.stateVersion);
+      if (kind === 'unarchive') await unarchiveRecord(activeWorkspaceId, archive.id, archive.stateVersion, revoke);
       if (kind === 'verify') result = await verifyArchiveRecord(activeWorkspaceId, archive.id);
       if (!isCurrentScope()) return;
+      if (kind === 'unarchive' && revoke) syncReviewDecisionCache(resourceCache, activeWorkspaceId, archive.responseId || archive.attemptId, { acceptance: null });
       await refreshArchive({ background: true });
       if (!isCurrentScope()) return;
       if (kind === 'unarchive') setSelectedArchiveId('');
-      notifications.show({ color: kind === 'verify' && result?.integrityStatus !== 'Verified' ? 'yellow' : 'green', title: kind === 'verify' ? 'Integrity check complete' : kind === 'retry' ? 'Copy queued' : 'Submission unarchived', message: kind === 'verify' ? (result?.integrityStatus === 'Verified' ? 'The retained copies were verified.' : 'Verification is unavailable for this record.') : kind === 'retry' ? 'The archive copy will be retried.' : 'The submission is active again.' });
+      notifications.show({ color: kind === 'verify' && result?.integrityStatus !== 'Verified' ? 'yellow' : 'green', title: kind === 'verify' ? 'Integrity check complete' : kind === 'retry' ? 'Copy queued' : 'Submission unarchived', message: kind === 'verify' ? (result?.integrityStatus === 'Verified' ? 'The retained copies were verified.' : 'Verification is unavailable for this record.') : kind === 'retry' ? 'The archive copy will be retried.' : revoke ? 'Acceptance revoked. The response is back in Pending; preserved files are kept.' : 'The submission is active again. Preserved files are kept.' });
     } catch (error) {
       if (!isCurrentScope()) return;
       notifications.show({ color: 'red', title: kind === 'verify' ? 'Integrity check failed' : 'Archive action failed', message: kind === 'verify' && error?.status === 503 ? 'The retained copy could not be read.' : error?.message || 'Please try again.' });
@@ -189,11 +200,15 @@ export function ArchivePage() {
   }
 
   function confirmUnarchive(archive) {
+    let revoke = false;
     modals.openConfirmModal({
       title: 'Unarchive this submission?',
-      children: <Text size="sm">The submission will become active again. Preserved copies, answers, and review decisions will remain unchanged. This record stays in archive history and the accepted submission can be archived again.</Text>,
+      children: <Stack gap="md">
+        <Text size="sm">The submission will leave the active archive view. Preserved files and answers are kept in archive history. Unarchive does not delete files from Google Drive or any other storage provider.</Text>
+        <Checkbox label="Also revoke acceptance" description="Return this response to Pending in Review." onChange={event => { revoke = event.currentTarget.checked; }} />
+      </Stack>,
       labels: { confirm: 'Unarchive', cancel: 'Cancel' },
-      onConfirm: () => runAction('unarchive', archive)
+      onConfirm: () => runAction('unarchive', archive, revoke)
     });
   }
 
@@ -211,12 +226,47 @@ export function ArchivePage() {
           leftSection={<ArchiveIcon size={18} />}
           color="wildtrackMaroon"
           disabled={!candidates.length || !storageReady}
-          loading={archiving}
+          loading={archiving || preparation?.checking}
           onClick={confirmArchiveAccepted}
         >
           Archive accepted finals ({candidates.length})
         </Button>
       </header>
+
+      <Modal opened={Boolean(preparation)} onClose={() => { if (!archiving) { preparationEpoch.current++; setPreparation(null); } }}
+        title="Archive accepted finals" size="lg" centered closeOnClickOutside={!archiving && !preparation?.checking} closeOnEscape={!archiving} withCloseButton={!archiving}>
+        {preparation ? <Stack gap="md">
+          <Text size="sm">WildTrack checks the submitted PDFs before archiving. This does not run AI Review. Linked Google Forms, Sheets and other files are not copied; their links and other answers stay in the record.</Text>
+          {preparation.checking ? <Stack gap="xs" role="status" aria-live="polite">
+            <Text fw={600}>Checking PDFs: {preparation.progress.completed} of {preparation.progress.total} responses</Text>
+            <Progress value={preparation.progress.total ? preparation.progress.completed / preparation.progress.total * 100 : 0} />
+            <Text size="sm" c="dimmed">{preparation.progress.name || 'Preparing archive summary…'}</Text>
+          </Stack> : <>
+            <Group gap="sm"><Badge color="blue" variant="light">{preparation.results.filter(item => item.ready).length} ready</Badge>
+              <Badge color={preparation.results.some(item => !item.ready) ? 'orange' : 'gray'} variant="light">Needs attention: {preparation.results.filter(item => !item.ready).length}</Badge></Group>
+            {preparation.error ? <Alert color="red" role="alert">{preparation.error}</Alert> : null}
+            {preparation.results.map(item => {
+              const response = preparation.targets.find(target => target.id === item.responseId);
+              const deliverable = state.deliverables?.find(target => target.id === response?.deliverableId);
+              return <Paper key={item.responseId} withBorder p="sm" radius="sm">
+                <Stack gap="xs">
+                  <Group justify="space-between" align="flex-start"><Text fw={600} style={{ overflowWrap: 'anywhere', flex: 1 }}>{response?.studentName} · {deliverable?.shortTitle || deliverable?.title || 'Submission'}</Text>
+                    <Badge variant="light" color={item.actionState && item.ready ? 'green' : item.ready ? 'blue' : 'orange'}>{item.actionState || (item.ready ? 'Ready' : 'Needs attention')}</Badge></Group>
+                  <Text size="sm">{item.message}</Text>
+                  {item.ready ? <Text size="sm" c="dimmed">{item.pdfCount} PDF{item.pdfCount === 1 ? '' : 's'} to preserve</Text>
+                    : <Button component={Link} to={`/review?response=${encodeURIComponent(item.responseId)}`} variant="subtle" size="xs" w="fit-content">Review response</Button>}
+                </Stack>
+              </Paper>;
+            })}
+          </>}
+          <Group justify="flex-end">
+            <Button variant="default" disabled={archiving} onClick={() => { preparationEpoch.current++; setPreparation(null); }}>{preparation.checking ? 'Cancel checks' : preparation.done ? 'Close' : 'Cancel'}</Button>
+            {!preparation.checking && !preparation.done ? <Button loading={archiving} disabled={!preparation.results.some(item => item.ready)} onClick={archivePrepared}>
+              Archive {preparation.results.filter(item => item.ready).length} {preparation.results.filter(item => item.ready).length === 1 ? 'final' : 'finals'}
+            </Button> : null}
+          </Group>
+        </Stack> : null}
+      </Modal>
 
       {state.archiveStorage && !storageReady ? (
         <Alert

@@ -304,6 +304,14 @@ export function applyReviewMutation(response, reviewState) {
     : { ...updated, archiveStatus: 'Not Archived' };
 }
 
+export function syncReviewDecisionCache(cache, workspaceId, responseId, reviewState) {
+  cache?.updateMatching?.(key => {
+    try { return JSON.parse(key)[1] === workspaceId; } catch { return false; }
+  }, data => Array.isArray(data?.attempts) ? {
+    ...data, attempts: data.attempts.map(response => response.id === responseId ? applyReviewMutation(response, reviewState) : response)
+  } : data);
+}
+
 export function applyDocumentCheck(response, report) {
   const updated = report?.fieldId
     ? applyFieldChecks(response, { ...(response.artifactChecks || {}), [report.fieldId]: report })

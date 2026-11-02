@@ -56,6 +56,7 @@ vi.mock('../lib/api.js', async (importOriginal) => ({
 }));
 
 vi.mock('../lib/reviewDeskClient.js', () => ({
+  syncReviewDecisionCache: vi.fn(),
   emptyReviewDesk: () => ({}),
   loadReviewDesk: vi.fn(),
   applyReviewMutation: (response, mutation) => ({ ...response, ...mutation }),
