@@ -18,7 +18,7 @@ import {
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
-import { CheckCircle, Files, MagnifyingGlass, Sparkle, X } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, CheckCircle, Files, MagnifyingGlass, Sparkle, X } from '@phosphor-icons/react';
 import { getAiReviewStatus, getIdentityConflicts, getSavedAiReview } from '../lib/api.js';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
@@ -72,6 +72,18 @@ import {
 
 const REVIEW_PAGE_SIZE = 50;
 const ALL_DELIVERABLES = '__all__';
+
+function DecisionSelectionScope({ selected, filter, query, deliverable }) {
+  return <>
+    <Text size="sm" c="dimmed">Scope: {deliverable} · {filter}{query.trim() ? ` · Search: ${query.trim()}` : ''}. Only the selected responses listed below will change.</Text>
+    <details>
+      <summary style={{ cursor: 'pointer', minHeight: 44, paddingBlock: 10 }}>Selected responses ({selected.length})</summary>
+      <Stack gap="xs">{selected.map(item => <Text size="sm" key={item.id}>
+        <strong>{item.student}</strong> · {item.deliverable}{item.skip ? ` — Skipped: ${item.skip}` : ''}
+      </Text>)}</Stack>
+    </details>
+  </>;
+}
 
 function progressPercent(completed, total) {
   return Math.round((Math.min(completed || 0, total || 0) / Math.max(total || 0, 1)) * 100);
@@ -168,6 +180,7 @@ export function ReviewPage() {
   const visibleSavedReviews = savedReviewsScope.current === isCurrentScope ? savedReviews : [];
   const [batchProgress, setBatchProgress] = useState(null);
   const [acceptProgress, setAcceptProgress] = useState(null);
+  const [revokeProgress, setRevokeProgress] = useState(null);
   const acceptBusy = useRef(false);
   const [aiProgress, setAiProgress] = useState(null);
   const [skippedAiOpen, setSkippedAiOpen] = useState(false);
@@ -186,6 +199,7 @@ export function ReviewPage() {
     setSelectedDeliverableId(linkedDeliverableId || '');
     setBatchProgress(null);
     setAcceptProgress(null);
+    setRevokeProgress(null);
     acceptBusy.current = false;
     setCheckingIds(new Set());
     setCheckError(null);
@@ -324,6 +338,10 @@ export function ReviewPage() {
       });
       return next;
     });
+  }
+
+  function selectAllMatching() {
+    if (!acceptBusy.current) setSelectedIds(new Set(sortedResponses.map(response => response.id)));
   }
 
   async function openOrRunDocumentCheck(response, field, rerun = false) {
@@ -661,7 +679,7 @@ export function ReviewPage() {
   }
 
   async function acceptReview(response) {
-    if (!isCurrentScope()) return;
+    if (!isCurrentScope() || acceptBusy.current) return;
     try {
       const serverState = await acceptResponse(response.id);
       if (!isCurrentScope()) return;
@@ -679,6 +697,11 @@ export function ReviewPage() {
   }
 
   function confirmRevoke(response) {
+    if (!isCurrentScope() || acceptBusy.current) return;
+    if (response.archiveStatus === 'Archived') {
+      navigate(`/archive?response=${encodeURIComponent(response.id)}`);
+      return;
+    }
     modals.openConfirmModal({
       title: 'Revoke this acceptance?',
       children: <Text size="sm">The response returns to Pending. Existing archive records and preserved copies are kept. To archive it again, accept the response and choose Archive response.</Text>,
@@ -686,7 +709,7 @@ export function ReviewPage() {
       confirmProps: { color: 'red' },
       centered: true,
       onConfirm: async () => {
-        if (!isCurrentScope()) return;
+        if (!isCurrentScope() || acceptBusy.current) return;
         try {
           const serverState = await revokeAcceptance(response.id);
           if (!isCurrentScope()) return;
@@ -775,6 +798,7 @@ export function ReviewPage() {
   const reviewStateRef = useRef(state);
   const deliverableIdRef = useRef(activeDeliverableId);
   const conflictsRef = useRef(conflictStudentNumbers);
+  const decisionRunning = Boolean(acceptProgress && !acceptProgress.done || revokeProgress && !revokeProgress.done);
   selectedIdsRef.current = selectedIds;
   reviewStateRef.current = state;
   deliverableIdRef.current = activeDeliverableId;
@@ -796,6 +820,8 @@ export function ReviewPage() {
       deliverableId: response.deliverableId,
       student: findStudent(state.students, response.studentNumber)?.name
         || response.studentName || response.studentNumber || response.id,
+      deliverable: state.deliverables.find(item => item.id === response.deliverableId)?.shortTitle
+        || state.deliverables.find(item => item.id === response.deliverableId)?.title || 'Deliverable',
       skip: acceptanceSkipReason(response, allDeliverables ? response.deliverableId : activeDeliverableId, conflictStudentNumbers)
     }));
     const eligible = selected.filter(item => !item.skip);
@@ -810,7 +836,8 @@ export function ReviewPage() {
           {skipped.length ? ` (${skipped.filter(item => item.skip === 'Already accepted').length} already accepted, ${skipped.filter(item => item.skip === 'Already archived').length} archived, ${skipped.filter(item => item.skip === 'Unresolved identity conflict').length} identity conflicts)` : ''}.
         </Text>
         <Text size="sm">Acceptance is an academic decision made by staff, not an automated AI Review result.
-          Only the eligible checked response IDs will be accepted. This does not archive responses or check their documents.</Text>
+          Only the selected eligible responses will be accepted. This does not archive responses or check their documents.</Text>
+        <DecisionSelectionScope selected={selected} filter={filter} query={query} deliverable={allDeliverables ? 'All deliverables' : selectedDeliverable?.title} />
         {!eligible.length ? <Text size="sm" c="orange.8">No selected responses are eligible for acceptance.</Text> : null}
       </Stack>,
       labels: { confirm: `Accept ${eligible.length} eligible response${eligible.length === 1 ? '' : 's'}`, cancel: 'Cancel' },
@@ -822,6 +849,7 @@ export function ReviewPage() {
   async function acceptSelectedResponses(selected, scopedDeliverableId) {
     if (acceptBusy.current || !isCurrentScope() || deliverableIdRef.current !== scopedDeliverableId) return;
     acceptBusy.current = true;
+    setRevokeProgress(null);
     const eligible = selected.filter(item => !item.skip);
     const progress = { selected: selected.length, eligible: eligible.length,
       skipped: selected.length - eligible.length, completed: 0, succeeded: 0, failed: 0,
@@ -845,6 +873,7 @@ export function ReviewPage() {
               || applyReviewMutation(current, serverState).reviewStatus !== 'Accepted') {
             throw new Error('Acceptance could not be confirmed from the saved response. Check its current status before retrying.');
           }
+          syncReviewDecisionCache(resourceCache, activeWorkspaceId, item.id, serverState);
           setState(currentState => ({ ...currentState, attempts: currentState.attempts.map(response =>
             response.id === item.id ? applyReviewMutation(response, serverState) : response) }));
           setSelectedIds(currentIds => withoutId(currentIds, item.id));
@@ -859,8 +888,81 @@ export function ReviewPage() {
         setAcceptProgress({ ...progress });
       }
     } finally {
-      acceptBusy.current = false;
-      if (isCurrentScope()) setAcceptProgress({ ...progress, done: true });
+      if (isCurrentScope()) {
+        acceptBusy.current = false;
+        setAcceptProgress({ ...progress, done: true });
+      }
+    }
+  }
+
+  function revokeSkipReason(response) {
+    if (!response) return 'Response no longer available';
+    if (response.archiveStatus === 'Archived') return 'Archived — unarchive first';
+    if (response.reviewStatus !== 'Accepted' && response.primaryStatus !== 'Accepted'
+        && !response.acceptance?.acceptedAt) return 'Not accepted';
+    return '';
+  }
+
+  function confirmRevokeSelected() {
+    if (!isCurrentScope() || acceptBusy.current || !selectedIds.size) return;
+    const selected = selectedResponses.map(response => ({ id: response.id, deliverableId: response.deliverableId,
+      student: findStudent(state.students, response.studentNumber)?.name || response.studentName || response.studentNumber,
+      deliverable: state.deliverables.find(item => item.id === response.deliverableId)?.shortTitle
+        || state.deliverables.find(item => item.id === response.deliverableId)?.title || 'Deliverable',
+      skip: revokeSkipReason(response) }));
+    const eligible = selected.filter(item => !item.skip);
+    const scopedDeliverableId = activeDeliverableId;
+    modals.openConfirmModal({ title: 'Revoke selected acceptances?', centered: true,
+      children: <Stack gap="xs">
+        <Text size="sm"><strong>{selected.length} selected response{selected.length === 1 ? '' : 's'}:</strong>{' '}
+          {eligible.length} eligible for revocation, {selected.length - eligible.length} skipped.</Text>
+        <Text size="sm">The eligible responses return to Pending. Submitted answers, Document Check, AI Review and history are kept.</Text>
+        <Text size="sm">Archived responses are skipped. To revoke those acceptances, open Archive and choose Unarchive with Also revoke acceptance. Preserved PDFs are kept.</Text>
+        <DecisionSelectionScope selected={selected} filter={filter} query={query} deliverable={allDeliverables ? 'All deliverables' : selectedDeliverable?.title} />
+      </Stack>,
+      labels: { confirm: `Revoke ${eligible.length} acceptance${eligible.length === 1 ? '' : 's'}`, cancel: 'Keep accepted' },
+      confirmProps: { color: 'red', disabled: !eligible.length },
+      onConfirm: () => revokeSelectedResponses(selected, scopedDeliverableId)
+    });
+  }
+
+  async function revokeSelectedResponses(selected, scopedDeliverableId) {
+    if (acceptBusy.current || !isCurrentScope() || deliverableIdRef.current !== scopedDeliverableId) return;
+    acceptBusy.current = true;
+    setAcceptProgress(null);
+    const eligible = selected.filter(item => !item.skip);
+    const progress = { selected: selected.length, skipped: selected.length - eligible.length, succeeded: 0,
+      failed: 0, failures: [], done: false };
+    setRevokeProgress({ ...progress });
+    try {
+      for (const item of eligible) {
+        if (!isCurrentScope()) return;
+        const current = reviewStateRef.current.attempts.find(response => response.id === item.id);
+        if (deliverableIdRef.current !== scopedDeliverableId || !selectedIdsRef.current.has(item.id) || revokeSkipReason(current)) {
+          progress.skipped++;
+        } else {
+          try {
+            const serverState = await revokeAcceptance(item.id);
+            if (!isCurrentScope()) return;
+            if (!serverState || serverState.acceptance) throw new Error('Revocation could not be confirmed. Check the response before retrying.');
+            syncReviewDecisionCache(resourceCache, activeWorkspaceId, item.id, serverState);
+            setState(currentState => ({ ...currentState, attempts: currentState.attempts.map(response =>
+              response.id === item.id ? applyReviewMutation(response, serverState) : response) }));
+            setSelectedIds(currentIds => withoutId(currentIds, item.id));
+            progress.succeeded++;
+          } catch (error) {
+            if (!isCurrentScope()) return;
+            progress.failed++;
+            progress.failures.push({ id: item.id, student: item.student, message: error?.message || 'Acceptance could not be revoked.' });
+          }
+        }
+        setRevokeProgress({ ...progress });
+      }
+    } finally {
+      if (isCurrentScope()) {
+        acceptBusy.current = false;
+        setRevokeProgress({ ...progress, done: true });
+      }
     }
   }
 
@@ -1038,6 +1140,8 @@ export function ReviewPage() {
               className="wt-review-search"
             />
             <Group gap="sm" wrap="nowrap" className="wt-review-toolbar-actions">
+              <Button variant="default" size="sm" disabled={decisionRunning || !sortedResponses.length || sortedResponses.every(response => selectedIds.has(response.id))}
+                onClick={selectAllMatching}>Select all matching responses ({sortedResponses.length})</Button>
               {documentCheckEnabled && uncheckedDocumentTargets.length ? (
                 <Button
                   variant="default"
@@ -1063,8 +1167,12 @@ export function ReviewPage() {
               </Group>
               <Group gap="xs">
                 <Button variant="default" color="wildtrackMaroon" size="sm" leftSection={<CheckCircle size={17} />}
-                  disabled={acceptBusy.current} loading={Boolean(acceptProgress && !acceptProgress.done)} onClick={confirmAcceptSelected}>
-                  Accept All Response
+                  disabled={decisionRunning} loading={Boolean(acceptProgress && !acceptProgress.done)} onClick={confirmAcceptSelected}>
+                  Accept selected ({selectedIds.size})
+                </Button>
+                <Button variant="default" color="red" size="sm" leftSection={<ArrowCounterClockwise size={17} />}
+                  disabled={decisionRunning} loading={Boolean(revokeProgress && !revokeProgress.done)} onClick={confirmRevokeSelected}>
+                  Revoke acceptance for selected ({selectedIds.size})
                 </Button>
                 {documentCheckEnabled ? (
                   <>
@@ -1076,7 +1184,7 @@ export function ReviewPage() {
                     </Button>
                   </>
                 ) : null}
-                <Button variant="subtle" color="gray" size="sm" leftSection={<X size={16} />} onClick={() => setSelectedIds(new Set())}>
+                <Button variant="subtle" color="gray" size="sm" disabled={decisionRunning} leftSection={<X size={16} />} onClick={() => setSelectedIds(new Set())}>
                   Clear
                 </Button>
               </Group>
@@ -1096,6 +1204,13 @@ export function ReviewPage() {
               </Text>)}
             </Alert>
           ) : null}
+
+          {revokeProgress ? <Alert role="status" color={!revokeProgress.done ? 'blue' : revokeProgress.failed || revokeProgress.skipped ? 'orange' : 'green'}
+            title={!revokeProgress.done ? 'Revoking selected acceptances' : 'Selected acceptance revocation complete'}
+            withCloseButton={revokeProgress.done} onClose={() => setRevokeProgress(null)}>
+            <Text size="sm">{revokeProgress.succeeded} revoked · {revokeProgress.failed} failed · {revokeProgress.skipped} skipped of {revokeProgress.selected} selected. No archive records or preserved PDFs were changed.</Text>
+            {revokeProgress.failures.map(failure => <Text size="sm" key={failure.id}><strong>{failure.student}:</strong> {failure.message}</Text>)}
+          </Alert> : null}
 
           {batchProgress ? (
             <Alert
@@ -1205,6 +1320,8 @@ export function ReviewPage() {
         }}
         onAccept={() => acceptReview(selectedResponse)}
         onRevoke={() => confirmRevoke(selectedResponse)}
+        onOpenArchive={() => navigate(`/archive?response=${encodeURIComponent(selectedResponse.id)}`)}
+        decisionBusy={decisionRunning}
         onArchive={() => confirmArchive(selectedResponse)}
       />
 

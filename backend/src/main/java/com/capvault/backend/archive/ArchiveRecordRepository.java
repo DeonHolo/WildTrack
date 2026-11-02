@@ -17,4 +17,5 @@ public interface ArchiveRecordRepository extends JpaRepository<ArchiveRecord, UU
     @org.springframework.data.jpa.repository.Query("select a from ArchiveRecord a where a.id = :id")
     Optional<ArchiveRecord> findByIdForUpdate(UUID id);
     long countByResponseId(UUID responseId);
+    boolean existsByResponseIdAndActiveTrue(UUID responseId);
 }

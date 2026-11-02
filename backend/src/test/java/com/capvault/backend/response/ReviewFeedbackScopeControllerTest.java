@@ -170,7 +170,15 @@ class ReviewFeedbackScopeControllerTest {
 
         mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/revoke")
                 .cookie(cookie).with(csrf()))
-            .andExpect(status().isNoContent());
+            .andExpect(status().isConflict());
+        mockMvc.perform(get("/api/monitoring").param("workspaceId", workspaceId.toString())
+                .cookie(cookie))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.archivedResponseIds[0]").value(assignedResponseId.toString()));
+        mockMvc.perform(post("/api/archive/" + archived.getId() + "/unarchive")
+                .param("workspaceId", workspaceId.toString()).cookie(cookie).with(csrf())
+                .contentType("application/json").content("{\"stateVersion\":" + archived.getStateVersion() + ",\"revokeAcceptance\":true}"))
+            .andExpect(status().isOk());
         mockMvc.perform(get("/api/monitoring").param("workspaceId", workspaceId.toString())
                 .cookie(cookie))
             .andExpect(status().isOk())

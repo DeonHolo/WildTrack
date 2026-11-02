@@ -139,6 +139,22 @@ class ArchiveCaptureIntegrationTest {
         assertThatThrownBy(() -> queue(f)).hasMessageContaining("Only accepted responses");
     }
 
+    @Test void directRevocationIsBlockedWhileQueuedAndUntilTheArchiveIsUnarchived() throws Exception {
+        Fixture f = fixture(1); var queued = queue(f);
+        assertThatThrownBy(() -> review.revoke(f.responseId(), "admin", "ADMIN"))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("Unarchive");
+        assertThat(acceptances.findByResponseIdAndRevokedAtIsNull(f.responseId())).isPresent();
+        drain();
+        var captured = snapshot(f, queued.id());
+        assertThatThrownBy(() -> review.revoke(f.responseId(), "admin", "ADMIN"))
+            .hasMessageContaining("Unarchive");
+        archive.unarchive(f.workspaceId(), captured.id(), captured.stateVersion(), "admin");
+        review.revoke(f.responseId(), "admin", "ADMIN");
+        assertThat(acceptances.findByResponseIdAndRevokedAtIsNull(f.responseId())).isEmpty();
+        assertThat(archive.download(f.workspaceId(), captured.id(), captured.files().getFirst().id())).isEqualTo(f.bytes().getFirst());
+    }
+
     @Test void freshDocumentCheckRepairsAnOlderAcceptanceAndArchivesWithoutReaccepting() throws Exception {
         Fixture f = fixture(1);
         String fieldId = UUID.randomUUID().toString();

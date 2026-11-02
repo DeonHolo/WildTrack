@@ -649,15 +649,13 @@ describe('adviser My advised teams review', () => {
     expect(workflow.runDocumentCheck.mock.calls[0][1].values.validationInstrument).toContain('docs.google.com/forms');
   });
 
-  it('allows acceptance to be revoked after the response has been archived', async () => {
+  it('requires an administrator to unarchive before an adviser can revoke acceptance', async () => {
     workflow.state = createMultiArtifactState({ accepted: true, archived: true });
     renderPage();
 
-    const revoke = screen.getByRole('button', { name: 'Revoke acceptance' });
-    expect(revoke).toBeEnabled();
-    fireEvent.click(revoke);
-    fireEvent.click(await screen.findByRole('button', { name: 'Confirm revoke' }));
-    expect(workflow.revokeAcceptance).toHaveBeenCalledWith('response-a2');
+    expect(screen.queryByRole('button', { name: 'Revoke acceptance' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Ask an administrator to unarchive/)).toBeVisible();
+    expect(workflow.revokeAcceptance).not.toHaveBeenCalled();
   });
 
   it('saves student-visible feedback against the selected group output', async () => {
