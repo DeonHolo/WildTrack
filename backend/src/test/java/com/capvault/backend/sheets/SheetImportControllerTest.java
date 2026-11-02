@@ -110,8 +110,11 @@ class SheetImportControllerTest {
     @Autowired
     private StaffRoleAssignmentRepository staffRoles;
 
+    private RequestPostProcessor persistedAdmin;
+
     @BeforeEach
     void clearImportedState() {
+        persistedAdmin = productAdminSession("sheet-import-" + java.util.UUID.randomUUID());
         trackerWritebackRepository.deleteAll();
         trackerCellRepository.deleteAll();
         trackerRowRepository.deleteAll();
@@ -139,7 +142,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.officialIdsFound").value(2))
             .andExpect(jsonPath("$.warnings", hasSize(0)));
 
-        mockMvc.perform(get("/api/students").with(adminSession()))
+        mockMvc.perform(get("/api/students").with(persistedAdmin))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[?(@.studentNumber == '20-0649-750')]").exists())
             .andExpect(jsonPath("$[?(@.institutionalEmail == 'ron.luigi@cit.edu')]").exists());
@@ -195,7 +198,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.studentsFound").value(1))
             .andExpect(jsonPath("$.officialIdsFound").value(1));
 
-        mockMvc.perform(get("/api/students").with(adminSession()))
+        mockMvc.perform(get("/api/students").with(persistedAdmin))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].studentNumber").value("24-0001-111"))
             .andExpect(jsonPath("$[0].studentName").value("DOE, JANE A."))
@@ -224,7 +227,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.details.deadlineRows").value(1))
             .andExpect(jsonPath("$.details.metrics.deadlineValues").value(3));
 
-        mockMvc.perform(get("/api/tracker/rows").with(adminSession()))
+        mockMvc.perform(get("/api/tracker/rows").with(persistedAdmin))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[?(@.studentNumber == '20-0649-750')]").exists())
             .andExpect(jsonPath("$[?(@.studentName == 'TAGHOY, RON LUIGI F.')]").exists());
@@ -261,7 +264,7 @@ class SheetImportControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.groupsFound").value(1));
 
-        mockMvc.perform(get("/api/projects").with(adminSession()))
+        mockMvc.perform(get("/api/projects").with(persistedAdmin))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].groupCode").value("2526-sem2-it332-41"))
             .andExpect(jsonPath("$[0].projectTitle").value("CapVault"))
@@ -318,7 +321,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$.rowsFound").value(1))
             .andExpect(jsonPath("$.columnsFound").value(5));
 
-        mockMvc.perform(get("/api/students").with(adminSession()))
+        mockMvc.perform(get("/api/students").with(persistedAdmin))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].studentNumber").value("20-0649-750"))
@@ -330,7 +333,7 @@ class SheetImportControllerTest {
             .andExpect(jsonPath("$[0].softwareTitle").value("WildTrack"))
             .andExpect(jsonPath("$[0].institutionalEmail").value("ron.luigi@cit.edu"));
 
-        mockMvc.perform(get("/api/projects").with(adminSession()))
+        mockMvc.perform(get("/api/projects").with(persistedAdmin))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].groupCode").value("2627-sem1-it411-41"))
             .andExpect(jsonPath("$[0].sourceGroupCode").value("2526-sem2-it332-41"))

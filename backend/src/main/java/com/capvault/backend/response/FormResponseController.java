@@ -196,6 +196,16 @@ public class FormResponseController {
         throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
     }
 
+    @GetMapping("/staff/{responseId}/earlier-submissions")
+    public List<FormResponse> earlierSubmissions(@PathVariable UUID responseId, @RequestParam UUID workspaceId, HttpServletRequest http) {
+        var session = security.requireSession(http);
+        var roles = security.activeRoles(http);
+        boolean admin = roles.contains(StaffRole.ADMIN);
+        if (!admin && !roles.contains(StaffRole.ADVISER)) throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
+        return responseService.earlierSubmissions(responseId, workspaceId,
+            admin ? List.of() : staffManagementService.assignedTeams(session.googleSubject(), workspaceId), admin);
+    }
+
     @GetMapping("/staff-scope")
     public StaffScopeResponse staffScope(@RequestParam UUID workspaceId, HttpServletRequest http) {
         var session = security.requireSession(http);

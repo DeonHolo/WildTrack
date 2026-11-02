@@ -569,6 +569,7 @@ public class AiReviewService {
         var response = responses.findById(id).filter(r -> r.getWorkspaceId().equals(workspaceId))
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Response not found in this workspace."));
         access.requireStaffTeamAccess(id, subject, role);
+        response.requireCurrent();
         return response;
     }
 

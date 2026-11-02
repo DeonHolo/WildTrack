@@ -13,6 +13,9 @@ const workflow = vi.hoisted(() => ({
   workspaces: [],
   archiveAttempts: vi.fn(),
   prepareArchiveAttempts: vi.fn(),
+  prepareBatch: vi.fn(),
+  startBatch: vi.fn(),
+  getBatch: vi.fn(),
   verifyArchive: vi.fn(),
   retryArchive: vi.fn(),
   unarchive: vi.fn(),
@@ -24,7 +27,10 @@ vi.mock('../lib/api.js', async (importOriginal) => ({
   ...(await importOriginal()),
   verifyArchiveRecord: (...args) => workflow.verifyArchive(...args),
   retryArchiveRecord: (...args) => workflow.retryArchive(...args),
-  unarchiveRecord: (...args) => workflow.unarchive(...args)
+  unarchiveRecord: (...args) => workflow.unarchive(...args),
+  prepareArchiveBatch: (...args) => workflow.prepareBatch(...args),
+  startArchiveBatch: (...args) => workflow.startBatch(...args),
+  getLatestArchiveBatch: (...args) => workflow.getBatch(...args)
 }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({
@@ -95,6 +101,12 @@ function makeState(archives = [makeArchive(0)]) {
   };
 }
 
+function batch(state = 'READY', items = null) {
+  return { id: 'batch-1', version: 3, state, items: items || ['accepted-1', 'accepted-2'].map((responseId, index) => ({
+    responseId, studentName: `Ready Student ${index + 1}`, deliverableTitle: 'SRS', stage: 'READY', ready: true, pdfCount: 1, message: 'PDF checked.'
+  })) };
+}
+
 function pageTree(initialEntry = '/archive') {
   return (
     <MantineProvider theme={wildTrackTheme} forceColorScheme="light" env="test">
@@ -126,6 +138,9 @@ describe('archive index', () => {
       { responseId: 'accepted-2', ready: true, pdfCount: 2, message: 'PDFs checked.' }
     ]);
     workflow.verifyArchive.mockResolvedValue({ ok: true });
+    workflow.prepareBatch.mockResolvedValue(batch());
+    workflow.startBatch.mockResolvedValue(batch('ARCHIVING'));
+    workflow.getBatch.mockResolvedValue(batch('ARCHIVING'));
     workflow.setArchiveState.mockImplementation(update => { workflow.state = update(workflow.state); });
     workflow.retryArchive.mockResolvedValue({ ok: true });
   });
@@ -280,14 +295,14 @@ describe('archive index', () => {
     expect(confirmation).toHaveTextContent('Linked Google Forms, Sheets and other files are not copied');
     fireEvent.click(await within(confirmation).findByRole('button', { name: 'Archive 2 finals' }));
 
-    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledWith('workspace-it', ['accepted-1']));
-    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledWith('workspace-it', ['accepted-2']));
-    await waitFor(() => expect(workflow.refreshArchive).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(workflow.prepareBatch).toHaveBeenCalledWith('workspace-it', ['accepted-1', 'accepted-2']));
+    await waitFor(() => expect(workflow.startBatch).toHaveBeenCalledWith('workspace-it', 'batch-1', 3));
+    expect(workflow.archiveAttempts).not.toHaveBeenCalled();
   });
 
   it('discards a late archive failure after switching workspace', async () => {
     let fail;
-    workflow.archiveAttempts.mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject; }));
+    workflow.startBatch.mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject; }));
     const view = renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Archive 2 finals' }));
@@ -299,10 +314,10 @@ describe('archive index', () => {
   });
 
   it('shows blocked PDFs and queues only ready responses', async () => {
-    workflow.prepareArchiveAttempts.mockResolvedValue([
-      { responseId: 'accepted-1', ready: false, message: 'PDF inaccessible. Check sharing settings.' },
-      { responseId: 'accepted-2', ready: true, pdfCount: 1, message: 'PDF checked.' }
-    ]);
+    workflow.prepareBatch.mockResolvedValue(batch('READY', [
+      { responseId: 'accepted-1', stage: 'BLOCKED', ready: false, message: 'PDF inaccessible. Check sharing settings.' },
+      { responseId: 'accepted-2', stage: 'READY', ready: true, pdfCount: 1, message: 'PDF checked.' }
+    ]));
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
     const confirmation = await screen.findByRole('dialog', { name: 'Archive accepted finals', exact: true });
@@ -310,42 +325,38 @@ describe('archive index', () => {
     expect(workflow.archiveAttempts).not.toHaveBeenCalled();
     expect(within(confirmation).getByRole('link', { name: 'Review response' })).toHaveAttribute('href', '/review?response=accepted-1');
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Archive 1 final' }));
-    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledTimes(1));
-    expect(workflow.archiveAttempts).toHaveBeenCalledWith('workspace-it', ['accepted-2']);
+    await waitFor(() => expect(workflow.startBatch).toHaveBeenCalledWith('workspace-it', 'batch-1', 3));
+    expect(workflow.archiveAttempts).not.toHaveBeenCalled();
   });
 
-  it('continues archiving other prepared responses after one queue request fails', async () => {
-    workflow.archiveAttempts.mockRejectedValueOnce(new Error('Storage temporarily unavailable.'));
+  it('lets the user close the modal while the server queues and copies responses', async () => {
+    let started;
+    workflow.startBatch.mockReturnValueOnce(new Promise(resolve => { started = resolve; }));
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
     const confirmation = await screen.findByRole('dialog', { name: 'Archive accepted finals', exact: true });
     fireEvent.click(await within(confirmation).findByRole('button', { name: 'Archive 2 finals' }));
-    await waitFor(() => expect(workflow.archiveAttempts).toHaveBeenCalledTimes(2));
-    expect(workflow.archiveAttempts).toHaveBeenNthCalledWith(2, 'workspace-it', ['accepted-2']);
-    expect(await within(confirmation).findByText('Storage temporarily unavailable.')).toBeVisible();
-    expect(await within(confirmation).findByText('Queued for copying')).toBeVisible();
-    expect(await within(confirmation).findByRole('button', { name: 'Close', exact: true })).toBeVisible();
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Close', exact: true }));
+    await act(async () => { started(batch('ARCHIVING')); });
+    expect(screen.queryByRole('dialog', { name: 'Archive accepted finals', exact: true })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Archiving PDFs…' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'View archive summary' }));
+    expect(await screen.findByRole('dialog', { name: 'Archive accepted finals', exact: true })).toBeVisible();
   });
 
-  it('keeps preparation disabled from queueing until the server reports copying finished', async () => {
-    const queued = makeArchive(0, { captureState: 'QUEUED', lifecycleState: 'Archived' });
-    workflow.archiveAttempts.mockResolvedValue({ ok: true, queued: 1, records: [queued] });
-    let finishRefresh;
-    workflow.refreshArchive.mockReturnValueOnce(new Promise(resolve => { finishRefresh = resolve; }));
+  it('allows closing preparation and restores the saved job after leaving the page', async () => {
+    const checking = batch('CHECKING', batch().items.map(item => ({ ...item, stage: 'PENDING', ready: false })));
+    workflow.prepareBatch.mockResolvedValue(checking);
     const view = renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Archive accepted finals (2)' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Archive 2 finals' }));
-    await waitFor(() => expect(workflow.refreshArchive).toHaveBeenCalledTimes(1));
-    view.rerender(pageTree());
-    expect(screen.getByRole('button', { name: 'Archiving PDFs…' })).toBeDisabled();
-    await act(async () => { finishRefresh(); });
+    expect(await screen.findByText('Checking PDFs: 0 of 2 responses')).toBeVisible();
     fireEvent.click(await screen.findByRole('button', { name: 'Close', exact: true }));
-    expect(screen.getByRole('button', { name: 'Archiving PDFs…' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Archiving PDFs…' }));
-    expect(workflow.prepareArchiveAttempts).toHaveBeenCalledTimes(1);
-    workflow.state = { ...workflow.state, archives: [{ ...queued, captureState: 'COMPLETE' }] };
-    view.rerender(pageTree());
-    expect(screen.getByRole('button', { name: /Archive accepted finals/ })).toBeEnabled();
+    view.unmount(); renderPage();
+    expect(await screen.findByRole('button', { name: 'Checking PDFs…' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Checking PDFs…' }));
+    expect(workflow.prepareBatch).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'View archive summary' }));
+    expect(await screen.findByText('Checking PDFs: 0 of 2 responses')).toBeVisible();
   });
 
   it('shows the three newest archive events and collapses older records', () => {

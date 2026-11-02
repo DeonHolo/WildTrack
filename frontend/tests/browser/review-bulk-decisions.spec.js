@@ -59,8 +59,10 @@ test('an archived response opens the exact archive record and combined unarchive
       acceptedAt: payload.responses[0].updatedAt, sourceResponseUpdatedAt: payload.responses[0].updatedAt } } } }) });
   const record = { id: 'archive-1', responseId: 'response-1', attemptId: 'response-1', softwareName: 'Archive sample',
     deliverableTitle: 'SRS', lifecycleState: 'Archived', captureState: 'COMPLETE', stateVersion: 1, files: [], history: [] };
-  await page.route('**/api/archive**', route => route.fulfill({ json: new URL(route.request().url()).pathname.endsWith('/storage')
-    ? { ready: true, configured: true } : [record] }));
+  await page.route('**/api/archive**', route => {
+    const path = new URL(route.request().url()).pathname;
+    return route.fulfill({ json: path.endsWith('/storage') ? { ready: true, configured: true } : path.endsWith('/batches/latest') ? null : [record] });
+  });
   await page.goto('/review');
   await page.getByRole('group', { name: 'Review filter' }).getByRole('button', { name: 'Archived', exact: true }).click();
   await page.getByRole('button', { name: /Review .* response/ }).click();

@@ -50,6 +50,7 @@ public class FormResponseService {
     private final FileCheckService fileCheckService;
     private final Clock clock;
     private final DomainEventRecorder events;
+    private final com.capvault.backend.archive.ArchiveRecordRepository archives;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public FormResponseService(
@@ -62,7 +63,8 @@ public class FormResponseService {
         DeliverableFieldOptionRepository optionRepository,
         FileCheckService fileCheckService,
         Clock clock,
-        DomainEventRecorder events
+        DomainEventRecorder events,
+        com.capvault.backend.archive.ArchiveRecordRepository archives
     ) {
         this.responseRepository = responseRepository;
         this.versionRepository = versionRepository;
@@ -74,6 +76,7 @@ public class FormResponseService {
         this.fileCheckService = fileCheckService;
         this.clock = clock;
         this.events = events;
+        this.archives = archives;
     }
 
     public record SaveResult(
@@ -146,7 +149,7 @@ public class FormResponseService {
                 .orElse("");
         }
         StudentAssociationService.AssociationView association = associationService.associationForSuccessfulSave(
-            command.workspaceId(), command.googleSubject(), command.googleEmail(), selectedStudentNumber, existing.isPresent(),
+            command.workspaceId(), command.googleSubject(), command.googleEmail(), selectedStudentNumber, existing.filter(FormResponse::isCurrentResponse).isPresent(),
             command.studentName(), command.studentName() != null);
         if (!allPersistedFields.isEmpty()
                 && persistedFields.stream().anyMatch(field -> field.getFieldType().isAcademicIdentity())) {
@@ -158,17 +161,20 @@ public class FormResponseService {
 
         if (existing.isPresent()) {
             FormResponse response = existing.get();
-            if (!java.util.Objects.equals(command.revision(), response.getRevision())) {
+            boolean replacingHistorical = !response.isCurrentResponse();
+            if (replacingHistorical ? command.revision() != null : !java.util.Objects.equals(command.revision(), response.getRevision())) {
                 throw new ConcurrentModificationException();
             }
             String currentJson = response.getValuesJson();
             Map<String, Object> currentValues = fromJson(currentJson);
             Map<String, Object> nextValues = preserveRetiredValues(currentValues, submittedValues, persistedFields);
             String nextJson = toJson(nextValues);
-            if (currentValues.equals(nextValues)) {
+            if (!replacingHistorical && currentValues.equals(nextValues)) {
                 return new SaveResult(false, response, response.getRevision()); // identical resave: untouched
             }
             archiveVersion(response, now);
+            retireOtherResponses(command.workspaceId(), command.deliverableId(), association.studentNumber(), response.getId(), command.googleSubject());
+            response.makeCurrent();
             response.setValuesJson(nextJson);
             response.setUpdatedAt(now);
             // revision increments via @Version on flush; keep client-visible in sync:
@@ -184,6 +190,7 @@ public class FormResponseService {
 
         // First successful save and canonical account binding share this transaction.
         if (command.revision() != null) throw new ConcurrentModificationException();
+        retireOtherResponses(command.workspaceId(), command.deliverableId(), association.studentNumber(), null, command.googleSubject());
         FormResponse created = new FormResponse(
             UUID.randomUUID(),
             command.workspaceId(),
@@ -202,6 +209,22 @@ public class FormResponseService {
         events.responseSaved(created);
         triggerAsyncDocumentChecks(command.workspaceId(), deliverable, submissionFields, created, submittedValues, Map.of());
         return new SaveResult(true, created, created.getRevision());
+    }
+
+    private void retireOtherResponses(UUID workspaceId, UUID deliverableId, String studentNumber, UUID keep, String actor) {
+        for (var previous : responseRepository.studentHistory(workspaceId, deliverableId, studentNumber.trim().toLowerCase(Locale.ROOT))) {
+            if (!previous.isCurrentResponse() || previous.getId().equals(keep)) continue;
+            previous = responseRepository.findByIdForUpdate(previous.getId()).orElseThrow();
+            previous.retire();
+            responseRepository.saveAndFlush(previous); // release the unique current-student slot before the new save
+            for (var snapshot : archives.findAllByResponseIdAndActiveTrue(previous.getId())) {
+                var record = archives.findByIdForUpdate(snapshot.getId()).orElseThrow();
+                record.deactivate();
+                archives.saveAndFlush(record);
+                events.record(workspaceId, record.getId(), actor, "ARCHIVE_SUPERSEDED", Map.of("responseId", previous.getId()));
+            }
+            events.record(workspaceId, previous.getId(), actor, "RESPONSE_SUPERSEDED", Map.of("reason", "Newer submission for the same Student Number and deliverable"));
+        }
     }
 
     private void triggerAsyncDocumentChecks(UUID workspaceId, Deliverable deliverable, List<DeliverableField> fields,
@@ -437,6 +460,7 @@ public class FormResponseService {
     public Optional<FormResponse> ownedResponse(UUID workspaceId, UUID deliverableId, String googleSubject) {
         if (googleSubject == null || googleSubject.isBlank()) return Optional.empty();
         return responseRepository.findByWorkspaceIdAndDeliverableIdAndGoogleSubject(workspaceId, deliverableId, googleSubject)
+            .filter(FormResponse::isCurrentResponse)
             .filter(response -> associationService.activeAssociation(workspaceId, googleSubject)
                 .map(association -> association.studentRecordId().equals(response.getStudentRecordId()))
                 .orElse(false));
@@ -462,6 +486,18 @@ public class FormResponseService {
     @Transactional(readOnly = true)
     public List<FormResponse> responsesForSubject(UUID workspaceId, String googleSubject) {
         return responseRepository.findAllByWorkspaceIdAndGoogleSubject(workspaceId, googleSubject);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FormResponse> earlierSubmissions(UUID responseId, UUID workspaceId, Collection<String> allowedTeams, boolean admin) {
+        var current = responseRepository.findById(responseId).filter(r -> workspaceId.equals(r.getWorkspaceId()))
+            .orElseThrow(() -> new IllegalArgumentException("Response not found."));
+        if (!admin && allowedTeams.stream().noneMatch(team -> team.equalsIgnoreCase(current.getTeamCode())))
+            throw new org.springframework.security.access.AccessDeniedException("Advisers may only read their assigned teams.");
+        return responseRepository.studentHistory(workspaceId, current.getDeliverableId(), current.getStudentNumber().trim().toLowerCase(Locale.ROOT)).stream()
+            .filter(r -> !r.isCurrentResponse())
+            .filter(r -> admin || allowedTeams.stream().anyMatch(team -> team.equalsIgnoreCase(r.getTeamCode())))
+            .toList();
     }
 
     /**

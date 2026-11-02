@@ -73,7 +73,7 @@ export async function installApiFixtures(page, {
   const canEnter = (token, formId = deliverable.id) => role === 'admin' || role === 'adviser' || association || deliverables.some(item => item.id === formId && token === tokenFor(item));
 
   function makeResponse(values) {
-    return { id: 'response-1', deliverableId: deliverable.id, studentNumber: student.studentNumber, studentName: student.studentName, teamCode: student.teamCode, googleSubject: identity.googleSubject, googleEmail: identity.email, owned: true, submittedAt: timestamp, updatedAt: timestamp, revision: 0, valuesJson: JSON.stringify(values) };
+    return { id: 'response-1', workspaceId: workspace.id, deliverableId: deliverable.id, studentNumber: student.studentNumber, studentName: student.studentName, teamCode: student.teamCode, googleSubject: identity.googleSubject, googleEmail: identity.email, owned: true, submittedAt: timestamp, updatedAt: timestamp, revision: 0, valuesJson: JSON.stringify(values) };
   }
 
   // Preview role is only a development UI preference; identity comes from /auth/session.
@@ -87,6 +87,11 @@ export async function installApiFixtures(page, {
     const reply = (json, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
     if (method === 'GET' && path === '/auth/session') return reply(identity);
     if (method === 'GET' && path === '/ai-reviews/batches/latest') {
+      expect(role).toBe('admin');
+      expect(url.searchParams.get('workspaceId')).toBe(workspace.id);
+      return reply(null);
+    }
+    if (method === 'GET' && path === '/archive/batches/latest') {
       expect(role).toBe('admin');
       expect(url.searchParams.get('workspaceId')).toBe(workspace.id);
       return reply(null);

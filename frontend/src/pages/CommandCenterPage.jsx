@@ -1,6 +1,7 @@
 import { StudentAccountManagement } from '../components/command/StudentAccountManagement.jsx';
 import { ResourceBoundary } from '../components/ResourceBoundary.jsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -80,6 +81,7 @@ async function loadWorkQueue(workspaceId) {
 }
 
 export function CommandCenterPage() {
+  const navigate = useNavigate();
   const { activeWorkspaceId } = useWorkspaceSession();
   const { data: state, setData: setState, status, error, reload } = useWorkspaceResource(
     activeWorkspaceId,
@@ -108,6 +110,15 @@ export function CommandCenterPage() {
   // The active workspace is session state, while monitoring data stays resource-scoped.
   const workspaceId = activeWorkspaceId;
   const isCurrentScope = useWorkspaceScope(workspaceId);
+
+  useEffect(() => {
+    const acknowledge = event => {
+      if (!isCurrentScope() || event.detail?.workspaceId !== workspaceId) return;
+      setState(current => ({ ...current, dismissedKeys: [...new Set([...(current.dismissedKeys || []), ...(event.detail.dismissedKeys || [])])] }));
+    };
+    window.addEventListener('wildtrack:document-change-acknowledged', acknowledge);
+    return () => window.removeEventListener('wildtrack:document-change-acknowledged', acknowledge);
+  }, [workspaceId, isCurrentScope, setState]);
 
   useEffect(() => {
     setAccountManagementOpen(false);
@@ -668,7 +679,7 @@ export function CommandCenterPage() {
               setPage(1);
             }}
           />
-          <Text size="sm" fw={700} c="dimmed" className="wt-nowrap wt-tabular">
+          <div className="wt-command-toolbar-actions"><Text size="sm" fw={700} c="dimmed" className="wt-nowrap wt-tabular">
             Showing {firstRow}-{lastRow} of {visibleTasks.length}
           </Text>
           <Button size="xs" variant="default" disabled={!sectionTasks.length || Boolean(bulkDismissProgress) || deleting}
@@ -680,7 +691,7 @@ export function CommandCenterPage() {
             disabled={!deletableKeys.length || Boolean(bulkDismissProgress)} loading={deleting}
             onClick={() => confirmDeleteDismissed()} aria-label="Delete all dismissed notifications">
             Delete all
-          </Button> : null}
+          </Button> : null}</div>
         </div>
 
         {bulkDismissProgress ? <Text role="status" size="sm" ml="md" mb="xs">
@@ -759,6 +770,7 @@ export function CommandCenterPage() {
         onViewAiReview={field => setAiDialogTarget({ responseId: selectedResponse.id, fieldId: field.definitionId || field.id })}
         onAiReview={requestSelectedAiReview}
         onAccept={acceptSelected} onRevoke={revokeSelected}
+        onOpenArchive={() => navigate(`/archive?response=${encodeURIComponent(selectedResponse.id)}`)}
         onArchive={() => confirmArchive({ id: 'archive:' + selectedResponse.id, response: selectedResponse })} />
       <DocumentCheckDialog open={Boolean(checkResponse && checkField)}
         response={checkResponse && checkReport ? { ...checkResponse, documentCheck: checkReport, fileCheckStatus: checkReport.status } : checkResponse}

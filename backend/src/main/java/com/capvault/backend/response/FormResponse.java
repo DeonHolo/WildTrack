@@ -12,8 +12,9 @@ import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "form_responses",
-    uniqueConstraints = @UniqueConstraint(name = "uq_response_workspace_deliverable_subject",
-        columnNames = {"workspace_id", "deliverable_id", "google_subject"}))
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uq_response_workspace_deliverable_subject", columnNames = {"workspace_id", "deliverable_id", "google_subject"}),
+        @UniqueConstraint(name = "uq_response_current_student", columnNames = {"workspace_id", "deliverable_id", "current_student_key"})})
 public class FormResponse {
 
     @Id
@@ -36,6 +37,9 @@ public class FormResponse {
 
     @Column(name = "student_number", nullable = false, length = 80)
     private String studentNumber;
+
+    @Column(name = "current_student_key", length = 80)
+    private String currentStudentKey;
 
     @Column(name = "student_name", nullable = false, length = 240)
     private String studentName;
@@ -70,6 +74,7 @@ public class FormResponse {
         this.googleEmail = googleEmail;
         this.studentRecordId = studentRecordId;
         this.studentNumber = studentNumber;
+        this.currentStudentKey = studentNumber.trim().toLowerCase(java.util.Locale.ROOT);
         this.studentName = studentName;
         this.teamCode = teamCode;
         this.valuesJson = valuesJson;
@@ -85,6 +90,13 @@ public class FormResponse {
     public String getGoogleEmail() { return googleEmail; }
     public UUID getStudentRecordId() { return studentRecordId; }
     public String getStudentNumber() { return studentNumber; }
+    public boolean isCurrentResponse() { return currentStudentKey != null; }
+    public void retire() { currentStudentKey = null; }
+    public void makeCurrent() { currentStudentKey = studentNumber.trim().toLowerCase(java.util.Locale.ROOT); }
+    public void requireCurrent() {
+        if (!isCurrentResponse()) throw new org.springframework.web.server.ResponseStatusException(
+            org.springframework.http.HttpStatus.CONFLICT, "A newer submission replaced this response. Open the current response in Review.");
+    }
     public String getStudentName() { return studentName; }
     public String getTeamCode() { return teamCode; }
     public String getValuesJson() { return valuesJson; }

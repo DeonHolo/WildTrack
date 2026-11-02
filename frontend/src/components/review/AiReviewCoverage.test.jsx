@@ -55,6 +55,21 @@ it('keeps an explicit positive assessment without a quotation and never renders 
   expect(screen.queryByRole('blockquote', { hidden: true })).not.toBeInTheDocument();
 });
 
+it('shows unmatched Gemini text only as a collapsed, explicitly unverified reference', () => {
+  const report = { coverage: { criteria: [criterion('APPEARS_ADDRESSED', { location: null, documentEvidence: null,
+    evidenceVerification: { status: 'NOT_LOCATED', providerQuotation: 'The claimed source words.', citedLocation: { page: 9 } } })] } };
+  render(<MantineProvider><AiReviewCoverage report={report} /><AiReviewVerificationLimits report={report} /></MantineProvider>);
+  const notes = screen.getByRole('region', { name: 'Supporting reference notes' });
+  const quote = within(notes).getByRole('blockquote', { name: 'Unverified text supplied by Gemini', hidden: true });
+  expect(quote).not.toBeVisible();
+  fireEvent.click(within(notes).getByText('Describe recovery behavior'));
+  expect(quote).toBeVisible();
+  expect(notes).toHaveTextContent('Gemini supplied this text; WildTrack couldn’t locate it in the PDF.');
+  expect(notes).toHaveTextContent('Gemini cited PDF page 9. This page reference is unverified.');
+  expect(screen.getByText('Appears addressed (1)')).toBeVisible();
+  expect(within(notes).queryByRole('blockquote', { name: 'Evidence excerpt' })).not.toBeInTheDocument();
+});
+
 it('keeps a concern without a quotation and renders a manual explanation only once', () => {
   const explanation = 'The timeout is stated, but the recovery action is unclear.';
   const row = criterion('CHECK_MANUALLY', { documentEvidence: null, location: null, explanation,

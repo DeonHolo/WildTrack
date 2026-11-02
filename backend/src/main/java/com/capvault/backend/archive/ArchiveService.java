@@ -116,6 +116,7 @@ public class ArchiveService {
             throw new IllegalArgumentException("Restore the workspace before archiving.");
         var acceptance = acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId)
             .orElseThrow(() -> new IllegalArgumentException("This response is no longer accepted."));
+        response.requireCurrent();
         if (!acceptance.getSourceResponseUpdatedAt().equals(response.getUpdatedAt()))
             throw new IllegalArgumentException("The response changed after acceptance. Review and accept it again.");
         String captured = snapshots.capture(response);
@@ -161,6 +162,7 @@ public class ArchiveService {
         if (!workspaceId.equals(response.getWorkspaceId())) {
             throw new IllegalArgumentException("Response does not belong to this workspace.");
         }
+        response.requireCurrent();
         var acceptance = acceptanceRepository.findByResponseIdAndRevokedAtIsNull(responseId)
             .orElseThrow(() -> new IllegalArgumentException("Only accepted responses can be archived."));
         if (!acceptance.getSourceResponseUpdatedAt().equals(response.getUpdatedAt())) {

@@ -33,10 +33,10 @@ import { ArchiveIndexTable } from '../components/archive/ArchiveIndexTable.jsx';
 import { ArchiveRecordDrawer } from '../components/archive/ArchiveRecordDrawer.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
-import { archiveAttempts as archiveServerAttempts, emptyArchiveState, loadArchiveState, prepareArchiveAttempts } from '../lib/archiveClient.js';
+import { emptyArchiveState, loadArchiveState } from '../lib/archiveClient.js';
 import { syncReviewDecisionCache } from '../lib/reviewDeskClient.js';
 import { getArchiveStatus, getArchiveVersion } from '../lib/archive.js';
-import { retryArchiveRecord, unarchiveRecord, verifyArchiveRecord } from '../lib/api.js';
+import { retryArchiveRecord, unarchiveRecord, verifyArchiveRecord, getLatestArchiveBatch, prepareArchiveBatch, startArchiveBatch } from '../lib/api.js';
 
 const PAGE_SIZE = 50;
 const ARCHIVE_FILTER_STATE_KEY = 'wildtrack.archive.filters';
@@ -71,16 +71,24 @@ export function ArchivePage() {
   const [page, setPage] = useState(1);
   const [archiving, setArchiving] = useState(false);
   const [action, setAction] = useState('');
-  const [preparation, setPreparation] = useState(null);
-  const preparationEpoch = useRef(0);
+  const [batch, setBatch] = useState(null);
+  const [preparationOpen, setPreparationOpen] = useState(false);
+  const [batchError, setBatchError] = useState('');
+  const batchEpoch = useRef(0);
 
   useEffect(() => {
     setArchiving(false);
     setAction('');
     setSelectedArchiveId(linkedArchiveId);
-    preparationEpoch.current++;
-    setPreparation(null);
+    setBatch(null);
+    setPreparationOpen(false);
+    setBatchError('');
+    batchEpoch.current++;
   }, [isCurrentScope, linkedArchiveId]);
+
+  useEffect(() => {
+    if (state.archiveBatch !== undefined) setBatch(state.archiveBatch);
+  }, [state.archiveBatch]);
 
   const archives = useMemo(
     () => [...(state.archives || [])].sort((a, b) => new Date(b.archivedAt) - new Date(a.archivedAt)),
@@ -107,6 +115,35 @@ export function ArchivePage() {
   const activeFilterCount = Object.entries(filters).filter(([key, value]) => key === 'lifecycle' ? value !== 'archived' : Boolean(value)).length;
   const storageReady = Boolean(state.archiveStorage?.ready);
   const copying = archives.some((item) => ['QUEUED', 'COPYING'].includes(item.captureState));
+  const batchRunning = ['CHECKING', 'ARCHIVING'].includes(batch?.state);
+  const batchItems = batch?.items || [];
+  const checkingBatch = batch?.state === 'CHECKING';
+  const readyCount = batchItems.filter(item => item.stage === 'READY').length;
+  const blockedCount = batchItems.filter(item => item.stage === 'BLOCKED').length;
+  const finishedCount = batchItems.filter(item => !['PENDING', 'READY', 'COPYING'].includes(item.stage)).length;
+  useEffect(() => {
+    if (!batchRunning || !activeWorkspaceId) return undefined;
+    let reading = false;
+    let cancelled = false;
+    const poll = async () => {
+      if (reading) return;
+      const epoch = batchEpoch.current;
+      reading = true;
+      try {
+        const current = await getLatestArchiveBatch(activeWorkspaceId);
+        if (!isCurrentScope() || cancelled || epoch !== batchEpoch.current) return;
+        if (!current?.id || !Array.isArray(current.items)) throw new Error('Archive progress is unavailable.');
+        setBatch(current);
+        setBatchError('');
+        if (current && !['CHECKING', 'ARCHIVING'].includes(current.state)) {
+          await refreshArchive({ background: true });
+        }
+      } catch { if (isCurrentScope() && !cancelled && epoch === batchEpoch.current) setBatchError('Progress could not be refreshed. The server keeps working.'); }
+      finally { reading = false; }
+    };
+    const timer = window.setInterval(poll, 2000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [batchRunning, batch?.id, activeWorkspaceId, isCurrentScope, refreshArchive]);
   useEffect(() => {
     if (!copying || !activeWorkspaceId) return undefined;
     const timer = window.setInterval(() => {
@@ -142,46 +179,41 @@ export function ArchivePage() {
   }
 
   async function confirmArchiveAccepted() {
-    if (!isCurrentScope() || !candidates.length || !storageReady || archiving || copying || preparation || action === 'retry') return;
-    const epoch = ++preparationEpoch.current;
-    const current = () => isCurrentScope() && preparationEpoch.current === epoch;
-    setPreparation({ checking: true, targets: [...candidates], results: [], progress: { completed: 0, total: candidates.length } });
+    if (!isCurrentScope() || !candidates.length || !storageReady || archiving || copying || batchRunning || action === 'retry') return;
+    setArchiving(true);
+    batchEpoch.current++;
+    setPreparationOpen(true);
+    setBatchError('');
     try {
-      const results = await prepareArchiveAttempts(activeWorkspaceId, candidates, state.deliverables || [], {
-        shouldContinue: current,
-        onProgress: progress => { if (current()) setPreparation(value => ({ ...value, progress })); }
-      });
-      if (current()) setPreparation(value => ({ ...value, checking: false, results }));
+      const result = await prepareArchiveBatch(activeWorkspaceId, candidates.map(item => item.id));
+      if (isCurrentScope()) retainBatch(result);
     } catch (error) {
-      if (current()) setPreparation(value => ({ ...value, checking: false, error: error?.message || 'Archive preparation could not finish. Try again.' }));
-    }
+      if (isCurrentScope()) setBatchError(error?.message || 'Archive preparation could not start. Try loading its saved progress.');
+    } finally { if (isCurrentScope()) setArchiving(false); }
   }
 
   async function archivePrepared() {
-    if (!isCurrentScope() || archiving || copying || preparation?.checking || preparation?.done) return;
-    const ready = preparation?.results.filter(item => item.ready) || [];
-    if (!ready.length) return;
-    const epoch = preparationEpoch.current;
-    const current = () => isCurrentScope() && preparationEpoch.current === epoch;
+    if (!isCurrentScope() || archiving || batch?.state !== 'READY' || !readyCount) return;
     setArchiving(true);
-    for (const item of ready) {
-      if (!current()) break;
-      let outcome;
-      try {
-        const result = await archiveServerAttempts(activeWorkspaceId, [item.responseId]);
-        if (!result?.ok) throw new Error(result?.error || 'This final could not be archived.');
-        if (current() && result.records?.length) retainArchiveRecords(result.records);
-        outcome = { ...item, actionState: result.queued ? 'Queued for copying' : 'Archived' };
-      } catch (error) {
-        outcome = { ...item, ready: false, actionState: 'Needs attention', message: error?.message || 'This final could not be archived. Try again.' };
-      }
-      if (current()) setPreparation(value => ({ ...value, results: value.results.map(row => row.responseId === item.responseId ? outcome : row) }));
-    }
-    if (current()) {
-      setPreparation(value => ({ ...value, done: true }));
-      await refreshArchive({ background: true });
-      if (current()) setArchiving(false);
-    }
+    batchEpoch.current++;
+    try {
+      const result = await startArchiveBatch(activeWorkspaceId, batch.id, batch.version);
+      if (isCurrentScope()) retainBatch(result);
+    } catch (error) {
+      if (isCurrentScope()) setBatchError(error?.message || 'The archive request could not be confirmed. Check saved progress before trying again.');
+    } finally { if (isCurrentScope()) setArchiving(false); }
+  }
+
+  function retainBatch(result) {
+    setBatch(result);
+    setState(current => ({ ...current, archiveBatch: result }));
+  }
+
+  async function checkBatchProgress() {
+    try {
+      const result = await getLatestArchiveBatch(activeWorkspaceId);
+      if (isCurrentScope()) { retainBatch(result); setBatchError(''); }
+    } catch { if (isCurrentScope()) setBatchError('Progress could not be refreshed. Try again.'); }
   }
 
   function retainArchiveRecords(records) {
@@ -240,47 +272,58 @@ export function ArchivePage() {
         <Button
           leftSection={<ArchiveIcon size={18} />}
           color="wildtrackMaroon"
-          disabled={!candidates.length || !storageReady || Boolean(preparation) || copying || archiving || action === 'retry'}
-          loading={archiving || preparation?.checking || copying}
+          disabled={!candidates.length || !storageReady || batchRunning || copying || archiving || action === 'retry'}
+          loading={archiving || batchRunning || copying}
           onClick={confirmArchiveAccepted}
         >
-          {copying ? 'Archiving PDFs…' : `Archive accepted finals (${candidates.length})`}
+          {checkingBatch ? 'Checking PDFs…' : copying || batch?.state === 'ARCHIVING' ? 'Archiving PDFs…' : `Archive accepted finals (${candidates.length})`}
         </Button>
       </header>
 
-      <Modal opened={Boolean(preparation)} onClose={() => { if (!archiving) { preparationEpoch.current++; setPreparation(null); } }}
-        title="Archive accepted finals" size="lg" centered closeOnClickOutside={!archiving && !preparation?.checking} closeOnEscape={!archiving} withCloseButton={!archiving}>
-        {preparation ? <Stack gap="md">
+      {batch ? <Alert color={batchRunning || batch.state === 'READY' ? 'blue' : blockedCount ? 'orange' : 'green'}
+        title={checkingBatch ? 'Preparing archive' : batch.state === 'ARCHIVING' ? 'Archiving PDFs' : batch.state === 'READY' ? 'Archive summary ready' : 'Archive batch finished'} role="status" mb="lg">
+        <Stack gap="xs">
+          <Text size="sm">{checkingBatch ? `${batchItems.filter(item => item.stage !== 'PENDING').length} of ${batchItems.length} responses checked`
+            : batch.state === 'READY' ? `${readyCount} ready · ${blockedCount} need attention`
+              : `${finishedCount} of ${batchItems.length} responses finished${blockedCount ? ` · ${blockedCount} need attention` : ''}`}</Text>
+          {batchRunning ? <>
+            <Progress value={batchItems.length ? (checkingBatch ? batchItems.filter(item => item.stage !== 'PENDING').length : finishedCount) / batchItems.length * 100 : 0} />
+            <Text size="sm">This runs on the server. You can close the summary or leave this page.</Text>
+          </> : null}
+          <Group><Button variant="default" size="sm" onClick={() => setPreparationOpen(true)}>View archive summary</Button></Group>
+        </Stack>
+      </Alert> : null}
+      {batchError ? <Alert color="orange" mb="md"><Text size="sm">{batchError}</Text><Button mt="xs" variant="default" size="xs" onClick={checkBatchProgress}>Check saved progress</Button></Alert> : null}
+
+      <Modal opened={preparationOpen} onClose={() => setPreparationOpen(false)}
+        title="Archive accepted finals" size="lg" centered>
+        <Stack gap="md">
           <Text size="sm">WildTrack checks the submitted PDFs before archiving. This does not run AI Review. Linked Google Forms, Sheets and other files are not copied; their links and other answers stay in the record.</Text>
-          {preparation.checking ? <Stack gap="xs" role="status" aria-live="polite">
-            <Text fw={600}>Checking PDFs: {preparation.progress.completed} of {preparation.progress.total} responses</Text>
-            <Progress value={preparation.progress.total ? preparation.progress.completed / preparation.progress.total * 100 : 0} />
-            <Text size="sm" c="dimmed">{preparation.progress.name || 'Preparing archive summary…'}</Text>
-          </Stack> : <>
-            <Group gap="sm"><Badge color="blue" variant="light">{preparation.results.filter(item => item.ready).length} ready</Badge>
-              <Badge color={preparation.results.some(item => !item.ready) ? 'orange' : 'gray'} variant="light">Needs attention: {preparation.results.filter(item => !item.ready).length}</Badge></Group>
-            {preparation.error ? <Alert color="red" role="alert">{preparation.error}</Alert> : null}
-            {preparation.results.map(item => {
-              const response = preparation.targets.find(target => target.id === item.responseId);
-              const deliverable = state.deliverables?.find(target => target.id === response?.deliverableId);
+          {batchRunning || archiving ? <Text size="sm" c="dimmed">You can close this summary. Preparation and archiving continue on the server.</Text> : null}
+          {checkingBatch || (archiving && !batch) ? <Text role="status">Checking PDFs: {batchItems.filter(item => item.stage !== 'PENDING').length} of {batchItems.length || candidates.length} responses</Text> : null}
+          {batch ? <>
+            <Group gap="sm"><Badge color="blue" variant="light">{readyCount} ready</Badge>
+              <Badge color={blockedCount ? 'orange' : 'gray'} variant="light">Needs attention: {blockedCount}</Badge></Group>
+            {batchItems.map(item => {
+              const label = { PENDING: 'Waiting', READY: 'Ready', BLOCKED: 'Needs attention', COPYING: 'Copying PDFs', COMPLETE: 'Archived' }[item.stage] || item.stage;
               return <Paper key={item.responseId} withBorder p="sm" radius="sm">
                 <Stack gap="xs">
-                  <Group justify="space-between" align="flex-start"><Text fw={600} style={{ overflowWrap: 'anywhere', flex: 1 }}>{response?.studentName} · {deliverable?.shortTitle || deliverable?.title || 'Submission'}</Text>
-                    <Badge variant="light" color={item.actionState && item.ready ? 'green' : item.ready ? 'blue' : 'orange'}>{item.actionState || (item.ready ? 'Ready' : 'Needs attention')}</Badge></Group>
+                  <Group justify="space-between" align="flex-start"><Text fw={600} style={{ overflowWrap: 'anywhere', flex: 1 }}>{item.studentName} · {item.deliverableTitle || 'Submission'}</Text>
+                    <Badge variant="light" color={item.stage === 'COMPLETE' ? 'green' : item.stage === 'BLOCKED' ? 'orange' : 'blue'}>{label}</Badge></Group>
                   <Text size="sm">{item.message}</Text>
-                  {item.ready ? <Text size="sm" c="dimmed">{item.pdfCount} PDF{item.pdfCount === 1 ? '' : 's'} to preserve</Text>
-                    : <Button component={Link} to={`/review?response=${encodeURIComponent(item.responseId)}`} variant="subtle" size="xs" w="fit-content">Review response</Button>}
+                  {item.pdfCount > 0 ? <Text size="sm" c="dimmed">{item.pdfCount} PDF{item.pdfCount === 1 ? '' : 's'}</Text> : null}
+                  {item.stage === 'BLOCKED' ? <Button component={Link} to={`/review?response=${encodeURIComponent(item.responseId)}`} variant="subtle" size="xs" w="fit-content">Review response</Button> : null}
                 </Stack>
               </Paper>;
             })}
-          </>}
+          </> : null}
           <Group justify="flex-end">
-            <Button variant="default" disabled={archiving} onClick={() => { preparationEpoch.current++; setPreparation(null); }}>{preparation.checking ? 'Cancel checks' : preparation.done ? 'Close' : 'Cancel'}</Button>
-            {!preparation.checking && !preparation.done ? <Button loading={archiving} disabled={!preparation.results.some(item => item.ready)} onClick={archivePrepared}>
-              Archive {preparation.results.filter(item => item.ready).length} {preparation.results.filter(item => item.ready).length === 1 ? 'final' : 'finals'}
+            <Button variant="default" onClick={() => setPreparationOpen(false)}>Close</Button>
+            {batch?.state === 'READY' ? <Button loading={archiving} disabled={!readyCount || archiving} onClick={archivePrepared}>
+              Archive {readyCount} {readyCount === 1 ? 'final' : 'finals'}
             </Button> : null}
           </Group>
-        </Stack> : null}
+        </Stack>
       </Modal>
 
       {state.archiveStorage && !storageReady ? (

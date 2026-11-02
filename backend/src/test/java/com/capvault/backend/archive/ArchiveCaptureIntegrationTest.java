@@ -291,7 +291,7 @@ class ArchiveCaptureIntegrationTest {
         Fixture f = fixture(1); FormResponse first = responses.findById(f.responseId()).orElseThrow();
         Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
         var unaccepted = responses.saveAndFlush(new FormResponse(UUID.randomUUID(), f.workspaceId(), f.deliverableId(),
-            "different-" + UUID.randomUUID(), "other@example.test", first.getStudentRecordId(), first.getStudentNumber(),
+            "different-" + UUID.randomUUID(), "other@example.test", first.getStudentRecordId(), first.getStudentNumber() + "-other",
             first.getStudentName(), first.getTeamCode(), first.getValuesJson(), now, now));
         assertThatThrownBy(() -> archive.archive(f.workspaceId(), List.of(f.responseId(), unaccepted.getId()), "admin"))
             .isInstanceOf(IllegalArgumentException.class);

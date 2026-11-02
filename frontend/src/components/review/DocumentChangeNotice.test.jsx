@@ -25,6 +25,18 @@ beforeEach(() => {
 });
 
 describe('acknowledgment first render and operation isolation', () => {
+  it('publishes matching work-item receipts so Today’s work can dismiss the same change immediately', async () => {
+    api.read.mockResolvedValue([]);
+    api.save.mockResolvedValue([key, 'file:file-a:event-a']);
+    const listener = vi.fn();
+    window.addEventListener('wildtrack:document-change-acknowledged', listener);
+    render(tree());
+    fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge change', exact: true }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Acknowledge change' }));
+    await waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
+    expect(listener.mock.calls[0][0].detail).toEqual({ workspaceId: 'workspace-a', dismissedKeys: [key, 'file:file-a:event-a'] });
+    window.removeEventListener('wildtrack:document-change-acknowledged', listener);
+  });
   it('never renders the attention notice while an existing receipt read is unresolved', async () => {
     const pending = deferred(); api.read.mockReturnValue(pending.promise);
     render(tree());

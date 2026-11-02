@@ -6,10 +6,12 @@ import { documentChangeAcknowledgementKey } from '../../lib/documentChangeAcknow
 import { historyDate } from '../../lib/fileHistoryPresentation.js';
 import { useWorkspaceResource } from '../../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../../hooks/useWorkspaceScope.js';
+import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 
 const emptyAcknowledgements = () => [];
 
 export function DocumentChangeNotice({ observation, target, allowAcknowledge = true }) {
+  const { resourceCache } = useWorkspaceSession();
   const taskKey = allowAcknowledge ? documentChangeAcknowledgementKey(target, observation) : '';
   const workspaceId = target?.workspaceId;
   const load = useCallback(id => getWorkTaskDismissals(id), []);
@@ -32,11 +34,16 @@ export function DocumentChangeNotice({ observation, target, allowAcknowledge = t
     if (!taskKey || status !== 'ready' || current.saving || !isCurrent()) return;
     setFlow({ scope, confirming: true, saving: true, error: '' });
     try {
-      await dismissWorkTask(workspaceId, taskKey);
+      const saved = await dismissWorkTask(workspaceId, taskKey);
       if (!isCurrent()) return;
       // Invalidate reads started before this successful save, and cache the receipt
       // so reopening the dialog can render the acknowledged state immediately.
-      setData(previous => previous.includes(taskKey) ? previous : [...previous, taskKey]);
+      const dismissedKeys = [...new Set([taskKey, ...(Array.isArray(saved) ? saved : [])])];
+      setData(previous => [...new Set([...previous, ...dismissedKeys])]);
+      resourceCache?.updateMatching?.(key => {
+        try { return JSON.parse(key)[1] === workspaceId; } catch { return false; }
+      }, data => Array.isArray(data?.dismissedKeys) ? { ...data, dismissedKeys: [...new Set([...data.dismissedKeys, ...dismissedKeys])] } : data);
+      window.dispatchEvent(new CustomEvent('wildtrack:document-change-acknowledged', { detail: { workspaceId, dismissedKeys } }));
       setFlow(initialFlow);
     } catch {
       if (isCurrent()) setFlow({ scope, confirming: true, saving: false,
@@ -66,7 +73,7 @@ export function DocumentChangeNotice({ observation, target, allowAcknowledge = t
     <Modal opened={current.confirming} onClose={() => setFlow(initialFlow)} title="Acknowledge this PDF change?"
       centered transitionProps={{ duration: 0 }} closeOnEscape={!current.saving} closeOnClickOutside={!current.saving}
       withCloseButton={!current.saving} closeButtonProps={{ 'aria-label': 'Close acknowledgement confirmation' }}>
-      <p>You acknowledge that the submitted PDF has changed. This hides this notice for your account.</p>
+      <p>You acknowledge that the submitted PDF has changed. This hides this notice and dismisses its matching PDF content changed item in Today’s work for your account.</p>
       <p>File History stays available. This does not accept the submission or refresh AI Review.
         Another content change will show a new notice.</p>
       {current.error ? <Alert color="red" role="alert">{current.error}</Alert> : null}

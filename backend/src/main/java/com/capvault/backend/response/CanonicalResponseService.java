@@ -63,6 +63,7 @@ public class CanonicalResponseService {
         if (!target.getWorkspaceId().equals(workspaceId)) {
             throw new IllegalArgumentException("Response belongs to a different workspace.");
         }
+        target.requireCurrent();
         if (!target.getDeliverableId().equals(deliverableId) || !target.getStudentRecordId().equals(studentRecordId)) {
             throw new IllegalArgumentException("Response does not belong to this student record and deliverable.");
         }

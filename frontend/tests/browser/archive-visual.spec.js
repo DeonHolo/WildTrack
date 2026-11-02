@@ -8,7 +8,7 @@ for (const width of [375, 820, 1440]) {
     await page.route('**/api/archive**', async route => {
       const path = new URL(route.request().url()).pathname;
       const record = { id: 'archive-1', projectTitle: 'Community Resource Manager', softwareName: 'Community Resource Manager', teamCode: '2526-sem2-it332-01', studentName: 'Pacio, Muriel D.', workspaceName: 'IT Capstone', deliverableTitle: 'Software Requirements Specification', version: 'v1', archivedAt: '2026-06-18T10:15:00+08:00', captureState: 'COMPLETE', lifecycleState: 'Archived', stateVersion: 1, storageStatus: 'Stored', integrityStatus: 'Verified', files: [{ id: 'file-1', label: 'Requirements document', filename: 'requirements.pdf', status: 'STORED', size: 34567, sha256: 'a'.repeat(64), downloadUrl: '/api/archive/archive-1/files/file-1?workspaceId=fixture' }], history: [{ action: 'Archived', occurredAt: '2026-06-18T10:15:00+08:00', actor: 'Adviser' }] };
-      await route.fulfill({ json: path.endsWith('/storage') ? { configured: true, ready: true } : [record] });
+      await route.fulfill({ json: path.endsWith('/storage') ? { configured: true, ready: true } : path.endsWith('/batches/latest') ? null : [record] });
     });
     await page.goto('/archive');
     await expect(page.getByLabel('Record view')).toHaveValue('archived');
@@ -33,6 +33,7 @@ test('All statuses excludes inactive history until its record view is selected',
   await page.route('**/api/archive**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith('/storage')) return route.fulfill({ json: { configured: true, ready: true } });
+    if (path.endsWith('/batches/latest')) return route.fulfill({ json: null });
     if (path.endsWith('/unarchive')) { active = false; return route.fulfill({ json: {} }); }
     return route.fulfill({ json: [{ ...record, lifecycleState: active ? 'Archived' : 'Active' }] });
   });

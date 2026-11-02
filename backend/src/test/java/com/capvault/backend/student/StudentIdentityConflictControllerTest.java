@@ -207,7 +207,7 @@ class StudentIdentityConflictControllerTest {
                 .param("workspaceId", workspaceId.toString())
                 .cookie(sessionCookie(adminToken)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.firstClaimLimitation").value(org.hamcrest.Matchers.containsString("first successful submission")))
+            .andExpect(jsonPath("$.firstClaimLimitation").value(org.hamcrest.Matchers.containsString("first successful connection")))
             .andExpect(jsonPath("$.accounts[0].studentNumber").value(STUDENT_NUMBER))
             .andExpect(jsonPath("$.accounts[0].status").value("CONFLICT"))
             .andExpect(jsonPath("$.accounts[0].googleSubject").isEmpty())

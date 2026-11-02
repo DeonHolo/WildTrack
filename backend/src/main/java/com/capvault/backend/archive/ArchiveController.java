@@ -30,16 +30,39 @@ public class ArchiveController {
 
     private final ArchiveService archiveService;
     private final StudentAssociationSecurity security;
+    private final ArchiveBatchService batches;
 
-    public ArchiveController(ArchiveService archiveService, StudentAssociationSecurity security) {
+    public ArchiveController(ArchiveService archiveService, StudentAssociationSecurity security, ArchiveBatchService batches) {
         this.archiveService = archiveService;
         this.security = security;
+        this.batches = batches;
     }
 
     public record ArchiveRequest(@NotEmpty @jakarta.validation.constraints.Size(max=100) List<@NotNull UUID> responseIds) {
     }
     public record VersionRequest(@NotNull @jakarta.validation.constraints.PositiveOrZero Long stateVersion) { }
     public record UnarchiveRequest(@NotNull @jakarta.validation.constraints.PositiveOrZero Long stateVersion, boolean revokeAcceptance) { }
+
+    public record BatchRequest(@NotEmpty @jakarta.validation.constraints.Size(max=1000) List<@NotNull UUID> responseIds) { }
+
+    @GetMapping("/batches/latest")
+    public ArchiveBatchService.View latestBatch(@RequestParam UUID workspaceId, HttpServletRequest http) {
+        requireAdmin(http);
+        return batches.latest(workspaceId);
+    }
+
+    @PostMapping("/batches")
+    public ArchiveBatchService.View prepareBatch(@RequestParam UUID workspaceId, @Valid @RequestBody BatchRequest request, HttpServletRequest http) {
+        requireAdmin(http);
+        return batches.prepare(workspaceId, request.responseIds(), security.requireSession(http).googleSubject());
+    }
+
+    @PostMapping("/batches/{id}/start")
+    public ArchiveBatchService.View startBatch(@PathVariable UUID id, @RequestParam UUID workspaceId,
+            @Valid @RequestBody VersionRequest request, HttpServletRequest http) {
+        requireAdmin(http);
+        return batches.start(workspaceId, id, request.stateVersion());
+    }
 
     @GetMapping("/storage")
     public ArchiveService.StorageStatus storage(HttpServletRequest http) {
