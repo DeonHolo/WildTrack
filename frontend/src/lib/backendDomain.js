@@ -150,6 +150,7 @@ export function mapSources(items = []) {
 export function mapResponse(response, timing = null) {
   return {
     id: response.id,
+    workspaceId: response.workspaceId,
     deliverableId: response.deliverableId,
     studentNumber: response.studentNumber || '',
     studentName: response.studentName || '',

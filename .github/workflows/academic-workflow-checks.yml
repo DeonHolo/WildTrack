@@ -27,9 +27,9 @@ jobs:
           cache: maven
           cache-dependency-path: backend/pom.xml
       - name: Check workbook imports and student access
-        run: mvn -B -Dtest=Workbook*,Academic*,StudentEntryIntegrationTest,AccountBindingSubmissionIT,StudentAssociationServiceTest,FormDraftServiceTest,FormResponseServiceTest,FormResponseStaffViewControllerTest,WorkspaceSourceControllerTest test
+        run: mvn -B -Dtest=Workbook*,Academic*,StudentEntryIntegrationTest,AccountBindingSubmissionIT,StudentAssociationServiceTest,FormDraftServiceTest,FormResponseServiceTest,CurrentStudentResponse*,FormResponseStaffViewControllerTest,WorkspaceSourceControllerTest test
       - name: Check preserved archives and safe unarchive
-        run: mvn -B -Dtest=Archive*,AcceptedPdfSnapshotServiceTest,ReviewFeedbackScopeControllerTest,PopulatedRecoveryIT,DeadlineFileMonitorTest test
+        run: mvn -B -Dtest=Archive*,AcceptedPdfSnapshotServiceTest,ReviewFeedbackScopeControllerTest,PopulatedRecoveryIT,DeadlineFileMonitorTest,ContentChangeAcknowledgementTest,WorkTaskDeletionTest,FileMonitorStaffSecurityTest test
       - name: Save test results
         if: always()
         uses: actions/upload-artifact@v7

@@ -394,7 +394,7 @@ class FileCheckControllerTest {
             "subject-" + responseId,
             "student@example.com",
             UUID.randomUUID(),
-            "20260001",
+            "student-" + responseId,
             "Student",
             teamCode,
             valuesJson,

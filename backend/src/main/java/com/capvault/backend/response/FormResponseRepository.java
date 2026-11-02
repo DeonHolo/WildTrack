@@ -14,11 +14,17 @@ public interface FormResponseRepository extends JpaRepository<FormResponse, UUID
 
     Optional<FormResponse> findByWorkspaceIdAndDeliverableIdAndGoogleSubject(UUID workspaceId, UUID deliverableId, String googleSubject);
 
+    @org.springframework.data.jpa.repository.Query("select r from FormResponse r where r.workspaceId = :workspaceId and r.currentStudentKey is not null")
     List<FormResponse> findAllByWorkspaceId(UUID workspaceId);
 
+    @org.springframework.data.jpa.repository.Query("select r from FormResponse r where r.deliverableId = :deliverableId and r.currentStudentKey is not null")
     List<FormResponse> findAllByDeliverableId(UUID deliverableId);
 
     boolean existsByDeliverableId(UUID deliverableId);
 
+    @org.springframework.data.jpa.repository.Query("select r from FormResponse r where r.workspaceId = :workspaceId and r.googleSubject = :googleSubject and r.currentStudentKey is not null")
     List<FormResponse> findAllByWorkspaceIdAndGoogleSubject(UUID workspaceId, String googleSubject);
+
+    @org.springframework.data.jpa.repository.Query("select r from FormResponse r where r.workspaceId = :workspaceId and r.deliverableId = :deliverableId and lower(trim(r.studentNumber)) = :studentKey order by r.updatedAt desc, r.submittedAt desc, r.id desc")
+    List<FormResponse> studentHistory(UUID workspaceId, UUID deliverableId, String studentKey);
 }

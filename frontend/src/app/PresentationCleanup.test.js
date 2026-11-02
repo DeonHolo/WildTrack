@@ -28,7 +28,9 @@ describe('WildTrack presentation cleanup', () => {
     const source = productSource();
 
     expect(source.toLowerCase()).not.toContain(retiredBrand.toLowerCase());
-    expect(readme.toLowerCase()).not.toContain(retiredBrand.toLowerCase());
+    // Source paths in link destinations can retain the Java package namespace.
+    const visibleReadme = readme.replace(/\]\([^)]*\)/g, ']');
+    expect(visibleReadme.toLowerCase()).not.toContain(retiredBrand.toLowerCase());
     expect(source).not.toMatch(/(['"`])[^\n]*\bMVP\b[^\n]*\1/i);
     expect(source).not.toMatch(/(['"`])[^\n]*\bTier\s*1\b[^\n]*\1/i);
     expect(source).not.toMatch(/(['"`])[^\n]*presentation fallback[^\n]*\1/i);

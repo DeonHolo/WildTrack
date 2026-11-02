@@ -16,5 +16,5 @@ it('sends versioned archive actions to encoded workspace and record paths', asyn
     '/api/archive/record%2F1/verify?workspaceId=workspace%201'
   ]);
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ stateVersion: 4 });
-  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ stateVersion: 5 });
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ stateVersion: 5, revokeAcceptance: false });
 });

@@ -137,7 +137,16 @@ export function AiReviewVerificationLimits({ report }) {
   return <section aria-label="Supporting reference notes">
     <Group gap={4} mt="sm"><Text component="h3" fw={700}>Supporting references ({rows.length + legacy.length})</Text><AiReviewVerificationHelp /></Group>
     <Text mt="sm">WildTrack could not locate supporting PDF text for these AI assessments. Their checklist categories reflect Gemini’s judgment, not quotation matching.</Text>
-    {rows.length ? <ul>{rows.map(row => <li key={row.key}>{hasText(row.title) ? row.title : compactRequirement(row.requirement)}</li>)}</ul> : null}
+    {rows.length ? <ul>{rows.map(row => <li key={row.key}>
+      {hasText(row.evidenceVerification?.providerQuotation) ? <details className="wt-ai-review-reference-disclosure">
+        <summary>{hasText(row.title) ? row.title : compactRequirement(row.requirement)}</summary>
+        <Text size="sm" mt="sm">Gemini supplied this text; WildTrack couldn’t locate it in the PDF.</Text>
+        <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Unverified text supplied by Gemini">
+          {row.evidenceVerification.providerQuotation}
+        </Text>
+        {validPage(row.evidenceVerification.citedLocation) ? <Text size="sm" c="dimmed">Gemini cited PDF page {row.evidenceVerification.citedLocation.page}. This page reference is unverified.</Text> : null}
+      </details> : hasText(row.title) ? row.title : compactRequirement(row.requirement)}
+    </li>)}</ul> : null}
     {legacy.length ? <Text mt="sm">{legacy.length} earlier assessment{legacy.length === 1 ? ' has' : 's have'} no recoverable original judgment. Run AI Review again to replace the earlier result.</Text> : null}
   </section>;
 }

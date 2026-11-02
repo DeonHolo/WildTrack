@@ -356,6 +356,7 @@ public class FileCheckService {
         FormResponse response = responseRepository.findById(responseId)
             .filter(item -> workspaceId.equals(item.getWorkspaceId()))
             .orElseThrow(() -> new IllegalArgumentException("Response was not found in this workspace."));
+        response.requireCurrent();
         Deliverable deliverable = deliverableRepository.findById(response.getDeliverableId())
             .filter(item -> workspaceId.equals(item.getWorkspaceId()))
             .orElseThrow(() -> new IllegalArgumentException("Response deliverable was not found in this workspace."));

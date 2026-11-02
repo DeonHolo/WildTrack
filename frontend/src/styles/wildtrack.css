@@ -3088,10 +3088,13 @@
 }
 
 .wt-command-toolbar {
+  align-items: flex-end;
   padding: 12px 20px;
   background: var(--wt-surface-subtle);
   border-bottom: 1px solid var(--wt-border);
 }
+
+.wt-command-toolbar-actions { display: flex; align-items: center; gap: 12px; min-height: 36px; flex-wrap: wrap; }
 
 .wt-command-toolbar .mantine-TextInput-root {
   width: min(420px, 100%);

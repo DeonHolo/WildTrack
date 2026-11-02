@@ -986,7 +986,7 @@ describe("today's work queues", () => {
     const confirmation = await screen.findByRole('dialog', { name: 'Archive this accepted response?' });
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Archive response' }));
     await waitFor(() => expect(workflow.archiveAttempt).toHaveBeenCalledWith('accepted-001'));
-    expect(within(drawer).getByRole('button', { name: 'Archived' })).toBeDisabled();
+    expect(within(drawer).getByRole('button', { name: 'Open in Archive' })).toBeEnabled();
   });
 
   it('opens the saved Document Check and recorded history for the selected PDF from the response drawer', async () => {

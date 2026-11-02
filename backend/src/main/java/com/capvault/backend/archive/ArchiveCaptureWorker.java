@@ -110,7 +110,7 @@ public class ArchiveCaptureWorker {
             if (complete) {
                 var response=responses.findById(record.getResponseId()).orElse(null);
                 var acceptance=acceptances.findByResponseIdAndRevokedAtIsNull(record.getResponseId()).orElse(null);
-                if (response==null || acceptance==null || !record.getSourceResponseUpdatedAt().equals(response.getUpdatedAt())
+                if (response==null || !response.isCurrentResponse() || acceptance==null || !record.getSourceResponseUpdatedAt().equals(response.getUpdatedAt())
                     || !Objects.equals(record.getActiveAcceptanceAt(),acceptance.getAcceptedAt())) record.deactivate();
             }
             archives.saveAndFlush(record);

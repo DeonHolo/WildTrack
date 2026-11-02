@@ -11,21 +11,26 @@ for (const width of [390, 1440]) {
         feedback: [], acceptance: { acceptedAt: item.updatedAt, sourceResponseUpdatedAt: item.updatedAt }
       }])) };
     } });
-    const checked = [], queued = [];
-    await page.route('**/api/file-checks?**', async route => {
-      const body = route.request().postDataJSON(); checked.push(body);
-      return route.fulfill({ json: body.responseId === 'blocked-response'
-        ? { status: 'BLOCKED', summary: 'Google Drive could not open this PDF. Check its sharing settings.' }
-        : { status: 'COMPLETED', document: { readable: true } } });
-    });
+    let batch = null;
+    const preparations = [], starts = [];
+    const items = [
+      { responseId: 'response-1', studentName: 'Ready Student', deliverableTitle: 'SRS', ready: true, stage: 'READY', pdfCount: 1, message: 'PDFs checked against the accepted files.' },
+      { responseId: 'blocked-response', studentName: 'Blocked Student', deliverableTitle: 'SRS', ready: false, stage: 'BLOCKED', pdfCount: 0,
+        message: 'Google Drive could not open this PDF. Check its sharing settings.' }
+    ];
     await page.route('**/api/archive**', async route => {
       const path = new URL(route.request().url()).pathname;
       if (path.endsWith('/storage')) return route.fulfill({ json: { configured: true, ready: true } });
-      if (path.endsWith('/prepare')) return route.fulfill({ json: [{ responseId: 'response-1', ready: true, pdfCount: 1,
-        evidenceAdded: true, message: 'PDFs checked. This older acceptance had no saved file fingerprint; archiving will preserve the current files.' }] });
-      if (route.request().method() === 'POST') {
-        queued.push(route.request().postDataJSON());
-        return route.fulfill({ json: [{ captureState: 'QUEUED', lifecycleState: 'Archived' }] });
+      if (path.endsWith('/batches/latest')) return route.fulfill({ json: batch });
+      if (path.endsWith('/batches') && route.request().method() === 'POST') {
+        preparations.push(route.request().postDataJSON());
+        batch = { id: 'batch-1', state: 'READY', version: 2, items };
+        return route.fulfill({ json: batch });
+      }
+      if (path.endsWith('/start')) {
+        starts.push(route.request().postDataJSON());
+        batch = { ...batch, state: 'ARCHIVING', version: 3, items: items.map(item => item.ready ? { ...item, stage: 'COPYING', message: 'Copying PDFs on the server.' } : item) };
+        return route.fulfill({ json: batch });
       }
       return route.fulfill({ json: [] });
     });
@@ -36,12 +41,17 @@ for (const width of [390, 1440]) {
     await expect(summary.getByText('Needs attention: 1', { exact: true })).toBeVisible();
     await expect(summary.getByText(/Google Drive could not open this PDF/)).toBeVisible();
     await expect(summary.getByRole('link', { name: 'Review response' })).toHaveAttribute('href', '/review?response=blocked-response');
-    expect(checked).toHaveLength(2); expect(queued).toHaveLength(0);
+    expect(preparations).toEqual([{ responseIds: ['response-1', 'blocked-response'] }]);
+    expect(starts).toHaveLength(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `test-results/archive-preparation-${width}.png`, fullPage: true });
     await summary.getByRole('button', { name: 'Archive 1 final' }).click();
-    await expect(summary.getByText('Queued for copying', { exact: true })).toBeVisible();
-    expect(queued).toEqual([{ responseIds: ['response-1'] }]);
+    await expect(summary.getByText('Copying PDFs on the server.', { exact: true })).toBeVisible();
+    expect(starts).toEqual([{ stateVersion: 2 }]);
+    await summary.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(summary).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'Archiving PDFs…' })).toBeDisabled();
+    expect(fixture.calls.some(call => call.path.startsWith('/file-checks'))).toBe(false);
     expect(fixture.calls.some(call => call.path.startsWith('/ai-review'))).toBe(false);
   });
 }
@@ -54,6 +64,7 @@ test('unarchive can revoke acceptance in one confirmed request while keeping his
   await page.route('**/api/archive**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith('/storage')) return route.fulfill({ json: { configured: true, ready: true } });
+    if (path.endsWith('/batches/latest')) return route.fulfill({ json: null });
     if (path.endsWith('/unarchive')) { body = route.request().postDataJSON(); active = false; return route.fulfill({ json: { ...record, lifecycleState: 'Active' } }); }
     return route.fulfill({ json: [{ ...record, lifecycleState: active ? 'Archived' : 'Active' }] });
   });
@@ -71,43 +82,55 @@ test('unarchive can revoke acceptance in one confirmed request while keeping his
   await expect(page.getByRole('button', { name: 'Open Archive sample archive details' })).toBeVisible();
 });
 
-test('archive preparation stays unavailable while stored copies are still being made', async ({ page }) => {
+test('closing, navigating and refreshing restore the same server preparation and archive job', async ({ page }) => {
   await installApiFixtures(page, { role: 'admin', submitted: true, monitoring: payload => {
     const response = payload.responses[0];
     return { ...payload, responses: [response, { ...response, id: 'response-2' }], reviewStates: Object.fromEntries(
       [response.id, 'response-2'].map(id => [id, { feedback: [], acceptance: { acceptedAt: response.updatedAt, sourceResponseUpdatedAt: response.updatedAt } }])) };
   } });
-  let stage = '', preparations = 0, releaseRead;
-  const heldRead = new Promise(resolve => { releaseRead = resolve; });
+  let batch = null, preparations = 0, starts = 0;
   const record = { id: 'copy-1', responseId: 'response-1', attemptId: 'response-1', softwareName: 'Copy sample',
     deliverableTitle: 'SRS', lifecycleState: 'Archived', files: [], history: [] };
-  await page.route('**/api/file-checks?**', route => route.fulfill({ json: { status: 'COMPLETED', document: { readable: true } } }));
   await page.route('**/api/archive**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith('/storage')) return route.fulfill({ json: { ready: true, configured: true } });
-    if (path.endsWith('/prepare')) {
+    if (path.endsWith('/batches/latest')) return route.fulfill({ json: batch });
+    if (path.endsWith('/batches') && route.request().method() === 'POST') {
       preparations++;
-      return route.fulfill({ json: [{ responseId: route.request().postDataJSON().responseIds[0], ready: true, pdfCount: 1, message: 'PDF checked.' }] });
+      batch = { id: 'saved-job', state: 'CHECKING', version: 0, items: ['response-1', 'response-2'].map(responseId => ({
+        responseId, studentName: responseId, deliverableTitle: 'SRS', stage: 'PENDING', ready: false, message: 'Waiting for PDF checks.'
+      })) };
+      return route.fulfill({ json: batch });
     }
-    if (route.request().method() === 'POST') {
-      stage = 'COPYING';
-      return route.fulfill({ json: [{ ...record, captureState: 'QUEUED' }] });
+    if (path.endsWith('/start')) {
+      starts++;
+      batch = { ...batch, state: 'ARCHIVING', version: 3, items: batch.items.map(item => ({ ...item, stage: 'COPYING', message: 'Copying PDFs on the server.' })) };
+      return route.fulfill({ json: batch });
     }
-    if (stage === 'COPYING') await heldRead;
-    return route.fulfill({ json: stage ? [{ ...record, captureState: stage }] : [] });
+    return route.fulfill({ json: batch?.state === 'ARCHIVING' ? [{ ...record, captureState: 'COPYING' }] : [] });
   });
   await page.goto('/archive');
   await page.getByRole('button', { name: 'Archive accepted finals (2)' }).click();
   const summary = page.getByRole('dialog', { name: 'Archive accepted finals', exact: true });
-  await summary.getByRole('button', { name: 'Archive 2 finals' }).click();
-  await expect(page.getByRole('button', { name: 'Archiving PDFs…' })).toBeDisabled();
-  releaseRead();
   await summary.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(summary).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Checking PDFs…' })).toBeDisabled();
+  await page.getByRole('link', { name: 'Tracker', exact: true }).click();
+  batch = { ...batch, state: 'READY', version: 2, items: batch.items.map(item => ({ ...item, stage: 'READY', ready: true, pdfCount: 1, message: 'PDFs checked against the accepted files.' })) };
+  await page.getByRole('link', { name: 'Archive', exact: true }).click();
+  await page.getByRole('button', { name: 'View archive summary' }).click();
+  await expect(summary.getByRole('button', { name: 'Archive 2 finals' })).toBeVisible();
+  await summary.getByRole('button', { name: 'Archive 2 finals' }).click();
+  await summary.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.reload();
   await expect(page.getByRole('button', { name: 'Archiving PDFs…' })).toBeDisabled();
-  expect(preparations).toBe(2);
-  stage = 'COMPLETE';
+  await page.getByRole('button', { name: 'View archive summary' }).click();
+  await expect(summary.getByText('Copying PDFs on the server.')).toHaveCount(2);
+  await summary.getByRole('button', { name: 'Close', exact: true }).click();
+  expect(preparations).toBe(1); expect(starts).toBe(1);
+  batch = { ...batch, state: 'COMPLETE', version: 4, items: batch.items.map(item => ({ ...item, stage: 'COMPLETE', message: 'PDFs preserved.' })) };
   await expect(page.getByRole('button', { name: /Archive accepted finals/ })).toBeEnabled({ timeout: 10000 });
-  expect(preparations).toBe(2);
+  expect(preparations).toBe(1); expect(starts).toBe(1);
 });
 
 for (const width of [390, 1440]) {
@@ -118,8 +141,10 @@ for (const width of [390, 1440]) {
       captureState: 'COMPLETE', storageStatus: 'Stored', files: [], history: Array.from({ length: 9 }, (_, index) => ({
         action: index % 2 ? 'ARCHIVE_REACTIVATED' : 'ARCHIVE_UNARCHIVED', occurredAt: `2026-11-02T01:0${index}:00Z`, actor: 'archive-worker'
       })) };
-    await page.route('**/api/archive**', route => route.fulfill({ json: new URL(route.request().url()).pathname.endsWith('/storage')
-      ? { ready: true, configured: true } : [record] }));
+    await page.route('**/api/archive**', route => {
+      const path = new URL(route.request().url()).pathname;
+      return route.fulfill({ json: path.endsWith('/storage') ? { ready: true, configured: true } : path.endsWith('/batches/latest') ? null : [record] });
+    });
     await page.goto('/archive');
     await page.getByRole('button', { name: 'Open History sample archive details' }).click();
     const history = page.getByRole('region', { name: 'Archive history' });

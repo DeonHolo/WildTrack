@@ -41,6 +41,7 @@ import { StatusIndicator } from '../ui.jsx';
 import { ResponseTimingSummary } from '../ResponseTimingSummary.jsx';
 import { submissionArtifactFields } from '../../lib/submissionArtifacts.js';
 import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
+import { EarlierSubmissions } from './EarlierSubmissions.jsx';
 
 export function ReviewResponseDrawer({
   opened,
@@ -123,6 +124,8 @@ export function ReviewResponseDrawer({
             )) : <Text size="sm" c="dimmed">No file or link artifacts were submitted for this response.</Text>}
           </Stack>
         </section>
+
+        <EarlierSubmissions workspaceId={response.workspaceId || state.workspaceId} responseId={response.id} fields={deliverable.fields || []} />
 
         {hasProjectContext ? (
           <section className="wt-review-detail-section" aria-labelledby="project-context-heading">

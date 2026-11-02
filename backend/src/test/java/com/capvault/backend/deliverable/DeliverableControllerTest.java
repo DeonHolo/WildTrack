@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import static com.capvault.backend.support.AuthenticatedRequest.adminSession;
 import static com.capvault.backend.support.AuthenticatedRequest.session;
 
@@ -26,7 +27,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:deliverable-controller;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DEFAULT_NULL_ORDERING=HIGH")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class DeliverableControllerTest {
@@ -36,6 +37,22 @@ class DeliverableControllerTest {
 
     @Autowired
     private DeliverableRepository repository;
+
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired private DeliverableShareLinkService shareLinks;
+    @Autowired private com.capvault.backend.auth.WildTrackSessionService sessions;
+    @Autowired private com.capvault.backend.staff.StaffRoleAssignmentRepository staffRoles;
+    private jakarta.servlet.http.Cookie persistedAdmin;
+
+    @BeforeEach void clearShareLinksAndCreateAdminSession() {
+        jdbc.update("DELETE FROM deliverable_share_links");
+        String subject = "form-admin-" + UUID.randomUUID();
+        var now = java.time.Instant.now();
+        staffRoles.saveAndFlush(new com.capvault.backend.staff.StaffRoleAssignment(UUID.randomUUID(), subject,
+            subject + "@test.invalid", com.capvault.backend.staff.StaffRole.ADMIN, true, now, now));
+        var session = sessions.create(new com.capvault.backend.auth.GoogleIdentity(subject, subject + "@test.invalid", "Admin", ""));
+        persistedAdmin = new jakarta.servlet.http.Cookie("WILDTRACK_SESSION", session.rawToken());
+    }
 
     @Test
     void createUpdateAndListDeliverables() throws Exception {
@@ -86,7 +103,7 @@ class DeliverableControllerTest {
             .andExpect(jsonPath("$.slug").value("week-9-srs"))
             .andExpect(jsonPath("$.updatedAt").isNotEmpty());
 
-        mockMvc.perform(get("/api/deliverables").with(session()))
+        mockMvc.perform(get("/api/deliverables").cookie(persistedAdmin))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].slug").value("week-9-srs"));
@@ -286,9 +303,9 @@ class DeliverableControllerTest {
     }
 
     @Test
-    void anonymousVisitorsCanReadAPublishedFormFromItsPublicUrl() throws Exception {
+    void anonymousVisitorsNeedTheSharedLinkToReadAPublishedForm() throws Exception {
         repository.deleteAll();
-        repository.save(new Deliverable(
+        var form = repository.save(new Deliverable(
             AcademicWorkspace.DEFAULT_IT_ID,
             "RFL",
             "RFL Submission",
@@ -300,6 +317,9 @@ class DeliverableControllerTest {
         ));
 
         mockMvc.perform(get("/api/public/forms/it-it332-2025-26-semester-2/rfl-submission"))
+            .andExpect(status().isNotFound());
+        var shared = shareLinks.issue(AcademicWorkspace.DEFAULT_IT_ID, form.getId());
+        mockMvc.perform(get("/api/public/forms/share/" + shared.token()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.workspace.id").value(AcademicWorkspace.DEFAULT_IT_ID.toString()))
             .andExpect(jsonPath("$.deliverable.slug").value("rfl-submission"))

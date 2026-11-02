@@ -56,6 +56,7 @@ public class ReviewFeedbackService {
             throw new org.springframework.security.access.AccessDeniedException("Staff authorization required.");
         }
         requireTeamAccess(response, subject, role, "comment on");
+        response.requireCurrent();
         events.record(response.getWorkspaceId(), responseId, subject, "FEEDBACK_SAVED",
             java.util.Map.of("role", role, "note", note, "visibility", visibility));
         Instant now = clock.instant();
@@ -80,6 +81,7 @@ public class ReviewFeedbackService {
         FormResponse response = responseRepository.findByIdForUpdate(responseId)
             .orElseThrow(() -> new IllegalArgumentException("Response not found."));
         requireTeamAccess(response, subject, role, "accept");
+        response.requireCurrent();
         events.record(response.getWorkspaceId(), responseId, subject, "RESPONSE_ACCEPTED",
             java.util.Map.of("role", role, "revision", response.getRevision()));
         canonical.recordAcceptanceIfFirst(response, subject);

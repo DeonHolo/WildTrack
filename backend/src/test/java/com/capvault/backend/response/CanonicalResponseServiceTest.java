@@ -90,6 +90,7 @@ class CanonicalResponseServiceTest {
         var legacy = new FormResponse(UUID.randomUUID(), workspaceId, deliverableId, "sub-B", "b@gmail.com",
             studentRecordId, rosterNumber, existing.getStudentName(), existing.getTeamCode(),
             "{\"driveLink\":\"https://drive.example/" + marker + "\"}", savedAt, savedAt);
+        legacy.retire(); // The migration now retains historical collisions outside the current response slot.
         return responseRepository.saveAndFlush(legacy).getId();
     }
 
@@ -130,6 +131,15 @@ class CanonicalResponseServiceTest {
         canonicalService.recordAcceptanceIfFirst(
             responseService.ownedResponse(workspaceId, deliverableId, "sub-A").orElseThrow(), "admin-sir");
         UUID responseB = saveHistoricalConflictingResponse("corrected");
+
+        assertThatThrownBy(() -> canonicalService.selectCanonical(
+            workspaceId, deliverableId, studentRecordId, responseB, "admin-sir", "Old response"))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        // An intentional replacement save retires A before B can be current.
+        var old = responseRepository.findById(responseA).orElseThrow();
+        old.retire(); responseRepository.saveAndFlush(old);
+        var replacement = responseRepository.findById(responseB).orElseThrow();
+        replacement.makeCurrent(); responseRepository.saveAndFlush(replacement);
 
         var selection = canonicalService.selectCanonical(
             workspaceId, deliverableId, studentRecordId, responseB, "admin-sir", "Student confirmed correct author");

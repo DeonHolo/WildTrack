@@ -220,6 +220,19 @@ export async function prepareArchiveResponses(workspaceId, responseIds) {
   });
 }
 
+export function getLatestArchiveBatch(workspaceId) {
+  return request(withWorkspace('/archive/batches/latest', workspaceId));
+}
+export function prepareArchiveBatch(workspaceId, responseIds) {
+  return request(withWorkspace('/archive/batches', workspaceId), { method: 'POST', body: { responseIds } });
+}
+export function startArchiveBatch(workspaceId, id, stateVersion) {
+  return request(withWorkspace(`/archive/batches/${encodeURIComponent(id)}/start`, workspaceId), { method: 'POST', body: { stateVersion } });
+}
+export function getEarlierSubmissions(workspaceId, responseId) {
+  return request(withWorkspace(`/workspace/responses/staff/${encodeURIComponent(responseId)}/earlier-submissions`, workspaceId));
+}
+
 export async function getReviewScope(workspaceId) {
   return request(withWorkspace('/workspace/responses/staff-scope', workspaceId));
 }

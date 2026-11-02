@@ -18,4 +18,5 @@ public interface ArchiveRecordRepository extends JpaRepository<ArchiveRecord, UU
     Optional<ArchiveRecord> findByIdForUpdate(UUID id);
     long countByResponseId(UUID responseId);
     boolean existsByResponseIdAndActiveTrue(UUID responseId);
+    List<ArchiveRecord> findAllByResponseIdAndActiveTrue(UUID responseId);
 }
