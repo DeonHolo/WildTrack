@@ -304,7 +304,9 @@ class GeminiInstructionAssessmentTest {
                 generations.incrementAndGet();
                 JsonNode body = json.readTree(((MockClientHttpRequest) request).getBodyAsString());
                 assertThat(body.path("systemInstruction").path("parts").get(0).path("text").asText())
-                    .isEqualTo(AiReviewInstructionProtocol.GUIDANCE);
+                    .isEqualTo(AiReviewInstructionProtocol.GUIDANCE)
+                    .contains("one continuous passage from one student PDF page", "Do not use ellipses",
+                        "select a shorter continuous passage", "keep your assessment and explanation");
                 JsonNode parts = body.path("contents").get(0).path("parts");
                 assertThat(parts.size()).isEqualTo(6);
                 assertThat(parts.get(0).path("text").asText()).startsWith("OFFICIAL TEMPLATE PDF");

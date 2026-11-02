@@ -77,14 +77,39 @@ class AiReviewInstructionEvidencePolicyTest {
         assertThat(AiReviewInstructionsWorkflow.combine(List.of(withOverview)).outcome()).isEqualTo(ReviewOutcome.ISSUES_IDENTIFIED);
     }
 
+    @Test void aShortenedRealPassageDoesNotChangeTheJudgmentAndItsContinuousSourceCanBeMatched() {
+        String source = "Persist project goals, components, staged and final mappings with their origin, diagnostic notes and readiness summaries in PostgreSQL.";
+        String shortened = "Persist project goals, components, staged and final mappings... in PostgreSQL.";
+        String explanation = "The document describes persistent storage for the project records.";
+        var unmatched = locate(CriterionAssessmentLabel.APPEARS_ADDRESSED, shortened, explanation, source);
+        var matched = locate(CriterionAssessmentLabel.APPEARS_ADDRESSED, source, explanation, source);
+        var first = unmatched.coverage().criteria().getFirst();
+        var second = matched.coverage().criteria().getFirst();
+        assertThat(first.evidenceVerification().status()).isEqualTo(QuotationStatus.NOT_LOCATED);
+        assertThat(first.evidenceVerification().providerQuotation()).isEqualTo(shortened);
+        assertThat(first.documentEvidence()).isNull();
+        assertThat(second.evidenceVerification().status()).isEqualTo(QuotationStatus.LOCATED);
+        assertThat(second.documentEvidence()).isEqualTo(source);
+        assertThat(second.location().page()).isEqualTo(4);
+        assertThat(List.of(first, second)).allSatisfy(row -> {
+            assertThat(row.assessment()).isEqualTo(CriterionAssessmentLabel.APPEARS_ADDRESSED);
+            assertThat(row.explanation()).isEqualTo(explanation);
+        });
+        assertThat(unmatched.outcome()).isEqualTo(matched.outcome()).isEqualTo(ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS);
+    }
+
     private static Result locate(CriterionAssessmentLabel label, String quotation, String explanation) {
+        return locate(label, quotation, explanation, BODY);
+    }
+
+    private static Result locate(CriterionAssessmentLabel label, String quotation, String explanation, String body) {
         var row = new CriterionAssessment("T1", "Describe permissions and recovery.", FindingSource.OFFICIAL_TEMPLATE,
             CoverageStatus.NOT_CHECKED, List.of(), List.of(), List.of(), List.of(), label, explanation, quotation,
             new EvidenceLocation(4, "Requirements"), "Permissions and recovery");
         var raw = new Result("AI assessment", List.of(), List.of(), List.of(), "Inspect the PDF", List.of(), List.of(),
             ReviewOutcome.NO_ISSUES_IN_CHECKED_AREAS, new ReviewCoverage(List.of(row), 0, 1, null, "Fixed instructions"));
-        var inspection = new PdfInspection(true, false, 4, 1, BODY.length(), BODY, "",
-            List.of(new PdfInspection.PageText(4, BODY, false)));
+        var inspection = new PdfInspection(true, false, 4, 1, body.length(), body, "",
+            List.of(new PdfInspection.PageText(4, body, false)));
         return AiReviewInstructionEvidencePolicy.locate(raw, inspection);
     }
 }

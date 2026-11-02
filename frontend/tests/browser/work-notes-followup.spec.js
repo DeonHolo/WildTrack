@@ -46,7 +46,7 @@ for (const width of [390, 1440]) {
     await expect(quote).not.toBeVisible();
     await notes.getByText('Object-oriented components per transaction', { exact: true }).click();
     await expect(quote).toBeVisible();
-    await expect(notes.getByText('Gemini supplied this text; WildTrack couldn’t locate it in the PDF.')).toBeVisible();
+    await expect(notes.getByText('WildTrack couldn’t match this quotation to the PDF text.')).toBeVisible();
     await expect(notes.getByText('Gemini cited PDF page 9. This page reference is unverified.')).toBeVisible();
     expect(await report.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
     await page.screenshot({ path: `test-results/unverified-reference-${width}.png`, animations: 'disabled' });

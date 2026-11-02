@@ -88,7 +88,7 @@ export function AiReviewReport({ report, deliverableTitle = '', pdfUrl = '', rev
           The AI did not flag concerns or items needing a manual check. This is advisory feedback, not approval.
         </Alert>
       ) : null}
-      {unverifiedCount || referenceNoteCount ? <Text size="sm" c="dimmed">Some supporting PDF text could not be located. See Review notes.</Text> : null}
+      {unverifiedCount || referenceNoteCount ? <Text size="sm" c="dimmed">Some supporting quotations are unmatched or missing. See Review notes.</Text> : null}
       {findings.length || missing.length || verificationNotes.length || checklistRows.length || report.coverage?.omittedCriteria > 0 ? (
         <section aria-label="Review checklist">
           <Text component="h3" fw={700}>Review checklist</Text>

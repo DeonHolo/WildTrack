@@ -83,7 +83,7 @@ function AssessmentRow({ row, report }) {
         ? <>Submitted PDF · page {location.page}{hasText(location.section) ? ` · ${location.section}` : ''}</>
         : row.evidenceVerification?.status === 'NOT_PROVIDED' ? 'No supporting quotation supplied by Gemini.'
           : row.evidenceVerification?.status === 'LOCATED' ? 'Submitted PDF · page not established'
-            : 'Matching PDF text was not located.'}</Text> : null}
+            : 'WildTrack couldn’t match this quotation to the PDF text.'}</Text> : null}
     </div>
   </details>;
 }
@@ -136,11 +136,11 @@ export function AiReviewVerificationLimits({ report }) {
   if (!rows.length && !legacy.length) return null;
   return <section aria-label="Supporting reference notes">
     <Group gap={4} mt="sm"><Text component="h3" fw={700}>Supporting references ({rows.length + legacy.length})</Text><AiReviewVerificationHelp /></Group>
-    <Text mt="sm">WildTrack could not locate supporting PDF text for these AI assessments. Their checklist categories reflect Gemini’s judgment, not quotation matching.</Text>
+    <Text mt="sm">These AI assessments have unmatched or missing supporting quotations. Their checklist categories reflect Gemini’s judgment.</Text>
     {rows.length ? <ul>{rows.map(row => <li key={row.key}>
       {hasText(row.evidenceVerification?.providerQuotation) ? <details className="wt-ai-review-reference-disclosure">
         <summary>{hasText(row.title) ? row.title : compactRequirement(row.requirement)}</summary>
-        <Text size="sm" mt="sm">Gemini supplied this text; WildTrack couldn’t locate it in the PDF.</Text>
+        <Text size="sm" mt="sm">WildTrack couldn’t match this quotation to the PDF text.</Text>
         <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Unverified text supplied by Gemini">
           {row.evidenceVerification.providerQuotation}
         </Text>

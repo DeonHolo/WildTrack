@@ -37,6 +37,10 @@ final class GeminiAiReviewProvider implements AiReviewProvider {
     private static final int INLINE_LIMIT = 10 * 1024 * 1024; // room for base64 + prompt under the 20 MB request limit
     private static final String GUIDANCE = """
         Write a concise first-pass review, at most 600 words total. Summary: 2-3 sentences.
+        For quotations from the STUDENT SUBMISSION, copy one continuous passage from one PDF page.
+        Do not use ellipses (..., … or […]) to shorten a quotation, paraphrase it, or join separate passages
+        or table cells. Do not add a heading, bullet or label unless it belongs to that same passage.
+        If a passage is too long, select a shorter continuous passage instead of removing words from its middle.
         Separately, documentOverview.text must briefly explain what the submitted document is for and its
         main contents in 2 short, plain-language sentences (at most 90 words). Describe the PDF, not the review
         verdict. Do not claim approval, correctness or full compliance. actualDocumentType is a short noun

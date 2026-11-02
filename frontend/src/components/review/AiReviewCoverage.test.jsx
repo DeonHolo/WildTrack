@@ -50,7 +50,7 @@ it('keeps an explicit positive assessment without a quotation and never renders 
   fireEvent.click(screen.getByText('Appears addressed (1)'));
   fireEvent.click(document.querySelector('.wt-ai-review-assessment-summary'));
   expect(screen.getByText(/The diagram shows the approval flow/)).toBeVisible();
-  expect(screen.getByText('Matching PDF text was not located.')).toBeVisible();
+  expect(screen.getByText('WildTrack couldn’t match this quotation to the PDF text.')).toBeVisible();
   expect(screen.queryByText('Invented provider quotation.')).not.toBeInTheDocument();
   expect(screen.queryByRole('blockquote', { hidden: true })).not.toBeInTheDocument();
 });
@@ -64,7 +64,8 @@ it('shows unmatched Gemini text only as a collapsed, explicitly unverified refer
   expect(quote).not.toBeVisible();
   fireEvent.click(within(notes).getByText('Describe recovery behavior'));
   expect(quote).toBeVisible();
-  expect(notes).toHaveTextContent('Gemini supplied this text; WildTrack couldn’t locate it in the PDF.');
+  expect(notes).toHaveTextContent('WildTrack couldn’t match this quotation to the PDF text.');
+  expect(notes).not.toHaveTextContent('couldn’t locate it in the PDF');
   expect(notes).toHaveTextContent('Gemini cited PDF page 9. This page reference is unverified.');
   expect(screen.getByText('Appears addressed (1)')).toBeVisible();
   expect(within(notes).queryByRole('blockquote', { name: 'Evidence excerpt' })).not.toBeInTheDocument();
@@ -131,8 +132,8 @@ it('keeps linked excerpt pages separate and does not attribute them to an unloca
   expect(content.querySelector('blockquote')).toHaveClass('wt-ai-review-passage', 'wt-ai-review-quote');
   expect(content).not.toHaveTextContent('Excerpt from submitted PDF');
   expect(content.querySelector('blockquote + cite')).toHaveTextContent('Submitted PDF · page 3 · Process');
-  expect(content.lastElementChild).toHaveTextContent('Source: Matching PDF text was not located.');
-  expect(rows[1].querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('Matching PDF text was not located.');
+  expect(content.lastElementChild).toHaveTextContent('Source: WildTrack couldn’t match this quotation to the PDF text.');
+  expect(rows[1].querySelector('.wt-ai-review-assessment-details').lastElementChild).toHaveTextContent('WildTrack couldn’t match this quotation to the PDF text.');
 });
 
 it('retains each excerpt page when the criterion and a linked concern cite different PDF pages', () => {
