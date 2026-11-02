@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { applyArtifactAiReview, runAiReview, runAiReviews, runDocumentChecks } from './reviewDeskClient.js';
+import { applyArtifactAiReview, runAiReview, runAiReviews, runDocumentChecks, syncReviewDecisionCache } from './reviewDeskClient.js';
+import { createWorkspaceResourceCache } from './workspaceResourceCache.js';
 
 const request = vi.hoisted(() => vi.fn());
 const batchRequest = vi.hoisted(() => vi.fn());
@@ -8,6 +9,21 @@ vi.mock('./api.js', async (original) => ({ ...(await original()), runDocumentChe
   runDocumentCheckBatch: batchRequest, requestAiReview: ai.start, getSavedAiReview: ai.saved,
   getCurrentSession: ai.session }));
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
+
+it('updates cached archive counts immediately after review decisions without waiting for a reload', () => {
+  const cache = createWorkspaceResourceCache({ storageKey: 'decision-cache-test' });
+  const key = JSON.stringify(['admin', 'workspace', 'archive']);
+  const otherKey = JSON.stringify(['admin', 'other-workspace', 'archive']);
+  const timestamp = '2026-11-02T04:00:00Z';
+  const snapshot = { attempts: [{ id: 'response', updatedAt: timestamp, reviewStatus: 'Received', archiveStatus: 'Not Archived', feedback: [] }], archives: [] };
+  cache.write(key, snapshot); cache.write(otherKey, snapshot);
+  syncReviewDecisionCache(cache, 'workspace', 'response', { acceptance: { acceptedAt: timestamp, sourceResponseUpdatedAt: timestamp }, feedback: [] });
+  expect(cache.read(key).attempts[0].reviewStatus).toBe('Accepted');
+  expect(cache.read(otherKey).attempts[0].reviewStatus).toBe('Received');
+  syncReviewDecisionCache(cache, 'workspace', 'response', { acceptance: null, feedback: [] });
+  expect(cache.read(key).attempts[0].reviewStatus).not.toBe('Accepted');
+  cache.clear();
+});
 
 const twoVerifiedChecks = [
   { aspect: 'Scope identifies student users', source: 'DELIVERABLE_REQUIREMENTS',

@@ -127,7 +127,7 @@ describe('sortReviewResponses', () => {
       response('received'),
       response('other', { primaryStatus: 'Late' })
     ];
-    const ascending = ['received', 'needs-review', 'accepted', 'archived', 'other'];
+    const ascending = ['accepted', 'received', 'needs-review', 'archived', 'other'];
     expect(sortIds(rows, 'decision')).toEqual(ascending);
     expect(sortIds(rows, 'decision', 'desc')).toEqual([...ascending].reverse());
   });

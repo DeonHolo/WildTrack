@@ -48,6 +48,7 @@ import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import {
   acceptResponse,
+  syncReviewDecisionCache,
   applyDocumentCheck,
   applyReviewMutation,
   emptyReviewDesk,
@@ -83,7 +84,7 @@ import {
 import { submissionArtifactFields } from '../lib/submissionArtifacts.js';
 
 export function AdviserViewPage() {
-  const { activeWorkspaceId } = useWorkspaceSession();
+  const { activeWorkspaceId, resourceCache } = useWorkspaceSession();
   const isCurrentScope = useWorkspaceScope(activeWorkspaceId);
   const { data: state, setData: setState, status: reviewStatus, error: reviewError, reload } = useWorkspaceResource(
     activeWorkspaceId,
@@ -365,6 +366,7 @@ export function AdviserViewPage() {
     try {
       const serverState = await action(selectedResponse.id);
       if (!isCurrentScope()) return;
+      syncReviewDecisionCache(resourceCache, activeWorkspaceId, selectedResponse.id, serverState);
       setState((current) => ({
         ...current,
         attempts: current.attempts.map((response) => response.id === selectedResponse.id ? applyReviewMutation(response, serverState) : response)

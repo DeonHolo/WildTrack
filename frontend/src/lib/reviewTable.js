@@ -12,7 +12,7 @@ const statusOrders = {
   aiReview: [
     'Needs attention', 'No issues', 'Retry required', 'Reviewing', 'Outdated', 'Not reviewed', 'Not applicable'
   ],
-  decision: ['Received', 'Needs Review', 'Accepted', 'Archived']
+  decision: ['Accepted', 'Received', 'Needs Review', 'Archived']
 };
 
 export function resolveReviewDeliverable(response, state, deliverable) {

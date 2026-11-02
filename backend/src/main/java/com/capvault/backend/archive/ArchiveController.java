@@ -39,6 +39,7 @@ public class ArchiveController {
     public record ArchiveRequest(@NotEmpty @jakarta.validation.constraints.Size(max=100) List<@NotNull UUID> responseIds) {
     }
     public record VersionRequest(@NotNull @jakarta.validation.constraints.PositiveOrZero Long stateVersion) { }
+    public record UnarchiveRequest(@NotNull @jakarta.validation.constraints.PositiveOrZero Long stateVersion, boolean revokeAcceptance) { }
 
     @GetMapping("/storage")
     public ArchiveService.StorageStatus storage(HttpServletRequest http) {
@@ -62,11 +63,18 @@ public class ArchiveController {
         return archiveService.archive(workspaceId, request.responseIds(), security.requireSession(http).googleSubject());
     }
 
+    @PostMapping("/prepare")
+    public List<ArchiveService.Preparation> prepare(@RequestParam UUID workspaceId,
+            @Valid @RequestBody ArchiveRequest request, HttpServletRequest http) {
+        requireAdmin(http);
+        return archiveService.prepare(workspaceId, request.responseIds(), security.requireSession(http).googleSubject());
+    }
+
     @PostMapping("/{id}/unarchive")
     public ArchiveRecordResponse unarchive(@PathVariable UUID id, @RequestParam UUID workspaceId,
-        @Valid @RequestBody VersionRequest request,HttpServletRequest http) {
+        @Valid @RequestBody UnarchiveRequest request,HttpServletRequest http) {
         requireAdmin(http);
-        return archiveService.unarchive(workspaceId,id,request.stateVersion(),security.requireSession(http).googleSubject());
+        return archiveService.unarchive(workspaceId,id,request.stateVersion(),security.requireSession(http).googleSubject(),request.revokeAcceptance());
     }
 
     @PostMapping("/{id}/retry")

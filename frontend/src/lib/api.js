@@ -214,6 +214,12 @@ export async function archiveResponses(workspaceId, responseIds) {
   });
 }
 
+export async function prepareArchiveResponses(workspaceId, responseIds) {
+  return request(withWorkspace('/archive/prepare', workspaceId), {
+    method: 'POST', body: { responseIds }
+  });
+}
+
 export async function getReviewScope(workspaceId) {
   return request(withWorkspace('/workspace/responses/staff-scope', workspaceId));
 }
@@ -807,8 +813,8 @@ export function getArchiveStorage() { return request('/archive/storage'); }
 export function retryArchiveRecord(workspaceId, id, stateVersion) {
   return request(withWorkspace(`/archive/${encodeURIComponent(id)}/retry`, workspaceId), { method: 'POST', body: { stateVersion } });
 }
-export function unarchiveRecord(workspaceId, id, stateVersion) {
-  return request(withWorkspace(`/archive/${encodeURIComponent(id)}/unarchive`, workspaceId), { method: 'POST', body: { stateVersion } });
+export function unarchiveRecord(workspaceId, id, stateVersion, revokeAcceptance = false) {
+  return request(withWorkspace(`/archive/${encodeURIComponent(id)}/unarchive`, workspaceId), { method: 'POST', body: { stateVersion, revokeAcceptance } });
 }
 export function verifyArchiveRecord(workspaceId, id) {
   return request(withWorkspace(`/archive/${encodeURIComponent(id)}/verify`, workspaceId), { method: 'POST' });
