@@ -67,6 +67,35 @@ class AccountBindingSubmissionIT {
     }
 
     @Test
+    void shorteningExistingLinksKeepsPreviouslySharedTokensWorking() throws Exception {
+        Fixture fixture = fixture("legacy-link");
+        String oldToken = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
+        jdbc.update("insert into deliverable_share_links (deliverable_id, token, created_at) values (?, ?, ?)",
+            fixture.deliverableId(), oldToken, java.sql.Timestamp.from(java.time.Instant.now()));
+        var issued = shareLinks.issue(fixture.workspaceId(), fixture.deliverableId());
+        assertThat(issued.token()).matches("[A-Za-z0-9_-]{12}");
+        assertThat(shareLinks.issue(fixture.workspaceId(), fixture.deliverableId())).isEqualTo(issued);
+        assertThat(shareLinks.pathsForWorkspace(fixture.workspaceId()).get(fixture.deliverableId())).isEqualTo(issued.path());
+        for (String token : List.of(oldToken, issued.token())) {
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/public/forms/share/" + token))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.deliverable.id").value(fixture.deliverableId().toString()))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.students").doesNotExist());
+        }
+        for (String token : List.of(issued.token().substring(0, 8), "!".repeat(12), "z".repeat(12))) {
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/public/forms/share/" + token))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        }
+        var form = deliverables.findById(fixture.deliverableId()).orElseThrow();
+        form.setStatus(DeliverableStatus.UNPUBLISHED);
+        deliverables.saveAndFlush(form);
+        for (String token : List.of(oldToken, issued.token())) {
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/public/forms/share/" + token))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        }
+    }
+
+    @Test
     void bulkAndSingleIssuanceReuseTheSameTokenConcurrently() throws Exception {
         Fixture fixture = fixture("share-bulk-concurrent");
         var start = new CountDownLatch(1);
@@ -99,9 +128,10 @@ class AccountBindingSubmissionIT {
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
             .andReturn().getResponse().getContentAsString();
         String token = mapper.readTree(issued).get("token").asText();
-        assertThat(token).matches("[0-9a-f]{64}");
+        assertThat(token).matches("[A-Za-z0-9_-]{12}");
         var form = deliverables.findById(fixture.deliverableId()).orElseThrow();
-        String sharePath = "/s/" + form.getSlug() + "/" + token;
+        String sharePath = "/s/" + com.capvault.backend.workspace.AcademicWorkspaceService.publicKeyFor(workspaces.findById(fixture.workspaceId()).orElseThrow())
+            + "/" + form.getSlug() + "/" + token;
         assertThat(mapper.readTree(issued).get("path").asText()).isEqualTo(sharePath);
         assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(issuePath).cookie(adminCookie)
             .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf()))

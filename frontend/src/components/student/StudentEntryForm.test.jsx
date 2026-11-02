@@ -8,7 +8,7 @@ const scope = vi.hoisted(() => ({ current: true }));
 vi.mock('../../lib/api.js', () => ({ connectStudentAccount: vi.fn() }));
 vi.mock('../../hooks/useWorkspaceScope.js', () => ({ useWorkspaceScope: () => () => scope.current }));
 function setup(onConnected = vi.fn()) {
-  render(<MantineProvider><MemoryRouter><StudentEntryForm email="student@example.test" onConnected={onConnected} /></MemoryRouter></MantineProvider>);
+  render(<MantineProvider env="test"><MemoryRouter><StudentEntryForm email="student@example.test" onConnected={onConnected} /></MemoryRouter></MantineProvider>);
   return onConnected;
 }
 function fill() {
@@ -45,6 +45,8 @@ describe('Student entry form', () => {
     const connected = setup(); fill();
     fireEvent.click(screen.getByRole('button', { name: 'Connect account' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Student details do not match an active class record.');
+    expect(screen.getByRole('alert')).toHaveTextContent('Compare all three fields with your class record');
+    expect(screen.getByRole('alert')).toHaveTextContent('confirm your record and class are active');
     expect(screen.getByRole('textbox', { name: 'Team Code' })).toHaveValue(' Team-7 ');
     expect(connected).not.toHaveBeenCalled();
   });
@@ -56,11 +58,21 @@ describe('Student entry form', () => {
     await waitFor(() => expect(connectStudentAccount).toHaveBeenCalledTimes(1));
     expect(connected).not.toHaveBeenCalled();
   });
+  it('explains the real matching rules through keyboard-accessible field help', async () => {
+    setup();
+    expect(screen.getByText(/Capitalization doesn’t matter/)).toBeVisible();
+    const help = screen.getByRole('button', { name: 'Student Name help' });
+    fireEvent.focus(help);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('commas, periods and initials');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Uppercase and lowercase letters both work');
+    expect(connectStudentAccount).not.toHaveBeenCalled();
+  });
   it('shows an active connection conflict without clearing the typed identity', async () => {
     connectStudentAccount.mockRejectedValue(Object.assign(new Error('This Student Number is already associated with another Google account. Ask an administrator to review the account binding.'), { status: 409 }));
     const connected=setup();fill();
     fireEvent.click(screen.getByRole('button', { name: 'Connect account' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Ask an administrator to review the account binding.');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Compare all three fields');
     expect(screen.getByRole('textbox', { name: 'Student Number' })).toHaveValue(' 20-0649-750 ');
     expect(screen.getByRole('textbox', { name: 'Team Code' })).toHaveValue(' Team-7 ');
     expect(connected).not.toHaveBeenCalled();

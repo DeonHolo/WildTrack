@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { getDeliverableShareLink } from '../lib/api.js';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 import { useWorkspaceScope } from './useWorkspaceScope.js';
+import { isDeliverableSharePath as validPath } from '../lib/deliverableSharePath.js';
 
-const validPath = path => /^\/s\/(?:[a-z0-9][a-z0-9-]*\/)?[0-9a-f]{64}$/.test(path || '');
 const FRESH_MS = 60000;
 
 export function useDeliverableShareLinks(workspaceId, deliverables) {

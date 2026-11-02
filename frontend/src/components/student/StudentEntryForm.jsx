@@ -2,6 +2,7 @@ import { Alert, Button, Container, Paper, Stack, Text, TextInput, Title } from '
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FormArtwork } from '../public/FormArtwork.jsx';
+import { InfoTooltip } from '../InfoTooltip.jsx';
 import { STUDENT_ARTWORK } from '../../lib/studentArtwork.js';
 import { connectStudentAccount } from '../../lib/api.js';
 import { useWorkspaceScope } from '../../hooks/useWorkspaceScope.js';
@@ -31,19 +32,28 @@ export function StudentEntryForm({ email, submissionPath, onConnected }) {
             <div>
               <Title order={1} className="wt-form-title">Connect your student account</Title>
               <Text mt="sm">Enter your details as they appear in your class record.</Text>
+              <Text mt="xs" size="sm" c="dimmed">Capitalization doesn’t matter. Keep the spelling, punctuation and dashes from your class record.</Text>
               <Text mt="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>{email}</Text>
             </div>
             <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
               <Stack gap="md">
                 <TextInput label="Student Number" required maxLength={80} autoComplete="off" placeholder="e.g. 20-0649-750"
+                  rightSection={<InfoTooltip ariaLabel="Student Number help" label="Use your Student Number from the class record, including its dashes. The example shows a format; your number may be different." />}
                   value={identity.studentNumber} onChange={event => setIdentity({ ...identity, studentNumber: event.currentTarget.value })} />
                 <TextInput label="Student Name" required maxLength={240} autoComplete="off" placeholder="LAST NAME, FIRST NAME M."
+                  rightSection={<InfoTooltip ariaLabel="Student Name help" label="Use the full name and name order in your class record, including commas, periods and initials. Uppercase and lowercase letters both work; extra spaces are ignored." />}
                   value={identity.studentName} onChange={event => setIdentity({ ...identity, studentName: event.currentTarget.value })} />
                 <TextInput label="Team Code" required maxLength={160} autoComplete="off" placeholder="e.g. 2627-sem1-it411-41"
+                  rightSection={<InfoTooltip ariaLabel="Team Code help" label="Use your assigned Team Code, including its dashes. This is your group’s code, not your Student Number. Uppercase and lowercase letters both work." />}
                   value={identity.teamCode} onChange={event => setIdentity({ ...identity, teamCode: event.currentTarget.value })} />
               </Stack>
             </fieldset>
-            {error ? <Alert color="red" role="alert">{error}</Alert> : null}
+            {error ? <Alert color="red" role="alert" title={error === 'Student details do not match an active class record.' ? 'Check your student details' : undefined}>
+              <Text size="sm">{error}</Text>
+              {error === 'Student details do not match an active class record.' ? <Text size="sm" mt="xs">
+                Compare all three fields with your class record, especially name order, initials and dashes. If they already match, ask your instructor to confirm your record and class are active.
+              </Text> : null}
+            </Alert> : null}
             <Button type="submit" size="md" loading={busy} disabled={Object.values(identity).some(value => !value.trim())}>Connect account</Button>
             {submissionPath ? <Button component={Link} to={submissionPath} variant="default" size="md">Return to deliverable</Button> : null}
           </Stack>

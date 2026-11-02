@@ -9,6 +9,7 @@ export async function installApiFixtures(page, {
   documentCheckPolicy = 'AUTO',
   program = 'IT',
   formStatus = 'PUBLISHED',
+  shortShareLinks = false,
   templates = [],
   monitoring = payload => payload
 } = {}) {
@@ -68,7 +69,7 @@ export async function installApiFixtures(page, {
   };
   const unexpected = [];
   const calls = [];
-  const tokenFor = item => (item.id === 'deliverable-sdd' ? 'b' : 'a').repeat(64);
+  const tokenFor = item => shortShareLinks ? (item.id === 'deliverable-sdd' ? 'SdD_4aB-8xY2' : 'SrS_7aB-9xY3') : (item.id === 'deliverable-sdd' ? 'b' : 'a').repeat(64);
   const canEnter = (token, formId = deliverable.id) => role === 'admin' || role === 'adviser' || association || deliverables.some(item => item.id === formId && token === tokenFor(item));
 
   function makeResponse(values) {
