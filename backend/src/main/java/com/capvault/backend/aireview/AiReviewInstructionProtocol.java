@@ -269,10 +269,9 @@ public final class AiReviewInstructionProtocol {
     }
 
     private static DocumentOverview overview(JsonNode value, boolean required) {
-        if (!required) {
-            if (!value.isNull()) throw invalid("Only the first group supplies a document overview.");
-            return null;
-        }
+        // The first group owns the overview. Discard a later repetition without rejecting
+        // complete instruction answers or letting it replace the first group's overview.
+        if (!required) return null;
         object(value, OVERVIEW);
         if (!value.path("wrongDocument").isBoolean()) throw invalid("Invalid document overview identity.");
         return new DocumentOverview(text(value, "text", 1, 1200), text(value, "actualDocumentType", 1, 200),

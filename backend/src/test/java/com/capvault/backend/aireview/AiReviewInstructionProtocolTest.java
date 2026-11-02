@@ -200,13 +200,16 @@ class AiReviewInstructionProtocolTest {
         assertThat(result.outcome()).isEqualTo(ReviewOutcome.ISSUES_IDENTIFIED);
     }
 
-    @Test void firstGroupRequiresOverviewAndLaterGroupsCannotDuplicateIt() {
+    @Test void firstGroupRequiresOverviewAndLaterGroupsIgnoreRedundantOverview() {
         var group = List.of(instruction("T1", Applicability.REQUIRED));
         var first = response(group, true);
         first.putNull("documentOverview");
         rejects(first, group, true);
         var later = response(group, true);
-        rejects(later, group, false);
+        ((ObjectNode) later.path("documentOverview")).put("wrongDocument", true);
+        var result = AiReviewInstructionProtocol.parse(later, template(group), group, false);
+        assertThat(result.documentOverview()).isNull();
+        assertThat(result.coverage().criteria()).hasSize(1);
         assertThat(AiReviewInstructionProtocol.parse(response(group, false), template(group), group, false).documentOverview()).isNull();
     }
 
