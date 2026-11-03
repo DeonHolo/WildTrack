@@ -62,6 +62,7 @@ public class AiReviewInstructionsWorkflow {
             validateApproval.run();
             passes.copyCompleted(job, acknowledgedRetry);
             var results = new ArrayList<Result>();
+            var quotationSource = new AiReviewQuotationSource(input.pdf(), inspection);
             int groups = Math.max(1, (template.instructions().size() + GROUP_SIZE - 1) / GROUP_SIZE);
             int requests = 0;
             long started = System.nanoTime();
@@ -73,7 +74,10 @@ public class AiReviewInstructionsWorkflow {
                     template.versionId(), template.pdfSha256(), group, index == 0))); }
                 catch (Exception failure) { throw new IllegalStateException("AI review pass fingerprint failed."); }
                 var cached = passes.completed(job, index + 1, fingerprint);
-                if (cached.isPresent()) { results.add(cached.get()); continue; }
+                if (cached.isPresent()) {
+                    results.add(AiReviewInstructionEvidencePolicy.locate(cached.get(), inspection, quotationSource));
+                    continue;
+                }
                 if (requests >= MAX_REQUESTS_PER_ATTEMPT || TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - started) >= 1200)
                     throw new GeminiAiReviewProvider.Failure("REVIEW_WORK_BUDGET");
                 validateApproval.run();
@@ -84,7 +88,7 @@ public class AiReviewInstructionsWorkflow {
                 var raw = provider.assessInstructions(new InstructionInput(authoritativeInput, template, List.copyOf(group), index == 0));
                 validateApproval.run();
                 jobs.heartbeat(job);
-                var grounded = AiReviewService.groundInstructions(raw, authoritativeInput, inspection, group);
+                var grounded = AiReviewService.groundInstructions(raw, authoritativeInput, inspection, group, quotationSource);
                 if (grounded.coverage() == null || grounded.coverage().criteria().size() != group.size())
                     throw new GeminiAiReviewProvider.Failure("INVALID_RESPONSE");
                 passes.complete(job, index + 1, fingerprint, grounded);

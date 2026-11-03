@@ -26,11 +26,15 @@ final class AiReviewQuotationLocator {
 
     static Match locate(String quotation, String document, List<PdfInspection.PageText> pages,
             AiReviewProvider.EvidenceLocation hint) {
+        var exact = exact(quotation, document, pages, hint);
+        return exact.located() ? exact : closest(quotation, pages, hint);
+    }
+
+    static Match exact(String quotation, String document, List<PdfInspection.PageText> pages,
+            AiReviewProvider.EvidenceLocation hint) {
         if (quotation == null || quotation.isBlank()) return Match.absent();
         var sourcePages = pages == null ? List.<PdfInspection.PageText>of() : pages;
-        var ordered = new ArrayList<>(sourcePages);
-        if (hint != null && hint.page() != null)
-            ordered.sort(java.util.Comparator.comparingInt(p -> p.pageNumber() == hint.page() ? 0 : 1));
+        var ordered = orderedPages(sourcePages, hint);
         for (var page : ordered) {
             var span = span(quotation, page.text());
             if (span != null) return match(page.text().substring(span.start(), span.end()), page.pageNumber(), true);
@@ -45,8 +49,37 @@ final class AiReviewQuotationLocator {
             var parts = separated(quotation, page.text(), page.pageNumber());
             if (parts.located()) return parts;
         }
-        var spanning = acrossPages(quotation, sourcePages);
-        return spanning.located() ? spanning : AiReviewApproximateQuotationLocator.locate(quotation, ordered);
+        return acrossPages(quotation, sourcePages);
+    }
+
+    private static List<PdfInspection.PageText> orderedPages(List<PdfInspection.PageText> pages,
+            AiReviewProvider.EvidenceLocation hint) {
+        var ordered = new ArrayList<>(pages);
+        if (hint != null && hint.page() != null)
+            ordered.sort(java.util.Comparator.comparingLong(p -> Math.abs((long) p.pageNumber() - hint.page())));
+        return ordered;
+    }
+
+    static Match closest(String quotation, List<PdfInspection.PageText> pages, AiReviewProvider.EvidenceLocation hint) {
+        if (quotation == null || quotation.isBlank() || pages == null || pages.isEmpty()) return Match.absent();
+        var windows = new ArrayList<List<AiReviewProvider.DocumentExcerpt>>();
+        boolean validHint = hint != null && hint.page() != null
+            && pages.stream().anyMatch(p -> p.pageNumber() == hint.page());
+        if (validHint) {
+            var counts = furnitureCounts(pages);
+            int threshold = Math.max(3, (int) Math.ceil(pages.size() * .6));
+            for (int index = 0; index + 1 < pages.size(); index++) {
+                var first = pages.get(index); var second = pages.get(index + 1);
+                if (second.pageNumber() != first.pageNumber() + 1
+                        || first.pageNumber() < hint.page() - 1 || second.pageNumber() > hint.page() + 1) continue;
+                var pieces = new ArrayList<Piece>();
+                pieces.addAll(contentPieces(first, counts, threshold));
+                pieces.addAll(contentPieces(second, counts, threshold));
+                windows.add(pieces.stream().map(p -> new AiReviewProvider.DocumentExcerpt(p.text(),
+                    new AiReviewProvider.EvidenceLocation(p.page(), null))).toList());
+            }
+        }
+        return AiReviewApproximateQuotationLocator.locate(quotation, orderedPages(pages, hint), windows);
     }
 
     static boolean continuous(String quotation, String source) {
@@ -178,11 +211,10 @@ final class AiReviewQuotationLocator {
     private static List<String> values(String text) { return atoms(text, true).stream().map(Atom::value).toList(); }
 
     private static Match acrossPages(String quotation, List<PdfInspection.PageText> pages) {
-        var counts = new HashMap<String, Integer>();
-        for (var page : pages) page.text().lines().map(String::strip).filter(s -> !s.isBlank()).limit(6)
-            .map(s -> s.toLowerCase(Locale.ROOT)).distinct().forEach(line -> counts.merge(line, 1, Integer::sum));
+        var counts = furnitureCounts(pages);
         int threshold = Math.max(3, (int) Math.ceil(pages.size() * .6));
         for (int index = 0; index + 1 < pages.size(); index++) {
+            if (pages.get(index + 1).pageNumber() != pages.get(index).pageNumber() + 1) continue;
             // Bounded two-page views keep memory proportional to page size, not PDF length.
             var pieces = new ArrayList<Piece>();
             pieces.addAll(contentPieces(pages.get(index), counts, threshold));
@@ -202,6 +234,13 @@ final class AiReviewQuotationLocator {
             if (excerpts.size() > 1) return new Match(excerpts, false);
         }
         return Match.absent();
+    }
+
+    private static HashMap<String, Integer> furnitureCounts(List<PdfInspection.PageText> pages) {
+        var counts = new HashMap<String, Integer>();
+        for (var page : pages) page.text().lines().map(String::strip).filter(s -> !s.isBlank()).limit(6)
+            .map(s -> s.toLowerCase(Locale.ROOT)).distinct().forEach(line -> counts.merge(line, 1, Integer::sum));
+        return counts;
     }
 
     private static List<Piece> contentPieces(PdfInspection.PageText page, HashMap<String, Integer> counts, int threshold) {
