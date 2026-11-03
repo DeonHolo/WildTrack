@@ -11,10 +11,14 @@ final class AiReviewInstructionEvidencePolicy {
     private AiReviewInstructionEvidencePolicy() { }
 
     static Result locate(Result raw, PdfInspection inspection) {
+        return locate(raw, inspection, new AiReviewQuotationSource(null, inspection));
+    }
+
+    static Result locate(Result raw, PdfInspection inspection, AiReviewQuotationSource source) {
         var findings = new ArrayList<Finding>();
         for (var finding : raw.findings()) {
             if (finding.source() == FindingSource.OFFICIAL_TEMPLATE) continue;
-            var match = AiReviewQuotationLocator.locate(finding.evidence(), inspection.extractedText(), inspection.pages(), finding.location());
+            var match = source.locate(finding.evidence(), finding.location());
             findings.add(new Finding(finding.issue(), finding.source(), match.continuous() ? match.excerpts().getFirst().text() : "",
                 finding.requirement(), finding.title(), finding.nextAction(), match.continuous() ? match.excerpts().getFirst().location() : null));
         }
@@ -22,12 +26,16 @@ final class AiReviewInstructionEvidencePolicy {
         var checks = new ArrayList<VerifiedCheck>();
         var rows = new ArrayList<CriterionAssessment>();
         for (var row : raw.coverage().criteria()) {
-            var match = AiReviewQuotationLocator.locate(row.documentEvidence(), inspection.extractedText(), inspection.pages(), row.location());
+            var priorReference = row.evidenceVerification();
+            String quotation = priorReference != null && priorReference.providerQuotation() != null
+                ? priorReference.providerQuotation() : row.documentEvidence();
+            var cited = priorReference != null && priorReference.citedLocation() != null ? priorReference.citedLocation() : row.location();
+            var match = source.locate(quotation, cited);
             var suppliedVisual = row.evidenceVerification() == null ? null : row.evidenceVerification().visualObservation();
             var visual = suppliedVisual == null ? null : new VisualObservation(suppliedVisual.description(), suppliedVisual.location(),
                 suppliedVisual.location() != null && suppliedVisual.location().page() != null
                     && suppliedVisual.location().page() > 0 && suppliedVisual.location().page() <= inspection.pageCount());
-            var status = row.documentEvidence() == null || row.documentEvidence().isBlank()
+            var status = quotation == null || quotation.isBlank()
                 ? visual == null ? QuotationStatus.NOT_PROVIDED : QuotationStatus.VISUAL_REFERENCE
                 : match.continuous() ? QuotationStatus.LOCATED : match.approximate() ? QuotationStatus.CLOSE_MATCH
                     : match.located() ? QuotationStatus.SEPARATE_EXCERPTS : QuotationStatus.NOT_LOCATED;
@@ -54,7 +62,7 @@ final class AiReviewInstructionEvidencePolicy {
             rows.add(new CriterionAssessment(row.id(), row.requirement(), row.source(), coverageStatus,
                 checkIndexes, findingIndexes, List.of(), noteIndexes, row.assessment(), row.explanation(), evidence,
                 location, row.title(), match.continuous() ? List.of() : match.excerpts(),
-                new EvidenceVerification(status, row.documentEvidence(), row.location(), visual)));
+                new EvidenceVerification(status, quotation, cited, visual)));
         }
         boolean attention = !findings.isEmpty() || raw.documentOverview() != null && raw.documentOverview().wrongDocument();
         ReviewOutcome outcome = attention ? ReviewOutcome.ISSUES_IDENTIFIED

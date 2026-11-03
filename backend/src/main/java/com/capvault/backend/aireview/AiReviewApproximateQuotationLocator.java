@@ -11,10 +11,37 @@ final class AiReviewApproximateQuotationLocator {
     private static final Set<String> UNITS = Set.of("second", "seconds", "minute", "minutes", "hour", "hours", "day", "days", "percent", "percentage", "ms", "mb", "gb");
     private static final Set<String> COMMON = Set.of("the", "and", "for", "that", "this", "with", "from", "shall", "will", "must", "system");
     private record Word(String text, int start, int end) { }
-    private record Candidate(String text, int page, double score) { }
+    private record Candidate(List<AiReviewProvider.DocumentExcerpt> excerpts, double score) { }
+    private record SearchText(String text, List<AiReviewProvider.DocumentExcerpt> pieces) {
+        static SearchText of(List<AiReviewProvider.DocumentExcerpt> pieces) {
+            return new SearchText(String.join("\n", pieces.stream().map(AiReviewProvider.DocumentExcerpt::text).toList()), pieces);
+        }
+        List<AiReviewProvider.DocumentExcerpt> slice(int start, int end) {
+            var result = new ArrayList<AiReviewProvider.DocumentExcerpt>();
+            int offset = 0;
+            for (var piece : pieces) {
+                int a = Math.max(0, start - offset), b = Math.min(piece.text().length(), end - offset);
+                if (a < b && !piece.text().substring(a, b).isBlank()) result.add(new AiReviewProvider.DocumentExcerpt(
+                    piece.text().substring(a, b), piece.location()));
+                offset += piece.text().length() + 1;
+            }
+            return List.copyOf(result);
+        }
+    }
     private AiReviewApproximateQuotationLocator() { }
 
     static AiReviewQuotationLocator.Match locate(String quotation, List<PdfInspection.PageText> pages) {
+        return locate(quotation, pages, List.of());
+    }
+
+    static AiReviewQuotationLocator.Match locate(String quotation, List<PdfInspection.PageText> pages,
+            List<List<AiReviewProvider.DocumentExcerpt>> windows) {
+        var views = new ArrayList<SearchText>();
+        // Check the citation and its neighbours before spending the bounded search on distant pages.
+        int nearby = Math.min(3, pages.size());
+        for (int index = 0; index < nearby; index++) views.add(pageView(pages.get(index)));
+        for (var window : windows) views.add(SearchText.of(window));
+        for (int index = nearby; index < pages.size(); index++) views.add(pageView(pages.get(index)));
         var variants = new ArrayList<String>();
         variants.add(quotation);
         // Tables often precede the actual sentence with field names. Never remove its interior words.
@@ -25,9 +52,9 @@ final class AiReviewApproximateQuotationLocator {
         for (var variant : variants) {
             var query = words(variant);
             if (query.size() < 12 || query.size() > 200) continue;
-            for (var page : pages) {
-                if (page.text() == null || page.text().length() > 100_000) continue;
-                var source = words(page.text());
+            for (var view : views) {
+                if (view.text() == null || view.text().length() > 100_000) continue;
+                var source = words(view.text());
                 var origins = new LinkedHashSet<Integer>();
                 for (int q = 0; q < query.size(); q++) {
                     String anchor = query.get(q).text();
@@ -44,7 +71,7 @@ final class AiReviewApproximateQuotationLocator {
                     if (end - start < 12) continue;
                     work += (long) query.size() * (end - start);
                     if (work > 3_000_000) return result(best, other);
-                    var candidate = candidate(query, source, start, end, page);
+                    var candidate = candidate(query, source, start, end, view);
                     if (candidate == null) continue;
                     if (best == null || candidate.score() > best.score()) {
                         if (best != null && !same(candidate, best)) other = best;
@@ -56,7 +83,12 @@ final class AiReviewApproximateQuotationLocator {
         return result(best, other);
     }
 
-    private static Candidate candidate(List<Word> q, List<Word> source, int start, int end, PdfInspection.PageText page) {
+    private static SearchText pageView(PdfInspection.PageText page) {
+        return new SearchText(page.text(), List.of(new AiReviewProvider.DocumentExcerpt(page.text(),
+            new AiReviewProvider.EvidenceLocation(page.pageNumber(), null))));
+    }
+
+    private static Candidate candidate(List<Word> q, List<Word> source, int start, int end, SearchText view) {
         var s = source.subList(start, end);
         // LCS preserves word order. Its bounded matrix is at most 201 x 207 integers.
         int[][] matrix = new int[q.size() + 1][s.size() + 1];
@@ -88,10 +120,10 @@ final class AiReviewApproximateQuotationLocator {
         // Do not clip an immediately preceding negation out of the recovered text.
         for (int before = Math.max(0, start + first - 3); before < start + first; before++)
             if (NEGATIONS.contains(source.get(before).text()) && !NEGATIONS.contains(q.getFirst().text())) return null;
-        String text = page.text().substring(passage.getFirst().start(), passage.getLast().end());
+        String text = view.text().substring(passage.getFirst().start(), passage.getLast().end());
         if (text.length() < 60 || text.length() > 1800) return null;
         double score = .6 * matches / q.size() + .4 * matches / passage.size();
-        return new Candidate(text, page.pageNumber(), score);
+        return new Candidate(view.slice(passage.getFirst().start(), passage.getLast().end()), score);
     }
 
     private static Map<String, Integer> critical(List<Word> words) {
@@ -119,11 +151,14 @@ final class AiReviewApproximateQuotationLocator {
     }
     private static boolean same(Candidate a, Candidate b) {
         // Overlapping windows for the same passage are not independent alternatives.
-        return a.page() == b.page() && (a.text().contains(b.text()) || b.text().contains(a.text()));
+        if (!a.excerpts().stream().map(e -> e.location().page()).distinct().toList()
+                .equals(b.excerpts().stream().map(e -> e.location().page()).distinct().toList())) return false;
+        String at = String.join(" ", a.excerpts().stream().map(AiReviewProvider.DocumentExcerpt::text).toList()).replaceAll("\\s+", " ");
+        String bt = String.join(" ", b.excerpts().stream().map(AiReviewProvider.DocumentExcerpt::text).toList()).replaceAll("\\s+", " ");
+        return at.contains(bt) || bt.contains(at);
     }
     private static AiReviewQuotationLocator.Match result(Candidate best, Candidate other) {
         if (best == null || other != null && best.score() - other.score() < .035) return AiReviewQuotationLocator.Match.absent();
-        return new AiReviewQuotationLocator.Match(List.of(new AiReviewProvider.DocumentExcerpt(best.text(),
-            new AiReviewProvider.EvidenceLocation(best.page(), null))), false, true);
+        return new AiReviewQuotationLocator.Match(best.excerpts(), false, true);
     }
 }

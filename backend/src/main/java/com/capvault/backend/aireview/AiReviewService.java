@@ -870,6 +870,12 @@ public class AiReviewService {
 
     static AiReviewProvider.Result groundInstructions(AiReviewProvider.Result raw, AiReviewProvider.Input input,
             PdfInspection inspection, List<com.capvault.backend.template.TemplateInstructionPreparation.Instruction> group) {
+        return groundInstructions(raw, input, inspection, group, new AiReviewQuotationSource(input.pdf(), inspection));
+    }
+
+    static AiReviewProvider.Result groundInstructions(AiReviewProvider.Result raw, AiReviewProvider.Input input,
+            PdfInspection inspection, List<com.capvault.backend.template.TemplateInstructionPreparation.Instruction> group,
+            AiReviewQuotationSource quotationSource) {
         if (raw == null || raw.coverage() == null || !raw.coverage().criteria().stream().map(AiReviewProvider.CriterionAssessment::id).toList()
                 .equals(group.stream().map(com.capvault.backend.template.TemplateInstructionPreparation.Instruction::id).toList()))
             throw invalidReview();
@@ -893,7 +899,7 @@ public class AiReviewService {
                 || !finding.requirement().isBlank() && containsNormalized(input.instructions(), finding.requirement())).toList(),
             raw.missingRequiredSections(), raw.limitations(), raw.suggestedAction(), raw.verifiedChecks(),
             raw.verificationNotes(), raw.outcome(), raw.coverage(), raw.documentOverview());
-        return AiReviewInstructionEvidencePolicy.locate(authoritySafe, inspection);
+        return AiReviewInstructionEvidencePolicy.locate(authoritySafe, inspection, quotationSource);
     }
 
 

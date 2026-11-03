@@ -45,6 +45,41 @@ class AiReviewApproximateReferenceTest {
         assertThat(result.located()).isFalse();
     }
 
+    @Test void recoversAClosePassageAcrossTheCitedPageAndItsNeighbourWithBothPageNumbers() {
+        var pages = List.of(new PdfInspection.PageText(14, "Cover and unrelated project details.", false),
+            new PdfInspection.PageText(15, "The application shall launch and display the main dashboard within", false),
+            new PdfInspection.PageText(16, "5 seconds on a device meeting the minimum system requirements.", false));
+        for (int cited : List.of(15, 16)) {
+            var result = AiReviewQuotationLocator.locate(SENTENCE.replace("meeting", "meetlng"), "", pages, new EvidenceLocation(cited, null));
+            assertThat(result.approximate()).as("cited page %s", cited).isTrue();
+            assertThat(result.continuous()).isFalse();
+            assertThat(result.excerpts()).extracting(e -> e.location().page()).containsExactly(15, 16);
+            assertThat(result.excerpts().getLast().text()).contains("meeting").doesNotContain("meetlng");
+        }
+    }
+
+    @Test void closeCrossPageSearchPreservesNegationsNumbersUnitsAndBodyText() {
+        String head = "The application shall launch and display the main dashboard within";
+        String tail = "5 seconds on a device meeting the minimum system requirements.";
+        String quote = SENTENCE.replace("meeting", "meetlng");
+        for (String changed : List.of("not " + tail, tail.replace("5", "10"), tail.replace("seconds", "minutes"),
+                "except when unauthorized staff access it, " + tail)) {
+            var result = AiReviewQuotationLocator.locate(quote, "", List.of(new PdfInspection.PageText(15, head, false),
+                new PdfInspection.PageText(16, changed, false)), new EvidenceLocation(15, null));
+            assertThat(result.located()).as(changed).isFalse();
+        }
+        var nonAdjacent = List.of(new PdfInspection.PageText(15, head, false), new PdfInspection.PageText(17, tail, false));
+        assertThat(AiReviewQuotationLocator.locate(quote, "", nonAdjacent, new EvidenceLocation(15, null)).located()).isFalse();
+    }
+
+    @Test void approximateWindowsCannotJoinDistantPagesOutsideTheCitationNeighbourhood() {
+        var pages = List.of(new PdfInspection.PageText(1, "An unrelated cited introduction.", false),
+            new PdfInspection.PageText(15, "The application shall launch and display the main dashboard within", false),
+            new PdfInspection.PageText(16, "5 seconds on a device meeting the minimum system requirements.", false));
+        assertThat(AiReviewQuotationLocator.locate(SENTENCE.replace("meeting", "meetlng"), "", pages,
+            new EvidenceLocation(1, null)).located()).isFalse();
+    }
+
     @Test void visualReferenceSurvivesGroundingAndStorageWithoutPretendingToBeAQuote() throws Exception {
         var visual = new VisualObservation("A diagram shows the frontend, API and database layers.", new EvidenceLocation(9, null), false);
         var row = new CriterionAssessment("T1", "Include an architectural block diagram.", FindingSource.OFFICIAL_TEMPLATE,
