@@ -69,6 +69,38 @@ it('keeps an AI judgment with separately located source passages and their own p
   expect(screen.queryByText('Submitted PDF · quotation unverified')).not.toBeInTheDocument();
 });
 
+it('displays a verified quotation continued across pages as one readable quote without changing the saved evidence', () => {
+  const row = criterion('APPEARS_ADDRESSED', { documentEvidence: null, location: null,
+    evidenceVerification: { status: 'SEPARATE_EXCERPTS', providerQuotation: 'The plan will be updated throughout development whenever requirements change.' },
+    documentExcerpts: [{ text: 'The plan will be updated throughout development \n \n', location: { page: 11 } },
+      { text: ' \nwhenever requirements\nchange.', location: { page: 12 } }] });
+  const before = JSON.stringify(row);
+  show({ coverage: { criteria: [row] } });
+  fireEvent.click(screen.getByText('Appears addressed (1)'));
+  fireEvent.click(document.querySelector('.wt-ai-review-assessment-summary'));
+  const quote = screen.getByRole('blockquote', { name: 'Linked evidence excerpt' });
+  expect(quote.textContent).toBe('The plan will be updated throughout development whenever requirements change.');
+  expect(screen.getByText('Submitted PDF · pages 11–12')).toBeVisible();
+  expect(document.querySelector('summary.wt-ai-review-assessment-summary')).toHaveTextContent('pp. 11–12');
+  expect(JSON.stringify(row)).toBe(before);
+});
+
+it.each([
+  ['an explicit omission', 'Users submit a document … and staff review it.', 9],
+  ['nonadjacent pages', 'Users submit a document and staff review it.', 10],
+  ['different words', 'Users submit a document but staff do not review it.', 9]
+])('keeps %s from looking like one continuous source passage', (_, providerQuotation, secondPage) => {
+  show({ coverage: { criteria: [criterion('APPEARS_ADDRESSED', { documentEvidence: null, location: null,
+    evidenceVerification: { status: 'SEPARATE_EXCERPTS', providerQuotation },
+    documentExcerpts: [{ text: 'Users submit a document', location: { page: 8 } },
+      { text: 'and staff review it.', location: { page: secondPage } }] })] } });
+  fireEvent.click(screen.getByText('Appears addressed (1)'));
+  fireEvent.click(document.querySelector('.wt-ai-review-assessment-summary'));
+  expect(screen.getAllByRole('blockquote', { name: 'Linked evidence excerpt' })).toHaveLength(2);
+  expect(screen.getByText('Submitted PDF · page 8')).toBeVisible();
+  expect(screen.getByText(`Submitted PDF · page ${secondPage}`)).toBeVisible();
+});
+
 it('restores the model positive judgment and keeps reference notes secondary for a known saved wrapper', () => {
   const report = { coverage: { criteria: [criterion('UNVERIFIED', { location: null, documentEvidence: null,
     explanation: 'The supporting quotation could not be verified. Unverified AI observation: The recovery path is described.' })] } };
