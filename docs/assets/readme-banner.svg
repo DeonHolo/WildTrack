@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="280" viewBox="0 0 1200 280" role="img" aria-labelledby="title description">
+  <title id="title">WildTrack</title>
+  <desc id="description">Capstone submissions, review and final records. Maroon and gold artwork using the WildTrack folded W mark.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1">
+      <stop stop-color="#350b19"/>
+      <stop offset="1" stop-color="#65152e"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#fff" stroke-opacity=".05"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="280" rx="20" fill="url(#background)"/>
+  <rect width="1200" height="280" rx="20" fill="url(#grid)"/>
+  <path d="M970 0H1200V280H720Z" fill="#fff" fill-opacity=".035"/>
+  <rect x="48" y="55" width="160" height="160" rx="28" fill="#fcf8f1"/>
+  <g transform="translate(48 55)">
+    <path d="M14 35 38 27 63 105 47 135Z" fill="#481020"/>
+    <path d="M47 135 73 46 89 78 69 135Z" fill="#65152e"/>
+    <path d="M73 46 94 38 115 105 98 135Z" fill="#481020"/>
+    <path d="M98 135 128 27 152 35 124 135Z" fill="#65152e"/>
+    <path d="M128 27 152 35 141 62Z" fill="#c89518"/>
+  </g>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="246" y="127" font-size="60" font-weight="700" fill="#fff">WildTrack</text>
+    <text x="249" y="170" font-size="24" fill="#f1dce3">Capstone submissions, review and final records</text>
+    <path d="M250 201H314" stroke="#e2b345" stroke-width="4" stroke-linecap="round"/>
+  </g>
+</svg>
