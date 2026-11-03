@@ -46,6 +46,17 @@ function compactRequirement(requirement) {
   return words.length > 10 ? `${words.slice(0, 10).join(' ')}…` : requirement;
 }
 
+function pageContinuation(excerpts, verification) {
+  if (verification?.status !== 'SEPARATE_EXCERPTS' || excerpts.length < 2 || !hasText(verification.providerQuotation)) return null;
+  const pages = excerpts.map(item => item.location.page);
+  if (pages.at(-1) <= pages[0] || pages.some((page, index) => index > 0 && (page < pages[index - 1] || page > pages[index - 1] + 1))) return null;
+  const text = excerpts.map(item => item.text.trim()).join(' ').replace(/\s+/gu, ' ').trim();
+  // Combine only a whole quotation split by pagination, not excerpts with omitted words.
+  const wording = value => value.normalize('NFKC').replace(/\s+/gu, ' ').trim();
+  if (wording(text) !== wording(verification.providerQuotation)) return null;
+  return { text, location: { page: pages[0] }, endPage: pages.at(-1) };
+}
+
 function AssessmentRow({ row, report }) {
   const clean = value => value.replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').trim();
   const label = clean(hasText(row.title) ? row.title : compactRequirement(row.requirement));
@@ -58,11 +69,12 @@ function AssessmentRow({ row, report }) {
   const linkedMissing = (Array.isArray(row.missingSectionIndexes) ? row.missingSectionIndexes : []).map(index => report?.missingRequiredSections?.[index])
     .filter(item => item?.source === row.source && String(item.requirement || '').trim() === String(row.requirement).trim());
   const excerpts = (Array.isArray(row.documentExcerpts) ? row.documentExcerpts : []).filter(item => hasText(item?.text) && validPage(item.location));
+  const continuation = pageContinuation(excerpts, row.evidenceVerification);
   const excerptPages = [...new Set(excerpts.map(item => item.location.page))];
   const location = validPage(row.location) ? row.location : null;
   const visual = row.evidenceVerification?.visualObservation;
   const closest = row.evidenceVerification?.status === 'CLOSE_MATCH';
-  const page = location ? `p. ${location.page}` : excerptPages.length ? `p. ${excerptPages.join(', ')}`
+  const page = location ? `p. ${location.page}` : continuation ? `pp. ${continuation.location.page}–${continuation.endPage}` : excerptPages.length ? `p. ${excerptPages.join(', ')}`
     : visual?.pageValid && validPage(visual.location) ? `p. ${visual.location.page}` : '';
   const instruction = formatTemplateInstruction(row.requirement);
   return <details className="wt-ai-review-assessment-row">
@@ -82,7 +94,8 @@ function AssessmentRow({ row, report }) {
       {linkedMissing.map((item, index) => <Text key={`missing-${index}`}>Confirm the required section: {item.section}</Text>)}
       {hasText(row.documentEvidence) ? <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Evidence excerpt">{row.documentEvidence}</Text> : null}
       {closest ? <Text fw={600} mt="sm">Closest matching text</Text> : null}
-      {excerpts.map((item, index) => <LinkedExcerpt key={`source-part-${index}`} text={item.text} location={item.location} />)}
+      {continuation ? <LinkedExcerpt {...continuation} />
+        : excerpts.map((item, index) => <LinkedExcerpt key={`source-part-${index}`} text={item.text} location={item.location} />)}
       {closest ? <Text size="sm" c="dimmed">This is the closest passage WildTrack found. It differs from Gemini’s quotation.</Text> : null}
       {hasText(visual?.description) ? <div className="wt-ai-review-visual-reference">
         <Text fw={600} mt="sm">AI visual observation{visual.pageValid && validPage(visual.location) ? ` · PDF page ${visual.location.page}` : ''}</Text>
@@ -106,11 +119,11 @@ function AssessmentExplanation({ row }) {
   </>;
 }
 
-function LinkedExcerpt({ text, location }) {
+function LinkedExcerpt({ text, location, endPage }) {
   return <div>
     <Text component="blockquote" className="wt-ai-review-passage wt-ai-review-quote" aria-label="Linked evidence excerpt">{text}</Text>
     <Text component="cite" display="block" className="wt-ai-review-reference">{validPage(location)
-      ? `Submitted PDF · page ${location.page}${hasText(location.section) ? ` · ${location.section}` : ''}`
+      ? `Submitted PDF · ${endPage ? `pages ${location.page}–${endPage}` : `page ${location.page}`}${hasText(location.section) ? ` · ${location.section}` : ''}`
       : 'Submitted PDF page not established'}</Text>
   </div>;
 }
