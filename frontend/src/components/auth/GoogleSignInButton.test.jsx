@@ -1,6 +1,6 @@
 import { MantineProvider } from '@mantine/core';
-import { act, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { disableGoogleAutoSelect, GoogleSignInButton } from './GoogleSignInButton.jsx';
 import { wildTrackTheme } from '../../app/theme.js';
 
@@ -36,6 +36,7 @@ function installGoogleIdentity(overrides = {}) {
 }
 
 describe('GoogleSignInButton', () => {
+  afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     authenticateGoogle.mockReset();
     sessionStorage.clear();
@@ -123,5 +124,39 @@ describe('GoogleSignInButton', () => {
     expect(googleIdentity.disableAutoSelect).toHaveBeenCalledTimes(1);
     expect(googleIdentity.prompt).not.toHaveBeenCalled();
     expect(googleIdentity.renderButton).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a blocked script with a fresh request and clear browser guidance', async () => {
+    renderButton({ clientId: 'test-client-id' });
+    const failedScript = document.querySelector('script[data-wildtrack-google-identity]');
+    await act(async () => failedScript.dispatchEvent(new Event('error')));
+    expect(screen.getByRole('alert')).toHaveTextContent('browser or extension settings');
+    expect(failedScript.isConnected).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Google sign-in' }));
+    const retryScript = document.querySelector('script[data-wildtrack-google-identity]');
+    expect(retryScript).not.toBe(failedScript);
+    const googleIdentity = installGoogleIdentity();
+    await act(async () => retryScript.dispatchEvent(new Event('load')));
+    expect(googleIdentity.renderButton).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('offers recovery when the browser leaves the script request hanging', async () => {
+    vi.useFakeTimers();
+    renderButton({ clientId: 'test-client-id' });
+    await act(async () => vi.advanceTimersByTime(15000));
+    expect(screen.getByRole('alert')).toHaveTextContent('Google sign-in couldn’t connect');
+    expect(document.querySelector('script[data-wildtrack-google-identity]')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Retry Google sign-in' })).toBeEnabled();
+  });
+
+  it('explains a credential-exchange network failure without exposing a raw CORS message', async () => {
+    authenticateGoogle.mockRejectedValue(new TypeError('NetworkError when attempting to fetch resource.'));
+    const googleIdentity = installGoogleIdentity();
+    renderButton({ clientId: 'test-client-id' });
+    await waitFor(() => expect(googleIdentity.initialize).toHaveBeenCalled());
+    await act(async () => googleIdentity.initialize.mock.calls[0][0].callback({ credential: 'credential' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('WildTrack couldn’t finish signing you in');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('NetworkError');
   });
 });

@@ -144,6 +144,27 @@ function mvpValidationApiFields() {
 }
 
 describe('public submission form', () => {
+  it.each([['ADMIN', 'Back to Forms', '/forms'], ['ADVISER', 'Back to my teams', '/adviser']])(
+    'opens a read-only %s preview without requesting or claiming a student record', async (role, label, target) => {
+      workspaceSession.session = { authenticated: true, email: 'staff@example.com', roles: [role] };
+      workspaceSession.account = { email: 'staff@example.com' };
+      renderForm();
+      expect(await screen.findByText('Form preview')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', target);
+      const preview = screen.getByRole('group', { name: 'Read-only form preview' });
+      expect(within(preview).getByRole('textbox', { name: /PDF Drive Link/i })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Verify student details' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Submit response|Save response changes/ })).not.toBeInTheDocument();
+      expect(api.getMyAssociation).not.toHaveBeenCalled();
+      expect(api.getDraft).not.toHaveBeenCalled();
+      expect(api.getMyResponse).not.toHaveBeenCalled();
+      expect(api.getRosterOptions).not.toHaveBeenCalled();
+      fireEvent.submit(preview.closest('form'));
+      expect(api.submitResponse).not.toHaveBeenCalled();
+      expect(api.confirmStudentAssociation).not.toHaveBeenCalled();
+      expect(api.saveDraft).not.toHaveBeenCalled();
+    }
+  );
   it('requires an independently entered number and name before loading identity details', async () => {
     renderForm('/w/workspace-it/submit/week-9-srs');
     const number = await screen.findByRole('textbox', { name: 'Student Number' });

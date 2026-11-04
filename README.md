@@ -25,7 +25,7 @@ The hosted app at [www.wildtrack.dev](https://www.wildtrack.dev) is used for sup
 | Academic data | Edit Students, Teams / Projects and Deliverables. Search as you type, sort columns and source rows, paste spreadsheet cells, undo/redo edits and export CSV or XLSX. |
 | Workspace | Import class data, manage staff access, upload official templates, approve Review checklists and configure Deadline PDF monitoring. |
 | Archive | Prepare accepted finals, preserve PDF copies, verify integrity and unarchive records. Inactive history keeps earlier archive records available. |
-| Student dashboard | View your own submissions and their status after connecting your Google account to your class record. |
+| Student dashboard | View your own submissions, Document Check, full saved AI Reviews and adviser feedback in one results window. |
 
 ### From class setup to final archive
 
@@ -41,7 +41,7 @@ flowchart LR
     G --> H[Archive PDFs]
 ```
 
-Staff choose when to run AI Review and make the acceptance decision. File checks and AI feedback remain available alongside the submission.
+Staff control AI Review access and make the acceptance decision. Students can read their own saved reports. Administrators can also enable **Run AI Review** for a deliverable; STD currently uses this setting for the validation activity.
 
 ## Document Check and AI Review
 
@@ -59,6 +59,8 @@ Neither result grades or accepts a submission. **No issues** means the AI retain
 In **Workspace → Official templates**, upload a Template PDF and select **Prepare AI drafts**. Inspect the Review checklist beside the PDF, edit it as needed, then select **Approve checklist**. Drafts can be prepared in a batch, rerun, approved or unapproved.
 
 The approved instructions stay fixed across student reviews. Editing and saving a checklist requires approval again. Template preparation and student AI Review are separate operations.
+
+On the Student dashboard, **View results** contains Document Check, AI Review and Feedback. Student runs are enabled per deliverable. A completed review, including one marked **Needs attention**, ends the student's run allowance for that deliverable and PDF field. Technical failures remain retryable; an uncertain outcome requires explicit retry confirmation. Changing the file, answer or Google account does not reset a completed allowance. Staff retain their own rerun controls.
 
 ### Assessments and supporting references
 
@@ -84,6 +86,10 @@ WildTrack counts input tokens and paces requests against a shared budget. Explic
 Students sign in with Google and connect through a shared form or the account connection page. Unconnected students enter their class details; they cannot browse a public roster or workspace directory. A Student Number already bound to another account cannot be overwritten by a new claim. Administrators can inspect conflicts and disconnect a mistaken binding so the student can connect again. Submissions and history remain.
 
 Account connection is self-declared: knowing the required class details does not independently prove identity. Shared links use random tokens, and staff access is controlled separately by role and assignments.
+
+Staff opening a shared submission link see a read-only **Form preview**, with a route back to their staff pages. Student account management and saved student AI Reviews keep cached records visible while refreshing in the background. Cached data is scoped to the signed-in account and workspace; every request still requires server authorization.
+
+If Google sign-in fails to load, select **Retry Google sign-in** after checking the connection and browser or extension blocking settings. Failed script loads clear automatically after an error or a 15-second timeout, so the next attempt can start fresh.
 
 **Workspace** accepts public Google Sheets or one Excel workbook. Download the Excel template, fill the required Student Number, Student Name and Team Code columns on the Students tab, and use the optional Teams and Projects and Deliverables tabs as needed. Preview updates before applying them. Updated workbooks retain omitted rows, blank optional values, submissions, reviews, decisions and account links. Academic data edits are saved in WildTrack without updating the source Sheet.
 

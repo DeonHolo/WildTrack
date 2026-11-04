@@ -4,11 +4,12 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspaceSession } from '../../app/WorkspaceSession.jsx';
 import { WildTrackMark } from '../layout/WildTrackMark.jsx';
 
-export function WildTrackPublicHeader({ subtitle }) {
+export function WildTrackPublicHeader({ subtitle, staffPreview = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const signInPath = `/login?${new URLSearchParams({ returnTo: location.pathname + location.search })}`;
-  const { account: activeAccount, logoutStudentAccount } = useWorkspaceSession();
+  const { account: activeAccount, logoutStudentAccount, session } = useWorkspaceSession();
+  const isAdmin = (session?.roles || []).some(role => String(role).toUpperCase() === 'ADMIN');
 
   function logout() {
     logoutStudentAccount();
@@ -26,8 +27,10 @@ export function WildTrackPublicHeader({ subtitle }) {
           </span>
         </Link>
 
-        <Group component="nav" gap="xs" wrap="wrap" justify="flex-end" aria-label="Student access">
-          <Button component={Link} to="/student" state={{ submissionPath: location.pathname }} variant="default" size="sm">Student dashboard</Button>
+        <Group component="nav" gap="xs" wrap="wrap" justify="flex-end" aria-label={staffPreview ? 'Staff access' : 'Student access'}>
+          <Button component={Link} to={staffPreview ? isAdmin ? '/forms' : '/adviser' : '/student'} state={staffPreview ? undefined : { submissionPath: location.pathname }} variant="default" size="sm">
+            {staffPreview ? isAdmin ? 'Back to Forms' : 'Back to my teams' : 'Student dashboard'}
+          </Button>
           {activeAccount ? (
             <>
               <Text className="wt-account-email" c="dimmed" size="xs">{activeAccount.email}</Text>

@@ -599,6 +599,13 @@ for (const viewport of editorViewports) {
 
     await page.goto('/s/' + 'a'.repeat(64));
     await expect(page.getByRole('heading', { level: 1, name: 'Software Requirements Specification' })).toBeVisible();
+    await expect(page.getByText('Form preview', { exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Project Summary' })).toBeDisabled();
+    await expect(page.getByRole('link', { name: 'Back to Forms' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Submit response' })).toHaveCount(0);
+    // Submit through the student journey after checking the staff preview.
+    page.apiFixture.setRole('student');
+    await page.reload();
     await page.getByRole('textbox', { name: 'Project Summary' }).fill('Browser round trip');
     await page.getByRole('textbox', { name: 'PDF Drive Link' }).fill('https://drive.google.com/file/d/ticket12-browser-pdf/view');
     await page.getByRole('button', { name: 'Submit response' }).click();

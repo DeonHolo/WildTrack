@@ -42,7 +42,7 @@ import {
   saveSubmissionDraft
 } from '../lib/submissionClient.js';
 
-function FormUnavailable({ deliverable }) {
+function FormUnavailable({ deliverable, returnPath = '/student', returnLabel = 'Open student dashboard' }) {
   return (
     <Paper className="wt-form-surface" radius="md" p={{ base: 'lg', sm: 'xl' }}>
       <Center mih={300}>
@@ -56,7 +56,7 @@ function FormUnavailable({ deliverable }) {
               ? 'This deliverable is not accepting new responses right now. Previous responses remain recorded.'
               : 'Ask your instructor for the current deliverable link. This link is unavailable or your account cannot open it.'}
           </Text>
-          <Button component={Link} to="/student" variant="default">Open student dashboard</Button>
+          <Button component={Link} to={returnPath} variant="default">{returnLabel}</Button>
         </Stack>
       </Center>
     </Paper>
@@ -99,6 +99,8 @@ export function PublicSubmissionPage() {
     activeWorkspaceId: selectedWorkspaceId,
     refreshSession
   } = useWorkspaceSession();
+  const roles = session?.authenticated ? (session.roles || []).map(role => String(role).toUpperCase()) : [];
+  const staffPreview = roles.includes('ADMIN') || roles.includes('ADVISER');
   const activeWorkspaceKey = getWorkspacePublicKey(activeWorkspace);
   const targetWorkspaceKey = shareToken ? '' : workspaceKey || activeWorkspaceKey;
   const formKey = JSON.stringify([shareToken || targetWorkspaceKey, slug || '', session?.googleSubject || activeAccount?.email || '']);
@@ -127,8 +129,8 @@ export function PublicSubmissionPage() {
   const [serverAssociation, setServerAssociation] = useState(null);
   const [myServerResponse, setMyServerResponse] = useState(null);
   const ownedResponse = myServerResponse;
-  const hydrationKey = JSON.stringify([activeAccount?.email, session?.googleSubject, session?.authenticated, activeWorkspaceId, formKey, deliverable?.id]);
-  const editScopeKey = JSON.stringify([activeAccount?.email, session?.googleSubject, session?.authenticated, formKey]);
+  const hydrationKey = JSON.stringify([activeAccount?.email, session?.googleSubject, session?.authenticated, staffPreview, activeWorkspaceId, formKey, deliverable?.id]);
+  const editScopeKey = JSON.stringify([activeAccount?.email, session?.googleSubject, session?.authenticated, staffPreview, formKey]);
   const editScope = useRef('');
   const editedFields = useRef(new Set());
   const identityEdited = useRef(false);
@@ -137,7 +139,7 @@ export function PublicSubmissionPage() {
   const [valuesEdited, setValuesEdited] = useState(false);
   const [deniedAccess, setDeniedAccess] = useState(null);
   const accessDenied = deniedAccess?.key === hydrationKey;
-  const privateReady = hydration.key === hydrationKey && hydration.status === 'ready'
+  const privateReady = !staffPreview && hydration.key === hydrationKey && hydration.status === 'ready'
     && activeWorkspaceId === publicFormPayload?.workspace?.id && !accessDenied
     && publicResult?.status === 'ready';
   const requiresPdf = Boolean(deliverable?.fields?.some((field) => field.pdfRequired));
@@ -202,7 +204,7 @@ export function PublicSubmissionPage() {
   useEffect(() => {
     let cancelled = false;
     const targetWorkspaceId = publicFormPayload?.workspace?.id;
-    if (!session?.authenticated || !activeWorkspaceId || activeWorkspaceId !== targetWorkspaceId || !deliverable?.id) {
+    if (staffPreview || !session?.authenticated || !activeWorkspaceId || activeWorkspaceId !== targetWorkspaceId || !deliverable?.id) {
       setServerAssociation(null);
       setMyServerResponse(null);
       return () => { cancelled = true; };
@@ -277,7 +279,7 @@ export function PublicSubmissionPage() {
   }, [activeWorkspaceId, deliverable?.id, privateReady, valuesEdited, submitting, result, student, values]);
 
   function updateField(id, value) {
-    if (!activeAccount || accessDenied || submitting) return;
+    if (staffPreview || !activeAccount || accessDenied || submitting) return;
     editedFields.current.add(id);
     setValuesEdited(true);
     setValues((current) => ({ ...current, [id]: value }));
@@ -285,7 +287,7 @@ export function PublicSubmissionPage() {
   }
 
   function updateIdentity(nextIdentity) {
-    if (!activeAccount || accessDenied || submitting) return;
+    if (staffPreview || !activeAccount || accessDenied || submitting) return;
     identityEdited.current = true;
     setIdentity(nextIdentity);
     setIdentityErrors({});
@@ -293,7 +295,7 @@ export function PublicSubmissionPage() {
   }
 
   async function verifyStudent() {
-    if (verifying || !deliverable?.id) return;
+    if (staffPreview || verifying || !deliverable?.id) return;
     const scope = privateScope.current;
     setFormError('');
     setVerifying(true);
@@ -390,7 +392,7 @@ export function PublicSubmissionPage() {
 
   return (
     <main className="wt-public-root">
-      <WildTrackPublicHeader subtitle={publicFormPayload?.workspace?.name || activeWorkspace?.name || 'WildTrack'} />
+      <WildTrackPublicHeader subtitle={publicFormPayload?.workspace?.name || activeWorkspace?.name || 'WildTrack'} staffPreview={staffPreview} />
       <Container component="section" size="sm" py={{ base: 'lg', sm: 'xl' }} aria-busy={fetchingPublicForm}>
         {fetchingPublicForm ? null : publicError ? (
           <WorkspaceError message={publicError} onRetry={() => setRetry(value => value + 1)} />
@@ -401,8 +403,9 @@ export function PublicSubmissionPage() {
               : <><Alert color="red" role="alert">{deniedAccess.message}</Alert><Button onClick={retryPrivateState}>Retry access</Button></>}
           </Stack></Paper>
         ) : !deliverable || deliverable.status === 'Unpublished' ? (
-          <FormUnavailable deliverable={deliverable} />
-        ) : result ? (
+          <FormUnavailable deliverable={deliverable} returnPath={staffPreview ? roles.includes('ADMIN') ? '/forms' : '/adviser' : '/student'}
+            returnLabel={staffPreview ? roles.includes('ADMIN') ? 'Back to Forms' : 'Back to my teams' : 'Open student dashboard'} />
+        ) : result && !staffPreview ? (
           <SubmissionResult result={result} identity={identity} onEdit={() => setResult(null)} />
         ) : (
           <Stack gap="md">
@@ -421,14 +424,24 @@ export function PublicSubmissionPage() {
                         <Text size="sm">{requiresPdf ? 'PDF Drive link required' : 'Submission links required'}</Text>
                       </Group>
                     </Group>
-                    {activeAccount && ownedResponse ? (
+                    {!staffPreview && activeAccount && ownedResponse ? (
                       <Alert color="blue" variant="light">
                         You can edit your previous submission below. When you're done, select Save response changes.
                       </Alert>
                     ) : null}
                   </Stack>
 
-                  {!activeAccount ? (sessionStatus === 'loading' ? null : (
+                  {staffPreview ? (
+                    <>
+                      <Alert color="blue" title="Form preview">You’re viewing the student form. Open it with a student account to submit a response.</Alert>
+                      <Divider />
+                      <fieldset disabled style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }} aria-label="Read-only form preview">
+                        <SubmissionFields fields={deliverable.fields} values={{}} errors={{}} onValueChange={() => {}}
+                          students={[]} identity={{ studentNumber: '', studentName: '', teamCode: '' }} identityErrors={{}}
+                          onIdentityChange={() => {}} activeAccount={null} disabled />
+                      </fieldset>
+                    </>
+                  ) : !activeAccount ? (sessionStatus === 'loading' ? null : (
                     <>
                       <Divider />
                       <GoogleIdentityAccess

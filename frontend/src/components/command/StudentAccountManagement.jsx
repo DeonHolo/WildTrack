@@ -1,26 +1,36 @@
 import { Alert, Button, Group, Modal, Paper, Radio, ScrollArea, Stack, Text, TextInput, Title } from '@mantine/core';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useWorkspaceResource } from '../../hooks/useWorkspaceResource.js';
+import { useWorkspaceScope } from '../../hooks/useWorkspaceScope.js';
 import {
   disconnectStudentAccountBinding,
   getStudentAccountBindings,
   recoverStudentAccountBinding
 } from '../../lib/api.js';
 
+const emptyBindings = () => ({ accounts: [] });
+
 export function StudentAccountManagement({ workspaceId, opened, onClose, onChanged }) {
-  const [state, setState] = useState({ status: 'idle', data: null, error: '' });
+  // Mounted with Today's work, so the first open can use its account-scoped snapshot.
+  const { data, status, error: loadError, reload } = useWorkspaceResource(workspaceId,
+    getStudentAccountBindings, emptyBindings, 'student-account-bindings');
+  const isCurrentScope = useWorkspaceScope(workspaceId);
+  const [mutationError, setMutationError] = useState('');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState({});
   const [savingKey, setSavingKey] = useState('');
+  const saving = useRef(false);
+
+  useLayoutEffect(() => {
+    setMutationError(''); setQuery(''); setSelected({}); setSavingKey(''); saving.current = false;
+  }, [isCurrentScope]);
 
   useEffect(() => {
     if (!opened || !workspaceId) return;
-    let active = true;
-    setState(current => ({ ...current, status: 'loading', error: '' }));
-    getStudentAccountBindings(workspaceId)
-      .then(data => { if (active) setState({ status: 'ready', data, error: '' }); })
-      .catch(error => { if (active) setState({ status: 'error', data: null, error: error?.message || 'Account bindings could not be loaded.' }); });
-    return () => { active = false; };
-  }, [opened, workspaceId]);
+    reload({ background: true, force: false });
+  }, [opened, workspaceId, reload]);
+
+  const state = { data, status, error: mutationError || loadError };
 
   const accounts = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -30,48 +40,43 @@ export function StudentAccountManagement({ workspaceId, opened, onClose, onChang
     ].some(value => String(value || '').toLowerCase().includes(needle)));
   }, [query, state.data]);
 
-  async function reload() {
-    try {
-      const data = await getStudentAccountBindings(workspaceId);
-      setState({ status: 'ready', data, error: '' });
-      return data;
-    } catch (error) {
-      setState(current => ({ ...current, status: 'error', error: error?.message || 'Account bindings could not be loaded.' }));
-      return null;
-    }
-  }
-
   async function disconnect(account) {
     const key = `${account.studentRecordId}:disconnect`;
-    if (savingKey) return;
+    if (saving.current || !isCurrentScope()) return;
+    saving.current = true;
     setSavingKey(key);
-    setState(current => ({ ...current, error: '' }));
+    setMutationError('');
     try {
       await disconnectStudentAccountBinding(workspaceId, account.studentRecordId);
+      if (!isCurrentScope()) return;
       await reload();
+      if (!isCurrentScope()) return;
       onChanged?.();
     } catch (error) {
-      setState(current => ({ ...current, error: error?.message || 'The account binding could not be disconnected.' }));
+      if (isCurrentScope()) setMutationError(error?.message || 'The account binding could not be disconnected.');
     } finally {
-      setSavingKey('');
+      if (isCurrentScope()) { saving.current = false; setSavingKey(''); }
     }
   }
 
   async function recover(account) {
     const confirmedSubject = selected[account.studentRecordId];
-    if (!confirmedSubject || savingKey) return;
+    if (!confirmedSubject || saving.current || !isCurrentScope()) return;
+    saving.current = true;
     const key = `${account.studentRecordId}:recover`;
     setSavingKey(key);
-    setState(current => ({ ...current, error: '' }));
+    setMutationError('');
     try {
       await recoverStudentAccountBinding(workspaceId, account.studentRecordId, confirmedSubject);
+      if (!isCurrentScope()) return;
       setSelected(current => ({ ...current, [account.studentRecordId]: '' }));
       await reload();
+      if (!isCurrentScope()) return;
       onChanged?.();
     } catch (error) {
-      setState(current => ({ ...current, error: error?.message || 'The account binding could not be recovered.' }));
+      if (isCurrentScope()) setMutationError(error?.message || 'The account binding could not be recovered.');
     } finally {
-      setSavingKey('');
+      if (isCurrentScope()) { saving.current = false; setSavingKey(''); }
     }
   }
 
@@ -85,7 +90,7 @@ export function StudentAccountManagement({ workspaceId, opened, onClose, onChang
           Disconnect an account to let a student connect again using their details. You can also select a previously recorded account. Existing submissions and audit records are retained.
         </Text>
         <TextInput value={query} onChange={event => setQuery(event.currentTarget.value)} placeholder="Search student, team, or account" aria-label="Search student account bindings" />
-        {state.error ? <Alert color="red" role="alert">{state.error}<Button variant="subtle" size="xs" onClick={reload}>Retry</Button></Alert> : null}
+        {state.error ? <Alert color="red" role="alert">{state.error}<Button variant="subtle" size="xs" onClick={() => { setMutationError(''); reload(); }}>Retry</Button></Alert> : null}
         {state.status === 'loading' ? <Text c="dimmed">Loading account bindings…</Text> : null}
         {state.status === 'ready' && !accounts.length ? <Text c="dimmed">No matching student account records.</Text> : null}
         {accounts.map(account => {
@@ -104,7 +109,7 @@ export function StudentAccountManagement({ workspaceId, opened, onClose, onChang
                 {account.status === 'BOUND' ? (
                   <Group justify="space-between" wrap="wrap">
                     <Text size="sm">{account.googleEmail || 'Recorded Google account'}</Text>
-                    <Button color="red" variant="light" size="xs" loading={savingKey === `${account.studentRecordId}:disconnect`} onClick={() => disconnect(account)}>
+                    <Button color="red" variant="light" size="xs" disabled={Boolean(savingKey)} loading={savingKey === `${account.studentRecordId}:disconnect`} onClick={() => disconnect(account)}>
                       Disconnect account
                     </Button>
                   </Group>
@@ -123,12 +128,12 @@ export function StudentAccountManagement({ workspaceId, opened, onClose, onChang
                         ))}
                       </Stack>
                     </Radio.Group>
-                    <Button size="xs" variant="light" disabled={!selected[account.studentRecordId]}
+                    <Button size="xs" variant="light" disabled={!selected[account.studentRecordId] || Boolean(savingKey)}
                       loading={savingKey === `${account.studentRecordId}:recover`} onClick={() => recover(account)}>
                       Recover selected account
                     </Button>
                   </Stack>
-                ) : <Text size="sm" c="dimmed">This Student Number will bind when its first valid submission is saved.</Text>}
+                ) : <Text size="sm" c="dimmed">The student can connect an account using their class details.</Text>}
               </Stack>
             </Paper>
           );

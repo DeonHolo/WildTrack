@@ -348,6 +348,12 @@ export async function installApiFixtures(page, {
       fileChecksByField: checkedPdf && response ? { [response.id]: { 'field-document-pdf': checkedReport } } : {}
     });
     if (path === '/monitoring' && method === 'GET') return reply(monitoring({ students: [student], projects, trackerColumns: columns, trackerRows: rows, deliverables, responses, reviewStates: Object.fromEntries(responses.map(item => [item.id, { feedback: [], acceptance: null }])), fileChecks: {}, teamCodes: [student.teamCode], allTeams: role === 'admin' }));
+    if (path === '/workspace/students/account-bindings' && method === 'GET') {
+      if (role !== 'admin') return reply({ message: 'Admin authorization required.' }, 403);
+      return reply({ accounts: [{ studentRecordId: student.id, studentNumber: student.studentNumber,
+        studentName: student.studentName, teamCode: student.teamCode, status: 'BOUND',
+        googleEmail: identity.email, candidates: [] }] });
+    }
     const collections = { '/templates/checklists': [], '/students': [student], '/projects': projects, '/tracker/columns': columns, '/tracker/rows': rows, '/deliverables': deliverables, '/templates': templates, '/workspace/responses/my-team': responses,
       '/workspace/students/identity-conflicts': [], '/workspace/staff': [],
       '/workspace/sources': ['TEAM_FORMATION', 'TRACKER', 'PROJECT_MONITOR'].map((sourceType) => ({ sourceType, status: 'IMPORTED', displayName: sourceType, sheetUrl: 'https://docs.google.com/spreadsheets/d/browser-sheet/edit' })) };
@@ -364,5 +370,11 @@ export async function installApiFixtures(page, {
     unexpected.push(`${method} ${path}`);
     return reply({ error: `Unexpected fixture request: ${method} ${path}` }, 501);
   });
-  return { calls, association: () => association, assertRequestsHandled: () => expect(unexpected).toEqual([]) };
+  return { calls, association: () => association,
+    setRole(nextRole) {
+      role = nextRole;
+      identity.roles = role === 'admin' ? ['ADMIN'] : role === 'adviser' ? ['ADVISER'] : [];
+      identity.authenticated = role !== 'anonymous';
+    },
+    assertRequestsHandled: () => expect(unexpected).toEqual([]) };
 }
