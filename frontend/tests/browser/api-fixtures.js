@@ -69,6 +69,7 @@ export async function installApiFixtures(page, {
   };
   const unexpected = [];
   const calls = [];
+  const studentAiReviewSettings = new Map();
   const tokenFor = item => shortShareLinks ? (item.id === 'deliverable-sdd' ? 'SdD_4aB-8xY2' : 'SrS_7aB-9xY3') : (item.id === 'deliverable-sdd' ? 'b' : 'a').repeat(64);
   const canEnter = (token, formId = deliverable.id) => role === 'admin' || role === 'adviser' || association || deliverables.some(item => item.id === formId && token === tokenFor(item));
 
@@ -86,6 +87,12 @@ export async function installApiFixtures(page, {
     calls.push({ method, path, workspaceId: url.searchParams.get('workspaceId'), body: request.postDataJSON() });
     const reply = (json, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
     if (method === 'GET' && path === '/auth/session') return reply(identity);
+    if (/^\/deliverables\/[^/]+\/student-ai-review$/.test(path)) {
+      expect(role).toBe('admin');
+      expect(url.searchParams.get('workspaceId')).toBe(workspace.id);
+      if (method === 'PUT') studentAiReviewSettings.set(path, Boolean(request.postDataJSON().enabled));
+      return reply({ enabled: studentAiReviewSettings.get(path) || false });
+    }
     if (method === 'GET' && path === '/ai-reviews/batches/latest') {
       expect(role).toBe('admin');
       expect(url.searchParams.get('workspaceId')).toBe(workspace.id);

@@ -28,7 +28,7 @@ import {
   submissionSubstanceStatus
 } from '../lib/workflow.js';
 import { emptyStudentDashboardState, loadStudentDashboard } from '../lib/studentDashboardClient.js';
-import { submissionArtifactFields } from '../lib/submissionArtifacts.js';
+import { savedRetiredArtifactFields, submissionArtifactFields } from '../lib/submissionArtifacts.js';
 import { isDeliverableSharePath } from '../lib/deliverableSharePath.js';
 
 export function StudentStatusPage() {
@@ -421,7 +421,7 @@ function artifactNeedsAttention(artifact) {
 }
 
 function buildStudentArtifacts(deliverable, response) {
-  return submissionArtifactFields(deliverable.fields || []).map((field) => {
+  const active = submissionArtifactFields(deliverable.fields || []).map((field) => {
     const value = String(response.values?.[field.id] || '').trim();
     if (!value) return null;
     const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
@@ -438,6 +438,12 @@ function buildStudentArtifacts(deliverable, response) {
       documentCheckStatus: reviewablePdf ? artifactDocumentCheckStatus(response, field) : 'Not applicable'
     };
   }).filter(Boolean);
+  const retired = savedRetiredArtifactFields(deliverable, response).map(field => ({
+    key: field.definitionId || field.id, fieldId: null, label: field.label || 'Earlier submitted link',
+    value: String(response.values[field.id]).trim(), typeLabel: 'Earlier form field',
+    isLink: true, retired: true, drivePdf: false, reviewablePdf: false
+  }));
+  return [...active, ...retired];
 }
 
 function submissionFieldTypeLabel(field) {

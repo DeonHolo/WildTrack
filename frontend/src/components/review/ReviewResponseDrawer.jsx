@@ -39,7 +39,7 @@ import {
 } from '../../lib/workflow.js';
 import { StatusIndicator } from '../ui.jsx';
 import { ResponseTimingSummary } from '../ResponseTimingSummary.jsx';
-import { submissionArtifactFields } from '../../lib/submissionArtifacts.js';
+import { savedRetiredArtifactFields, submissionArtifactFields } from '../../lib/submissionArtifacts.js';
 import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
 import { EarlierSubmissions } from './EarlierSubmissions.jsx';
 
@@ -72,6 +72,7 @@ export function ReviewResponseDrawer({
   const accepted = response.reviewStatus === 'Accepted';
   const archived = response.archiveStatus === 'Archived';
   const fields = submissionArtifactFields(deliverable.fields || []);
+  const earlierFields = savedRetiredArtifactFields(deliverable, response);
 
   return (
     <Drawer
@@ -122,6 +123,17 @@ export function ReviewResponseDrawer({
                 onAiReview={() => onAiReview?.(field)}
               />
             )) : <Text size="sm" c="dimmed">No file or link artifacts were submitted for this response.</Text>}
+            {earlierFields.length ? <>
+              <Text fw={700} size="sm">Earlier form fields</Text>
+              <Text size="xs" c="dimmed">These links were saved before the form's file fields changed.</Text>
+              {earlierFields.map(field => <Paper key={field.id} withBorder p="md" radius="md">
+                <Group justify="space-between" wrap="wrap">
+                  <Text size="sm" fw={700}>{field.label}</Text>
+                  <Button component="a" href={makeDriveViewUrl(response.values[field.id])} target="_blank" rel="noreferrer"
+                    variant="default" size="xs" leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>Open submitted link</Button>
+                </Group>
+              </Paper>)}
+            </> : null}
           </Stack>
         </section>
 

@@ -790,6 +790,23 @@ export async function saveStaffDirectory(payload) {
 }
 
 export function getAiReviewStatus() { return request('/ai-reviews/status'); }
+export function getStudentAiReview(workspaceId, responseId, fieldId = null) {
+  const query = fieldId ? `?fieldId=${encodeURIComponent(fieldId)}` : '';
+  return request(withWorkspace(`/student-ai-reviews/${encodeURIComponent(responseId)}${query}`, workspaceId));
+}
+export function requestStudentAiReview(workspaceId, responseId, fieldId = null, retryAcknowledged = false, retryToken = null) {
+  return request(withWorkspace(`/student-ai-reviews/${encodeURIComponent(responseId)}`, workspaceId), {
+    method: 'POST', body: { fieldId, retryAcknowledged, retryToken }
+  });
+}
+export function getStudentAiReviewSetting(workspaceId, deliverableId) {
+  return request(withWorkspace(`/deliverables/${encodeURIComponent(deliverableId)}/student-ai-review`, workspaceId));
+}
+export function saveStudentAiReviewSetting(workspaceId, deliverableId, enabled) {
+  return request(withWorkspace(`/deliverables/${encodeURIComponent(deliverableId)}/student-ai-review`, workspaceId), {
+    method: 'PUT', body: { enabled }
+  });
+}
 export function prepareAiReviewBatch(workspaceId, targets) {
   return request(withWorkspace('/ai-reviews/batches', workspaceId), { method: 'POST', body: { targets } });
 }

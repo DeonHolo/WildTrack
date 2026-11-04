@@ -15,7 +15,11 @@ const session = vi.hoisted(() => ({
 
 const formsClient = vi.hoisted(() => ({ loadFormsState: vi.fn() }));
 const submissionClient = vi.hoisted(() => ({ saveDeliverable: vi.fn() }));
-vi.mock('../lib/api.js', async original => ({ ...(await original()), getDeliverableShareLink: vi.fn().mockResolvedValue({ path: '/s/' + 'a'.repeat(64) }) }));
+vi.mock('../lib/api.js', async original => ({ ...(await original()),
+  getDeliverableShareLink: vi.fn().mockResolvedValue({ path: '/s/' + 'a'.repeat(64) }),
+  getStudentAiReviewSetting: vi.fn().mockResolvedValue({ enabled: false }),
+  saveStudentAiReviewSetting: vi.fn().mockImplementation(async (_workspace, _id, enabled) => ({ enabled }))
+}));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({ useWorkspaceSession: () => session }));
 vi.mock('../lib/formsClient.js', async (importOriginal) => {

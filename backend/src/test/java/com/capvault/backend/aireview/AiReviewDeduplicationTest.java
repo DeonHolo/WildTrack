@@ -24,6 +24,9 @@ import com.capvault.backend.filecheck.*;
 import com.capvault.backend.response.*;
 import com.capvault.backend.staff.*;
 import com.capvault.backend.template.DocumentTemplateService;
+import com.capvault.backend.student.StudentAssociationService;
+import com.capvault.backend.workspace.AcademicWorkspace;
+import com.capvault.backend.workspace.AcademicWorkspaceRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,6 +58,9 @@ class AiReviewDeduplicationTest {
     private final ReviewFeedbackService access = mock(ReviewFeedbackService.class);
     private final StaffAccessResolver roles = mock(StaffAccessResolver.class);
     private final AiReviewProvider provider = mock(AiReviewProvider.class);
+    private final StudentAssociationService associations = mock(StudentAssociationService.class);
+    private final AcademicWorkspaceRepository workspaces = mock(AcademicWorkspaceRepository.class);
+    private StudentAiReviewRuns studentRuns;
     private final Map<String, byte[]> files = new java.util.concurrent.ConcurrentHashMap<>();
     private JdbcTemplate jdbc;
     private DriverManagerDataSource datasource;
@@ -87,10 +93,12 @@ class AiReviewDeduplicationTest {
             """);
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V37__ai_review_source_verification_time.sql"),
             new ClassPathResource("db/migration/V39__durable_ai_review_failure_diagnostics.sql"),
-            new ClassPathResource("db/migration/V42__ai_review_instruction_passes.sql")).execute(datasource);
+            new ClassPathResource("db/migration/V42__ai_review_instruction_passes.sql"),
+            new ClassPathResource("db/migration/V51__student_ai_review_access.sql")).execute(datasource);
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", workspace);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", deliverableId);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(datasource), Clock.systemUTC());
+        studentRuns = new StudentAiReviewRuns(jdbc, Clock.systemUTC());
         service = newService(store);
         deliverable = new Deliverable(workspace, "SRS", "Requirements", "srs", "Check requirements", LocalDateTime.now(), true, DeliverableStatus.PUBLISHED);
         ReflectionTestUtils.setField(deliverable, "id", deliverableId);
@@ -114,8 +122,12 @@ class AiReviewDeduplicationTest {
         return newService(storage, Runnable::run);
     }
     private AiReviewService newService(AiReviewStore storage, java.util.concurrent.Executor executor) {
-        return new AiReviewService(provider, storage, responses, deliverables, fields, templates, drive,
+        var instance = new AiReviewService(provider, storage, responses, deliverables, fields, templates, drive,
             new GoogleDriveProperties(true, "", 25_000_000), pdf, access, roles, new ObjectMapper(), executor);
+        ReflectionTestUtils.setField(instance, "studentRuns", studentRuns);
+        ReflectionTestUtils.setField(instance, "studentAssociations", associations);
+        ReflectionTestUtils.setField(instance, "studentWorkspaces", workspaces);
+        return instance;
     }
     private FormResponse response(String fileId, String team) {
         var response = new FormResponse(UUID.randomUUID(), workspace, deliverableId, fileId, fileId + "@example.com", UUID.randomUUID(), fileId,
@@ -126,6 +138,92 @@ class AiReviewDeduplicationTest {
         return response;
     }
     private AiReviewService.View run(FormResponse response) { return service.review(workspace, response.getId(), "admin", false); }
+
+    private void enableStudent(FormResponse response) {
+        when(workspaces.findById(workspace)).thenReturn(Optional.of(new AcademicWorkspace("Validation", "IT", "IT411", "2", "2026-27", true)));
+        when(associations.activeAssociation(workspace, response.getGoogleSubject())).thenReturn(Optional.of(
+            new StudentAssociationService.AssociationView(UUID.randomUUID(), workspace, "student@example.com", UUID.randomUUID(),
+                response.getStudentNumber(), "Student", response.getTeamCode(), "SELF_DECLARED")));
+        studentRuns.configure(workspace, deliverableId, true);
+    }
+
+    @Test void studentReadsTheirFullSavedReportWithRunSettingOffAndWithoutProviderOrDriveRequests() {
+        enableStudent(first);
+        var staffReport = run(first);
+        studentRuns.configure(workspace, deliverableId, false);
+        clearInvocations(provider, drive);
+        var student = service.studentSaved(workspace, first.getId(), null, first.getGoogleSubject());
+        assertThat(student.review().report()).isEqualTo(staffReport.report());
+        assertThat(student.canRun()).isFalse();
+        verifyNoInteractions(drive);
+        verify(provider, never()).review(any());
+    }
+
+    @Test void studentCannotReadOrRunAnotherAccountsResponseEvenInSameTeamOrDifferentWorkspace() {
+        enableStudent(first);
+        run(second);
+        assertThatThrownBy(() -> service.studentSaved(workspace, second.getId(), null, first.getGoogleSubject()))
+            .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> service.studentReview(workspace, second.getId(), null, first.getGoogleSubject(), false, null))
+            .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> service.studentSaved(UUID.randomUUID(), first.getId(), null, first.getGoogleSubject()))
+            .isInstanceOf(AccessDeniedException.class);
+        when(associations.activeAssociation(workspace, first.getGoogleSubject())).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.studentSaved(workspace, first.getId(), null, first.getGoogleSubject()))
+            .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test void completedStudentRunRemainsViewOnlyAfterAnswerOrReviewSettingsChange() {
+        enableStudent(first);
+        var completed = service.studentReview(workspace, first.getId(), null, first.getGoogleSubject(), false, null);
+        assertThat(completed.review().report()).isNotNull();
+        assertThat(completed.canRun()).isFalse();
+        when(provider.cacheVersion()).thenReturn("new-settings");
+        first.setValuesJson("{\"documentPdf\":\"https://drive.google.com/file/d/file-changed/view\"}");
+        var changed = service.studentReview(workspace, first.getId(), null, first.getGoogleSubject(), false, null);
+        assertThat(changed.canRun()).isFalse();
+        assertThat(changed.review().previousReport()).isNotNull();
+        verify(provider, times(1)).review(any());
+    }
+
+    @Test void duplicateStudentClicksQueueOnlyOneReviewAndCannotBypassDisabledSetting() {
+        enableStudent(first);
+        var queued = new java.util.ArrayList<Runnable>();
+        service = newService(store, queued::add);
+        assertThat(service.studentReview(workspace, first.getId(), null, first.getGoogleSubject(), false, null).review().status()).isEqualTo("RUNNING");
+        assertThat(service.studentReview(workspace, first.getId(), null, first.getGoogleSubject(), false, null).canRun()).isFalse();
+        assertThat(queued).hasSize(1);
+        studentRuns.configure(workspace, deliverableId, false);
+        queued.get(0).run();
+        verify(provider, never()).review(any());
+        assertThat(service.studentSaved(workspace, first.getId(), null, first.getGoogleSubject()).canRun()).isFalse();
+    }
+
+    @Test void uncertainStudentRunRequiresCurrentRetryConfirmationAndOnlySuccessDisablesRetry() {
+        enableStudent(first);
+        when(provider.review(any())).thenThrow(new IllegalStateException("provider connection failed"));
+        var failed = service.studentReview(workspace, first.getId(), null, first.getGoogleSubject(), false, null);
+        assertThat(failed.review().status()).isEqualTo("UNCERTAIN");
+        assertThat(failed.canRun()).isTrue();
+        service.studentReview(workspace, first.getId(), null, first.getGoogleSubject(), false, null);
+        verify(provider, times(1)).review(any());
+        doReturn(result).when(provider).review(any());
+        var completed = service.studentReview(workspace, first.getId(), null, first.getGoogleSubject(), true, failed.review().retryToken());
+        assertThat(completed.review().status()).isEqualTo("COMPLETED");
+        assertThat(completed.canRun()).isFalse();
+        verify(provider, times(2)).review(any());
+    }
+
+    @Test void drivePreparationFailureDoesNotConsumeStudentAllowance() {
+        enableStudent(first);
+        doThrow(new GoogleDriveUnavailableException("temporary", GoogleDriveUnavailableException.Kind.UNKNOWN)).when(drive).download(any());
+        assertThatThrownBy(() -> service.studentReview(workspace, first.getId(), null, first.getGoogleSubject(), false, null))
+            .isInstanceOf(RuntimeException.class);
+        assertThat(service.studentSaved(workspace, first.getId(), null, first.getGoogleSubject()).canRun()).isTrue();
+        doReturn(files.get("file-first")).when(drive).download(any());
+        assertThat(service.studentReview(workspace, first.getId(), null, first.getGoogleSubject(), false, null).review().report()).isNotNull();
+        verify(provider, times(1)).review(any());
+    }
 
     @Test void savedViewRestoresOnlyValidatedFailureDiagnosticsFromCache() throws Exception {
         var completed = run(first);
