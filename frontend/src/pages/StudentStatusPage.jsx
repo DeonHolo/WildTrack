@@ -35,6 +35,8 @@ export function StudentStatusPage() {
   const location = useLocation();
   const submissionPath = isDeliverableSharePath(location.state?.submissionPath) ? location.state.submissionPath : '';
   const {
+    session,
+    resourceCache,
     account: sessionAccount,
     workspaces,
     activeWorkspace,
@@ -222,7 +224,9 @@ export function StudentStatusPage() {
         project={project}
         adviserLabel={adviserLabel}
       />
-      <StudentDeliverableList rows={deliverableRows} workspaceId={activeWorkspaceId} workspaceKey={workspaceKey} studentNumber={student.studentNumber} />
+      <StudentDeliverableList rows={deliverableRows} workspaceId={activeWorkspaceId} workspaceKey={workspaceKey} studentNumber={student.studentNumber}
+        reviewCache={resourceCache} reviewAccountKey={session?.authenticated
+          ? JSON.stringify([session.email, session.googleSubject, session.roles]) : ''} />
       <StudentProgressPanel activeColumns={activeColumns} student={student} />
     </DashboardContainer>
   );
