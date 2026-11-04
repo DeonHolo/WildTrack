@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
 import { StudentAiReviewPanel } from './StudentResultsDialog.jsx';
 import { getStudentAiReview, requestStudentAiReview } from '../../lib/api.js';
+import { createWorkspaceResourceCache } from '../../lib/workspaceResourceCache.js';
 
 vi.mock('../../lib/api.js', () => ({ getStudentAiReview: vi.fn(), requestStudentAiReview: vi.fn() }));
 vi.mock('../review/AiReviewReport.jsx', () => ({ AiReviewReport: ({ report }) => <div>{report.summary}</div> }));
@@ -16,7 +17,7 @@ const completed = { canRun: false, review: { status: 'COMPLETED', report: { summ
 function panel(next = props) {
   return <MantineProvider theme={wildTrackTheme}><StudentAiReviewPanel {...next} /></MantineProvider>;
 }
-beforeEach(() => { vi.resetAllMocks(); getStudentAiReview.mockResolvedValue(available); });
+beforeEach(() => { vi.resetAllMocks(); localStorage.clear(); getStudentAiReview.mockResolvedValue(available); });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('student AI Review access', () => {
@@ -67,6 +68,70 @@ describe('student AI Review access', () => {
     view.rerender(panel({ ...props, responseId: 'another-own-response' }));
     await screen.findByRole('button', { name: 'Run AI Review' });
     await act(async () => resolveOld(completed));
+    expect(screen.queryByText(completed.review.report.summary)).not.toBeInTheDocument();
+  });
+
+  it('shows a saved review immediately after reopening while quietly checking for an updated result', async () => {
+    const cached = { ...props, reviewCache: createWorkspaceResourceCache(), reviewAccountKey: 'student-account' };
+    getStudentAiReview.mockResolvedValueOnce(completed);
+    const first = render(panel(cached));
+    await screen.findByText(completed.review.report.summary);
+    first.unmount();
+
+    let resolveRefresh;
+    getStudentAiReview.mockImplementation(() => new Promise(resolve => { resolveRefresh = resolve; }));
+    render(panel(cached));
+    expect(screen.getByText(completed.review.report.summary)).toBeInTheDocument();
+    expect(screen.queryByText('Loading saved AI Review…')).not.toBeInTheDocument();
+    await waitFor(() => expect(getStudentAiReview).toHaveBeenCalledTimes(2));
+    await act(async () => resolveRefresh({ ...completed, review: { ...completed.review,
+      report: { ...completed.review.report, summary: 'The updated saved report.' } } }));
+    expect(screen.getByText('The updated saved report.')).toBeInTheDocument();
+    expect(requestStudentAiReview).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['account', { reviewAccountKey: 'another-student' }],
+    ['workspace', { workspaceId: 'another-workspace' }],
+    ['PDF', { fileLink: 'https://drive.google.com/file/d/new-file/view' }],
+    ['artifact', { fieldId: 'another-pdf' }]
+  ])('hides the cached report immediately when the %s changes', async (_label, change) => {
+    const cached = { ...props, reviewCache: createWorkspaceResourceCache(), reviewAccountKey: 'student-account' };
+    getStudentAiReview.mockResolvedValueOnce(completed);
+    const view = render(panel(cached));
+    await screen.findByText(completed.review.report.summary);
+    getStudentAiReview.mockImplementation(() => new Promise(() => {}));
+    view.rerender(panel({ ...cached, ...change }));
+    expect(screen.queryByText(completed.review.report.summary)).not.toBeInTheDocument();
+    expect(screen.getByText('Loading saved AI Review…')).toBeInTheDocument();
+  });
+
+  it('shares a pending saved-result read across closing and reopening the panel', async () => {
+    const cached = { ...props, reviewCache: createWorkspaceResourceCache(), reviewAccountKey: 'student-account' };
+    let resolveRead;
+    getStudentAiReview.mockImplementation(() => new Promise(resolve => { resolveRead = resolve; }));
+    const first = render(panel(cached));
+    await waitFor(() => expect(getStudentAiReview).toHaveBeenCalledTimes(1));
+    first.unmount();
+    render(panel(cached));
+    await act(async () => resolveRead(completed));
+    expect(await screen.findByText(completed.review.report.summary)).toBeInTheDocument();
+    expect(getStudentAiReview).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes a cached report when the server denies access', async () => {
+    const cached = { ...props, reviewCache: createWorkspaceResourceCache(), reviewAccountKey: 'student-account' };
+    getStudentAiReview.mockResolvedValueOnce(completed);
+    const first = render(panel(cached));
+    await screen.findByText(completed.review.report.summary);
+    first.unmount();
+    getStudentAiReview.mockRejectedValueOnce(Object.assign(new Error('Access denied.'), { status: 403 }));
+    const second = render(panel(cached));
+    await screen.findByText('Access denied.');
+    expect(screen.queryByText(completed.review.report.summary)).not.toBeInTheDocument();
+    second.unmount();
+    getStudentAiReview.mockImplementation(() => new Promise(() => {}));
+    render(panel(cached));
     expect(screen.queryByText(completed.review.report.summary)).not.toBeInTheDocument();
   });
 });

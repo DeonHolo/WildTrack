@@ -12,7 +12,7 @@ const FILTERS = [
   { label: 'Submitted', value: 'submitted' },
 ];
 
-export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studentNumber }) {
+export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studentNumber, reviewCache, reviewAccountKey }) {
   const [filter, setFilter] = useState('all');
   const [activeResults, setActiveResults] = useState(null);
   const [activeCheck, setActiveCheck] = useState(null);
@@ -174,6 +174,7 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
       </Modal>
 
       {activeResultsRow ? <StudentResultsDialog row={activeResultsRow} workspaceId={workspaceId}
+        reviewCache={reviewCache} reviewAccountKey={reviewAccountKey}
         onClose={() => setActiveResults(null)} /> : null}
 
       <Modal

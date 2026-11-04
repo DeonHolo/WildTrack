@@ -1,6 +1,6 @@
 import { Alert, Button, Group, Loader, Modal, Select, Stack, Tabs, Text } from '@mantine/core';
 import { ArrowSquareOut, Sparkle } from '@phosphor-icons/react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getStudentAiReview, requestStudentAiReview } from '../../lib/api.js';
 import { aiReviewReportStatus, formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 import { AiReviewReport } from '../review/AiReviewReport.jsx';
@@ -9,7 +9,7 @@ import { DocumentCheckDialog } from '../review/DocumentCheckDialog.jsx';
 import { ProviderFailureDetails } from '../review/ProviderFailureDetails.jsx';
 import { StatusIndicator } from '../ui.jsx';
 
-export function StudentResultsDialog({ row, workspaceId, onClose }) {
+export function StudentResultsDialog({ row, workspaceId, onClose, reviewCache, reviewAccountKey }) {
   const artifacts = row.artifacts?.length ? row.artifacts : row.link ? [{
     key: 'legacy', fieldId: null, label: 'Submitted PDF', value: row.link, drivePdf: true,
     documentCheck: row.documentCheck
@@ -45,6 +45,7 @@ export function StudentResultsDialog({ row, workspaceId, onClose }) {
         <Tabs.Panel value="ai" pt="md">
           {artifact && (artifact.drivePdf || artifact.reviewablePdf) ? <StudentAiReviewPanel key={`${workspaceId}:${row.response.id}:${artifact.fieldId}:${artifact.value}`}
             workspaceId={workspaceId} responseId={row.response.id} fieldId={artifact.fieldId}
+            reviewCache={reviewCache} reviewAccountKey={reviewAccountKey}
             fileLink={artifact.value} deliverableTitle={row.deliverable.title} />
             : <Text size="sm">Add a PDF link to your response before opening AI Review.</Text>}
         </Tabs.Panel>
@@ -59,8 +60,16 @@ export function StudentResultsDialog({ row, workspaceId, onClose }) {
   </Modal>;
 }
 
-export function StudentAiReviewPanel({ workspaceId, responseId, fieldId, fileLink, deliverableTitle }) {
-  const [state, setState] = useState({ loading: true, starting: false, data: null, error: '' });
+export function StudentAiReviewPanel({ workspaceId, responseId, fieldId, fileLink, deliverableTitle, reviewCache, reviewAccountKey }) {
+  const cache = reviewAccountKey ? reviewCache : null;
+  const scope = JSON.stringify([reviewAccountKey || '', workspaceId, ['student-ai-review', responseId, fieldId ?? null, fileLink]]);
+  const initial = useMemo(() => {
+    const data = cache?.read(scope) || null;
+    return { scope, loading: !data, refreshing: true, starting: false, data, error: '' };
+  }, [cache, scope]);
+  const [snapshot, setState] = useState(initial);
+  // Hide the previous scope during render, before effects clear its in-flight reads.
+  const state = snapshot.scope === scope ? snapshot : initial;
   const [confirmRetry, setConfirmRetry] = useState(false);
   const generation = useRef(0);
   const requestSequence = useRef(0);
@@ -68,19 +77,21 @@ export function StudentAiReviewPanel({ workspaceId, responseId, fieldId, fileLin
   const reload = useRef(null);
   useEffect(() => {
     const current = ++generation.current;
-    setState({ loading: true, starting: false, data: null, error: '' });
+    setState(initial);
     setConfirmRetry(false);
     async function load() {
       window.clearTimeout(pollTimer.current);
       const request = ++requestSequence.current;
       try {
-        const data = await getStudentAiReview(workspaceId, responseId, fieldId);
+        const read = () => getStudentAiReview(workspaceId, responseId, fieldId);
+        const data = await (cache ? cache.load(scope, read) : read());
         if (generation.current !== current || requestSequence.current !== request) return;
-        setState(previous => ({ ...previous, loading: false, data, error: '' }));
+        setState(previous => ({ ...previous, loading: false, refreshing: false, data, error: '' }));
         if (data.review?.status === 'RUNNING') pollTimer.current = window.setTimeout(load, 4000);
       } catch (error) {
         if (generation.current !== current || requestSequence.current !== request) return;
-        setState(previous => ({ ...previous, loading: false,
+        if ([401, 403].includes(error.status)) cache?.remove(scope);
+        setState(previous => ({ ...previous, loading: false, refreshing: false,
           data: [401, 403].includes(error.status) ? null : previous.data,
           error: error.message || 'AI Review could not be loaded. Try again.' }));
       }
@@ -88,19 +99,21 @@ export function StudentAiReviewPanel({ workspaceId, responseId, fieldId, fileLin
     reload.current = load;
     load();
     return () => { generation.current++; requestSequence.current++; window.clearTimeout(pollTimer.current); };
-  }, [workspaceId, responseId, fieldId]);
+  }, [workspaceId, responseId, fieldId, fileLink, cache, scope, initial]);
 
   async function run(acknowledged = false) {
-    if (state.starting || !state.data?.canRun) return;
+    if (state.starting || state.refreshing || !state.data?.canRun) return;
     const current = generation.current;
     const request = ++requestSequence.current;
     window.clearTimeout(pollTimer.current);
+    cache?.invalidate(scope);
     setConfirmRetry(false);
     setState(previous => ({ ...previous, starting: true, error: '' }));
     try {
       const data = await requestStudentAiReview(workspaceId, responseId, fieldId, acknowledged,
         acknowledged ? state.data.review?.retryToken : null);
       if (generation.current !== current || requestSequence.current !== request) return;
+      cache?.write(scope, data);
       setState(previous => ({ ...previous, data, starting: false }));
       if (data.review?.status === 'RUNNING') pollTimer.current = window.setTimeout(() => reload.current?.(), 4000);
     } catch (error) {
@@ -131,7 +144,7 @@ export function StudentAiReviewPanel({ workspaceId, responseId, fieldId, fileLin
         reviewedOn={review.generatedAt || review.previousGeneratedAt ? `Reviewed on ${formatDateTime(review.generatedAt || review.previousGeneratedAt)}` : ''} />
       <Text size="sm" c="dimmed">AI Review can make mistakes. Check the cited PDF pages and ask your instructor about anything unclear.</Text>
     </> : null}
-    {state.data?.canRun ? <Button color="wildtrackMaroon" loading={state.starting} disabled={running}
+    {state.data?.canRun ? <Button color="wildtrackMaroon" loading={state.starting} disabled={running || state.refreshing}
       leftSection={<Sparkle size={17} aria-hidden="true" />}
       onClick={() => review?.status === 'UNCERTAIN' ? setConfirmRetry(true) : run()}>
       {review?.status === 'UNCERTAIN' ? 'Retry AI Review' : 'Run AI Review'}

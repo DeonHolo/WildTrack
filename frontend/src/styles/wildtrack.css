@@ -1744,7 +1744,7 @@
   grid-template-areas:
     "title state actions"
     "detail detail detail";
-  grid-template-columns: minmax(220px, 1.2fr) minmax(175px, 0.7fr) minmax(330px, auto);
+  grid-template-columns: minmax(220px, 1.2fr) minmax(175px, 0.7fr) minmax(330px, 26.25rem);
   align-items: start;
   column-gap: 24px;
   row-gap: 12px;
