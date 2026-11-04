@@ -15,7 +15,7 @@ test('checked PDF keeps both Document Check tabs without delegated history or co
   await page.goto('/student');
   await expect(page.getByRole('button', { name: 'Allow Drive history' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'File history' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'View Document Check' }).click();
+  await page.getByRole('button', { name: 'View results' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('tab', { name: 'Check result' })).toBeVisible();
   await expect(dialog.getByText(/Your PDF is accessible and readable\./)).toBeVisible();
@@ -39,7 +39,7 @@ test('PDF with Document Check disabled opens recorded history without requiring 
   const googleHistoryRequests = trackGoogleHistoryRequests(page);
   await page.goto('/student');
   await expect(page.getByRole('button', { name: 'View Document Check' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'File history' }).click();
+  await page.getByRole('button', { name: 'View results' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByText('File history', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('tab', { name: 'Check result' })).toHaveCount(0);

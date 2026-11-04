@@ -1,8 +1,9 @@
 import { Button, Group, Modal, Paper, Stack, Text, Title } from '@mantine/core';
-import { ArrowSquareOut, ChatCenteredText, FileMagnifyingGlass, NotePencil } from '@phosphor-icons/react';
+import { ArrowSquareOut, Eye, FileMagnifyingGlass, NotePencil } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { formatDate, formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
 import { DocumentCheckDialog } from '../review/DocumentCheckDialog.jsx';
+import { StudentResultsDialog } from './StudentResultsDialog.jsx';
 import { StatusIndicator } from '../ui.jsx';
 
 const FILTERS = [
@@ -13,7 +14,7 @@ const FILTERS = [
 
 export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studentNumber }) {
   const [filter, setFilter] = useState('all');
-  const [activeFeedback, setActiveFeedback] = useState(null);
+  const [activeResults, setActiveResults] = useState(null);
   const [activeCheck, setActiveCheck] = useState(null);
   const [activeArtifacts, setActiveArtifacts] = useState(null);
   const [activeTeamProgress, setActiveTeamProgress] = useState(null);
@@ -21,6 +22,10 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
     && activeTeamProgress?.workspaceKey === workspaceKey
     && activeTeamProgress?.studentNumber === studentNumber
     ? rows.find(row => row.deliverable.id === activeTeamProgress.deliverableId) : null;
+  const activeResultsRow = activeResults?.workspaceId === workspaceId
+    && activeResults?.workspaceKey === workspaceKey
+    && activeResults?.studentNumber === studentNumber
+    ? rows.find(row => row.response?.id === activeResults.responseId) : null;
   const filteredRows = useMemo(() => rows.filter((row) => {
     if (filter === 'missing') return row.status === 'Not submitted';
     if (filter === 'submitted') return row.status !== 'Not submitted';
@@ -89,42 +94,6 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                     <div className="wt-student-document-check-line">
                       <StatusIndicator status={row.fileCheck.label} />
                     </div>
-                    <Group className="wt-student-deliverable-review-actions" gap="xs" wrap="wrap">
-                      {!hasMultipleArtifacts && row.documentCheck ? (
-                        <Button
-                          variant="default"
-                          leftSection={<FileMagnifyingGlass size={17} aria-hidden="true" />}
-                          onClick={() => setActiveCheck({
-                            response: row.response,
-                            documentCheck: row.documentCheck,
-                            fileLink: row.link,
-                            fieldId: row.artifacts?.[0]?.fieldId
-                          })}
-                        >
-                          View Document Check
-                        </Button>
-                      ) : null}
-                      {!hasMultipleArtifacts && row.artifacts?.[0]?.drivePdf && !row.documentCheck ? (
-                        <Button variant="default" onClick={() => setActiveCheck({
-                          response: row.response,
-                          documentCheck: row.documentCheck,
-                          fileLink: row.artifacts[0].value,
-                          fieldId: row.artifacts[0].fieldId,
-                          initialTab: 'history',
-                          historyOnly: true
-                        })}>File history</Button>
-                      ) : null}
-                      {row.feedback ? (
-                        <Button
-                          variant="outline"
-                          color="wildtrackMaroon"
-                          leftSection={<ChatCenteredText size={17} aria-hidden="true" />}
-                          onClick={() => setActiveFeedback(row)}
-                        >
-                          Read feedback
-                        </Button>
-                      ) : null}
-                    </Group>
                   </>
                 ) : row.recorded ? (
                   <Text size="sm" c="dimmed">A response is recorded for this Student Number. Its private details belong to the Google account that submitted it.</Text>
@@ -162,6 +131,10 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                 >
                   {row.response ? 'Edit response' : 'Open form'}
                 </Button>
+                {row.response ? <Button variant="default" leftSection={<Eye size={17} aria-hidden="true" />}
+                  onClick={() => setActiveResults({ workspaceId, workspaceKey, studentNumber, responseId: row.response.id })}>
+                  View results
+                </Button> : null}
               </Group>
             </article>
           );
@@ -200,23 +173,8 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
         ) : null}
       </Modal>
 
-      <Modal
-        opened={Boolean(activeFeedback)}
-        onClose={() => setActiveFeedback(null)}
-        title="Adviser feedback"
-        centered
-        size="lg"
-      >
-        {activeFeedback ? (
-          <Stack gap="md">
-            <div>
-              <Text fw={750}>{activeFeedback.deliverable.title}</Text>
-              <Text size="sm" c="dimmed">{activeFeedback.feedback.author}</Text>
-            </div>
-            <Text className="wt-modal-long-copy">{activeFeedback.feedback.note}</Text>
-          </Stack>
-        ) : null}
-      </Modal>
+      {activeResultsRow ? <StudentResultsDialog row={activeResultsRow} workspaceId={workspaceId}
+        onClose={() => setActiveResults(null)} /> : null}
 
       <Modal
         opened={Boolean(activeArtifacts)}

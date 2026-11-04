@@ -124,6 +124,12 @@ public class AiReviewService {
     private AiReviewInstructionsWorkflow instructionWorkflow;
     @org.springframework.beans.factory.annotation.Autowired
     private com.capvault.backend.template.TemplateChecklistService templateChecklists;
+    @org.springframework.beans.factory.annotation.Autowired
+    private StudentAiReviewRuns studentRuns;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.capvault.backend.student.StudentAssociationService studentAssociations;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.capvault.backend.workspace.AcademicWorkspaceRepository studentWorkspaces;
 
     public AiReviewService(AiReviewProvider provider, AiReviewStore store, FormResponseRepository responses,
             DeliverableRepository deliverables, DeliverableFieldRepository fields, DocumentTemplateService templates, GoogleDriveGateway drive,
@@ -375,8 +381,16 @@ public class AiReviewService {
     View reviewPlanned(UUID workspaceId, UUID responseId, String fieldId, String subject,
             boolean retryAcknowledged, UUID expectedRetryToken, boolean rerunRequested,
             String expectedKey, UUID expectedRerunToken) {
-        FormResponse response = authorized(workspaceId, responseId, subject);
-        requireAdministrator(subject);
+        return reviewPlanned(workspaceId, responseId, fieldId, subject, retryAcknowledged,
+            expectedRetryToken, rerunRequested, expectedKey, expectedRerunToken, null);
+    }
+
+    private View reviewPlanned(UUID workspaceId, UUID responseId, String fieldId, String subject,
+            boolean retryAcknowledged, UUID expectedRetryToken, boolean rerunRequested,
+            String expectedKey, UUID expectedRerunToken, StudentAiReviewRuns.Reservation studentRun) {
+        boolean student = studentRun != null;
+        FormResponse response = authorized(workspaceId, responseId, subject, student);
+        requireStartAccess(response, subject, student);
         if (!provider.isConfigured()) return empty("UNAVAILABLE", "Gemini API key is not configured. No AI request was made.");
         if (retryAcknowledged && rerunRequested) {
             throw new IllegalArgumentException("Choose either retrying an uncertain request or rerunning a completed review.");
@@ -398,7 +412,7 @@ public class AiReviewService {
         if (expectedKey != null && !expectedKey.equals(key))
             throw stale("This PDF or its requirements changed after preparation. Prepare a new batch before reviewing it.");
         String sourceValueHash = sha256(source.getBytes(StandardCharsets.UTF_8));
-        assertCurrent(response, target, context, subject);
+        assertCurrent(response, target, context, subject, student);
         var prior = target.legacyStore() ? store.linked(response.getId(), response.getRevision())
             : store.linkedField(response.getId(), target.fieldId(), sourceValueHash);
         if (prior.isEmpty() && target.fieldId().endsWith(":legacy"))
@@ -408,19 +422,20 @@ public class AiReviewService {
         if (claim.acquired() && prior.isPresent() && sameScope(prior.get(), response)
                 && !prior.get().key().equals(key)) store.preservePreviousResults(claim.job(), prior.get());
         link(target, response, sourceValueHash, key, prepared.capturedAt());
+        if (studentRun != null) studentRuns.attach(studentRun, key);
         if (claim.acquired()) {
             try {
                 executor.execute(() -> {
                     String stage = "source_validation";
                     try {
-                        assertCurrent(response, target, context, subject);
-                        if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Administrator access changed.");
+                        assertCurrent(response, target, context, subject, student);
+                        requireStartAccess(response, subject, student);
                         stage = "provider";
                         var input = new AiReviewProvider.Input(key + ":" + claim.job().token(), bytes, inspection.extractedText(),
                             SYSTEM_INSTRUCTION, context.title(), context.instructions(), context.template());
                         Runnable validate = () -> {
-                                assertCurrent(response, target, context, subject);
-                                if (!"ADMIN".equals(requireRole(subject))) throw new AccessDeniedException("Administrator access changed.");
+                                assertCurrent(response, target, context, subject, student);
+                                requireStartAccess(response, subject, student);
                             };
                         var result = provider.supportsTemplateInstructions() && context.templateId() != null
                             ? instructionWorkflow.review(claim.job(), retryAcknowledged ? expectedRetryToken : null, response.getWorkspaceId(),
@@ -430,8 +445,9 @@ public class AiReviewService {
                         stage = "persistence";
                         store.complete(claim.job(), json.writeValueAsString(result),
                             result.outcome() != AiReviewProvider.ReviewOutcome.INCONCLUSIVE, prepared.capturedAt());
+                        if (studentRuns != null) studentRuns.refreshJob(key);
                         stage = "source_validation";
-                        assertCurrent(response, target, context, subject);
+                        assertCurrent(response, target, context, subject, student);
                     } catch (Exception failure) {
                         String failureCode = failure instanceof GeminiAiReviewProvider.Failure gemini
                             ? gemini.code : failure instanceof com.capvault.backend.template.TemplateInstructionPreparation.Failure templateFailure
@@ -454,13 +470,15 @@ public class AiReviewService {
                             }
                         }
                         store.uncertain(claim.job(), failureCode, diagnosticJson);
+                        if (studentRuns != null) studentRuns.refreshJob(key);
                     }
                 });
             } catch (RejectedExecutionException full) {
                 store.uncertain(claim.job(), "QUEUE_FULL");
+                if (studentRuns != null) studentRuns.refreshJob(key);
             }
         }
-        try { assertCurrent(response, target, context, subject); }
+        try { assertCurrent(response, target, context, subject, student); }
         catch (RuntimeException changed) { unlink(target, response, sourceValueHash, key); throw changed; }
         return view(store.find(key).orElseThrow(), response, target, !claim.acquired(), true)
             .withSourceVerifiedAt(store.sourceVerifiedAt(response.getId(), target.fieldId(), key, target.legacyStore()));
@@ -494,6 +512,11 @@ public class AiReviewService {
     public View saved(UUID workspaceId, UUID responseId, String fieldId, String subject) {
         var response = authorized(workspaceId, responseId, subject);
         var target = target(response, fieldId);
+        return savedTarget(response, target);
+    }
+
+    private View savedTarget(FormResponse response, ReviewTarget target) {
+        UUID responseId = response.getId();
         var context = context(response, target);
         String sourceHash = sha256(target.sourceUrl().getBytes(StandardCharsets.UTF_8));
         java.util.Optional<AiReviewStore.Job> linked = target.legacyStore()
@@ -508,6 +531,76 @@ public class AiReviewService {
             ? view(linked.get(), response, target, true, false)
             : outdated(linked.get(), response, target))
             .withSourceVerifiedAt(store.sourceVerifiedAt(responseId, target.fieldId(), linked.get().key(), target.legacyStore()));
+    }
+
+    public record StudentView(View review, boolean canRun, String message) { }
+
+    /** This read never downloads a PDF, starts a provider call or exposes another account's report. */
+    public StudentView studentSaved(UUID workspaceId, UUID responseId, String fieldId, String subject) {
+        var response = authorized(workspaceId, responseId, subject, true);
+        ReviewTarget target;
+        try { target = target(response, fieldId); }
+        catch (IllegalArgumentException missing) {
+            return new StudentView(empty("NOT_REVIEWED", "No reviewable PDF is available in this response."), false,
+                "Add a PDF link to your response before running AI Review.");
+        }
+        View review = savedTarget(response, target);
+        var slot = studentRuns.slot(studentKey(response, target));
+        boolean completed = hasSavedReport(review) || (slot != null && "COMPLETED".equals(slot.state()));
+        if (completed && !hasSavedReport(review) && slot != null && slot.cacheKey() != null) {
+            var historical = store.find(slot.cacheKey()).filter(job -> sameScope(job, response));
+            if (historical.isPresent()) review = outdated(historical.get(), response, target);
+        }
+        boolean running = "RUNNING".equals(review.status()) || (slot != null && "RUNNING".equals(slot.state()));
+        if (running && "NOT_REVIEWED".equals(review.status()))
+            review = emptyFor(target, "RUNNING", "Preparing your PDF on the server. You can leave this page and return to its progress.");
+        boolean enabled = studentStartEnabled(response);
+        String message = completed ? "A saved AI Review is available. Open it to read the result."
+            : running ? "AI Review is running on the server. You can leave this page and return to its progress."
+            : !enabled ? "Your instructor can run AI Review for this submission."
+            : !provider.isConfigured() ? "AI Review is temporarily unavailable. Try again later."
+            : "Run AI Review for your submitted PDF. A saved result will remain available here.";
+        return new StudentView(review, enabled && provider.isConfigured() && !completed && !running, message);
+    }
+
+    public StudentView studentReview(UUID workspaceId, UUID responseId, String fieldId, String subject,
+            boolean retryAcknowledged, UUID retryToken) {
+        var response = authorized(workspaceId, responseId, subject, true);
+        var target = target(response, fieldId);
+        var current = studentSaved(workspaceId, responseId, fieldId, subject);
+        if (hasSavedReport(current.review()) || "RUNNING".equals(current.review().status())) return current;
+        if (!current.canRun()) throw new AccessDeniedException(current.message());
+        var reservation = studentRuns.reserve(studentKey(response, target));
+        if (reservation == null) return studentSaved(workspaceId, responseId, fieldId, subject);
+        try {
+            reviewPlanned(workspaceId, responseId, fieldId, subject, retryAcknowledged, retryToken,
+                false, null, null, reservation);
+            return studentSaved(workspaceId, responseId, fieldId, subject);
+        } catch (RuntimeException failed) {
+            studentRuns.release(reservation);
+            throw failed;
+        }
+    }
+
+    private static boolean hasSavedReport(View view) {
+        return view.report() != null || view.previousReport() != null || view.lastSubstantiveReport() != null;
+    }
+
+    private StudentAiReviewRuns.Key studentKey(FormResponse response, ReviewTarget target) {
+        return new StudentAiReviewRuns.Key(response.getWorkspaceId(), response.getDeliverableId(),
+            response.getStudentNumber(), target.fieldId());
+    }
+
+    private boolean studentStartEnabled(FormResponse response) {
+        return studentRuns.enabled(response.getWorkspaceId(), response.getDeliverableId())
+            && studentWorkspaces.findById(response.getWorkspaceId()).filter(w -> w.isActive()).isPresent()
+            && deliverables.findById(response.getDeliverableId())
+                .filter(d -> d.getStatus() == com.capvault.backend.deliverable.DeliverableStatus.PUBLISHED).isPresent();
+    }
+
+    private void requireStartAccess(FormResponse response, String subject, boolean student) {
+        if (!student) { requireAdministrator(subject); return; }
+        if (!studentStartEnabled(response)) throw new AccessDeniedException("Your instructor has not enabled student AI Review for this deliverable.");
     }
 
     /** Only pass responses already scoped by the monitoring controller's staff authorization. No provider calls. */
@@ -566,6 +659,20 @@ public class AiReviewService {
     }
 
     private FormResponse authorized(UUID workspaceId, UUID id, String subject) {
+        return authorized(workspaceId, id, subject, false);
+    }
+
+    private FormResponse authorized(UUID workspaceId, UUID id, String subject, boolean student) {
+        if (student) {
+            var response = responses.findById(id).filter(r -> r.getWorkspaceId().equals(workspaceId)
+                    && subject.equals(r.getGoogleSubject()))
+                .orElseThrow(() -> new AccessDeniedException("You can only open AI Review for your own submission."));
+            response.requireCurrent();
+            var association = studentAssociations.activeAssociation(workspaceId, subject)
+                .filter(a -> response.getStudentNumber().equalsIgnoreCase(a.studentNumber()));
+            if (association.isEmpty()) throw new AccessDeniedException("Connect your student account before opening this result.");
+            return response;
+        }
         String role = requireRole(subject);
         var response = responses.findById(id).filter(r -> r.getWorkspaceId().equals(workspaceId))
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Response not found in this workspace."));
@@ -622,7 +729,11 @@ public class AiReviewService {
     }
 
     private void assertCurrent(FormResponse original, ReviewTarget originalTarget, Context originalContext, String subject) {
-        var current = authorized(original.getWorkspaceId(), original.getId(), subject);
+        assertCurrent(original, originalTarget, originalContext, subject, false);
+    }
+
+    private void assertCurrent(FormResponse original, ReviewTarget originalTarget, Context originalContext, String subject, boolean student) {
+        var current = authorized(original.getWorkspaceId(), original.getId(), subject, student);
         ReviewTarget currentTarget = target(current, originalTarget.fieldId());
         if (!current.getTeamCode().equals(original.getTeamCode())
                 || !currentTarget.sourceUrl().equals(originalTarget.sourceUrl())

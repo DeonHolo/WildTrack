@@ -82,6 +82,34 @@ class ProductionSecurityBoundaryTest {
     }
 
     @Test
+    void studentReviewRoutesRequireAnOwnedSubmissionAndKeepTheRunSettingAdminOnly() throws Exception {
+        String id = "11111111-1111-1111-1111-111111111111";
+        String review = "/api/student-ai-reviews/" + id;
+        String setting = "/api/deliverables/" + id + "/student-ai-review";
+        mockMvc.perform(get(review).param("workspaceId", id)).andExpect(status().isUnauthorized());
+        var login = sessions.create(new GoogleIdentity("student-review-boundary-test",
+            "student-review@example.invalid", "Student review boundary", ""));
+        var cookie = new Cookie("WILDTRACK_SESSION", login.rawToken());
+        try {
+            mockMvc.perform(get(review).param("workspaceId", id).cookie(cookie))
+                .andExpect(status().isForbidden());
+            mockMvc.perform(post(review).param("workspaceId", id).cookie(cookie)
+                    .with(csrf()).contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+            mockMvc.perform(post(review).param("workspaceId", id).cookie(cookie)
+                    .contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+            mockMvc.perform(get(setting).param("workspaceId", id).cookie(cookie))
+                .andExpect(status().isForbidden());
+            mockMvc.perform(put(setting).param("workspaceId", id).cookie(cookie)
+                    .with(csrf()).contentType("application/json").content("{\"enabled\":true}"))
+                .andExpect(status().isForbidden());
+        } finally {
+            sessions.revoke(login.rawToken());
+        }
+    }
+
+    @Test
     void aiReviewUnauthorizedResponseDistinguishesMissingCookieFromRejectedSession() throws Exception {
         mockMvc.perform(get("/api/ai-reviews/status"))
             .andExpect(status().isUnauthorized())

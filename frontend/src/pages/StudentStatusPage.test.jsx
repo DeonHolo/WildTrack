@@ -420,8 +420,8 @@ describe('student dashboard', () => {
     expect(srs).toHaveTextContent('Needs attention — Sparse Content');
     expect(srs).not.toHaveTextContent('Could not determine');
     expect(srs).not.toHaveTextContent('Substance Inconclusive');
-    fireEvent.click(within(srs).getByRole('button', { name: 'View Document Check' }));
-    const dialog = await screen.findByRole('dialog', { name: /Document Check/i });
+    fireEvent.click(within(srs).getByRole('button', { name: 'View results' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Week 9: Software Requirements Specification' });
     expect(dialog).toHaveTextContent('Needs attention — Sparse Content');
     expect(dialog).toHaveTextContent('Open the PDF to check its content.');
     expect(dialog).not.toHaveTextContent('Substance Inconclusive');
@@ -612,9 +612,9 @@ describe('student dashboard', () => {
     renderDashboard();
 
     expect(document.body).not.toHaveTextContent(LONG_FEEDBACK);
-    fireEvent.click(screen.getByRole('button', { name: 'Read feedback' }));
-
-    const dialog = await screen.findByRole('dialog', { name: 'Adviser feedback' });
+    fireEvent.click(screen.getByRole('button', { name: 'View results' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Week 9: Software Requirements Specification' });
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'Feedback' }));
     expect(dialog).toHaveTextContent(LONG_FEEDBACK.trim());
     expect(dialog).toHaveTextContent('Sir Roberto Villanueva');
   });
@@ -648,15 +648,15 @@ describe('student dashboard', () => {
     renderDashboard();
 
     expect(screen.queryByRole('radio', { name: 'Feedback' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Read feedback' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View results' })).toBeInTheDocument();
   });
 
   it('shows student-safe Document Check results without staff AI output', async () => {
     associateAccount();
     renderDashboard();
 
-    fireEvent.click(screen.getByRole('button', { name: 'View Document Check' }));
-    const dialog = await screen.findByRole('dialog', { name: /Document Check/i });
+    fireEvent.click(screen.getByRole('button', { name: 'View results' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Week 9: Software Requirements Specification' });
 
     expect(dialog).toHaveTextContent('SRS.pdf');
     expect(dialog).toHaveTextContent('Drive accessAccessible');

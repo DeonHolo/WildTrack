@@ -15,3 +15,12 @@ export function isSubmissionArtifactField(field) {
 export function submissionArtifactFields(fields = []) {
   return fields.filter(isSubmissionArtifactField);
 }
+
+// Keep earlier answers visible without treating an old field as a new PDF submission.
+export function savedRetiredArtifactFields(deliverable, response) {
+  return [...(deliverable?.fields || []), ...(deliverable?.retiredFields || [])]
+    .filter((field, index, fields) => field.active === false
+      && fields.findIndex(candidate => candidate.id === field.id) === index
+      && isSubmissionArtifactField({ ...field, active: true })
+      && /^https?:\/\//i.test(String(response?.values?.[field.id] || '').trim()));
+}

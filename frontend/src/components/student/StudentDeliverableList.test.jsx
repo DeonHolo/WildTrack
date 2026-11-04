@@ -146,7 +146,7 @@ describe('StudentDeliverableList artifacts', () => {
     expect(screen.queryByText('The template comparison detected missing required sections.')).not.toBeInTheDocument();
   });
 
-  it('keeps single-artifact Open file and View Document Check row actions', () => {
+  it('keeps single-artifact Open file and puts review actions behind View results', async () => {
     renderList([baseRow({
       link: 'https://drive.google.com/file/d/single/view',
       documentCheck: { summary: 'Readable.' },
@@ -154,8 +154,14 @@ describe('StudentDeliverableList artifacts', () => {
     })]);
 
     expect(screen.getByRole('link', { name: 'Open file' })).toHaveAttribute('href', 'https://drive.google.com/file/d/single/view');
-    expect(screen.getByRole('button', { name: 'View Document Check' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View results' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View Document Check' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'View submitted artifacts' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'View results' }));
+    const dialog = await screen.findByRole('dialog', { name: 'SRS Submission' });
+    for (const name of ['Document Check', 'AI Review', 'Feedback']) {
+      expect(within(dialog).getByRole('tab', { name, exact: true })).toBeInTheDocument();
+    }
   });
 
   it('replaces row-level file/check actions with one multi-artifact modal trigger', async () => {

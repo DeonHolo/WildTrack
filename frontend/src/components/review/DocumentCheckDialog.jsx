@@ -25,7 +25,8 @@ export function DocumentCheckDialog({
   rechecking = false,
   error = '',
   audience = 'staff',
-  allowRecheck = true
+  allowRecheck = true,
+  embedded = false
 }) {
   const [tab, setTab] = useState(initialTab);
   useEffect(() => {
@@ -75,7 +76,8 @@ export function DocumentCheckDialog({
   );
 
   return (
-    <Modal
+    <DocumentCheckFrame
+      embedded={embedded}
       opened={open}
       onClose={onClose}
       title={title}
@@ -219,8 +221,13 @@ export function DocumentCheckDialog({
         ) : null}
         <Button type="button" onClick={onClose} disabled={rechecking}>Done</Button>
       </footer>
-    </Modal>
+    </DocumentCheckFrame>
   );
+}
+
+function DocumentCheckFrame({ embedded, title, children, ...props }) {
+  if (embedded) return <section className="document-check-embedded">{title}{children}</section>;
+  return <Modal title={title} {...props}>{children}</Modal>;
 }
 
 function TemplateSectionEvidence({ comparison }) {
