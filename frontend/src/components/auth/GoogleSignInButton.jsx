@@ -1,4 +1,4 @@
-import { Alert, Box, Loader, Stack, Text } from '@mantine/core';
+import { Alert, Box, Button, Loader, Stack, Text } from '@mantine/core';
 import { WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -10,13 +10,31 @@ import { SessionLoadingScreen } from './SessionLoadingScreen.jsx';
 export { disableGoogleAutoSelect } from '../../lib/googleIdentitySession.js';
 
 const GOOGLE_IDENTITY_SCRIPT = 'https://accounts.google.com/gsi/client';
+const GOOGLE_LOAD_ERROR = 'Google sign-in couldn’t connect. Check your internet connection and allow Google sign-in in your browser or extension settings, then select Retry.';
 let googleIdentityPromise;
 function loadGoogleIdentity() {
   if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
   if (googleIdentityPromise) return googleIdentityPromise;
-  googleIdentityPromise = new Promise((resolve, reject) => {
+  const pending = new Promise((resolve, reject) => {
     const existing = document.querySelector('script[data-wildtrack-google-identity]');
     const script = existing || document.createElement('script');
+    let timer;
+    function finish(error) {
+      clearTimeout(timer);
+      script.removeEventListener('load', loaded);
+      script.removeEventListener('error', failed);
+      if (error) {
+        script.remove();
+        reject(error);
+      } else resolve(window.google.accounts.id);
+    }
+    function loaded() {
+      finish(window.google?.accounts?.id ? null : new Error(GOOGLE_LOAD_ERROR));
+    }
+    function failed() { finish(new Error(GOOGLE_LOAD_ERROR)); }
+    script.addEventListener('load', loaded, { once: true });
+    script.addEventListener('error', failed, { once: true });
+    timer = setTimeout(failed, 15000);
     if (!existing) {
       script.src = GOOGLE_IDENTITY_SCRIPT;
       script.async = true;
@@ -24,12 +42,11 @@ function loadGoogleIdentity() {
       script.dataset.wildtrackGoogleIdentity = 'true';
       document.head.appendChild(script);
     }
-    script.addEventListener('load', () => {
-      if (window.google?.accounts?.id) resolve(window.google.accounts.id);
-      else reject(new Error('Google Identity Services did not load correctly.'));
-    }, { once: true });
-    script.addEventListener('error', () => reject(new Error('Google sign-in could not be loaded. Check your connection.')), { once: true });
   });
+  googleIdentityPromise = pending;
+  // A blocked or timed-out script must not poison later visits or an explicit retry.
+  pending.then(() => { if (googleIdentityPromise === pending) googleIdentityPromise = null; },
+    () => { if (googleIdentityPromise === pending) googleIdentityPromise = null; });
   return googleIdentityPromise;
 }
 
@@ -49,10 +66,13 @@ export function GoogleSignInButton({
   callbackRef.current = onAuthenticated;
   const [status, setStatus] = useState(clientId ? 'loading' : 'error');
   const [error, setError] = useState(clientId ? '' : 'Google sign-in is not configured on this machine.');
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let active = true;
     if (!clientId) return () => { active = false; };
+    setStatus('loading');
+    setError('');
     loadGoogleIdentity()
       .then((googleIdentity) => {
         if (!active || !buttonRef.current) return;
@@ -90,7 +110,10 @@ export function GoogleSignInButton({
               verifyingRef.current = false;
               if (!active) return;
               setStatus('error');
-              setError(failure?.message || 'Google sign-in could not be verified.');
+              const networkFailure = failure instanceof TypeError || /failed to fetch|networkerror|load failed|cors request/i.test(failure?.message || '');
+              setError(networkFailure
+                ? 'WildTrack couldn’t finish signing you in. Check your internet connection and your browser or extension blocking settings, then try again.'
+                : failure?.message || 'Google sign-in could not be verified.');
             }
           }
         });
@@ -108,7 +131,7 @@ export function GoogleSignInButton({
         setError(failure?.message || 'Google sign-in could not be loaded.');
       });
     return () => { active = false; };
-  }, [autoSelect, clientId, enableOneTap]);
+  }, [autoSelect, clientId, enableOneTap, retry]);
 
   return (
     <Stack gap="xs" className="wt-google-sign-in">
@@ -121,7 +144,12 @@ export function GoogleSignInButton({
           Loading Google sign-in...
         </Text>
       ) : null}
-      {error ? <Alert color="red" variant="light" icon={<WarningCircle size={19} />} role="alert">{error}</Alert> : null}
+      {error ? <Alert color="red" variant="light" icon={<WarningCircle size={19} />} title="Google sign-in unavailable" role="alert">
+        <Stack gap="sm">
+          <Text size="sm">{error}</Text>
+          {clientId ? <Button variant="default" size="sm" onClick={() => setRetry(value => value + 1)} style={{ alignSelf: 'flex-start' }}>Retry Google sign-in</Button> : null}
+        </Stack>
+      </Alert> : null}
     </Stack>
   );
 }
