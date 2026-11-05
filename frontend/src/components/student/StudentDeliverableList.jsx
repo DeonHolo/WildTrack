@@ -222,6 +222,7 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                           setActiveCheck({
                             response: activeArtifacts.response,
                             documentCheck: artifact.documentCheck,
+                            observedHistory: artifact.observedHistory,
                             fileLink: artifact.value,
                             fieldId: artifact.fieldId
                           });
@@ -236,6 +237,7 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
                         setActiveCheck({
                           response: activeArtifacts.response,
                           documentCheck: artifact.documentCheck,
+                          observedHistory: artifact.observedHistory,
                           fileLink: artifact.value,
                           fieldId: artifact.fieldId,
                           initialTab: 'history',
@@ -258,8 +260,7 @@ export function StudentDeliverableList({ rows, workspaceId, workspaceKey, studen
         onClose={() => setActiveCheck(null)}
         response={activeCheck?.response || null}
         documentCheck={activeCheck?.documentCheck || null}
-        observedHistory={activeCheck?.response?.observedFileHistoryByField?.[activeCheck?.fieldId]
-          || activeCheck?.response?.observedFileHistory || null}
+        observedHistory={activeCheck?.observedHistory || null}
         fileLink={activeCheck?.fileLink || ''}
         initialTab={activeCheck?.initialTab || 'result'}
         historyOnly={Boolean(activeCheck?.historyOnly)}

@@ -22,10 +22,15 @@ export async function loadStudentDashboard(workspaceId) {
   const attempts = (dashboard.responses || []).map((raw) => {
     const response = mapResponse(raw, dashboard.responseTimings?.[raw.id] || null);
     if (!raw.owned) return response;
-    return applyReviewState(
+    const checkedResponse = applyReviewState(
       applyFieldChecks(applyFileCheck(response, dashboard.fileChecks?.[raw.id]), dashboard.fileChecksByField?.[raw.id]),
       dashboard.reviewStates?.[raw.id]
     );
+    return {
+      ...checkedResponse,
+      observedFileHistory: dashboard.observedFileHistory?.[raw.id] || null,
+      observedFileHistoryByField: dashboard.observedFileHistoryByField?.[raw.id] || {}
+    };
   });
   return {
     ...emptyDomainState(),

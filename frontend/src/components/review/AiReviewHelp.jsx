@@ -7,8 +7,8 @@ export function AiReviewVerificationHelp() {
   return <InfoTooltip label={AI_REVIEW_VERIFICATION_EXPLANATION} ariaLabel="How WildTrack verifies AI evidence" />;
 }
 
-export function AiReviewHelp() {
-  return <InfoTooltip ariaLabel="About AI Review" label={<Stack gap="xs">
+export function AiReviewHelp({ size } = {}) {
+  return <InfoTooltip size={size} ariaLabel="About AI Review" label={<Stack gap="xs">
     <Text size="sm"><strong>No issues:</strong> The AI did not identify concerns in the checked areas.</Text>
     <Text size="sm"><strong>Needs attention:</strong> The AI flagged a concern or left something for you to check.</Text>
     <Text size="sm">Review notes explain unmatched or missing supporting quotations. They do not establish a document problem.</Text>

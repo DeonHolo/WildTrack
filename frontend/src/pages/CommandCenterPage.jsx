@@ -809,20 +809,20 @@ function buildWorkQueue(state, openConflicts = [], dismissedKeys = new Set(), de
     // A later successful access check resolves only access alerts. Content/type
     // changes still need review; restoration itself is not an unfinished task.
     events.sort((a, b) => dateValue(b.observedAt) - dateValue(a.observedAt));
+    const latestContentChange = events.find(event => event.kind === 'CONTENT_CHANGED');
     const restoredAt = Math.max(0, ...events.filter(event => event.kind === 'ACCESS_RESTORED').map(event => dateValue(event.observedAt)));
     const actionable = events.filter(event => !deletedKeys.has(fileEventTaskId(event)) && !event.resolved && event.kind !== 'ACCESS_RESTORED'
       && !(['ACCESS_UNAVAILABLE', 'DOWNLOAD_UNAVAILABLE'].includes(event.kind) && dateValue(event.observedAt) < restoredAt));
     if (!actionable.length) continue;
     const significantEvents = actionable.filter(event => isSignificantFileEvent(event.kind));
     const candidates = significantEvents.length ? significantEvents : actionable;
-    // A dismissed newer significant alert must not hide an older significant
-    // alert that this staff member has not dismissed yet.
-    const primary = candidates.find(event => !dismissedKeys.has(fileEventTaskId(event))) || candidates[0];
+    // Older content revisions belong in File history. Other alerts can still need action.
+    const primary = candidates.find(event => (event.kind !== 'CONTENT_CHANGED' || event === latestContentChange)
+      && !dismissedKeys.has(fileEventTaskId(event)));
     // Keep the latest acknowledged event in Dismissed even after a newer change
     // becomes the open alert, without rendering the whole event feed as queue rows.
     const latestDismissed = candidates.find(event => dismissedKeys.has(fileEventTaskId(event)));
-    for (const event of latestDismissed && latestDismissed.id !== primary.id
-      ? [primary, latestDismissed] : [primary]) {
+    for (const event of [primary, latestDismissed].filter(Boolean)) {
       const response = byResponse.get(event.visibleResponseIds[0]);
       const deliverable = getDeliverable(state, response.deliverableId);
       const kind = monitorEventLabel(event.kind);

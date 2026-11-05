@@ -822,6 +822,9 @@ describe("today's work queues", () => {
       { id: 'latest-change', fileId: 'same-file', kind: 'CONTENT_CHANGED',
         detail: 'Latest change was acknowledged.', observedAt: '2026-09-22T10:00:00Z',
         responseIds: [attempt.id], teamCodes: [attempt.teamCode] },
+      { id: 'old-change', fileId: 'same-file', kind: 'CONTENT_CHANGED',
+        detail: 'An earlier version of the same PDF.', observedAt: '2026-09-22T09:30:00Z',
+        responseIds: [attempt.id], teamCodes: [attempt.teamCode] },
       { id: 'unresolved-access', fileId: 'same-file', kind: 'ACCESS_UNAVAILABLE',
         detail: 'Earlier access failure still requires attention.', observedAt: '2026-09-22T09:00:00Z',
         responseIds: [attempt.id], teamCodes: [attempt.teamCode] }
@@ -829,6 +832,7 @@ describe("today's work queues", () => {
     renderPage();
     const open = screen.getByRole('tabpanel', { name: 'Open notifications' });
     expect(within(open).getByText(/Earlier access failure still requires attention/)).toBeInTheDocument();
+    expect(within(open).queryByText(/An earlier version of the same PDF/)).not.toBeInTheDocument();
     expect(within(open).queryByText(/Latest change was acknowledged/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Dismissed (1)' }));
     expect(screen.getByRole('tabpanel', { name: 'Dismissed notifications' }))

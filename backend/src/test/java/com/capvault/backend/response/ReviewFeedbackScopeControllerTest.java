@@ -378,6 +378,10 @@ class ReviewFeedbackScopeControllerTest {
         mockMvc.perform(get("/api/workspace/students/dashboard").param("workspaceId", workspaceId.toString())
                 .cookie(sessionCookie(studentToken)))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.observedFileHistory['" + response.getId() + "'].observations[0].changeType")
+                .value("FIRST_OBSERVED"))
+            .andExpect(jsonPath("$.observedFileHistory['" + response.getId() + "'].observations[0].contentIdentifier")
+                .doesNotExist())
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(
                 org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("private-editor@example.com"))))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(
@@ -395,6 +399,28 @@ class ReviewFeedbackScopeControllerTest {
                 .value("Private Editor Name"))
             .andExpect(jsonPath("$.observedFileHistory['" + response.getId() + "'].observations[0].driveOwner")
                 .value("Private Drive Owner"));
+    }
+
+    @Test
+    void studentFeedbackShowsItsAuthorsNameWithoutTheirEmail() throws Exception {
+        String adviserToken = adviserAssignedToOneTeam();
+        staffRoleRepository.findByGoogleSubjectAndRole("sub-adviser", StaffRole.ADVISER).orElseThrow()
+            .setAdviserName("Adviser Morgan");
+        mockMvc.perform(post("/api/workspace/responses/" + assignedResponseId + "/feedback")
+                .cookie(sessionCookie(adviserToken)).with(csrf()).contentType("application/json")
+                .content("{\"note\":\"Please check the revised table.\",\"visibility\":\"Student\"}"))
+            .andExpect(status().isOk());
+
+        Cookie student = sessionCookie(sessionTokenFor("sub-student-a", "a@gmail.com"));
+        String feedback = "$.reviewStates['" + assignedResponseId + "'].feedback[0]";
+        mockMvc.perform(get("/api/workspace/students/dashboard").param("workspaceId", workspaceId.toString()).cookie(student))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath(feedback + ".authorName").value("Adviser Morgan"))
+            .andExpect(jsonPath(feedback + ".author").doesNotExist());
+        mockMvc.perform(get("/api/workspace/responses/" + assignedResponseId + "/review-state").cookie(student))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.feedback[0].authorName").value("Adviser Morgan"))
+            .andExpect(jsonPath("$.feedback[0].author").doesNotExist());
     }
 
     @Test

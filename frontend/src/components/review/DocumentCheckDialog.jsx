@@ -10,9 +10,11 @@ import { DocumentChangeNotice } from './DocumentChangeNotice.jsx';
 import { ProviderFailureDetails } from './ProviderFailureDetails.jsx';
 import { historyDate, newestHistoryEntries, observationTime } from '../../lib/fileHistoryPresentation.js';
 
+export const STUDENT_DOCUMENT_CHECK_HELP = 'WildTrack checks whether it can open and read your PDF and whether it looks filled.';
+
 export function DocumentCheckDialog({
   response,
-  documentCheck = null,
+  documentCheck,
   observedHistory = null,
   historyTarget = null,
   initialTab = 'result',
@@ -33,12 +35,12 @@ export function DocumentCheckDialog({
     if (open) setTab(initialTab);
   }, [open, initialTab, response?.id, historyTarget?.fieldId]);
   if (!response) return null;
-  const report = documentCheck || response.documentCheck;
+  const report = documentCheck === undefined ? response.documentCheck : documentCheck;
   const flags = documentCheckFlags(report);
   const studentView = audience === 'student';
   const showResult = !historyOnly;
-  const historyAvailable = Boolean(historyTarget && fileLink) || Boolean(observedHistory);
-  const effectiveResponse = documentCheck ? { ...response, documentCheck } : response;
+  const historyAvailable = Boolean((historyTarget || historyOnly) && fileLink) || Boolean(observedHistory);
+  const effectiveResponse = documentCheck === undefined ? response : { ...response, documentCheck };
   const metadata = report?.metadata;
   const document = report?.document;
   const comparison = report?.templateComparison;
@@ -59,17 +61,17 @@ export function DocumentCheckDialog({
   const ownerStudent = latestObservation?.driveOwnerStudent;
   const editorStudent = latestObservation?.modifiedByStudent;
   const checkExplanation = studentView
-    ? 'Document Check checks whether your PDF can be accessed and read and whether it appears substantially filled. It does not grade your work or decide whether it is accepted.'
+    ? STUDENT_DOCUMENT_CHECK_HELP
     : 'Document Check verifies file access and readability, then screens whether the PDF appears substantially filled. Template structure is supporting evidence only. It does not grade the submission or replace staff review.';
 
   const title = (
     <div className="document-check-title">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      {!embedded || historyOnly ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span>{historyOnly ? 'File history' : 'Document Check'}</span>
         {!historyOnly ? (
           <InfoTooltip label={checkExplanation} ariaLabel="About Document Check" />
         ) : null}
-      </div>
+      </div> : null}
       <h2>{metadata?.name || 'Submitted PDF'}</h2>
       {!historyOnly ? <p>{report?.checkedAt ? `Document Check completed ${historyDate(report.checkedAt)}` : 'This document has not been checked yet.'}</p> : null}
     </div>

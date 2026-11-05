@@ -16,6 +16,7 @@ import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import {
   artifactDocumentCheck,
   artifactDocumentCheckStatus,
+  artifactObservedFileHistory,
   documentCheckSummary,
   findStudent,
   getActiveTrackerColumns,
@@ -425,9 +426,11 @@ function artifactNeedsAttention(artifact) {
 }
 
 function buildStudentArtifacts(deliverable, response) {
-  const active = submissionArtifactFields(deliverable.fields || []).map((field) => {
+  const fields = submissionArtifactFields(deliverable.fields || [])
+    .filter(field => String(response.values?.[field.id] || '').trim());
+  const pdfCount = fields.filter(field => field.type === 'drive' || field.pdfRequired).length;
+  const active = fields.map((field) => {
     const value = String(response.values?.[field.id] || '').trim();
-    if (!value) return null;
     const reviewablePdf = Boolean(field.pdfRequired && field.documentCheckPolicy !== 'OFF');
     return {
       key: field.definitionId || field.id,
@@ -439,9 +442,11 @@ function buildStudentArtifacts(deliverable, response) {
       isLink: /^https?:\/\//i.test(value),
       reviewablePdf,
       documentCheck: reviewablePdf ? artifactDocumentCheck(response, field) : null,
+      observedHistory: field.type === 'drive' || reviewablePdf
+        ? artifactObservedFileHistory(response, field, { allowLegacy: pdfCount === 1 }) : null,
       documentCheckStatus: reviewablePdf ? artifactDocumentCheckStatus(response, field) : 'Not applicable'
     };
-  }).filter(Boolean);
+  });
   const retired = savedRetiredArtifactFields(deliverable, response).map(field => ({
     key: field.definitionId || field.id, fieldId: null, label: field.label || 'Earlier submitted link',
     value: String(response.values[field.id]).trim(), typeLabel: 'Earlier form field',

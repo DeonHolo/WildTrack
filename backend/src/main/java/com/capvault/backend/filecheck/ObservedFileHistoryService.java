@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,15 +39,28 @@ public class ObservedFileHistoryService {
         this.registeredStudents = registeredStudents;
     }
 
-    public record Batch(
-        Map<String, ObservedFileHistoryView> legacy,
-        Map<String, Map<String, ObservedFileHistoryView>> byField
+    public record Batch<T>(
+        Map<String, T> legacy,
+        Map<String, Map<String, T>> byField
     ) {
     }
 
     @Transactional(readOnly = true)
-    public Batch forResponses(UUID workspaceId, List<String> responseIds) {
-        if (responseIds == null || responseIds.isEmpty()) return new Batch(Map.of(), Map.of());
+    public Batch<ObservedFileHistoryView> forResponses(UUID workspaceId, List<String> responseIds) {
+        // Repeated Drive identities are resolved once per request.
+        Map<String, java.util.Optional<RegisteredDriveStudentResolver.Student>> identityCache = new java.util.HashMap<>();
+        return histories(workspaceId, responseIds, source -> history(workspaceId, source, identityCache));
+    }
+
+    /** Call only with response IDs owned by the requesting student. */
+    @Transactional(readOnly = true)
+    public Batch<ObservedFileHistoryView.StudentHistory> forStudentResponses(UUID workspaceId, List<String> responseIds) {
+        return histories(workspaceId, responseIds, source -> new ObservedFileHistoryView.StudentHistory(
+            observations(source).stream().map(MutableObservation::toStudentView).toList()));
+    }
+
+    private <T> Batch<T> histories(UUID workspaceId, List<String> responseIds, Function<List<FileCheckReport>, T> project) {
+        if (responseIds == null || responseIds.isEmpty()) return new Batch<>(Map.of(), Map.of());
 
         Map<String, List<FileCheckReport>> legacyReports = new LinkedHashMap<>();
         Map<String, Map<String, List<FileCheckReport>>> fieldReports = new LinkedHashMap<>();
@@ -61,24 +75,32 @@ public class ObservedFileHistoryService {
             }
         }
 
-        Map<String, ObservedFileHistoryView> legacy = new LinkedHashMap<>();
-        // Scoped to this request: repeated Drive identities are resolved once,
-        // but an administrator's disconnect is visible on the next request.
-        Map<String, java.util.Optional<RegisteredDriveStudentResolver.Student>> identityCache = new java.util.HashMap<>();
+        Map<String, T> legacy = new LinkedHashMap<>();
         legacyReports.forEach((responseId, responseReports) ->
-            legacy.put(responseId, history(workspaceId, responseReports, identityCache)));
+            legacy.put(responseId, project.apply(responseReports)));
 
-        Map<String, Map<String, ObservedFileHistoryView>> byField = new LinkedHashMap<>();
+        Map<String, Map<String, T>> byField = new LinkedHashMap<>();
         fieldReports.forEach((responseId, fields) -> {
-            Map<String, ObservedFileHistoryView> histories = new LinkedHashMap<>();
-            fields.forEach((fieldId, fieldHistory) -> histories.put(fieldId, history(workspaceId, fieldHistory, identityCache)));
+            Map<String, T> histories = new LinkedHashMap<>();
+            fields.forEach((fieldId, fieldHistory) -> histories.put(fieldId, project.apply(fieldHistory)));
             byField.put(responseId, histories);
         });
-        return new Batch(legacy, byField);
+        return new Batch<>(legacy, byField);
     }
 
     private ObservedFileHistoryView history(UUID workspaceId, List<FileCheckReport> sourceReports,
             Map<String, java.util.Optional<RegisteredDriveStudentResolver.Student>> identityCache) {
+        List<ObservedFileHistoryView.Observation> observations = observations(sourceReports).stream()
+            .map(observation -> observation.toView(email -> {
+                String key = normalize(email);
+                if (key == null) return null;
+                return identityCache.computeIfAbsent(key.toLowerCase(java.util.Locale.ROOT),
+                    ignored -> registeredStudents.resolve(workspaceId, key)).orElse(null);
+            })).toList();
+        return new ObservedFileHistoryView(SOURCE_LABEL, COVERAGE, OLDER_HISTORY, observations);
+    }
+
+    private List<MutableObservation> observations(List<FileCheckReport> sourceReports) {
         List<MutableObservation> distinct = new ArrayList<>();
         String previousFileKey = null;
         String previousChecksum = null;
@@ -122,16 +144,9 @@ public class ObservedFileHistoryService {
             previousMetadataSignature = metadataSignature;
         }
 
-        List<ObservedFileHistoryView.Observation> observations = distinct.stream()
-            .map(observation -> observation.toView(email -> {
-                String key = normalize(email);
-                if (key == null) return null;
-                return identityCache.computeIfAbsent(key.toLowerCase(java.util.Locale.ROOT),
-                    ignored -> registeredStudents.resolve(workspaceId, key)).orElse(null);
-            }))
-            .sorted((left, right) -> right.firstObservedAt().compareTo(left.firstObservedAt()))
+        return distinct.stream()
+            .sorted((left, right) -> right.firstObservedAt.compareTo(left.firstObservedAt))
             .toList();
-        return new ObservedFileHistoryView(SOURCE_LABEL, COVERAGE, OLDER_HISTORY, observations);
     }
 
     private ParsedMetadata metadata(FileCheckReport report) {
@@ -268,6 +283,10 @@ public class ObservedFileHistoryService {
             if (metadata.createdTime() != null) this.driveCreatedTime = metadata.createdTime();
             this.driveOwner = metadata.driveOwner();
             this.driveOwnerEmail = metadata.ownerEmail();
+        }
+
+        private ObservedFileHistoryView.StudentObservation toStudentView() {
+            return new ObservedFileHistoryView.StudentObservation(changeType, firstObservedAt, lastObservedAt, driveModifiedTime);
         }
 
         private ObservedFileHistoryView.Observation toView(

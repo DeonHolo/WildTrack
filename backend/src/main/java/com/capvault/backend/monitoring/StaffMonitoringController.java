@@ -164,7 +164,8 @@ public class StaffMonitoringController {
         var responseIds = responses.stream().map(r -> r.getId().toString()).toList();
         var observedHistory = includeReviews
             ? observedFileHistory.forResponses(workspaceId, responseIds)
-            : new com.capvault.backend.filecheck.ObservedFileHistoryService.Batch(java.util.Map.of(), java.util.Map.of());
+            : new com.capvault.backend.filecheck.ObservedFileHistoryService.Batch<com.capvault.backend.filecheck.ObservedFileHistoryView>(
+                java.util.Map.of(), java.util.Map.of());
         return new MonitoringResponse(
             allTeams,
             teams,

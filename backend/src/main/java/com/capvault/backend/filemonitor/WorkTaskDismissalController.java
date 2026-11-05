@@ -2,14 +2,22 @@ package com.capvault.backend.filemonitor;
 
 import com.capvault.backend.staff.StaffRole;
 import com.capvault.backend.student.StudentAssociationSecurity;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.dao.DataIntegrityViolationException;
+import java.util.regex.Pattern;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -26,6 +34,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/work-task-dismissals")
 public class WorkTaskDismissalController {
+    private static final Pattern DOCUMENT_CHANGE_KEY = Pattern.compile(
+        "^document-change:([^:]+):(.+):([^:]+):md5:([a-fA-F0-9]{32}):(\\d{4}-\\d{2}-\\d{2}T.+)$");
+    private static final ObjectMapper JSON = new ObjectMapper();
     private final JdbcTemplate db;
     private final StudentAssociationSecurity security;
 
@@ -67,47 +78,51 @@ public class WorkTaskDismissalController {
     }
 
     private void saveDismissal(UUID workspaceId, String user, String key) {
-        db.update("DELETE FROM work_task_dismissals WHERE workspace_id=? AND google_subject=? AND task_key=? AND deleted_at IS NULL",
-            workspaceId, user, key);
-        try {
-            db.update("""
-                INSERT INTO work_task_dismissals(workspace_id,google_subject,task_key,dismissed_at)
-                VALUES(?,?,?,?)
-                """, workspaceId, user, key, Timestamp.from(Instant.now()));
-        } catch (DataIntegrityViolationException alreadyDismissed) {
-            // Concurrent identical requests have the same final state.
-        }
+        db.update("""
+            INSERT INTO work_task_dismissals(workspace_id,google_subject,task_key,dismissed_at)
+            VALUES(?,?,?,?) ON CONFLICT DO NOTHING
+            """, workspaceId, user, key, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
     /** Link the acknowledgement to the same saved file revision, never to later changes. */
     private List<String> matchingContentChangeTasks(Action action) {
-        var match = java.util.regex.Pattern.compile("^document-change:([^:]+):([^:]+):([^:]+):md5:([a-fA-F0-9]{32}):(\\d{4}-\\d{2}-\\d{2}T.+)$")
-            .matcher(action.taskKey());
+        var match = DOCUMENT_CHANGE_KEY.matcher(action.taskKey());
         if (!match.matches()) return List.of();
-        Instant observed;
-        try { observed = java.time.OffsetDateTime.parse(match.group(5)).toInstant(); }
-        catch (java.time.format.DateTimeParseException invalid) { return List.of(); }
+        LocalDateTime checkedAt;
+        try {
+            // Reports store UTC without an offset. The browser sends millisecond precision.
+            checkedAt = OffsetDateTime.parse(match.group(5)).withOffsetSameInstant(ZoneOffset.UTC)
+                .toLocalDateTime().truncatedTo(ChronoUnit.MILLIS);
+        } catch (DateTimeParseException invalid) {
+            return List.of();
+        }
+        String fileId = match.group(3);
+        String checksum = match.group(4).toLowerCase(Locale.ROOT);
         var reports = db.query("""
             SELECT report_json FROM academic_file_check_reports
-            WHERE workspace_id=? AND external_response_id=? AND field_id=? AND checked_at>=? AND checked_at<=?
-            ORDER BY checked_at LIMIT 1
+            WHERE workspace_id=? AND external_response_id=? AND (field_id=? OR field_id IS NULL)
+            AND checked_at>=? AND checked_at<?
+            ORDER BY CASE WHEN field_id IS NULL THEN 1 ELSE 0 END, checked_at
             """, (rs, n) -> rs.getString(1), action.workspaceId(), match.group(1), match.group(2),
-            Timestamp.from(observed.minusMillis(1)), Timestamp.from(observed.plusMillis(1)));
-        if (reports.isEmpty()) return List.of();
-        try {
-            var metadata = new com.fasterxml.jackson.databind.ObjectMapper().readTree(reports.getFirst()).path("metadata");
-            if (!match.group(3).equals(metadata.path("fileId").asText())
-                    || !match.group(4).equalsIgnoreCase(metadata.path("md5Checksum").asText())) return List.of();
-            String modified = metadata.path("modifiedTime").asText("");
-            if (modified.isBlank()) return List.of();
-            var modifiedAt = java.time.OffsetDateTime.parse(modified).toInstant();
-            return db.query("""
+            checkedAt, checkedAt.plus(1, ChronoUnit.MILLIS));
+        for (String report : reports) {
+            OffsetDateTime modifiedAt;
+            try {
+                var metadata = JSON.readTree(report).path("metadata");
+                if (!fileId.equals(metadata.path("fileId").asText())
+                        || !checksum.equalsIgnoreCase(metadata.path("md5Checksum").asText())) continue;
+                modifiedAt = OffsetDateTime.parse(metadata.path("modifiedTime").asText(""));
+            } catch (IOException | DateTimeParseException invalidReport) {
+                continue;
+            }
+            var tasks = db.query("""
                 SELECT id FROM monitored_drive_events WHERE workspace_id=? AND file_id=? AND kind='CONTENT_CHANGED'
                 AND LOWER(current_checksum)=? AND provider_modified_at=? AND observed_at<=?
-                """, (rs, n) -> "file:" + match.group(3) + ":" + rs.getObject(1, UUID.class),
-                action.workspaceId(), match.group(3), match.group(4).toLowerCase(java.util.Locale.ROOT),
-                Timestamp.from(modifiedAt), Timestamp.from(Instant.now()));
-        } catch (java.io.IOException | java.time.format.DateTimeParseException invalidReport) { return List.of(); }
+                """, (rs, n) -> "file:" + fileId + ":" + rs.getObject(1, UUID.class),
+                action.workspaceId(), fileId, checksum, modifiedAt, OffsetDateTime.now(ZoneOffset.UTC));
+            if (!tasks.isEmpty()) return tasks;
+        }
+        return List.of();
     }
 
     @DeleteMapping

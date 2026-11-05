@@ -25,7 +25,8 @@ class WorkTaskDeletionTest {
     private final UUID workspace = UUID.randomUUID();
 
     @BeforeEach void setup() {
-        db = new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", ""));
+        db = new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID()
+            + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1", "sa", ""));
         db.execute("""
             CREATE TABLE work_task_dismissals (
               workspace_id UUID, google_subject VARCHAR(200), task_key VARCHAR(500),
