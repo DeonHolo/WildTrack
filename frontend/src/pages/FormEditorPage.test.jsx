@@ -277,13 +277,36 @@ describe('full-page form editor', () => {
     }
   });
 
-  it('renders the saved public URL as a top-right action button', async () => {
+  it('opens the full-page preview and copies its saved public URL without saving the draft', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     renderEditor('/forms/form-srs/edit');
     await screen.findByDisplayValue('SRS Submission');
     expect(screen.queryByText('Public URL:')).not.toBeInTheDocument();
     const link = await screen.findByRole('link', { name: 'Public URL' });
     expect(link).toHaveAttribute('href', '/s/' + 'a'.repeat(64));
     expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.queryByRole('button', { name: 'Preview', exact: true })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Form title' }), { target: { value: 'Unsaved title' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy public URL' }));
+    await screen.findByText('Public URL copied');
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/s/${'a'.repeat(64)}`);
+    expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: 'Form title' })).toHaveValue('Unsaved title');
+    expect(screen.queryByRole('dialog', { name: 'Student preview' })).not.toBeInTheDocument();
+  });
+
+  it('explains how to copy manually when clipboard access fails and lets the user try again', async () => {
+    const writeText = vi.fn().mockRejectedValueOnce(new Error('Permission denied')).mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    renderEditor('/forms/form-srs/edit');
+    await screen.findByRole('link', { name: 'Public URL' });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy public URL' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not copy the link. Open Public URL and copy the address.');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy public URL' }));
+    await screen.findByText('Public URL copied');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
   });
 
   it('keeps a deleted-item snackbar until Undo and restores only that question', async () => {
@@ -609,12 +632,5 @@ describe('full-page form editor', () => {
     await waitFor(() => expect(submissionClient.saveDeliverable).toHaveBeenCalled());
     expect(submissionClient.saveDeliverable.mock.calls[0][1].fields.find((field) => field.id === 'framework'))
       .toMatchObject({ documentCheckPolicy: 'AUTO', aiReviewEnabled: true });
-    submissionClient.saveDeliverable.mockClear();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
-    const preview = await screen.findByRole('dialog', { name: 'Student preview' });
-    expect(within(preview).getByText('Preview only. Nothing entered here is submitted or sent to review services.')).toBeInTheDocument();
-    expect(within(preview).getByRole('textbox', { name: 'Scope' })).toBeInTheDocument();
-    expect(submissionClient.saveDeliverable).not.toHaveBeenCalled();
   });
 });

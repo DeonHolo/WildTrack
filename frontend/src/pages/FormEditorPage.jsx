@@ -16,7 +16,8 @@ import {
   Text,
   TextInput,
   Textarea,
-  Title
+  Title,
+  Tooltip
 } from '@mantine/core';
 import {
   ArrowDown,
@@ -28,7 +29,6 @@ import {
   Check,
   Copy,
   DotsSixVertical,
-  Eye,
   FloppyDisk,
   Plus,
   Prohibit,
@@ -37,7 +37,6 @@ import {
 } from '@phosphor-icons/react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
-import { SubmissionFields } from '../components/public/SubmissionFields.jsx';
 import { StudentAiReviewSetting } from '../components/forms/StudentAiReviewSetting.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useDeliverableShareLinks } from '../hooks/useDeliverableShareLinks.js';
@@ -113,7 +112,7 @@ export function FormEditorPage() {
   const [saveState, setSaveState] = useState('idle');
   const [saveError, setSaveError] = useState('');
   const [selectedId, setSelectedId] = useState('');
-  const [previewOpened, setPreviewOpened] = useState(false);
+  const [copyState, setCopyState] = useState('idle');
   const [academicReviewOpened, setAcademicReviewOpened] = useState(false);
   const [academicReviewItems, setAcademicReviewItems] = useState([]);
   const [deletedQuestion, setDeletedQuestion] = useState(null);
@@ -156,6 +155,7 @@ export function FormEditorPage() {
     setSelectedId(initial?.fields?.find((field) => field.active !== false)?.id || '');
     setSaveState('idle');
     setSaveError('');
+    setCopyState('idle');
     setDeletedQuestion(null);
     persistedFieldsRef.current = persistedFieldSnapshots(initial?.fields || []);
     clearQuestionDrag();
@@ -619,6 +619,19 @@ export function FormEditorPage() {
     navigate('/forms');
   }
 
+  async function copyPublicUrl() {
+    if (!publicPath) return;
+    const scope = initializedScope.current;
+    setCopyState('idle');
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+      await navigator.clipboard.writeText(new URL(publicPath, window.location.origin).href);
+      if (initializedScope.current === scope) setCopyState('copied');
+    } catch {
+      if (initializedScope.current === scope) setCopyState('error');
+    }
+  }
+
   return (
     <Stack gap="lg" className="wt-form-editor-page">
       <header className="wt-form-editor-toolbar">
@@ -633,14 +646,20 @@ export function FormEditorPage() {
           <ActionIcon variant="default" size="lg" aria-label="Undo" disabled={!canUndo} onClick={undoDraft}><ArrowCounterClockwise size={18} /></ActionIcon>
           <ActionIcon variant="default" size="lg" aria-label="Redo" disabled={!canRedo} onClick={redoDraft}><ArrowClockwise size={18} /></ActionIcon>
           <Badge variant="light" color={published ? 'green' : 'gray'}>{published ? 'Published' : 'Unpublished'}</Badge>
-          {publicPath ? (
-            <Button component="a" href={publicPath} target="_blank" rel="noreferrer" variant="default" leftSection={<ArrowSquareOut size={17} />}>
-              Public URL
-            </Button>
-          ) : (
-            <Button variant="default" leftSection={<ArrowSquareOut size={17} />} disabled={!shareLinks.errors[formId]} onClick={shareLinks.reload}>{shareLinks.errors[formId] ? 'Retry public link' : 'Public URL'}</Button>
-          )}
-          <Button variant="default" leftSection={<Eye size={17} />} onClick={() => setPreviewOpened(true)}>Preview</Button>
+          <Group gap={6} wrap="nowrap">
+            {publicPath ? (
+              <Button component="a" href={publicPath} target="_blank" rel="noreferrer" variant="default" leftSection={<ArrowSquareOut size={17} />}>
+                Public URL
+              </Button>
+            ) : (
+              <Button variant="default" leftSection={<ArrowSquareOut size={17} />} disabled={!shareLinks.errors[formId]} onClick={shareLinks.reload}>{shareLinks.errors[formId] ? 'Retry public link' : 'Public URL'}</Button>
+            )}
+            <Tooltip label={copyState === 'copied' ? 'Copied' : 'Copy public URL'}>
+              <ActionIcon variant="default" size="lg" aria-label="Copy public URL" disabled={!publicPath} onClick={copyPublicUrl}>
+                {copyState === 'copied' ? <Check size={17} aria-hidden="true" /> : <Copy size={17} aria-hidden="true" />}
+              </ActionIcon>
+            </Tooltip>
+          </Group>
           <Button variant="default" leftSection={<FloppyDisk size={17} />} loading={saveState === 'saving'} onClick={() => save(draft.status || 'Unpublished')}>Save</Button>
           {published ? (
             <Button variant="light" color="red" leftSection={<Prohibit size={17} />} loading={saveState === 'saving'} onClick={() => save('Unpublished')}>Unpublish</Button>
@@ -652,10 +671,12 @@ export function FormEditorPage() {
 
       {loadError ? <Alert color="red">{loadError}</Alert> : null}
       {saveError ? <Alert color="red" icon={<WarningCircle size={18} />} role="alert">{saveError}</Alert> : null}
+      {copyState === 'error' ? <Alert color="red" icon={<WarningCircle size={18} />} role="alert">Could not copy the link. Open Public URL and copy the address.</Alert> : null}
       <Text size="sm" c={saveState === 'saved' ? 'green' : 'dimmed'} role="status">
         {saveState === 'saving' ? 'Saving form…' : saveState === 'saved' ? 'Saved' : dirty ? 'Unsaved changes' : 'No unsaved changes'}
       </Text>
       <div className="wt-form-editor-announcement" aria-live="polite" aria-atomic="true">{questionAnnouncement}</div>
+      <div className="wt-form-editor-announcement" aria-live="polite" aria-atomic="true">{copyState === 'copied' ? 'Public URL copied' : ''}</div>
 
       <div className="wt-form-editor-grid">
         <Stack gap="md" className="wt-form-editor-main">
@@ -769,7 +790,6 @@ export function FormEditorPage() {
           </Group>
         </Stack>
       </Modal>
-      <PreviewModal opened={previewOpened} onClose={() => setPreviewOpened(false)} draft={draft} students={state.students || []} />
     </Stack>
   );
 
@@ -902,33 +922,6 @@ function ChoiceEditor({ field, onUpdate }) {
       ))}
       <Button size="xs" variant="default" leftSection={<Plus size={15} />} onClick={() => onUpdate({ options: [...options, newChoiceOption(`Option ${options.length + 1}`)] })}>Add option</Button>
     </Stack>
-  );
-}
-
-function PreviewModal({ opened, onClose, draft, students }) {
-  const [values, setValues] = useState({});
-  const [identity, setIdentity] = useState({ studentNumber: '', studentName: '', teamCode: '' });
-  useEffect(() => {
-    if (opened) {
-      setValues({});
-      setIdentity({ studentNumber: '', studentName: '', teamCode: '' });
-    }
-  }, [opened]);
-  return (
-    <Modal opened={opened} onClose={onClose} title="Student preview" size="lg" centered>
-      <Stack gap="lg" className="wt-public-root">
-        <div><Title order={2}>{draft.title}</Title><Text c="dimmed">{draft.instructions}</Text></div>
-        <SubmissionFields
-          fields={draft.fields.filter((field) => field.active !== false)}
-          values={values}
-          onValueChange={(fieldId, value) => setValues((current) => ({ ...current, [fieldId]: value }))}
-          students={students}
-          identity={identity}
-          onIdentityChange={setIdentity}
-        />
-        <Alert color="blue">Preview only. Nothing entered here is submitted or sent to review services.</Alert>
-      </Stack>
-    </Modal>
   );
 }
 
