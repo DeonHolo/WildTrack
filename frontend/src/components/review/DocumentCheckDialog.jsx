@@ -66,7 +66,7 @@ export function DocumentCheckDialog({
 
   const title = (
     <div className="document-check-title">
-      {!embedded ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      {!embedded || historyOnly ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span>{historyOnly ? 'File history' : 'Document Check'}</span>
         {!historyOnly ? (
           <InfoTooltip label={checkExplanation} ariaLabel="About Document Check" />
