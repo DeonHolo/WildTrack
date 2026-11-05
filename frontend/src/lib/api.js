@@ -799,14 +799,6 @@ export function requestStudentAiReview(workspaceId, responseId, fieldId = null, 
     method: 'POST', body: { fieldId, retryAcknowledged, retryToken }
   });
 }
-export function getStudentAiReviewSetting(workspaceId, deliverableId) {
-  return request(withWorkspace(`/deliverables/${encodeURIComponent(deliverableId)}/student-ai-review`, workspaceId));
-}
-export function saveStudentAiReviewSetting(workspaceId, deliverableId, enabled) {
-  return request(withWorkspace(`/deliverables/${encodeURIComponent(deliverableId)}/student-ai-review`, workspaceId), {
-    method: 'PUT', body: { enabled }
-  });
-}
 export function prepareAiReviewBatch(workspaceId, targets) {
   return request(withWorkspace('/ai-reviews/batches', workspaceId), { method: 'POST', body: { targets } });
 }

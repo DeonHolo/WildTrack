@@ -572,15 +572,9 @@ for (const viewport of editorViewports) {
     expect(saveCall.body.status).toBe('UNPUBLISHED');
     expect(saveCall.body.fields.map((field) => field.label).slice(-2)).toEqual(['Project Summary', 'PDF Drive Link']);
 
-    const callsBeforePreview = page.apiFixture.calls.length;
-    await page.getByRole('button', { name: 'Preview', exact: true }).click();
-    const preview = page.getByRole('dialog', { name: 'Student preview' });
-    await expect(preview).toBeVisible();
-    await expect(preview.getByRole('textbox', { name: 'Project Summary' })).toBeVisible();
-    await expect(preview).toContainText('Preview only. Nothing entered here is submitted or sent to review services.');
-    expect(page.apiFixture.calls).toHaveLength(callsBeforePreview);
-    await page.keyboard.press('Escape');
-    await expect(preview).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Preview', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Public URL', exact: true })).toHaveAttribute('href', '/s/' + 'a'.repeat(64));
+    await expect(page.getByRole('button', { name: 'Copy public URL', exact: true })).toBeEnabled();
 
     await page.screenshot({ path: `test-results/ticket12-form-editor-${viewport.label}.png`, fullPage: true });
     await expectNoPageOverflow(page);
