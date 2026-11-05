@@ -9,16 +9,15 @@ import com.capvault.backend.staff.StaffRole;
 import com.capvault.backend.student.StudentAssociationSecurity;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullSource;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 class ContentChangeAcknowledgementTest {
     @ParameterizedTest
-    @NullSource
-    @ValueSource(strings = { "pdf", "deliverable:legacy" })
-    void acknowledgementDismissesOnlyTheSameContentRevisionForTheSameAccountAndWorkspace(String reportField) {
+    @CsvSource({ "ADMIN,pdf", "ADMIN,deliverable:legacy", "ADMIN,",
+        "ADVISER,pdf", "ADVISER,deliverable:legacy", "ADVISER," })
+    void acknowledgementDismissesOnlyTheSameContentRevisionForTheSameAccountAndWorkspace(StaffRole role, String reportField) {
         var db=new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:"+UUID.randomUUID()+";MODE=PostgreSQL;DB_CLOSE_DELAY=-1","sa",""));
         db.execute("CREATE TABLE work_task_dismissals(workspace_id UUID,google_subject VARCHAR(320),task_key VARCHAR(500),dismissed_at TIMESTAMP WITH TIME ZONE,deleted_at TIMESTAMP WITH TIME ZONE,PRIMARY KEY(workspace_id,google_subject,task_key))");
         db.execute("CREATE TABLE academic_file_check_reports(workspace_id UUID,external_response_id VARCHAR(240),field_id VARCHAR(80),checked_at TIMESTAMP,report_json TEXT)");
@@ -35,7 +34,7 @@ class ContentChangeAcknowledgementTest {
         db.update("INSERT INTO monitored_drive_events VALUES(?,?,?,?,?,?,?)",next,workspace,"file","CONTENT_CHANGED",checksum,java.sql.Timestamp.from(modified.plusSeconds(10)),java.sql.Timestamp.from(observed.plusSeconds(10)));
         var security=mock(StudentAssociationSecurity.class); var http=mock(HttpServletRequest.class);
         when(security.requireSession(http)).thenReturn(new StoredWildTrackSession("session","staff","staff@test.invalid",Instant.now(),Instant.now().plusSeconds(60)));
-        when(security.activeRoles(http)).thenReturn(Set.of(StaffRole.ADMIN));
+        when(security.activeRoles(http)).thenReturn(Set.of(role));
         var controller=new WorkTaskDismissalController(db,security);
         String field = reportField == null ? "pdf" : reportField;
         String key = "document-change:" + response + ":" + field + ":file:md5:" + checksum + ":" + observed;
@@ -45,6 +44,7 @@ class ContentChangeAcknowledgementTest {
         assertThat(controller.list(UUID.randomUUID(),http)).isEmpty();
         assertThat(controller.list(workspace,http)).doesNotContain("file:file:"+next);
         when(security.requireSession(http)).thenReturn(new StoredWildTrackSession("other-session","other","other@test.invalid",Instant.now(),Instant.now().plusSeconds(60)));
+        when(security.activeRoles(http)).thenReturn(Set.of(StaffRole.ADMIN));
         assertThat(controller.list(workspace,http)).isEmpty();
     }
 }
