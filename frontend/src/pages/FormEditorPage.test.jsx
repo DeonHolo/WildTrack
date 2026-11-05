@@ -16,9 +16,7 @@ const session = vi.hoisted(() => ({
 const formsClient = vi.hoisted(() => ({ loadFormsState: vi.fn() }));
 const submissionClient = vi.hoisted(() => ({ saveDeliverable: vi.fn() }));
 vi.mock('../lib/api.js', async original => ({ ...(await original()),
-  getDeliverableShareLink: vi.fn().mockResolvedValue({ path: '/s/' + 'a'.repeat(64) }),
-  getStudentAiReviewSetting: vi.fn().mockResolvedValue({ enabled: false }),
-  saveStudentAiReviewSetting: vi.fn().mockImplementation(async (_workspace, _id, enabled) => ({ enabled }))
+  getDeliverableShareLink: vi.fn().mockResolvedValue({ path: '/s/' + 'a'.repeat(64) })
 }));
 
 vi.mock('../app/WorkspaceSession.jsx', () => ({ useWorkspaceSession: () => session }));
@@ -625,6 +623,7 @@ describe('full-page form editor', () => {
     const aiReview = screen.getByRole('checkbox', { name: 'Allow AI Review' });
     expect(aiReview).toBeChecked();
     expect(aiReview).toBeEnabled();
+    expect(screen.queryByRole('checkbox', { name: 'Allow students to run AI Review' })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Document Check' })).not.toBeInTheDocument();
     expect(screen.getByText('Document Check runs automatically for PDF submissions.')).toBeInTheDocument();
 

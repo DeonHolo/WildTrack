@@ -37,7 +37,6 @@ import {
 } from '@phosphor-icons/react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
-import { StudentAiReviewSetting } from '../components/forms/StudentAiReviewSetting.jsx';
 import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useDeliverableShareLinks } from '../hooks/useDeliverableShareLinks.js';
 import {
@@ -692,7 +691,6 @@ export function FormEditorPage() {
                 <TextInput label="Deadline" type="datetime-local" value={String(draft.dueAt || dateAt2359()).slice(0, 16)} required
                   onChange={(event) => updateDraft({ dueAt: event.currentTarget.value })} />
               </SimpleGrid>
-              {editing && formId ? <StudentAiReviewSetting workspaceId={activeWorkspaceId} deliverableId={formId} /> : null}
               <Group justify="flex-end" gap="sm" wrap="wrap">
                 <Button size="xs" variant="subtle" onClick={refreshAcademicSuggestions}>Refresh academic suggestions</Button>
               </Group>
