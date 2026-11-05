@@ -28,6 +28,7 @@ export function DocumentCheckDialog({
   error = '',
   audience = 'staff',
   allowRecheck = true,
+  allowAcknowledge = true,
   embedded = false
 }) {
   const [tab, setTab] = useState(initialTab);
@@ -65,15 +66,15 @@ export function DocumentCheckDialog({
     : 'Document Check verifies file access and readability, then screens whether the PDF appears substantially filled. Template structure is supporting evidence only. It does not grade the submission or replace staff review.';
 
   const title = (
-    <div className="document-check-title">
+    <div className="document-check-title" style={embedded ? { marginBottom: 16 } : undefined}>
       {!embedded || historyOnly ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span>{historyOnly ? 'File history' : 'Document Check'}</span>
         {!historyOnly ? (
           <InfoTooltip label={checkExplanation} ariaLabel="About Document Check" />
         ) : null}
       </div> : null}
-      <h2>{metadata?.name || 'Submitted PDF'}</h2>
-      {!historyOnly ? <p>{report?.checkedAt ? `Document Check completed ${historyDate(report.checkedAt)}` : 'This document has not been checked yet.'}</p> : null}
+      <h2 style={embedded ? { margin: '0 0 8px' } : undefined}>{metadata?.name || 'Submitted PDF'}</h2>
+      {!historyOnly ? <p style={embedded ? { margin: 0 } : undefined}>{report?.checkedAt ? `Document Check completed ${historyDate(report.checkedAt)}` : 'This document has not been checked yet.'}</p> : null}
     </div>
   );
 
@@ -102,8 +103,8 @@ export function DocumentCheckDialog({
         ) : null}
 
         {showResult ? <Tabs.Panel value="result" pt={studentView ? 0 : 'md'}>
-          {!outdated && latestObservation?.changeType === 'CONTENT_CHANGED' ? (
-            <DocumentChangeNotice observation={latestObservation} target={historyTarget} allowAcknowledge={!studentView} />
+          {!studentView && !outdated && latestObservation?.changeType === 'CONTENT_CHANGED' ? (
+            <DocumentChangeNotice observation={latestObservation} target={historyTarget} allowAcknowledge={allowAcknowledge} />
           ) : null}
           <div className={'document-check-overview ' + (overviewNeedsAttention ? 'attention' : '')}>
             {successful && !overviewNeedsAttention ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}

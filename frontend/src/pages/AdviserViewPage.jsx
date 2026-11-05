@@ -655,6 +655,7 @@ export function AdviserViewPage() {
         onClose={() => setCheckDialogTarget(null)}
         onRecheck={() => runDocumentCheck(checkDialogResponse.id, checkDialogField)}
         allowRecheck={!isReadOnlyPreview}
+        allowAcknowledge={!isReadOnlyPreview}
       />
       <AiReviewReportDialog
         opened={Boolean(aiReviewDialogResponse && aiReviewDialogField && (aiReviewDialogReport || aiReviewDialogReview?.previousReport || aiReviewDialogReview?.lastSubstantiveReport))}

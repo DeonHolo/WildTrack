@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { wildTrackTheme } from '../../app/theme.js';
 import { DocumentCheckDialog, documentCheckStatus } from './DocumentCheckDialog.jsx';
+import { getWorkTaskDismissals } from '../../lib/api.js';
 vi.mock('../../lib/api.js', async importOriginal => ({ ...(await importOriginal()),
   getWorkTaskDismissals: vi.fn().mockResolvedValue([]), dismissWorkTask: vi.fn().mockResolvedValue(null) }));
 
@@ -95,6 +96,17 @@ describe('DocumentCheck saved metadata and recorded history', () => {
     expect(within(dialog).queryByRole('button', { name: /Connect Drive|Refresh history/ })).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('tab', { name: 'Check result' }));
     expect(identityFact(dialog, 'Drive owner')).toHaveTextContent('Recorded Owner');
+  });
+
+  it('keeps student file changes in File history without a change banner or staff dismissal request', () => {
+    getWorkTaskDismissals.mockClear();
+    show({ audience: 'student', observedHistory });
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).queryByText('PDF content changed')).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Acknowledge change' })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'File history' }));
+    expect(within(dialog).getByRole('list', { name: 'Recorded file checks' })).toHaveTextContent('Content changed');
+    expect(getWorkTaskDismissals).not.toHaveBeenCalled();
   });
 
   it('renders verified student matches as staff-only names and full email rows', () => {

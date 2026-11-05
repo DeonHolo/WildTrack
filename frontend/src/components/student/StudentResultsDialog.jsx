@@ -26,6 +26,9 @@ export function StudentResultsDialog({ row, workspaceId, onClose, reviewCache, r
       <Modal.Header>
         <Modal.Title style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{row.deliverable.title}</Modal.Title>
         <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }}>
+          {tab === 'ai' && artifact && (artifact.drivePdf || artifact.reviewablePdf) ? <Button component="a"
+            href={makeDriveViewUrl(artifact.value)} target="_blank" rel="noreferrer" variant="default" size="xs" mih={44}
+            leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>Open PDF</Button> : null}
           {tab === 'ai' ? <AiReviewHelp size={44} /> : tab === 'feedback'
             ? <InfoTooltip key="feedback" size={44} ariaLabel="About feedback"
               label="If you have questions about this feedback, contact your adviser through your usual channels." />
@@ -142,10 +145,6 @@ export function StudentAiReviewPanel({ workspaceId, responseId, fieldId, fileLin
   const report = review?.report || review?.previousReport || review?.lastSubstantiveReport;
   const running = state.starting || review?.status === 'RUNNING';
   return <Stack gap="md">
-    {fileLink ? <Group justify="flex-end">
-      <Button component="a" href={makeDriveViewUrl(fileLink)} target="_blank" rel="noreferrer" variant="default" size="xs"
-        leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>Open PDF</Button>
-    </Group> : null}
     {state.loading ? <Group role="status"><Loader size="sm" /><Text size="sm">Loading saved AI Review…</Text></Group> : null}
     {state.error ? <Alert color="red" role="alert">{state.error}<Button variant="subtle" size="xs" onClick={() => reload.current?.()}>Check status</Button></Alert> : null}
     {running ? <Alert color="blue" title="AI Review is running" icon={<Loader size="sm" />} role="status">
