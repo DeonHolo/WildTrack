@@ -677,11 +677,11 @@ export function isArtifactAiReviewCurrent(response, field) {
   }});
 }
 
-export function artifactObservedFileHistory(response, field) {
+export function artifactObservedFileHistory(response, field, { allowLegacy = true } = {}) {
   const histories = response?.observedFileHistoryByField || {};
   return histories[field?.definitionId || field?.id]
     || (!field?.definitionId && field?.id === 'documentPdf' ? histories[`${response?.deliverableId}:legacy`] : null)
-    || (!Object.keys(histories).length ? response?.observedFileHistory : null)
+    || (allowLegacy && !Object.keys(histories).length ? response?.observedFileHistory : null)
     || null;
 }
 

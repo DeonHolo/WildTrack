@@ -84,7 +84,8 @@ class AcceptedPdfSnapshotServiceTest {
         var review = new ReviewFeedbackService(responseRepo, mock(ResponseFeedbackRepository.class), acceptanceRepo,
             mock(com.capvault.backend.staff.AdviserTeamAssignmentRepository.class), java.time.Clock.systemUTC(),
             mock(DomainEventRecorder.class), mock(CanonicalResponseService.class), snapshots,
-            mock(com.capvault.backend.archive.ArchiveRecordRepository.class));
+            mock(com.capvault.backend.archive.ArchiveRecordRepository.class),
+            mock(com.capvault.backend.staff.StaffRoleAssignmentRepository.class));
         var accepted = review.accept(responseId, "admin", "admin@test", "ADMIN");
         assertThat(accepted.getSourceArtifactsJson()).isEqualTo("first");
         when(acceptanceRepo.findByResponseId(responseId)).thenReturn(Optional.of(accepted));

@@ -11,6 +11,8 @@ import com.capvault.backend.deliverable.DeliverableService;
 import com.capvault.backend.deliverable.DeliverableStatus;
 import com.capvault.backend.filecheck.FileCheckResponse;
 import com.capvault.backend.filecheck.FileCheckService;
+import com.capvault.backend.filecheck.ObservedFileHistoryService;
+import com.capvault.backend.filecheck.ObservedFileHistoryView.StudentHistory;
 import com.capvault.backend.project.ProjectMetadataRepository;
 import com.capvault.backend.project.ProjectMetadataResponse;
 import com.capvault.backend.response.FormResponse;
@@ -48,12 +50,13 @@ public class StudentDashboardController {
     private final ResponseTimingService responseTimings;
     private final ReviewFeedbackService reviews;
     private final FileCheckService checks;
+    private final ObservedFileHistoryService fileHistory;
 
     public StudentDashboardController(StudentAssociationSecurity security, StudentAssociationService associations,
             AcademicWorkspaceRepository workspaces, StudentRecordRepository students, ProjectMetadataRepository projects,
             TrackerColumnRepository columns, TrackerRowRepository rows, TrackerCellRepository cells,
             DeliverableService deliverables, FormResponseService responses, ResponseTimingService responseTimings, ReviewFeedbackService reviews,
-            FileCheckService checks) {
+            FileCheckService checks, ObservedFileHistoryService fileHistory) {
         this.security = security;
         this.associations = associations;
         this.workspaces = workspaces;
@@ -67,6 +70,7 @@ public class StudentDashboardController {
         this.responseTimings = responseTimings;
         this.reviews = reviews;
         this.checks = checks;
+        this.fileHistory = fileHistory;
     }
 
     public record DashboardResponse(StudentAssociationService.AssociationView association,
@@ -76,7 +80,9 @@ public class StudentDashboardController {
             List<ScopedResponse> responses, Map<UUID, ResponseTimingView> responseTimings,
             Map<UUID, Map<String, Object>> reviewStates,
             Map<UUID, FileCheckResponse> fileChecks,
-            Map<UUID, Map<String, FileCheckResponse>> fileChecksByField) { }
+            Map<UUID, Map<String, FileCheckResponse>> fileChecksByField,
+            Map<String, StudentHistory> observedFileHistory,
+            Map<String, Map<String, StudentHistory>> observedFileHistoryByField) { }
 
     @GetMapping("/api/workspace/students/dashboard")
     @Transactional(readOnly = true)
@@ -100,12 +106,14 @@ public class StudentDashboardController {
         Map<UUID, Map<String, Object>> reviewStates = new LinkedHashMap<>();
         Map<UUID, FileCheckResponse> fileChecks = new LinkedHashMap<>();
         for (var response : owned) {
-            reviewStates.put(response.getId(), studentReviewState(response));
+            reviewStates.put(response.getId(), reviews.studentStateFor(response.getId(), response.getUpdatedAt()));
             checks.findLatest(workspaceId, response.getId().toString())
                 .ifPresent(report -> fileChecks.put(response.getId(), report));
         }
+        var ownedIds = owned.stream().map(item -> item.getId().toString()).toList();
+        var histories = fileHistory.forStudentResponses(workspaceId, ownedIds);
         Map<UUID, Map<String, FileCheckResponse>> fieldChecks = new LinkedHashMap<>();
-        checks.latestByFieldForResponses(workspaceId, owned.stream().map(item -> item.getId().toString()).toList())
+        checks.latestByFieldForResponses(workspaceId, ownedIds)
             .forEach((responseId, reports) -> {
                 try { fieldChecks.put(UUID.fromString(responseId), reports); }
                 catch (IllegalArgumentException ignored) { }
@@ -130,21 +138,7 @@ public class StudentDashboardController {
                 .toList(),
             visible.values().stream().map(item -> ScopedResponse.from(item, session.googleSubject().equals(item.getGoogleSubject()))).toList(),
             responseTimings.forResponses(owned),
-            reviewStates, fileChecks, fieldChecks);
-    }
-
-    private Map<String, Object> studentReviewState(FormResponse response) {
-        Map<String, Object> state = new LinkedHashMap<>();
-        state.put("feedback", reviews.feedbackFor(response.getId()).stream()
-            .filter(com.capvault.backend.response.ResponseFeedback::isStudentVisible)
-            .map(item -> Map.of("note", item.getNote(), "visibility", item.getVisibility(),
-                "author", item.getAuthorEmail(), "authorRole", item.getAuthorRole(), "updatedAt", item.getUpdatedAt().toString())).toList());
-        reviews.activeAcceptance(response.getId())
-            .filter(item -> item.getSourceResponseUpdatedAt().equals(response.getUpdatedAt()))
-            .ifPresent(item -> state.put("acceptance", Map.of("acceptedAt", item.getAcceptedAt().toString(),
-                "acceptedBy", item.getAcceptedByEmail(), "acceptedByRole", item.getAcceptedByRole(),
-                "sourceResponseUpdatedAt", item.getSourceResponseUpdatedAt().toString())));
-        return state;
+            reviewStates, fileChecks, fieldChecks, histories.legacy(), histories.byField());
     }
 
     private static boolean sameTeam(String expected, String actual) {

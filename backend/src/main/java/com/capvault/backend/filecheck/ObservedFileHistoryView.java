@@ -10,6 +10,15 @@ public record ObservedFileHistoryView(
     String olderRevisionHistoryMessage,
     List<Observation> observations
 ) {
+    public record StudentHistory(List<StudentObservation> observations) { }
+
+    public record StudentObservation(
+        String changeType,
+        LocalDateTime firstObservedAt,
+        LocalDateTime lastObservedAt,
+        OffsetDateTime driveModifiedTime
+    ) { }
+
     public record Observation(
         String changeType,
         String sourceLabel,

@@ -2,11 +2,16 @@ package com.capvault.backend.response;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.capvault.backend.staff.AdviserTeamAssignmentRepository;
+import com.capvault.backend.staff.StaffRole;
+import com.capvault.backend.staff.StaffRoleAssignment;
+import com.capvault.backend.staff.StaffRoleAssignmentRepository;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +28,7 @@ public class ReviewFeedbackService {
     private final CanonicalResponseService canonical;
     private final AcceptedPdfSnapshotService acceptedPdfSnapshots;
     private final com.capvault.backend.archive.ArchiveRecordRepository archives;
+    private final StaffRoleAssignmentRepository staffRoles;
 
     public ReviewFeedbackService(
         FormResponseRepository responseRepository,
@@ -33,7 +39,8 @@ public class ReviewFeedbackService {
         DomainEventRecorder events,
         CanonicalResponseService canonical,
         AcceptedPdfSnapshotService acceptedPdfSnapshots,
-        com.capvault.backend.archive.ArchiveRecordRepository archives
+        com.capvault.backend.archive.ArchiveRecordRepository archives,
+        StaffRoleAssignmentRepository staffRoles
     ) {
         this.responseRepository = responseRepository;
         this.feedbackRepository = feedbackRepository;
@@ -44,6 +51,7 @@ public class ReviewFeedbackService {
         this.canonical = canonical;
         this.acceptedPdfSnapshots = acceptedPdfSnapshots;
         this.archives = archives;
+        this.staffRoles = staffRoles;
     }
 
     /** Staff can create or update ONE current student-visible note per response (edits in place). */
@@ -164,6 +172,39 @@ public class ReviewFeedbackService {
     @Transactional(readOnly = true)
     public List<ResponseFeedback> feedbackFor(UUID responseId) {
         return feedbackRepository.findAllByResponseIdOrderByUpdatedAtDesc(responseId);
+    }
+
+    /** Call only after checking that the requesting student owns the response. */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> studentFeedbackFor(UUID responseId) {
+        return feedbackFor(responseId).stream()
+            .filter(ResponseFeedback::isStudentVisible)
+            .map(item -> Map.<String, Object>of("note", item.getNote(), "visibility", item.getVisibility(),
+                "authorName", studentFeedbackAuthorName(item), "authorRole", item.getAuthorRole(),
+                "updatedAt", item.getUpdatedAt().toString()))
+            .toList();
+    }
+
+    /** Call only after checking that the requesting student owns the response. */
+    @Transactional(readOnly = true)
+    public Map<String, Object> studentStateFor(UUID responseId, Instant responseUpdatedAt) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("feedback", studentFeedbackFor(responseId));
+        activeAcceptance(responseId)
+            .filter(item -> responseUpdatedAt == null || item.getSourceResponseUpdatedAt().equals(responseUpdatedAt))
+            .ifPresent(item -> state.put("acceptance", Map.of("acceptedAt", item.getAcceptedAt().toString(),
+                "acceptedByRole", item.getAcceptedByRole(),
+                "sourceResponseUpdatedAt", item.getSourceResponseUpdatedAt().toString())));
+        return state;
+    }
+
+    private String studentFeedbackAuthorName(ResponseFeedback feedback) {
+        StaffRole role = "ADVISER".equalsIgnoreCase(feedback.getAuthorRole()) ? StaffRole.ADVISER : StaffRole.ADMIN;
+        return staffRoles.findByGoogleSubjectAndRole(feedback.getAuthorSubject(), role)
+            .map(StaffRoleAssignment::getAdviserName)
+            .map(String::trim)
+            .filter(name -> !name.isEmpty() && !name.contains("@"))
+            .orElse(role == StaffRole.ADVISER ? "Adviser" : "Staff");
     }
 
     /** Call only with response IDs already authorized by the owning controller. */

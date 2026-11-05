@@ -3,61 +3,78 @@ import { ArrowSquareOut, Sparkle } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getStudentAiReview, requestStudentAiReview } from '../../lib/api.js';
 import { aiReviewReportStatus, formatDateTime, makeDriveViewUrl } from '../../lib/workflow.js';
+import { InfoTooltip } from '../InfoTooltip.jsx';
 import { AiReviewReport } from '../review/AiReviewReport.jsx';
 import { AiReviewHelp } from '../review/AiReviewHelp.jsx';
-import { DocumentCheckDialog } from '../review/DocumentCheckDialog.jsx';
+import { DocumentCheckDialog, STUDENT_DOCUMENT_CHECK_HELP } from '../review/DocumentCheckDialog.jsx';
 import { ProviderFailureDetails } from '../review/ProviderFailureDetails.jsx';
 import { StatusIndicator } from '../ui.jsx';
 
 export function StudentResultsDialog({ row, workspaceId, onClose, reviewCache, reviewAccountKey }) {
   const artifacts = row.artifacts?.length ? row.artifacts : row.link ? [{
     key: 'legacy', fieldId: null, label: 'Submitted PDF', value: row.link, drivePdf: true,
-    documentCheck: row.documentCheck
+    documentCheck: row.documentCheck,
+    observedHistory: row.response?.observedFileHistory
   }] : [];
+  const [tab, setTab] = useState('document');
   const [selected, setSelected] = useState(artifacts[0]?.key || '');
   const artifact = artifacts.find(item => item.key === selected) || artifacts[0];
-  const documentCheck = artifact?.documentCheck || row.documentCheck || null;
-  return <Modal opened onClose={onClose} title={row.deliverable.title} size="52rem" centered
-    closeButtonProps={{ 'aria-label': 'Close submission results' }} transitionProps={{ duration: 0 }}>
-    <Stack gap="md">
-      {artifacts.length > 1 ? <Select label="Submitted file" value={artifact?.key || null}
-        data={artifacts.map(item => ({ value: item.key, label: item.label }))}
-        allowDeselect={false} onChange={setSelected} /> : null}
-      {artifact?.retired ? <Alert color="blue" title="Earlier submitted link">
-        This link was saved before the form's file fields changed. <a href={makeDriveViewUrl(artifact.value)} target="_blank" rel="noreferrer">Open submitted link</a>.
-      </Alert> : null}
-      <Tabs defaultValue="document" keepMounted={false}
-        styles={{ tab: { whiteSpace: 'normal', textAlign: 'center', paddingInline: 8, lineHeight: 1.35 } }}>
-        <Tabs.List aria-label="Submission results" grow style={{ flexWrap: 'nowrap' }}>
-          <Tabs.Tab value="document">Document Check</Tabs.Tab>
-          <Tabs.Tab value="ai">AI Review</Tabs.Tab>
-          <Tabs.Tab value="feedback">Feedback</Tabs.Tab>
-        </Tabs.List>
-        <Tabs.Panel value="document" pt="md">
-          {artifact && (artifact.drivePdf || artifact.reviewablePdf) ? <DocumentCheckDialog open embedded response={row.response}
-            documentCheck={documentCheck} fileLink={artifact.value}
-            initialTab={documentCheck ? 'result' : 'history'} historyOnly={!documentCheck}
-            observedHistory={row.response?.observedFileHistoryByField?.[artifact.fieldId] || row.response?.observedFileHistory || null}
-            historyTarget={artifact.fieldId ? { workspaceId, responseId: row.response.id, fieldId: artifact.fieldId } : null}
-            audience="student" allowRecheck={false} onClose={onClose} />
-            : <Text size="sm">No submitted PDF is available for Document Check.</Text>}
-        </Tabs.Panel>
-        <Tabs.Panel value="ai" pt="md">
-          {artifact && (artifact.drivePdf || artifact.reviewablePdf) ? <StudentAiReviewPanel key={`${workspaceId}:${row.response.id}:${artifact.fieldId}:${artifact.value}`}
-            workspaceId={workspaceId} responseId={row.response.id} fieldId={artifact.fieldId}
-            reviewCache={reviewCache} reviewAccountKey={reviewAccountKey}
-            fileLink={artifact.value} deliverableTitle={row.deliverable.title} />
-            : <Text size="sm">Add a PDF link to your response before opening AI Review.</Text>}
-        </Tabs.Panel>
-        <Tabs.Panel value="feedback" pt="md">
-          {row.feedback ? <Stack gap="sm">
-            <Text size="sm" c="dimmed">{row.feedback.author}</Text>
-            <Text className="wt-modal-long-copy">{row.feedback.note}</Text>
-          </Stack> : <Text size="sm" c="dimmed">No adviser feedback has been shared for this response yet.</Text>}
-        </Tabs.Panel>
-      </Tabs>
-    </Stack>
-  </Modal>;
+  const documentCheck = artifact?.documentCheck || null;
+  return <Modal.Root opened onClose={onClose} size="52rem" centered transitionProps={{ duration: 0 }}>
+    <Modal.Overlay />
+    <Modal.Content>
+      <Modal.Header>
+        <Modal.Title style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{row.deliverable.title}</Modal.Title>
+        <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }}>
+          {tab === 'ai' ? <AiReviewHelp size={44} /> : tab === 'feedback'
+            ? <InfoTooltip key="feedback" size={44} ariaLabel="About feedback"
+              label="If you have questions about this feedback, contact your adviser through your usual channels." />
+            : <InfoTooltip key="document" size={44} ariaLabel="About Document Check" label={STUDENT_DOCUMENT_CHECK_HELP} />}
+          <Modal.CloseButton size={44} iconSize={18} aria-label="Close submission results" />
+        </Group>
+      </Modal.Header>
+      <Modal.Body>
+        <Stack gap="md">
+          {artifacts.length > 1 ? <Select label="Submitted file" value={artifact?.key || null}
+            data={artifacts.map(item => ({ value: item.key, label: item.label }))}
+            allowDeselect={false} onChange={setSelected} /> : null}
+          {artifact?.retired ? <Alert color="blue" title="Earlier submitted link">
+            This link was saved before the form's file fields changed. <a href={makeDriveViewUrl(artifact.value)} target="_blank" rel="noreferrer">Open submitted link</a>.
+          </Alert> : null}
+          <Tabs value={tab} onChange={setTab} keepMounted={false}
+            styles={{ tab: { whiteSpace: 'normal', textAlign: 'center', paddingInline: 8, lineHeight: 1.35 } }}>
+            <Tabs.List aria-label="Submission results" grow style={{ flexWrap: 'nowrap' }}>
+              <Tabs.Tab value="document">Document Check</Tabs.Tab>
+              <Tabs.Tab value="ai">AI Review</Tabs.Tab>
+              <Tabs.Tab value="feedback">Feedback</Tabs.Tab>
+            </Tabs.List>
+            <Tabs.Panel value="document" pt="md">
+              {artifact && (artifact.drivePdf || artifact.reviewablePdf) ? <DocumentCheckDialog open embedded response={row.response}
+                documentCheck={documentCheck} fileLink={artifact.value}
+                initialTab={documentCheck ? 'result' : 'history'} historyOnly={!documentCheck}
+                observedHistory={artifact.observedHistory}
+                historyTarget={artifact.fieldId ? { workspaceId, responseId: row.response.id, fieldId: artifact.fieldId } : null}
+                audience="student" allowRecheck={false} onClose={onClose} />
+                : <Text size="sm">No submitted PDF is available for Document Check.</Text>}
+            </Tabs.Panel>
+            <Tabs.Panel value="ai" pt="md">
+              {artifact && (artifact.drivePdf || artifact.reviewablePdf) ? <StudentAiReviewPanel key={`${workspaceId}:${row.response.id}:${artifact.fieldId}:${artifact.value}`}
+                workspaceId={workspaceId} responseId={row.response.id} fieldId={artifact.fieldId}
+                reviewCache={reviewCache} reviewAccountKey={reviewAccountKey}
+                fileLink={artifact.value} deliverableTitle={row.deliverable.title} />
+                : <Text size="sm">Add a PDF link to your response before opening AI Review.</Text>}
+            </Tabs.Panel>
+            <Tabs.Panel value="feedback" pt="md">
+              {row.feedback ? <Stack gap="sm">
+                <Text size="sm" c="dimmed">{row.feedback.authorName || (row.feedback.authorRole === 'ADMIN' ? 'Staff' : 'Adviser')}</Text>
+                <Text className="wt-modal-long-copy">{row.feedback.note}</Text>
+              </Stack> : <Text size="sm" c="dimmed">No adviser feedback has been shared for this response yet.</Text>}
+            </Tabs.Panel>
+          </Tabs>
+        </Stack>
+      </Modal.Body>
+    </Modal.Content>
+  </Modal.Root>;
 }
 
 export function StudentAiReviewPanel({ workspaceId, responseId, fieldId, fileLink, deliverableTitle, reviewCache, reviewAccountKey }) {
@@ -125,11 +142,10 @@ export function StudentAiReviewPanel({ workspaceId, responseId, fieldId, fileLin
   const report = review?.report || review?.previousReport || review?.lastSubstantiveReport;
   const running = state.starting || review?.status === 'RUNNING';
   return <Stack gap="md">
-    <Group justify="space-between" align="center">
-      <Group gap="xs"><Text fw={700}>AI Review</Text><AiReviewHelp /></Group>
-      {fileLink ? <Button component="a" href={makeDriveViewUrl(fileLink)} target="_blank" rel="noreferrer" variant="default" size="xs"
-        leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>Open PDF</Button> : null}
-    </Group>
+    {fileLink ? <Group justify="flex-end">
+      <Button component="a" href={makeDriveViewUrl(fileLink)} target="_blank" rel="noreferrer" variant="default" size="xs"
+        leftSection={<ArrowSquareOut size={15} aria-hidden="true" />}>Open PDF</Button>
+    </Group> : null}
     {state.loading ? <Group role="status"><Loader size="sm" /><Text size="sm">Loading saved AI Review…</Text></Group> : null}
     {state.error ? <Alert color="red" role="alert">{state.error}<Button variant="subtle" size="xs" onClick={() => reload.current?.()}>Check status</Button></Alert> : null}
     {running ? <Alert color="blue" title="AI Review is running" icon={<Loader size="sm" />} role="status">

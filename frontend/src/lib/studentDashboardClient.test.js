@@ -7,6 +7,7 @@ beforeEach(() => vi.resetAllMocks());
 
 it('maps one server-composed snapshot, with private review data only for owned responses', async () => {
   const updatedAt = '2026-09-06T00:00:00Z';
+  const history = { observations: [{ changeType: 'CONTENT_CHANGED', firstObservedAt: updatedAt }] };
   getStudentDashboard.mockResolvedValue({
     association: { studentNumber: '001' },
     responses: [
@@ -20,13 +21,16 @@ it('maps one server-composed snapshot, with private review data only for owned r
       mine: { feedback: [{ note: 'Visible feedback' }], acceptance: { sourceResponseUpdatedAt: updatedAt } },
       team: { feedback: [{ note: 'Not owned' }] }
     },
-    fileChecks: { mine: { id: 'report', status: 'COMPLETED', flags: [] } }
+    fileChecks: { mine: { id: 'report', status: 'COMPLETED', flags: [] } },
+    observedFileHistoryByField: { mine: { pdf: history }, team: { pdf: history } }
   });
   const result = await loadStudentDashboard('workspace');
   expect(getStudentDashboard).toHaveBeenCalledExactlyOnceWith('workspace');
   expect(result.attempts[0]).toMatchObject({ values: { link: 'private' }, primaryStatus: 'Accepted', documentCheck: { reportId: 'report' } });
   expect(result.attempts[0].timing).toMatchObject({ effectiveReason: 'Material artifact save', daysLate: 1 });
+  expect(result.attempts[0].observedFileHistoryByField).toEqual({ pdf: history });
   expect(result.attempts[1]).toMatchObject({ values: {}, feedback: [], acceptance: null });
+  expect(result.attempts[1].observedFileHistoryByField).toBeUndefined();
 });
 
 it('propagates a denied dashboard request instead of displaying stale private records', async () => {

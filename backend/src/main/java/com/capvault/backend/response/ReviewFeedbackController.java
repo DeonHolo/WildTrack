@@ -100,13 +100,12 @@ public class ReviewFeedbackController {
     public List<Map<String, Object>> feedbackHistory(@PathVariable UUID responseId, HttpServletRequest http) {
         var session = security.requireSession(http);
         // Students may read their own feedback; staff are scoped to their assigned teams.
-        boolean owned = feedbackService.isOwnedBy(responseId, session.googleSubject());
-        if (!owned) {
-            String role = requireStaffRole(session.googleSubject());
-            feedbackService.requireStaffTeamAccess(responseId, session.googleSubject(), role);
+        if (feedbackService.isOwnedBy(responseId, session.googleSubject())) {
+            return feedbackService.studentFeedbackFor(responseId);
         }
+        String role = requireStaffRole(session.googleSubject());
+        feedbackService.requireStaffTeamAccess(responseId, session.googleSubject(), role);
         return feedbackService.feedbackFor(responseId).stream()
-            .filter(f -> !owned || f.isStudentVisible())
             .map(f -> Map.<String, Object>of(
                 "note", f.getNote(),
                 "visibility", f.getVisibility(),
@@ -118,15 +117,14 @@ public class ReviewFeedbackController {
     @GetMapping("/{responseId}/review-state")
     public Map<String, Object> reviewState(@PathVariable UUID responseId, HttpServletRequest http) {
         var session = security.requireSession(http);
-        boolean owned = feedbackService.isOwnedBy(responseId, session.googleSubject());
-        if (!owned) {
-            String role = requireStaffRole(session.googleSubject());
-            feedbackService.requireStaffTeamAccess(responseId, session.googleSubject(), role);
+        if (feedbackService.isOwnedBy(responseId, session.googleSubject())) {
+            return feedbackService.studentStateFor(responseId, null);
         }
+        String role = requireStaffRole(session.googleSubject());
+        feedbackService.requireStaffTeamAccess(responseId, session.googleSubject(), role);
 
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("feedback", feedbackService.feedbackFor(responseId).stream()
-            .filter(f -> !owned || f.isStudentVisible())
             .map(f -> Map.<String, Object>of(
                 "note", f.getNote(),
                 "visibility", f.getVisibility(),

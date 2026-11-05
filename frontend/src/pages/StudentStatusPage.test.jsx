@@ -114,7 +114,7 @@ function createState() {
           },
           missingSections: ['Risk management']
         },
-        feedback: [{ author: 'Sir Roberto Villanueva', note: LONG_FEEDBACK }],
+        feedback: [{ authorName: 'Sir Roberto Villanueva', note: LONG_FEEDBACK }],
         aiReport: { summary: 'STAFF ONLY AI ANALYSIS' }
       },
       {
@@ -186,6 +186,14 @@ function createMultiArtifactState() {
           sourceResponseUpdatedAt: response.updatedAt,
           summary: 'Framework PDF is readable and accessible.'
         }
+      },
+      observedFileHistoryByField: {
+        'field-framework': { observations: [
+          { changeType: 'CONTENT_CHANGED', firstObservedAt: '2026-04-18T12:40:00Z' }
+        ] },
+        'field-highlights': { observations: [
+          { changeType: 'SOURCE_CHANGED', firstObservedAt: '2026-04-18T12:41:00Z' }
+        ] }
       }
     };
   });
@@ -578,7 +586,10 @@ describe('student dashboard', () => {
     fireEvent.click(within(framework).getByRole('button', { name: 'View Document Check' }));
     const checkDialog = await screen.findByRole('dialog', { name: /Document Check/i });
     expect(checkDialog).toHaveTextContent('Framework PDF is readable and accessible.');
-    expect(within(checkDialog).getByRole('tab', { name: 'File history' })).toBeInTheDocument();
+    fireEvent.click(within(checkDialog).getByRole('tab', { name: 'File history' }));
+    expect(within(checkDialog).getByRole('heading', { name: 'Content changed' })).toBeVisible();
+    expect(within(checkDialog).queryByRole('heading', { name: 'Submitted file changed' })).not.toBeInTheDocument();
+    expect(within(checkDialog).queryByText('Technical record details')).not.toBeInTheDocument();
     expect(within(checkDialog).queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open file' })).not.toBeInTheDocument();
   });
@@ -617,6 +628,8 @@ describe('student dashboard', () => {
     fireEvent.click(within(dialog).getByRole('tab', { name: 'Feedback' }));
     expect(dialog).toHaveTextContent(LONG_FEEDBACK.trim());
     expect(dialog).toHaveTextContent('Sir Roberto Villanueva');
+    fireEvent.focus(within(dialog).getByRole('button', { name: 'About feedback' }));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('If you have questions about this feedback, contact your adviser through your usual channels.');
   });
 
   it('counts server-redacted responses without exposing private details', () => {
@@ -671,9 +684,8 @@ describe('student dashboard', () => {
     expect(dialog).toHaveTextContent('Risk management');
     expect(within(dialog).getByRole('tab', { name: 'File history' })).toBeInTheDocument();
     expect(dialog).not.toHaveTextContent('Last modified by');
-    expect(dialog).not.toHaveTextContent('It does not grade your work or decide whether it is accepted.');
     fireEvent.focus(within(dialog).getByRole('button', { name: 'About Document Check' }));
-    expect(await screen.findByRole('tooltip')).toHaveTextContent('It does not grade your work or decide whether it is accepted.');
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('WildTrack checks whether it can open and read your PDF and whether it looks filled.');
     expect(within(dialog).queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
     expect(dialog).not.toHaveTextContent('STAFF ONLY AI ANALYSIS');
   });
