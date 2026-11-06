@@ -225,7 +225,7 @@ public class AiReviewService {
             return new DrivePreparationFailure(kind, getReason(), value, diagnostic);
         }
     }
-    private record Prepared(byte[] bytes, PdfInspection inspection, String key, String modifiedAt, java.time.Instant capturedAt) { }
+    private record Prepared(byte[] bytes, PdfInspection inspection, String key, String modifiedAt, java.time.Instant capturedAt, long generation) { }
 
     /** Local, authorized labels for a failed preflight; no Drive or Gemini calls. */
     DisplayIdentity displayIdentity(UUID workspaceId, UUID responseId, String fieldId, String subject) {
@@ -306,6 +306,7 @@ public class AiReviewService {
     }
 
     private Prepared preparePdf(FormResponse response, ReviewTarget target, Context context) {
+        long generation = store.nextCaptureGeneration();
         if (!drive.isConfigured()) throw new DrivePreparationFailure(GoogleDriveUnavailableException.Kind.CONFIGURATION,
             "Document access is not configured. No AI review was started.");
         var reference = DriveLinkParser.parse(target.sourceUrl());
@@ -328,7 +329,7 @@ public class AiReviewService {
             String key = digest(List.of(response.getWorkspaceId().toString(), response.getDeliverableId().toString(),
                 target.fieldId(), team, sha256(cachedBytes), context.hash()));
             return new Prepared(cachedBytes, cachedInspection, key,
-                metadata.modifiedTime().toString(), cached.capturedAt());
+                metadata.modifiedTime().toString(), cached.capturedAt(), generation);
         }
         java.time.Instant capturedAt = store.captureTime();
         byte[] bytes = preclaimDrive(() -> drive.download(reference));
@@ -349,7 +350,7 @@ public class AiReviewService {
             verifiedPdfSnapshots.put(cacheKey,
                 new VerifiedPdfSnapshotCache.Snapshot(bytes, inspection, capturedAt));
         }
-        return new Prepared(bytes, inspection, key, metadata.modifiedTime() == null ? null : metadata.modifiedTime().toString(), capturedAt);
+        return new Prepared(bytes, inspection, key, metadata.modifiedTime() == null ? null : metadata.modifiedTime().toString(), capturedAt, generation);
     }
 
     public Map<String, Object> status(String subject) {
@@ -421,7 +422,12 @@ public class AiReviewService {
             context.hash(), retryAcknowledged ? expectedRetryToken : null, rerunRequested, expectedRerunToken);
         if (claim.acquired() && prior.isPresent() && sameScope(prior.get(), response)
                 && !prior.get().key().equals(key)) store.preservePreviousResults(claim.job(), prior.get());
-        link(target, response, sourceValueHash, key, prepared.capturedAt());
+        try {
+            link(target, response, sourceValueHash, key, prepared.capturedAt(), prepared.generation(), context, subject, student);
+        } catch (RuntimeException changed) {
+            if (claim.acquired()) store.uncertain(claim.job(), "SOURCE_CHANGED");
+            throw changed;
+        }
         if (studentRun != null) studentRuns.attach(studentRun, key);
         if (claim.acquired()) {
             try {
@@ -459,7 +465,7 @@ public class AiReviewService {
                         LOG.warn("AI review failure: stage={} code={} exception={}", diagnosticStage,
                             diagnosticFailureCode(failureCode), failure.getClass().getSimpleName());
                         if (failure instanceof ResponseStatusException || failure instanceof AccessDeniedException)
-                            unlink(target, response, sourceValueHash, key);
+                            unlink(target, response, sourceValueHash, key, prepared.generation());
                         // A timeout/crash can occur after billing. Never retry automatically.
                         String diagnosticJson = null;
                         if (failure instanceof GeminiAiReviewProvider.Failure gemini && gemini.diagnostic != null) {
@@ -479,7 +485,7 @@ public class AiReviewService {
             }
         }
         try { assertCurrent(response, target, context, subject, student); }
-        catch (RuntimeException changed) { unlink(target, response, sourceValueHash, key); throw changed; }
+        catch (RuntimeException changed) { unlink(target, response, sourceValueHash, key, prepared.generation()); throw changed; }
         return view(store.find(key).orElseThrow(), response, target, !claim.acquired(), true)
             .withSourceVerifiedAt(store.sourceVerifiedAt(response.getId(), target.fieldId(), key, target.legacyStore()));
     }
@@ -786,14 +792,19 @@ public class AiReviewService {
         throw new IllegalArgumentException("No submitted PDF link was found for this artifact.");
     }
 
-    private void link(ReviewTarget target, FormResponse response, String sourceValueHash, String key, java.time.Instant capturedAt) {
-        if (target.legacyStore()) store.link(response.getId(), response.getRevision(), key, capturedAt);
-        else store.linkField(response.getId(), target.fieldId(), sourceValueHash, key, capturedAt);
+    private void link(ReviewTarget target, FormResponse response, String sourceValueHash, String key,
+            java.time.Instant capturedAt, long generation, Context context, String subject, boolean student) {
+        Runnable validate = () -> {
+            assertCurrent(response, target, context, subject, student);
+            requireStartAccess(response, subject, student);
+        };
+        if (target.legacyStore()) store.link(response.getId(), response.getRevision(), key, capturedAt, generation, validate);
+        else store.linkField(response.getId(), target.fieldId(), sourceValueHash, key, response.getRevision(), capturedAt, generation, validate);
     }
 
-    private void unlink(ReviewTarget target, FormResponse response, String sourceValueHash, String key) {
-        if (target.legacyStore()) store.unlink(response.getId(), response.getRevision(), key);
-        else store.unlinkField(response.getId(), target.fieldId(), sourceValueHash, key);
+    private void unlink(ReviewTarget target, FormResponse response, String sourceValueHash, String key, long generation) {
+        if (target.legacyStore()) store.unlink(response.getId(), response.getRevision(), key, generation);
+        else store.unlinkField(response.getId(), target.fieldId(), sourceValueHash, key, generation);
     }
 
     private static boolean sameScope(AiReviewStore.Job job, FormResponse response) {

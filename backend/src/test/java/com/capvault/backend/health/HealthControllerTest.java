@@ -30,6 +30,15 @@ class HealthControllerTest {
     private MockMvc mockMvc;
 
     @Test
+    void normalLauncherUsesAnAnonymousReadinessProbe() throws Exception {
+        String launcher = java.nio.file.Files.readString(java.nio.file.Path.of("..", "run-local.ps1"));
+        var probe = java.util.regex.Pattern.compile("Wait-ForUrl \\\"http://127\\.0\\.0\\.1:\\$BackendPort([^\\\"]+)\\\" \\\"Backend\\\"").matcher(launcher);
+        assertThat(probe.find()).as("the normal launcher's backend readiness URL").isTrue();
+        mockMvc.perform(get(probe.group(1))).andExpect(status().isOk())
+            .andExpect(jsonPath("$.database").value("UP"));
+    }
+
+    @Test
     void livenessReturnsOnlySafeStableFields() throws Exception {
         mockMvc.perform(get("/api/health/live"))
             .andExpect(status().isOk())

@@ -53,11 +53,6 @@ public class FormDraftService {
         Optional<FormResponseDraft> existing = draftRepository
             .findByWorkspaceIdAndDeliverableIdAndGoogleSubject(workspaceId, deliverableId, googleSubject);
 
-        if (existing.filter(d -> d.isCompleted() || d.getExpiresAt().isBefore(now)).isPresent()) {
-            existing.ifPresent(d -> {
-                if (d.isCompleted()) return; // completed drafts are kept as markers, not reused
-            });
-        }
         // Expired or absent: treat as fresh. Completed: never resurrect (submission supersedes).
         boolean blocked = existing.map(d -> d.isCompleted()).orElse(false);
 
@@ -68,14 +63,19 @@ public class FormDraftService {
 
         if (existing.isPresent() && !existing.get().isCompleted()) {
             FormResponseDraft draft = existing.get();
-            if (clientRevision != null && clientRevision != draft.getRevision()) {
+            boolean expired = !draft.getExpiresAt().isAfter(now);
+            // An expired row is a new autosave window. Reuse the row (rather
+            // than delete/insert, which races its unique key), reset its expiry,
+            // and let @Version serialize simultaneous renewals.
+            if (!expired && clientRevision != null && clientRevision != draft.getRevision()) {
                 throw new StaleRevisionException();
             }
             boolean materialChange = !draft.getValuesJson().equals(json);
-            if (!materialChange) {
+            if (!expired && !materialChange) {
                 return toState(draft);
             }
             draft.setValuesJson(json);
+            if (expired) draft.setExpiresAt(now.plus(retention));
             draft.setUpdatedAt(now);
             draft = draftRepository.saveAndFlush(draft); // revision bumps via @Version
             return toState(draft);

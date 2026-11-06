@@ -81,8 +81,8 @@ describe('sortReviewResponses', () => {
       response('ready', { artifactChecks: { pdf: checked } }),
       response('outdated', { artifactChecks: { pdf: { ...checked, sourceUrl: 'https://example.test/old.pdf' } } })
     ];
-    expect(sortIds(rows, 'documentCheck')).toEqual(['ready', 'attention', 'outdated', 'unchecked', 'na']);
-    expect(sortIds(rows, 'documentCheck', 'desc')).toEqual(['na', 'unchecked', 'outdated', 'attention', 'ready']);
+    expect(sortIds(rows, 'documentCheck')).toEqual(['attention', 'outdated', 'unchecked', 'ready', 'na']);
+    expect(sortIds(rows, 'documentCheck', 'desc')).toEqual(['ready', 'unchecked', 'outdated', 'attention', 'na']);
     expect(aggregateDocumentStatus(rows[2], resolveReviewDeliverable(rows[2], state, deliverable))).toBe('Not applicable');
   });
 
@@ -110,11 +110,17 @@ describe('sortReviewResponses', () => {
       response('outdated', {
         artifactAiReviews: { pdf: { ...reviewed, generatedAt: '2026-01-01T00:00:00Z' } },
         observedFileHistoryByField: { pdf: { observations: [{ changeType: 'CONTENT_CHANGED', driveModifiedTime: '2026-01-02T00:00:00Z' }] } }
-      })
+      }),
+      response('clean', { artifactAiReviews: { pdf: { ...reviewed, report: {
+        outcome: 'NO_ISSUES_IN_CHECKED_AREAS', findings: [], verifiedChecks: [
+          { source: 'DOCUMENT', aspect: 'Scope', documentEvidence: 'The study covers the class record.' },
+          { source: 'DOCUMENT', aspect: 'Testing', documentEvidence: 'The table lists expected and actual results.' }
+        ]
+      } } } })
     ];
-    const ascending = ['limited', 'manual', 'reviewed', 'retry', 'running', 'outdated', 'unreviewed', 'na'];
+    const ascending = ['retry', 'limited', 'manual', 'reviewed', 'outdated', 'unreviewed', 'running', 'clean', 'na'];
     expect(sortIds(rows, 'aiReview')).toEqual(ascending);
-    expect(sortIds(rows, 'aiReview', 'desc')).toEqual(['na', 'unreviewed', 'outdated', 'running', 'retry', 'limited', 'manual', 'reviewed']);
+    expect(sortIds(rows, 'aiReview', 'desc')).toEqual(['clean', 'running', 'unreviewed', 'outdated', 'limited', 'manual', 'reviewed', 'retry', 'na']);
     expect(aggregateAiStatus(rows[1], deliverable)).toBe('Needs attention');
     expect(aggregateAiStatus(rows[5], deliverable)).toBe('Needs attention');
   });
@@ -127,8 +133,8 @@ describe('sortReviewResponses', () => {
       response('received'),
       response('other', { primaryStatus: 'Late' })
     ];
-    const ascending = ['accepted', 'received', 'needs-review', 'archived', 'other'];
+    const ascending = ['needs-review', 'received', 'accepted', 'archived', 'other'];
     expect(sortIds(rows, 'decision')).toEqual(ascending);
-    expect(sortIds(rows, 'decision', 'desc')).toEqual([...ascending].reverse());
+    expect(sortIds(rows, 'decision', 'desc')).toEqual([...ascending.slice(0, -1)].reverse().concat('other'));
   });
 });

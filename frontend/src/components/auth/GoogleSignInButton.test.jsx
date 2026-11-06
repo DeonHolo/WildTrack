@@ -112,6 +112,20 @@ describe('GoogleSignInButton', () => {
     expect(googleIdentity.prompt).toHaveBeenCalledTimes(1);
     expect(googleIdentity.renderButton).toHaveBeenCalledTimes(1);
   });
+
+  it('recreates the Google SDK script after a failed load', async () => {
+    renderButton({ clientId: 'test-client-id' });
+    const failedScript = document.querySelector('script[data-wildtrack-google-identity]');
+    failedScript.dispatchEvent(new Event('error'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Google sign-in unavailable');
+
+    renderButton({ clientId: 'test-client-id' });
+    const retryScript = document.querySelector('script[data-wildtrack-google-identity]');
+    expect(retryScript).not.toBe(failedScript);
+    const googleIdentity = installGoogleIdentity();
+    retryScript.dispatchEvent(new Event('load'));
+    await waitFor(() => expect(googleIdentity.initialize).toHaveBeenCalledTimes(1));
+  });
   it('suppresses One Tap and automatic selection after an explicit WildTrack logout', async () => {
     const googleIdentity = installGoogleIdentity();
     disableGoogleAutoSelect();

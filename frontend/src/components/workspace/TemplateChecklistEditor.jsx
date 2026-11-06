@@ -26,11 +26,16 @@ export function TemplateChecklistEditor({ workspaceId, templateId, versionId }) 
   const errorSummary = useRef(null);
   const disclosureId = useId();
   const storageKey = `template-checklist-draft:${workspaceId}:${templateId}:${versionId}`;
+  const loadRequest = useRef(0);
+  const actionRequest = useRef(0);
   const setChanged = value => { dirtyRef.current = value; setDirty(value); };
   const apply = useCallback(next => { setView(next); setItems((next.items || []).map(item => ({ ...item, instruction: formatTemplateInstruction(item.instruction) }))); setChanged(false); setError(''); setConflict(false); setErrors({}); try { sessionStorage.removeItem(storageKey); } catch { /* Storage can be unavailable. */ } }, [storageKey]);
   const load = useCallback(async (replace = false) => {
+    const currentRequest = ++loadRequest.current;
+    const isCurrentLoad = () => loadRequest.current === currentRequest;
     try {
       const next = await getDocumentTemplateChecklist(workspaceId, templateId);
+      if (!isCurrentLoad()) return;
       if (next.versionId !== versionId) {
         setVersionChanged(true); setConflict(true);
         setError('The template changed. Reload this page to view its current PDF and checklist.');
@@ -45,10 +50,15 @@ export function TemplateChecklistEditor({ workspaceId, templateId, versionId }) 
         } else apply(next);
       }
       else setView(current => current && ['QUEUED', 'PREPARING'].includes(current.state) ? { ...current, state: next.state } : current);
-    } catch (e) { setError(e?.message || 'The checklist could not be loaded.'); }
-    finally { setLoading(false); }
+    } catch (e) {
+      if (isCurrentLoad()) setError(e?.message || 'The checklist could not be loaded.');
+    }
+    finally { if (isCurrentLoad()) setLoading(false); }
   }, [workspaceId, templateId, versionId, storageKey, apply]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setBusy(false); setConfirm(''); load();
+    return () => { loadRequest.current += 1; actionRequest.current += 1; };
+  }, [load]);
   useEffect(() => {
     if (!['QUEUED', 'PREPARING'].includes(view?.state)) return undefined;
     const timer = setInterval(() => load(), 3000);
@@ -87,6 +97,9 @@ export function TemplateChecklistEditor({ workspaceId, templateId, versionId }) 
     return true;
   };
   const action = async type => {
+    const currentAction = ++actionRequest.current;
+    const isCurrentAction = () => actionRequest.current === currentAction;
+    loadRequest.current += 1;
     setConfirm(''); setBusy(true); setError('');
     try {
       const payload = { versionId: view.versionId || versionId, expectedRevision: view.revision };
@@ -95,12 +108,17 @@ export function TemplateChecklistEditor({ workspaceId, templateId, versionId }) 
         : type === 'approve' ? await approveDocumentTemplateChecklist(workspaceId, templateId, payload)
         : type === 'unapprove' ? await unapproveDocumentTemplateChecklist(workspaceId, templateId, payload)
           : await saveDocumentTemplateChecklist(workspaceId, templateId, { ...payload, items: items.map(({ _sourceEditable, ...item }) => ({ ...item, page: Number(item.page) })) });
+      if (!isCurrentAction()) return;
+      loadRequest.current += 1;
       apply(next);
     } catch (e) {
+      if (!isCurrentAction()) return;
+      loadRequest.current += 1;
       if (['prepare', 'rerun', 'approve', 'unapprove'].includes(type)) await load(); // Reload an unconfirmed action; never repeat the POST.
+      if (!isCurrentAction()) return;
       setError(e?.message || 'The checklist could not be updated.'); if (e?.status === 409) setConflict(true);
     }
-    finally { setBusy(false); }
+    finally { if (isCurrentAction()) setBusy(false); }
   };
   const preparing = ['QUEUED', 'PREPARING'].includes(view?.state);
   return <Paper withBorder p="lg" className="template-review-panel template-checklist">

@@ -14,8 +14,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@SpringBootTest
+@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:staff-management;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE")
 @ActiveProfiles("test")
 @Transactional
 class StaffManagementServiceTest {
@@ -90,6 +91,47 @@ class StaffManagementServiceTest {
 
         var roles = roleRepository.findByGoogleSubjectAndEnabledTrue("sub-adviser-1");
         assertThat(roles).isEmpty();
+    }
+
+    @Test
+    void cannotDisableTheOnlyEnabledAdministrator() {
+        assertThatThrownBy(() -> service.setStaffEnabled("sub-admin", false))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("At least one enabled administrator must remain");
+
+        assertThat(access.activeRolesFor("sub-admin")).containsExactly(StaffRole.ADMIN);
+    }
+
+    @Test
+    void cannotDemoteTheOnlyEnabledAdministrator() {
+        var current = service.listStaff(workspaceId).stream()
+            .filter(p -> p.googleSubject().equals("sub-admin")).findFirst().orElseThrow();
+
+        assertThatThrownBy(() -> service.saveProfile(workspaceId, new StaffManagementService.SaveRequest(
+            "sir.ralph@gmail.com", "ADVISER", "Sir Ralph", null, current.revision(),
+            java.util.Map.of(), false, false)))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("At least one enabled administrator must remain");
+    }
+
+    @Test
+    void alternateAdministratorAllowsDisablingAnotherAdministrator() {
+        service.saveProfile(workspaceId, new StaffManagementService.SaveRequest(
+            "second.admin@school.edu", "ADMIN", "Second Admin", null, null,
+            java.util.Map.of(), false, false));
+
+        service.setStaffEnabled("sub-admin", false);
+
+        assertThat(access.activeRolesFor("sub-admin")).isEmpty();
+        assertThat(access.activeRolesFor("pending:second.admin@school.edu"))
+            .containsExactly(StaffRole.ADMIN);
+    }
+
+    @Test
+    void accessRoleToggleAlsoEnforcesLastAdministratorGuard() {
+        assertThatThrownBy(() -> access.setEnabled("sub-admin", StaffRole.ADMIN, false))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("At least one enabled administrator must remain");
     }
 
     @Test

@@ -111,6 +111,43 @@ it('refreshes visible data on focus and clears it if authorization has expired',
   await waitFor(() => expect(result.current).toMatchObject({ data: { rows: [] }, status: 'error', error: 'Access expired' }));
 });
 
+it('revalidates the shared session after a 401 without retrying the resource', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ authenticated: false }));
+  const failure = Object.assign(new Error('Access expired'), { status: 401 });
+  const load = vi.fn().mockRejectedValue(failure);
+  renderHook(() => useWorkspaceResource('workspace', load, empty), { wrapper });
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+});
+
+it('allows a background refresh after setData invalidates an older pending read', async () => {
+  let resolvePending;
+  let calls = 0;
+  const load = vi.fn(() => {
+    calls += 1;
+    if (calls === 1) return Promise.resolve({ rows: ['initial'] });
+    if (calls === 2) return new Promise(resolve => { resolvePending = resolve; });
+    return Promise.resolve({ rows: ['fresh'] });
+  });
+  const { result } = renderHook(() => useWorkspaceResource('workspace', load, empty, '', { staleTimeMs: 0 }), { wrapper });
+  await waitFor(() => expect(result.current.data.rows).toEqual(['initial']));
+  act(() => { result.current.reload({ background: true, force: false }); });
+  act(() => { result.current.setData({ rows: ['mutated'] }); });
+  await act(async () => { await result.current.reload({ background: true, force: false }); });
+  await waitFor(() => expect(result.current.data.rows).toEqual(['fresh']));
+  await act(async () => { resolvePending({ rows: ['obsolete'] }); });
+  expect(result.current.data.rows).toEqual(['fresh']);
+});
+
+it('does not revalidate the session for a permission-only 403', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ authenticated: true, email: 'student@test' }));
+  const load = vi.fn().mockRejectedValue(Object.assign(new Error('Forbidden'), { status: 403 }));
+  renderHook(() => useWorkspaceResource('workspace', load, empty), { wrapper });
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+  await act(async () => {});
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
 it('keeps usable rows during a refresh failure and allows retry', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ authenticated: false }));
   let rejectRefresh;
@@ -125,4 +162,25 @@ it('keeps usable rows during a refresh failure and allows retry', async () => {
   expect(result.current).toMatchObject({ data: { rows: ['saved row'] }, status: 'ready', error: 'Connection interrupted' });
   await act(async () => { await result.current.reload(); });
   expect(result.current).toMatchObject({ data: { rows: ['updated row'] }, status: 'ready', error: '' });
+});
+
+it('revalidates the shared session once after a resource 401', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ authenticated: false }));
+  const failure = Object.assign(new Error('Access expired'), { status: 401 });
+  const load = vi.fn().mockRejectedValue(failure);
+  renderHook(() => useWorkspaceResource('workspace', load, empty), { wrapper });
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+});
+
+it('does not revalidate or log out for a valid resource 403', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ authenticated: true, email: 'student@test' }));
+  const failure = Object.assign(new Error('Forbidden'), { status: 403 });
+  const load = vi.fn().mockRejectedValue(failure);
+  renderHook(() => useWorkspaceResource('workspace', load, empty), { wrapper });
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+  await act(async () => {});
+  // Initial session validation also loads the workspace catalogue; a 403
+  // must not add another session revalidation request.
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });

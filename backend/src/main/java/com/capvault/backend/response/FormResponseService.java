@@ -48,6 +48,7 @@ public class FormResponseService {
     private final DeliverableFieldRepository fieldRepository;
     private final DeliverableFieldOptionRepository optionRepository;
     private final FileCheckService fileCheckService;
+    private final DocumentCheckWork documentCheckWork;
     private final Clock clock;
     private final DomainEventRecorder events;
     private final com.capvault.backend.archive.ArchiveRecordRepository archives;
@@ -64,7 +65,8 @@ public class FormResponseService {
         FileCheckService fileCheckService,
         Clock clock,
         DomainEventRecorder events,
-        com.capvault.backend.archive.ArchiveRecordRepository archives
+        com.capvault.backend.archive.ArchiveRecordRepository archives,
+        DocumentCheckWork documentCheckWork
     ) {
         this.responseRepository = responseRepository;
         this.versionRepository = versionRepository;
@@ -77,6 +79,7 @@ public class FormResponseService {
         this.clock = clock;
         this.events = events;
         this.archives = archives;
+        this.documentCheckWork = documentCheckWork;
     }
 
     public record SaveResult(
@@ -229,7 +232,7 @@ public class FormResponseService {
 
     private void triggerAsyncDocumentChecks(UUID workspaceId, Deliverable deliverable, List<DeliverableField> fields,
             FormResponse response, Map<String, Object> values, Map<String, Object> previousValues) {
-        if (fileCheckService == null) return;
+        if (documentCheckWork == null) return;
         String responseId = response.getId().toString();
         String deliverableKey = deliverable.getTrackerColumnKey() != null && !deliverable.getTrackerColumnKey().isBlank()
             ? deliverable.getTrackerColumnKey()
@@ -238,35 +241,17 @@ public class FormResponseService {
             ? response.getUpdatedAt().toString()
             : response.getSubmittedAt().toString();
 
-        List<Runnable> checks = fields.stream()
+        fields.stream()
             .filter(field -> field.getFieldType() == DeliverableFieldType.DRIVE_PDF)
             .filter(field -> field.getDocumentCheckPolicy() == DocumentCheckPolicy.AUTO)
             .filter(field -> !sameFieldValue(previousValues, values, field.getFieldKey()))
             .map(field -> {
                 String link = stringValue(values.get(field.getFieldKey()));
-                return (Runnable) () -> {
-                    if (link.isBlank()) return;
-                    try {
-                        fileCheckService.check(workspaceId,
-                            new FileCheckRequest(responseId, field.getId(), deliverableKey, link, updatedAt));
-                    } catch (Exception ignored) {
-                        // A document-provider failure must never fail or roll back the submission.
-                    }
-                };
+                if (!link.isBlank()) documentCheckWork.enqueue(workspaceId,
+                    new FileCheckRequest(responseId, field.getId(), deliverableKey, link, updatedAt));
+                return null;
             })
             .toList();
-        if (checks.isEmpty()) return;
-        Runnable scheduleChecks = () -> checks.forEach(check -> CompletableFuture.runAsync(check));
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    scheduleChecks.run();
-                }
-            });
-        } else {
-            scheduleChecks.run();
-        }
     }
 
     private void validateSubmissionFields(List<DeliverableField> fields, Map<String, Object> values) {

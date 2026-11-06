@@ -3,7 +3,7 @@ import { useWorkspaceSession } from '../app/WorkspaceSession.jsx';
 
 export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = '', options = {}) {
   const { refreshIntervalMs = 0, staleTimeMs = 60000 } = options;
-  const { session, resourceCache } = useWorkspaceSession();
+  const { session, resourceCache, revalidateSession } = useWorkspaceSession();
   const accountKey = session?.authenticated ? JSON.stringify([session.email, session.googleSubject, session.roles]) : '';
   const cache = cacheKey && accountKey ? resourceCache : null;
   const key = JSON.stringify([accountKey, workspaceId, cacheKey]);
@@ -34,6 +34,9 @@ export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = ''
     if (activeScope.current !== scope) return;
     // A completed mutation must not be overwritten by a read started before it.
     requestId.current += 1;
+    // The read that was invalidated by this mutation must not block a later
+    // background refresh. Its completion is still ignored by requestId.
+    if (pendingRequest.current?.scope === scope) pendingRequest.current = null;
     setSnapshot((current) => {
       if (activeScope.current !== scope) return current;
       const base = current.scope === scope ? current : empty;
@@ -69,6 +72,11 @@ export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = ''
       if (activeScope.current !== scope || requestId.current !== currentRequest) return null;
       const unauthorized = loadError?.status === 401 || loadError?.status === 403;
       if (unauthorized) cache?.clear();
+      if (loadError?.status === 401) {
+        // Revalidation is shared by the session provider. Do not retry the
+        // failed resource here: callers may be performing a mutation.
+        void revalidateSession?.().catch(() => {});
+      }
       setSnapshot(current => ({
         ...(current.scope === scope && current.status === 'ready' && !unauthorized ? current : { ...empty, status: 'error' }),
         error: loadError?.message || 'Data could not be loaded.'
@@ -78,7 +86,7 @@ export function useWorkspaceResource(workspaceId, load, makeEmpty, cacheKey = ''
     } finally {
       if (pendingRequest.current?.id === currentRequest) pendingRequest.current = null;
     }
-  }, [load, scope, empty, initial, workspaceId, cache, key, staleTimeMs]);
+  }, [load, scope, empty, initial, workspaceId, cache, key, staleTimeMs, revalidateSession]);
 
   useEffect(() => {
     reload();

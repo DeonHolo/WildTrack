@@ -15,9 +15,11 @@ public class WorkspaceSourceService {
     private static final Pattern SHEET_ID_PATTERN = Pattern.compile("/spreadsheets/d/(?:e/)?([^/?#]+)");
 
     private final WorkspaceSourceRepository repository;
+    private final jakarta.persistence.EntityManager entityManager;
 
-    public WorkspaceSourceService(WorkspaceSourceRepository repository) {
+    public WorkspaceSourceService(WorkspaceSourceRepository repository, jakarta.persistence.EntityManager entityManager) {
         this.repository = repository;
+        this.entityManager = entityManager;
     }
 
     @Transactional(readOnly = true)
@@ -30,6 +32,8 @@ public class WorkspaceSourceService {
 
     @Transactional
     public WorkspaceSourceResponse upsertSource(UUID workspaceId, WorkspaceSourceType sourceType, WorkspaceSourceRequest request) {
+        if (entityManager.find(AcademicWorkspace.class, workspaceId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE) == null)
+            throw new IllegalArgumentException("Academic workspace was not found.");
         String sheetUrl = request.sheetUrl().trim();
         String sheetId = extractSheetId(sheetUrl);
         WorkspaceSourceStatus status = request.status() == null ? WorkspaceSourceStatus.CONNECTED : request.status();

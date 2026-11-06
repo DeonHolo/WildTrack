@@ -33,7 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@SpringBootTest
+@SpringBootTest(properties = "capvault.document-check.worker-enabled=true")
 @ActiveProfiles("test")
 @Transactional
 class FormResponseServiceTest {
@@ -67,6 +67,9 @@ class FormResponseServiceTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.capvault.backend.drive.GoogleDriveGateway drive;
 
     private UUID workspaceId;
     private UUID deliverableId;

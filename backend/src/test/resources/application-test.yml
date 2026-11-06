@@ -14,6 +14,8 @@ logging:
     com.capvault.backend: INFO
 
 capvault:
+  document-check:
+    worker-enabled: false
   templates:
     storage-path: ./target/test-template-storage
     pdf-preparation-enabled: false

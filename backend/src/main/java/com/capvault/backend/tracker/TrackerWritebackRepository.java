@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface TrackerWritebackRepository extends JpaRepository<TrackerWriteback, UUID> {
 
     List<TrackerWriteback> findTop50ByWorkspaceIdOrderByRequestedAtDesc(UUID workspaceId);
+
+    java.util.Optional<TrackerWriteback> findTopByTargetKeyOrderByGenerationDesc(String targetKey);
 }

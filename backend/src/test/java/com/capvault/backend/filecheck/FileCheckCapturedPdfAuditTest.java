@@ -209,6 +209,31 @@ class FileCheckCapturedPdfAuditTest {
     }
 
     @Test
+    void unknownMetadataSizeStillReportsTheDownloadLimitAsFileTooLarge() {
+        deliverableAndFields();
+        when(drive.isConfigured()).thenReturn(true);
+        UUID id = UUID.randomUUID();
+        submission(id, workspace, "{\"frameworkPdf\":\"" + PDF + "\"}", Instant.now());
+        var ref = new DriveFileReference("shared-pdf", null);
+        when(drive.getMetadata(ref)).thenReturn(new DriveFileMetadata(
+            "shared-pdf", "shared.pdf", "application/pdf", null, null,
+            OffsetDateTime.parse("2026-09-22T00:00:00Z"), null, null, true, PDF));
+        when(drive.download(ref)).thenThrow(new GoogleDriveUnavailableException(
+            "The submitted PDF exceeds the file-check limit.", GoogleDriveUnavailableException.Kind.UNKNOWN,
+            new DriveFailureDetails("download", "INTEGRITY", "FILE_TOO_LARGE", null,
+                "The submitted PDF exceeds the file-check limit.", null, 1L, 25_000_000L, 25_000_001L)));
+
+        var result = service.check(workspace, check(id, "framework-field", PDF, KEY, "client-time"));
+
+        assertThat(result.status()).isEqualTo("BLOCKED");
+        assertThat(result.flags()).contains("File Too Large").doesNotContain("Download Failed", "Provider Unavailable");
+        assertThat(result.suggestedAction()).contains("Compress");
+        assertThat(result.failureDetails().code()).isEqualTo("FILE_TOO_LARGE");
+        verify(reports).save(any(FileCheckReport.class));
+        verifyNoInteractions(pdfInspector, templates);
+    }
+
+    @Test
     void redactsRawProviderExceptionsInPersistedBlockedReportsWithoutInventingMetadata() throws Exception {
         deliverableAndFields();
         UUID id = UUID.randomUUID();

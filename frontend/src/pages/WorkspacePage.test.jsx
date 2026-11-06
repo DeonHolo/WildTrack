@@ -534,6 +534,27 @@ describe('workspace operations', () => {
     expect(within(dialog).getByRole('checkbox', { name: 'Software Requirements Specification' })).toBeChecked();
   });
 
+  it('keeps an applying import open and prevents another preview from inheriting its loading state', async () => {
+    let finishApply;
+    workflow.applySheetPreview.mockImplementationOnce(() => new Promise(resolve => { finishApply = resolve; }));
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Import Tracker' }));
+    let dialog = await screen.findByRole('dialog', { name: 'Tracker re-import preview' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply re-import' }));
+    await waitFor(() => expect(workflow.applySheetPreview).toHaveBeenCalledTimes(1));
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    expect(within(dialog).queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+    expect(dialog).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Import Team Formation', hidden: true }));
+    expect(workflow.previewSheetSource).toHaveBeenCalledTimes(1);
+    await act(async () => finishApply({ state: createState(), importSummary: null }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Tracker re-import preview' })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Import Team Formation' }));
+    dialog = await screen.findByRole('dialog', { name: 'Team Formation re-import preview' });
+    expect(within(dialog).getByRole('button', { name: 'Apply re-import' })).toBeEnabled();
+  });
+
   it.each(['workspace', 'account'])('discards a late re-import preview after the %s changes', async (changed) => {
     let finish;
     workflow.previewSheetSource.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
@@ -883,6 +904,31 @@ describe('workspace operations', () => {
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Request failed with status 401'));
     expect(screen.getByRole('status')).toHaveClass('danger');
+  });
+
+  it('keeps the newest Sheet preview when an older request resolves later', async () => {
+    const older = deferred();
+    const newer = deferred();
+    workflow.previewSheetSource
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import Tracker' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import Team Formation' }));
+
+    await act(async () => newer.resolve({
+      previewId: 'preview-new', sourceKey: 'teamFormation', sourceLabel: 'Team Formation',
+      addedRows: 0, changedRows: 0, missingRows: 0, changes: [], warnings: [], details: { missingFields: [] }
+    }));
+    expect(await screen.findByRole('dialog', { name: 'Team Formation re-import preview' })).toBeInTheDocument();
+
+    await act(async () => older.resolve({
+      previewId: 'preview-old', sourceKey: 'tracker', sourceLabel: 'Tracker',
+      addedRows: 0, changedRows: 0, missingRows: 0, changes: [], warnings: [], details: { missingFields: [] }
+    }));
+    expect(screen.getByRole('dialog', { name: 'Team Formation re-import preview' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Tracker re-import preview' })).not.toBeInTheDocument();
   });
 
   it('keeps a stale preview open and explains that it must be previewed again', async () => {

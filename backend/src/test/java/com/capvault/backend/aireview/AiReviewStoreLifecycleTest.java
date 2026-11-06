@@ -35,9 +35,39 @@ class AiReviewStoreLifecycleTest {
                 source_value_sha256 VARCHAR(64) NOT NULL, cache_key VARCHAR(64) NOT NULL REFERENCES ai_review_jobs(cache_key),
                 source_verified_at TIMESTAMP WITH TIME ZONE, PRIMARY KEY(response_id, field_id))
             """);
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V55__ai_field_link_generation.sql")).execute(ds);
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", workspace);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", deliverable);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(ds), Clock.systemUTC());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void olderCaptureAndCleanupCannotReplaceANewerInstallation(boolean legacy) {
+        UUID response = UUID.randomUUID();
+        jdbc.update("INSERT INTO form_responses VALUES(?)", response);
+        store.claim("older", workspace, deliverable, "team", "pdf-a", "ctx", null);
+        store.claim("newer", workspace, deliverable, "team", "pdf-b", "ctx", null);
+        long old = store.nextCaptureGeneration(), fresh = store.nextCaptureGeneration();
+        var capturedAt = java.time.Instant.parse("2026-11-06T00:00:00Z");
+        if (legacy) store.link(response, 1, "newer", capturedAt, fresh, () -> { });
+        else store.linkField(response, "pdf", "same-url", "newer", 1, capturedAt, fresh, () -> { });
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+            if (legacy) store.link(response, 1, "older", capturedAt, old, () -> { });
+            else store.linkField(response, "pdf", "same-url", "older", 1, capturedAt, old, () -> { });
+        }).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThat(legacy ? store.linked(response, 1).orElseThrow().key()
+            : store.linkedField(response, "pdf", "same-url").orElseThrow().key()).isEqualTo("newer");
+        long restored = store.nextCaptureGeneration();
+        if (legacy) {
+            store.link(response, 1, "older", capturedAt, restored, () -> { });
+            store.unlink(response, 1, "older", old);
+        } else {
+            store.linkField(response, "pdf", "same-url", "older", 1, capturedAt, restored, () -> { });
+            store.unlinkField(response, "pdf", "same-url", "older", old);
+        }
+        assertThat(legacy ? store.linked(response, 1).orElseThrow().key()
+            : store.linkedField(response, "pdf", "same-url").orElseThrow().key()).isEqualTo("older");
     }
 
     @Test void failureDiagnosticPersistsForUncertainAndClearsOnAcquiredRetryAndCompletion() {

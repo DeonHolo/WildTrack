@@ -113,6 +113,7 @@ public class TrackerController {
     }
 
     @PutMapping("/columns/{columnId}")
+    @Transactional
     public TrackerColumnResponse updateColumn(
         @RequestParam UUID workspaceId,
         @PathVariable UUID columnId,
@@ -120,6 +121,7 @@ public class TrackerController {
         HttpServletRequest http
     ) {
         requireAdmin(http);
+        writebackService.lockWorkspace(workspaceId);
         TrackerColumn column = columnRepository.findById(columnId)
             .filter(item -> workspaceId.equals(item.getWorkspaceId()))
             .orElseThrow(() -> new IllegalArgumentException("Tracker column not found."));
@@ -154,6 +156,16 @@ public class TrackerController {
             .stream()
             .map(TrackerWritebackResponse::from)
             .toList();
+    }
+
+    @PostMapping("/writebacks/{writebackId}/retry")
+    public TrackerWritebackResponse retryWriteback(
+        @RequestParam(defaultValue = "11111111-1111-1111-1111-111111111111") UUID workspaceId,
+        @PathVariable UUID writebackId,
+        HttpServletRequest http
+    ) {
+        requireAdmin(http);
+        return writebackService.retry(workspaceId, writebackId);
     }
 
     private void requireAdmin(HttpServletRequest http) {

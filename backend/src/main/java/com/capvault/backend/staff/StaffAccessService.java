@@ -56,15 +56,6 @@ public class StaffAccessService {
 
     @Transactional
     public void setEnabled(String googleSubject, StaffRole role, boolean enabled) {
-        repository.findByGoogleSubjectAndRole(googleSubject, role).ifPresentOrElse(
-            assignment -> {
-                assignment.setEnabled(enabled);
-                assignment.setUpdatedAt(clock.instant());
-                repository.save(assignment);
-            },
-            () -> {
-                throw new IllegalArgumentException("No staff assignment exists for that subject and role.");
-            }
-        );
+        staffManagement.setStaffRoleEnabled(googleSubject, role, enabled);
     }
 }

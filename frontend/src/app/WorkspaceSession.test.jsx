@@ -38,6 +38,22 @@ describe('WorkspaceSession', () => {
     expect(result.current.activeWorkspace).toEqual({ id: 'ws-1', name: 'Backend workspace' });
   });
 
+  it('shares one session revalidation request and clears access when it returns anonymous', async () => {
+    const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
+    const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
+    await waitFor(() => expect(result.current.sessionStatus).toBe('ready'));
+    let finish;
+    api.getCurrentSession.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const first = result.current.revalidateSession();
+    const second = result.current.revalidateSession();
+    expect(first).toBe(second);
+    expect(api.getCurrentSession).toHaveBeenCalledTimes(2);
+    await act(async () => finish({ authenticated: false, roles: [] }));
+    await first;
+    await waitFor(() => expect(result.current.canAccessWorkspace).toBe(false));
+    expect(result.current.session.authenticated).toBe(false);
+  });
+
   it('does not display a previously cached catalogue before access is revalidated', async () => {
     const account = JSON.stringify(['server@student.test', undefined, []]);
     const key = JSON.stringify([account, '', 'workspace-catalog']);

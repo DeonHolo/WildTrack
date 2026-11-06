@@ -198,7 +198,7 @@ WildTrack is ready.
 Open the URLs printed by the launcher:
 
 - Application: <http://127.0.0.1:5174/>
-- Backend health check: <http://127.0.0.1:8080/api/health>
+- Backend readiness check: <http://127.0.0.1:8080/api/health/ready>
 
 The terminal can be closed after the ready message. Both services run as background processes.
 
@@ -376,7 +376,7 @@ Get-Content .\logs\backend.err.log -Tail 100
 Get-Content .\logs\frontend.err.log -Tail 100
 ```
 
-Also check <http://127.0.0.1:8080/api/health>. The launcher stops both services if either readiness check times out.
+Also check <http://127.0.0.1:8080/api/health/ready>. The launcher stops both services if either readiness check times out.
 
 ### Frontend packages are missing or damaged
 

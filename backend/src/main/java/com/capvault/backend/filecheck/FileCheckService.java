@@ -1,6 +1,7 @@
 package com.capvault.backend.filecheck;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -24,6 +25,7 @@ import com.capvault.backend.template.DocumentTemplateService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -42,7 +44,9 @@ public class FileCheckService {
     private final DeliverableFieldRepository fieldRepository;
     private final ObjectMapper objectMapper;
     private final FileCheckProperties properties;
+    private final com.capvault.backend.filemonitor.FileMonitorEventRecorder eventRecorder;
 
+    /** Test and legacy helper constructor; production wiring uses the recorder-aware overload. */
     public FileCheckService(
         GoogleDriveGateway driveGateway,
         GoogleDriveProperties driveProperties,
@@ -56,6 +60,25 @@ public class FileCheckService {
         ObjectMapper objectMapper,
         FileCheckProperties properties
     ) {
+        this(driveGateway, driveProperties, pdfInspector, templateComparator, templateService, repository,
+            responseRepository, deliverableRepository, fieldRepository, objectMapper, properties, null);
+    }
+
+    @Autowired
+    public FileCheckService(
+        GoogleDriveGateway driveGateway,
+        GoogleDriveProperties driveProperties,
+        PdfInspector pdfInspector,
+        TemplateComparator templateComparator,
+        DocumentTemplateService templateService,
+        FileCheckReportRepository repository,
+        FormResponseRepository responseRepository,
+        DeliverableRepository deliverableRepository,
+        DeliverableFieldRepository fieldRepository,
+        ObjectMapper objectMapper,
+        FileCheckProperties properties,
+        com.capvault.backend.filemonitor.FileMonitorEventRecorder eventRecorder
+    ) {
         this.driveGateway = driveGateway;
         this.driveProperties = driveProperties;
         this.pdfInspector = pdfInspector;
@@ -67,11 +90,12 @@ public class FileCheckService {
         this.fieldRepository = fieldRepository;
         this.objectMapper = objectMapper;
         this.properties = properties;
+        this.eventRecorder = eventRecorder;
     }
 
     @Transactional
     public FileCheckResponse check(UUID workspaceId, FileCheckRequest request) {
-        return checkInternal(workspaceId, request, null);
+        return checkInternal(workspaceId, request, null, Instant.now());
     }
 
     /** A single in-memory capture can be associated with several submitted responses.
@@ -115,7 +139,17 @@ public class FileCheckService {
     @Transactional
     public FileCheckResponse checkCaptured(UUID workspaceId, FileCheckRequest request, CapturedPdf captured) {
         if (captured == null || captured.metadata() == null) throw new IllegalArgumentException("Captured Drive metadata is required.");
-        return checkInternal(workspaceId, request, captured);
+        return checkInternal(workspaceId, request, captured, Instant.now());
+    }
+
+    /** Preserve when the scheduler observed the metadata, including across a slow download. */
+    @Transactional
+    public FileCheckResponse checkCaptured(UUID workspaceId, FileCheckRequest request,
+            CapturedPdf captured, Instant observedAt) {
+        if (captured == null || captured.metadata() == null || observedAt == null) {
+            throw new IllegalArgumentException("Captured Drive metadata and its observation time are required.");
+        }
+        return checkInternal(workspaceId, request, captured, observedAt);
     }
 
     @Transactional(readOnly = true)
@@ -135,17 +169,33 @@ public class FileCheckService {
     @Transactional
     public FileCheckResponse recordBatchProviderFailure(UUID workspaceId, FileCheckRequest request,
             boolean metadataFailure, String message) {
-        return recordBatchProviderFailure(workspaceId, request, metadataFailure, GoogleDriveUnavailableException.Kind.UNKNOWN);
+        return recordBatchProviderFailure(workspaceId, request, metadataFailure,
+            GoogleDriveUnavailableException.Kind.UNKNOWN, Instant.now());
+    }
+
+    /** Persists a scheduler failure at the time it was observed, so a later successful
+     * check remains the newest report even if the provider call completed much later. */
+    @Transactional
+    public FileCheckResponse recordBatchProviderFailure(UUID workspaceId, FileCheckRequest request,
+            boolean metadataFailure, String message, Instant observedAt) {
+        return recordBatchProviderFailure(workspaceId, request, metadataFailure,
+            GoogleDriveUnavailableException.Kind.UNKNOWN, observedAt);
     }
 
     @Transactional
     public FileCheckResponse recordBatchProviderFailureTyped(UUID workspaceId, FileCheckRequest request,
             boolean metadataFailure, GoogleDriveUnavailableException failure) {
-        return recordBatchProviderFailure(workspaceId, request, metadataFailure, failure);
+        return recordBatchProviderFailure(workspaceId, request, metadataFailure, failure, Instant.now());
+    }
+
+    @Transactional
+    public FileCheckResponse recordBatchProviderFailureTyped(UUID workspaceId, FileCheckRequest request,
+            boolean metadataFailure, GoogleDriveUnavailableException failure, Instant observedAt) {
+        return recordBatchProviderFailure(workspaceId, request, metadataFailure, failure, observedAt);
     }
 
     private FileCheckResponse recordBatchProviderFailure(UUID workspaceId, FileCheckRequest request,
-            boolean metadataFailure, GoogleDriveUnavailableException failure) {
+            boolean metadataFailure, GoogleDriveUnavailableException failure, Instant observedAt) {
         GoogleDriveUnavailableException.Kind kind = failure == null
             ? GoogleDriveUnavailableException.Kind.UNKNOWN : failure.kind();
         requireCurrentSubmissionRevision(validateFieldAssociation(workspaceId, request), request);
@@ -160,7 +210,8 @@ public class FileCheckService {
         String action = fileAccess
             ? "Check the submitted file's access, then try Document Check again."
             : "Try Document Check again later.";
-        FileCheckResponse report = blocked(request, LocalDateTime.now(java.time.ZoneOffset.UTC),
+        Instant checkedAt = observedAt == null ? Instant.now() : observedAt;
+        FileCheckResponse report = blocked(request, LocalDateTime.ofInstant(checkedAt, java.time.ZoneOffset.UTC),
             summary,
             flag, action, null);
         return persist(workspaceId, request, withFailure(report, failure, metadataFailure ? "metadata" : "download"));
@@ -168,9 +219,14 @@ public class FileCheckService {
 
     private FileCheckResponse recordBatchProviderFailure(UUID workspaceId, FileCheckRequest request,
             boolean metadataFailure, GoogleDriveUnavailableException.Kind kind) {
+        return recordBatchProviderFailure(workspaceId, request, metadataFailure, kind, Instant.now());
+    }
+
+    private FileCheckResponse recordBatchProviderFailure(UUID workspaceId, FileCheckRequest request,
+            boolean metadataFailure, GoogleDriveUnavailableException.Kind kind, Instant observedAt) {
         GoogleDriveUnavailableException failure = kind == null ? null
             : new GoogleDriveUnavailableException("Drive request failed", kind);
-        return recordBatchProviderFailure(workspaceId, request, metadataFailure, failure);
+        return recordBatchProviderFailure(workspaceId, request, metadataFailure, failure, observedAt);
     }
 
     private static FileCheckResponse withFailure(FileCheckResponse report,
@@ -209,8 +265,9 @@ public class FileCheckService {
         }
     }
 
-    private FileCheckResponse checkInternal(UUID workspaceId, FileCheckRequest request, CapturedPdf captured) {
-        LocalDateTime checkedAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
+    private FileCheckResponse checkInternal(UUID workspaceId, FileCheckRequest request, CapturedPdf captured,
+            Instant observedAt) {
+        LocalDateTime checkedAt = LocalDateTime.ofInstant(observedAt, java.time.ZoneOffset.UTC);
         FieldAssociation association = request.fieldId() == null ? null : validateFieldAssociation(workspaceId, request);
         if (!driveGateway.isConfigured()) {
             return persist(workspaceId, request, unavailable(request, checkedAt));
@@ -290,6 +347,11 @@ public class FileCheckService {
             if (bytes == null) throw new GoogleDriveUnavailableException("The captured Drive file could not be downloaded.");
         } catch (GoogleDriveUnavailableException exception) {
             boolean fileAccess = exception.kind() == GoogleDriveUnavailableException.Kind.FILE_ACCESS;
+            if (exception.failureDetails() != null && "FILE_TOO_LARGE".equals(exception.failureDetails().code())) {
+                return persist(workspaceId, request, withFailure(blocked(request, checkedAt,
+                    "The submitted PDF exceeds the 25 MB file-check limit.", "File Too Large",
+                    "Compress the PDF before submitting it.", responseMetadata), exception, "download"), metadata);
+            }
             return persist(workspaceId, request, withFailure(blocked(
                 request,
                 checkedAt,
@@ -596,9 +658,49 @@ public class FileCheckService {
             String json = objectMapper.writeValueAsString(response);
             FileCheckReport saved = repository.save(new FileCheckReport(workspaceId, request, response, json, observedMetadata));
             FileCheckResponse withId = response.withId(saved.getId());
+            if (eventRecorder != null && observedMetadata != null && "COMPLETED".equals(response.status())
+                    && (request.fieldId() != null ? isCurrentSubmission(workspaceId, request)
+                        : isCurrentLegacySubmission(workspaceId, request))
+                    && observedMetadata.md5Checksum() != null && !observedMetadata.md5Checksum().isBlank()) {
+                var reference = DriveLinkParser.parse(request.sourceUrl());
+                eventRecorder.recordVerifiedContentChange(workspaceId, reference.fileId(),
+                    request.sourceUrl(), observedMetadata,
+                    response.checkedAt().atZone(java.time.ZoneOffset.UTC).toInstant(),
+                    UUID.fromString(request.responseId()));
+            }
             return withId;
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("The file-check report could not be saved.", exception);
+        }
+    }
+
+    private boolean isCurrentLegacySubmission(UUID workspaceId, FileCheckRequest request) {
+        if (request.responseId() == null || request.sourceUrl() == null) return false;
+        try {
+            var response = responseRepository.findById(UUID.fromString(request.responseId()))
+                .filter(item -> workspaceId.equals(item.getWorkspaceId())).orElse(null);
+            if (response == null || !response.isCurrentResponse()) return false;
+            var updatedAt = response.getUpdatedAt() == null ? response.getSubmittedAt() : response.getUpdatedAt();
+            if (updatedAt == null || request.sourceResponseUpdatedAt() == null
+                    || !updatedAt.toString().equals(request.sourceResponseUpdatedAt())) return false;
+            var values = objectMapper.readTree(response.getValuesJson());
+            if (values == null || !values.isObject()) return false;
+            var source = request.sourceUrl().trim();
+            var fields = values.fields();
+            while (fields.hasNext()) if (source.equals(fields.next().getValue().asText("").trim())) return true;
+        } catch (Exception ignored) { }
+        return false;
+    }
+
+    private boolean isCurrentSubmission(UUID workspaceId, FileCheckRequest request) {
+        if (request.responseId() == null) return false;
+        try {
+            return responseRepository.findById(UUID.fromString(request.responseId()))
+                .filter(item -> workspaceId.equals(item.getWorkspaceId()))
+                .map(com.capvault.backend.response.FormResponse::isCurrentResponse)
+                .orElse(false);
+        } catch (IllegalArgumentException invalid) {
+            return false;
         }
     }
 

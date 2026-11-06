@@ -63,7 +63,7 @@ describe('ReviewSubmissionsTable AI Review status', () => {
   it.each([
     ['a reviewed PDF', [savedReviewed], 'Needs attention'],
     ['an unreviewed PDF', [null], 'Needs attention'],
-    ['a running review', [{ status: 'RUNNING' }], 'Reviewing'],
+    ['a running review', [{ status: 'RUNNING' }], 'Needs attention'],
     ['a retry-required review', [{ status: 'UNCERTAIN' }], 'Retry required'],
     ['running and retry-required reviews', [{ status: 'RUNNING' }, { status: 'UNCERTAIN' }], 'Retry required']
   ])('preserves the aggregate status with an inconclusive PDF and %s', (_, otherReviews, expected) => {

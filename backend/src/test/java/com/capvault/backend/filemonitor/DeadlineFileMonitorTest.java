@@ -310,6 +310,188 @@ class DeadlineFileMonitorTest {
         verify(drive, never()).download(any(DriveFileReference.class));
     }
 
+    @Test
+    void aSlowScheduledCaptureCannotReplaceANewerManualObservation() throws Exception {
+        AcademicWorkspace workspace = workspaces.save(new AcademicWorkspace(
+            "Fictional overlapping checks", "IT", "MONITOR-RACE", "Semester 1", "2099-2100", true));
+        Deliverable deliverable = deliverables.save(new Deliverable(workspace.getId(), "SRS",
+            "Refactored SRS", "monitor-race", "Synthetic overlap only",
+            LocalDateTime.now(ZoneId.of("Asia/Manila")).plusHours(12), true, DeliverableStatus.PUBLISHED));
+        DeliverableField pdf = fields.save(new DeliverableField(UUID.randomUUID().toString(),
+            deliverable.getId(), "documentPdf", "PDF Drive Link", DeliverableFieldType.DRIVE_PDF,
+            true, 0, DocumentCheckPolicy.MANUAL, false, true));
+        String link = "https://drive.google.com/file/d/fictional-team-shared-pdf/view";
+        students.save(new StudentRecord(workspace.getId(), "99-9000-001", "Fictional overlap student",
+            "synthetic-race-team", "1", "SYNTH", "Fictional Adviser", null, 1));
+        var response = submissions.submit(new FormResponseService.SubmitCommand(workspace.getId(),
+            deliverable.getId(), "synthetic-race-subject", "race@example.invalid", "99-9000-001",
+            Map.of("documentPdf", link), null)).response();
+        var request = new FileCheckRequest(response.getId().toString(), pdf.getId(), "SRS", link,
+            response.getUpdatedAt().toString());
+        byte[] original = fictionalPdf("A");
+        byte[] delayed = fictionalPdf("B");
+        byte[] newest = fictionalPdf("C");
+        when(drive.isConfigured()).thenReturn(true);
+        when(drive.getMetadata(any(DriveFileReference.class)))
+            .thenReturn(metadata(link, original, "2026-10-15T00:00:00Z"));
+        when(drive.download(any(DriveFileReference.class))).thenReturn(original);
+        checker.check(workspace.getId(), request);
+        workspaces.flush();
+        db.update("UPDATE academic_workspaces SET file_monitor_enabled = TRUE WHERE id = ?", workspace.getId());
+        when(drive.getMetadata(any(DriveFileReference.class))).thenReturn(
+            metadata(link, delayed, "2026-10-16T00:00:00Z"),
+            metadata(link, newest, "2026-10-17T00:00:00Z"));
+        var manualFinished = new java.util.concurrent.atomic.AtomicBoolean();
+        when(drive.download(any(DriveFileReference.class))).thenAnswer(call -> {
+            if (manualFinished.compareAndSet(false, true)) {
+                // A real manual request finishes while the older scheduled download is in flight.
+                assertThat(checker.check(workspace.getId(), request).metadata().md5Checksum())
+                    .isEqualTo(md5(newest));
+                return delayed;
+            }
+            return newest;
+        });
+        clearInvocations(drive);
+        var monitor = new DeadlineFileMonitor(db, responses, deliverables, fields,
+            workspaces, reports, drive, checker, json, 20);
+
+        assertThat(monitor.scanOnce(workspace.getId()).reportsUpdated()).isZero();
+        assertThat(manualFinished).isTrue();
+        assertThat(db.queryForObject("SELECT last_checksum FROM monitored_drive_files WHERE workspace_id=?",
+            String.class, workspace.getId())).isEqualTo(md5(newest));
+        assertThat(db.queryForList("SELECT current_checksum FROM monitored_drive_events WHERE workspace_id=? AND kind='CONTENT_CHANGED'",
+            String.class, workspace.getId())).containsExactly(md5(newest));
+        assertThat(checker.findLatest(workspace.getId(), response.getId().toString(), pdf.getId())
+            .orElseThrow().metadata().md5Checksum()).isEqualTo(md5(newest));
+        verify(drive, times(2)).getMetadata(any(DriveFileReference.class));
+        verify(drive, times(2)).download(any(DriveFileReference.class));
+    }
+
+    @Test
+    void lateAccessDenialCannotPublishAfterANewerManualSuccess() throws Exception {
+        var fixture = raceFixture("DENIAL");
+        byte[] newest = fictionalPdf("Newest manual bytes");
+        var first = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(drive.getMetadata(any(DriveFileReference.class))).thenAnswer(call -> {
+            if (first.compareAndSet(true, false)) {
+                assertThat(checker.check(fixture.workspace(), fixture.request()).status()).isEqualTo("COMPLETED");
+                throw new GoogleDriveUnavailableException("Synthetic delayed denial", GoogleDriveUnavailableException.Kind.FILE_ACCESS);
+            }
+            return metadata(fixture.url(), newest, "2026-10-19T00:00:00Z");
+        });
+        when(drive.download(any(DriveFileReference.class))).thenReturn(newest);
+        var result = monitor().scanOnce(fixture.workspace());
+        assertThat(result.reportsUpdated()).isZero();
+        assertThat(db.queryForObject("SELECT last_accessible FROM monitored_drive_files WHERE workspace_id=?",
+            Boolean.class, fixture.workspace())).isTrue();
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM monitored_drive_events WHERE workspace_id=? AND kind='ACCESS_UNAVAILABLE'",
+            Integer.class, fixture.workspace())).isZero();
+        assertThat(checker.findLatest(fixture.workspace(), fixture.request().responseId(), fixture.request().fieldId())
+            .orElseThrow().metadata().md5Checksum()).isEqualTo(md5(newest));
+    }
+
+    @Test
+    void workerWhoseLeaseWasReclaimedCannotPublishReportsEventsOrScheduling() throws Exception {
+        var fixture = raceFixture("LEASE");
+        byte[] older = fictionalPdf("Delayed old bytes");
+        byte[] newest = fictionalPdf("Winning new bytes");
+        var first = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(drive.getMetadata(any(DriveFileReference.class))).thenAnswer(call -> {
+            if (first.compareAndSet(true, false)) {
+                // A's provider read spans an expired lease. An independent worker
+                // B acquires a new token and fully publishes before A returns.
+                db.update("UPDATE monitored_drive_files SET next_check_at=? WHERE workspace_id=?",
+                    java.sql.Timestamp.from(Instant.now().minusSeconds(1)), fixture.workspace());
+                assertThat(monitor().scanOnce(fixture.workspace()).reportsUpdated()).isEqualTo(1);
+                return metadata(fixture.url(), older, "2026-10-18T00:00:00Z");
+            }
+            return metadata(fixture.url(), newest, "2026-10-19T00:00:00Z");
+        });
+        when(drive.download(any(DriveFileReference.class))).thenReturn(newest, older);
+        assertThat(monitor().scanOnce(fixture.workspace()).reportsUpdated()).isZero();
+        assertThat(db.queryForObject("SELECT last_checksum FROM monitored_drive_files WHERE workspace_id=?",
+            String.class, fixture.workspace())).isEqualTo(md5(newest));
+        assertThat(db.queryForList("SELECT current_checksum FROM monitored_drive_events WHERE workspace_id=? AND kind='CONTENT_CHANGED'",
+            String.class, fixture.workspace())).containsExactly(md5(newest));
+        assertThat(checker.findLatest(fixture.workspace(), fixture.request().responseId(), fixture.request().fieldId())
+            .orElseThrow().metadata().md5Checksum()).isEqualTo(md5(newest));
+    }
+
+    @Test
+    void responseRetiredDuringDownloadCannotReceiveReportOrPublishChangeEvent() throws Exception {
+        var fixture = raceFixture("DEMOTION");
+        String original = checker.findLatest(fixture.workspace(), fixture.request().responseId(), fixture.request().fieldId())
+            .orElseThrow().metadata().md5Checksum();
+        byte[] changed = fictionalPdf("Retired while downloading");
+        when(drive.getMetadata(any(DriveFileReference.class)))
+            .thenReturn(metadata(fixture.url(), changed, "2026-10-20T00:00:00Z"));
+        when(drive.download(any(DriveFileReference.class))).thenAnswer(call -> {
+            UUID responseId = UUID.fromString(fixture.request().responseId());
+            db.update("UPDATE form_responses SET current_student_key=NULL WHERE id=?", responseId);
+            assertThat(responses.findById(responseId).orElseThrow().isCurrentResponse()).isTrue();
+            return changed;
+        });
+
+        assertThat(monitor().scanOnce(fixture.workspace()).reportsUpdated()).isZero();
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM monitored_drive_events WHERE workspace_id=? AND kind='CONTENT_CHANGED'",
+            Integer.class, fixture.workspace())).isZero();
+        assertThat(checker.findLatest(fixture.workspace(), fixture.request().responseId(), fixture.request().fieldId())
+            .orElseThrow().metadata().md5Checksum()).isEqualTo(original);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void retiredResponseCannotPublishFromACachedManualCheck(boolean legacy) throws Exception {
+        var fixture = raceFixture("MANUAL-" + legacy);
+        String original = db.queryForObject("SELECT last_checksum FROM monitored_drive_files WHERE workspace_id=?",
+            String.class, fixture.workspace());
+        byte[] changed = fictionalPdf("Manual bytes after response retirement");
+        when(drive.getMetadata(any(DriveFileReference.class)))
+            .thenReturn(metadata(fixture.url(), changed, "2026-10-21T00:00:00Z"));
+        when(drive.download(any(DriveFileReference.class))).thenAnswer(call -> {
+            UUID responseId = UUID.fromString(fixture.request().responseId());
+            db.update("UPDATE form_responses SET current_student_key=NULL WHERE id=?", responseId);
+            // Models another transaction retiring the row while this request's entity is cached.
+            assertThat(responses.findById(responseId).orElseThrow().isCurrentResponse()).isTrue();
+            return changed;
+        });
+        FileCheckRequest request = legacy ? new FileCheckRequest(fixture.request().responseId(), "SRS", fixture.url(),
+            fixture.request().sourceResponseUpdatedAt()) : fixture.request();
+        checker.check(fixture.workspace(), request);
+        assertThat(db.queryForObject("SELECT last_checksum FROM monitored_drive_files WHERE workspace_id=?",
+            String.class, fixture.workspace())).isEqualTo(original);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM monitored_drive_events WHERE workspace_id=? AND kind='CONTENT_CHANGED'",
+            Integer.class, fixture.workspace())).isZero();
+    }
+
+    private DeadlineFileMonitor monitor() {
+        return new DeadlineFileMonitor(db, responses, deliverables, fields, workspaces, reports, drive, checker, json, 20);
+    }
+
+    private record RaceFixture(UUID workspace, String url, FileCheckRequest request) { }
+
+    private RaceFixture raceFixture(String code) throws Exception {
+        var workspace = workspaces.save(new AcademicWorkspace("Synthetic race", "IT", "RACE-"+code,
+            "Semester 1", "2099-2100", true));
+        var deliverable = deliverables.save(new Deliverable(workspace.getId(), "SRS", "Synthetic SRS", "race-"+code,
+            "Test only", LocalDateTime.now(ZoneId.of("Asia/Manila")).plusHours(12), true, DeliverableStatus.PUBLISHED));
+        var field = fields.save(new DeliverableField(UUID.randomUUID().toString(), deliverable.getId(), "documentPdf",
+            "PDF", DeliverableFieldType.DRIVE_PDF, true, 0, DocumentCheckPolicy.MANUAL, false, true));
+        students.save(new StudentRecord(workspace.getId(), "99-9000-"+code, "Synthetic student", "race-team", "1", "TEST", "Adviser", null, 1));
+        String url = "https://drive.google.com/file/d/fictional-team-shared-pdf/view";
+        var response = submissions.submit(new FormResponseService.SubmitCommand(workspace.getId(), deliverable.getId(),
+            "subject-"+code, "fake@example.invalid", "99-9000-"+code, Map.of("documentPdf", url), null)).response();
+        var request = new FileCheckRequest(response.getId().toString(), field.getId(), "SRS", url, response.getUpdatedAt().toString());
+        byte[] initial = fictionalPdf("Initial bytes");
+        when(drive.isConfigured()).thenReturn(true);
+        when(drive.getMetadata(any(DriveFileReference.class))).thenReturn(metadata(url, initial, "2026-10-17T00:00:00Z"));
+        when(drive.download(any(DriveFileReference.class))).thenReturn(initial);
+        checker.check(workspace.getId(), request);
+        workspaces.flush();
+        db.update("UPDATE academic_workspaces SET file_monitor_enabled=TRUE WHERE id=?", workspace.getId());
+        return new RaceFixture(workspace.getId(), url, request);
+    }
+
     private static DriveFileMetadata metadata(String link, byte[] pdf, String modifiedAt) throws Exception {
         return new DriveFileMetadata("fictional-team-shared-pdf", "synthetic-srs.pdf", "application/pdf",
             (long) pdf.length, md5(pdf), OffsetDateTime.parse(modifiedAt), true, link);

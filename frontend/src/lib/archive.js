@@ -12,3 +12,10 @@ export function getArchiveStatus(archive) {
 export function getArchiveVersion(archive) {
   return archive.version || 'v1';
 }
+
+export function orderArchiveStatuses(statuses) {
+  const priority = ['Storage failed', 'Verification failed', 'Unavailable', 'Metadata only', 'Pending',
+    'Retrying', 'Copying', 'Stored', 'Verified'];
+  const rank = status => priority.includes(status) ? priority.indexOf(status) : priority.length;
+  return [...new Set(statuses.filter(Boolean))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
