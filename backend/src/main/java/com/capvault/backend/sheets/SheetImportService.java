@@ -21,7 +21,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import com.capvault.backend.project.ProjectMetadata;
@@ -46,6 +45,8 @@ import jakarta.persistence.LockModeType;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -78,7 +79,8 @@ public class SheetImportService {
     private final ProjectMetadataRepository projectMetadataRepository;
     private final ObjectMapper objectMapper;
     private final EntityManager entityManager;
-    private final Map<UUID, PreviewSession> previewSessions = new ConcurrentHashMap<>();
+    private final SheetImportPreviewStore previews;
+    private final SheetImportFailureRecorder failures;
 
     public SheetImportService(
         WorkspaceSourceRepository workspaceSourceRepository,
@@ -91,7 +93,9 @@ public class SheetImportService {
         TrackerCellRepository trackerCellRepository,
         ProjectMetadataRepository projectMetadataRepository,
         ObjectMapper objectMapper,
-        EntityManager entityManager
+        EntityManager entityManager,
+        SheetImportPreviewStore previews,
+        SheetImportFailureRecorder failures
     ) {
         this.workspaceSourceRepository = workspaceSourceRepository;
         this.importRunRepository = importRunRepository;
@@ -104,10 +108,14 @@ public class SheetImportService {
         this.projectMetadataRepository = projectMetadataRepository;
         this.objectMapper = objectMapper;
         this.entityManager = entityManager;
+        this.previews = previews;
+        this.failures = failures;
     }
 
     @Transactional
     public SheetImportResponse importSource(UUID workspaceId, WorkspaceSourceType sourceType, SheetImportRequest request) {
+        if (entityManager.find(AcademicWorkspace.class, workspaceId, LockModeType.PESSIMISTIC_WRITE) == null)
+            throw new IllegalArgumentException("Academic workspace was not found.");
         workspaceSourceRepository.findByWorkspaceIdAndSourceType(workspaceId, sourceType).ifPresent(existing -> {
             if (existing.getLastImportedAt() != null || existing.getStatus() == WorkspaceSourceStatus.IMPORTED) {
                 throw new ResponseStatusException(
@@ -163,36 +171,35 @@ public class SheetImportService {
                 run.getCompletedAt()
             );
         } catch (RuntimeException exception) {
-            source.setStatus(WorkspaceSourceStatus.ERROR);
-            workspaceSourceRepository.save(source);
-            run.complete(
-                SheetImportStatus.ERROR,
-                0,
-                0,
-                exception.getMessage(),
-                "{\"error\":\"" + escapeJson(exception.getMessage()) + "\"}"
-            );
-            importRunRepository.save(run);
+            String url = source.getSheetUrl(), sheetId = source.getSheetId(), name = source.getDisplayName();
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void afterCompletion(int status) {
+                        if (status == STATUS_ROLLED_BACK)
+                            failures.record(workspaceId, sourceType, url, sheetId, name, exception.getMessage());
+                    }
+                });
+            }
             throw exception;
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public SheetImportPreviewResponse previewSource(UUID workspaceId, WorkspaceSourceType sourceType, SheetImportRequest request) {
+        return previewSource(workspaceId, sourceType, request, "internal");
+    }
+
+    @Transactional
+    public SheetImportPreviewResponse previewSource(UUID workspaceId, WorkspaceSourceType sourceType,
+                                                    SheetImportRequest request, String actor) {
         SourceInput input = resolvePreviewSource(workspaceId, sourceType, request);
         ParsedSource parsed = fetchAndParsePreview(workspaceId, sourceType, input, request);
         DiffBundle diff = buildPreviewDiff(workspaceId, sourceType, parsed);
         String stateVersion = stateVersion(workspaceId, sourceType);
         String sourceVersion = sourceVersion(parsed);
         UUID previewId = UUID.randomUUID();
-        previewSessions.put(previewId, new PreviewSession(
-            previewId,
-            workspaceId,
-            sourceType,
-            copyRequest(request, input),
-            stateVersion,
-            sourceVersion
-        ));
+        previews.purgeExpired();
+        previews.create(previewId, workspaceId, sourceType, actor, copyRequest(request, input), stateVersion, sourceVersion);
         return new SheetImportPreviewResponse(
             previewId,
             sourceType,
@@ -214,13 +221,30 @@ public class SheetImportService {
         WorkspaceSourceType sourceType,
         SheetImportApplyRequest request
     ) {
+        return applyPreview(workspaceId, sourceType, request, "internal");
+    }
+
+    @Transactional
+    public SheetImportResponse applyPreview(UUID workspaceId, WorkspaceSourceType sourceType,
+                                            SheetImportApplyRequest request, String actor) {
         if (request == null || request.previewId() == null) {
             throw new IllegalArgumentException("Choose a re-import preview before applying changes.");
         }
-        PreviewSession session = previewSessions.get(request.previewId());
-        if (session == null || !workspaceId.equals(session.workspaceId()) || sourceType != session.sourceType()) {
+        AcademicWorkspace workspace = entityManager.find(AcademicWorkspace.class, workspaceId, LockModeType.PESSIMISTIC_WRITE);
+        if (workspace == null || !workspace.isActive()) throw new IllegalArgumentException("Active academic workspace was not found.");
+        var session = previews.find(request.previewId(), true).orElse(null);
+        if (session == null || !workspaceId.equals(session.workspaceId()) || sourceType != session.sourceType()
+                || !Objects.equals(actor, session.actor())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This re-import preview is no longer available. Preview the Sheet again.");
         }
+        String choices = previews.resolutions(request.resolutions());
+        if (session.result() != null) {
+            if (!choices.equals(session.resolutionsJson())) throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "This preview was already applied with different choices. Preview the Sheet again.");
+            return session.result();
+        }
+        if (previews.expired(session)) throw new ResponseStatusException(HttpStatus.CONFLICT,
+            "This re-import preview expired. Preview the Sheet again.");
 
         SourceInput input = resolvePreviewSource(workspaceId, sourceType, session.request());
         ParsedSource parsed = fetchAndParsePreview(workspaceId, sourceType, input, session.request());
@@ -228,10 +252,6 @@ public class SheetImportService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "The Sheet changed after this preview. Preview it again before applying.");
         }
 
-        AcademicWorkspace workspace = entityManager.find(AcademicWorkspace.class, workspaceId, LockModeType.PESSIMISTIC_WRITE);
-        if (workspace == null) {
-            throw new IllegalArgumentException("Academic workspace was not found.");
-        }
         if (!session.stateVersion().equals(stateVersion(workspaceId, sourceType))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "WildTrack academic data changed after this preview. Preview the Sheet again before applying.");
         }
@@ -254,8 +274,7 @@ public class SheetImportService {
             toJson(result)
         );
         importRunRepository.save(run);
-        previewSessions.remove(request.previewId());
-        return new SheetImportResponse(
+        SheetImportResponse response = new SheetImportResponse(
             run.getId(),
             sourceType,
             SheetImportStatus.IMPORTED,
@@ -269,6 +288,8 @@ public class SheetImportService {
             result.details(),
             run.getCompletedAt()
         );
+        previews.applied(request.previewId(), choices, response);
+        return response;
     }
 
     private SourceInput resolvePreviewSource(UUID workspaceId, WorkspaceSourceType sourceType, SheetImportRequest request) {
@@ -2094,16 +2115,6 @@ public class SheetImportService {
     }
 
     private record SourceInput(String sheetUrl, String displayName) {
-    }
-
-    private record PreviewSession(
-        UUID previewId,
-        UUID workspaceId,
-        WorkspaceSourceType sourceType,
-        SheetImportRequest request,
-        String stateVersion,
-        String sourceVersion
-    ) {
     }
 
     private record SourceStudent(

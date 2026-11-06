@@ -112,9 +112,10 @@ class AiReviewVerifiedSnapshotTest {
         jdbc.execute("CREATE TABLE form_responses(id UUID PRIMARY KEY)");
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__deduplicated_ai_reviews.sql"),
             new ClassPathResource("db/migration/V33__ai_review_attempt_history.sql")).execute(dataSource);
-        jdbc.execute("CREATE TABLE ai_review_field_links(response_id UUID NOT NULL REFERENCES form_responses(id), field_id VARCHAR(80) NOT NULL, source_value_sha256 VARCHAR(64) NOT NULL, cache_key VARCHAR(64) NOT NULL REFERENCES ai_review_jobs(cache_key), PRIMARY KEY(response_id, field_id))");
+        jdbc.execute("CREATE TABLE ai_review_field_links(response_id UUID NOT NULL REFERENCES form_responses(id), field_id VARCHAR(80) NOT NULL, source_value_sha256 VARCHAR(64) NOT NULL, cache_key VARCHAR(64) NOT NULL REFERENCES ai_review_jobs(cache_key), source_revision BIGINT NOT NULL DEFAULT 0, PRIMARY KEY(response_id, field_id))");
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V37__ai_review_source_verification_time.sql"),
-            new ClassPathResource("db/migration/V39__durable_ai_review_failure_diagnostics.sql")).execute(dataSource);
+            new ClassPathResource("db/migration/V39__durable_ai_review_failure_diagnostics.sql"),
+            new ClassPathResource("db/migration/V55__ai_field_link_generation.sql")).execute(dataSource);
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", WORKSPACE);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", DELIVERABLE_ID);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(dataSource), Clock.fixed(CAPTURED_AT, ZoneOffset.UTC));

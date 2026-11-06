@@ -159,6 +159,10 @@ public class AiReviewStore {
 
     Instant captureTime() { return clock.instant(); }
 
+    long nextCaptureGeneration() {
+        return jdbc.queryForObject("SELECT nextval('ai_review_capture_sequence')", Long.class);
+    }
+
     public void complete(Job job, String report, boolean substantive, Instant capturedAt) {
         Instant completed = clock.instant();
         String substantiveSql = substantive ? ", report_json = ?, completed_at = ?" : "";
@@ -173,9 +177,9 @@ public class AiReviewStore {
             if (changed == 1) {
                 // This receipt belongs to the saved report's inspected input.
                 // A failed or superseded worker must never advance it.
-                jdbc.update("UPDATE ai_review_response_links SET source_verified_at = ? WHERE cache_key = ?",
+                jdbc.update("UPDATE ai_review_response_links SET source_verified_at = GREATEST(source_verified_at, CAST(? AS TIMESTAMP WITH TIME ZONE)) WHERE cache_key = ?",
                     Timestamp.from(capturedAt), job.key());
-                jdbc.update("UPDATE ai_review_field_links SET source_verified_at = ? WHERE cache_key = ?",
+                jdbc.update("UPDATE ai_review_field_links SET source_verified_at = GREATEST(source_verified_at, CAST(? AS TIMESTAMP WITH TIME ZONE)) WHERE cache_key = ?",
                     Timestamp.from(capturedAt), job.key());
             }
         });
@@ -197,23 +201,30 @@ public class AiReviewStore {
     }
 
     public void link(UUID responseId, long revision, String key, Instant capturedAt) {
-        try {
-            tx.executeWithoutResult(status -> jdbc.update("""
-                INSERT INTO ai_review_response_links(response_id, source_revision, cache_key, source_verified_at)
-                VALUES (?, ?, ?, CASE WHEN EXISTS (
+        link(responseId, revision, key, capturedAt, nextCaptureGeneration(), () -> { });
+    }
+
+    public void link(UUID responseId, long revision, String key, Instant capturedAt, long generation, Runnable validateCurrent) {
+        tx.executeWithoutResult(status -> {
+            lockResponse(responseId);
+            validateCurrent.run();
+            var existing = jdbc.query("SELECT response_id FROM ai_review_response_links WHERE response_id=?", (rs,n) -> rs.getObject(1), responseId);
+            if (existing.isEmpty()) jdbc.update("""
+                INSERT INTO ai_review_response_links(response_id, source_revision, cache_key, capture_generation, source_verified_at)
+                VALUES (?, ?, ?, ?, CASE WHEN EXISTS (
                     SELECT 1 FROM ai_review_jobs WHERE cache_key = ? AND state = 'COMPLETED'
                 ) THEN CAST(? AS TIMESTAMP WITH TIME ZONE) ELSE NULL END)
-                """, responseId, revision, key, key, Timestamp.from(capturedAt)));
-        } catch (DuplicateKeyException duplicate) {
-            tx.executeWithoutResult(status -> jdbc.update("""
+                """, responseId, revision, key, generation, key, Timestamp.from(capturedAt));
+            else if (jdbc.update("""
                 UPDATE ai_review_response_links SET source_verified_at = CASE
                     WHEN EXISTS (SELECT 1 FROM ai_review_jobs WHERE cache_key = ? AND state = 'COMPLETED')
                         THEN CAST(? AS TIMESTAMP WITH TIME ZONE)
                     WHEN cache_key = ? AND source_revision = ? THEN source_verified_at ELSE NULL END,
-                    source_revision = ?, cache_key = ?
-                WHERE response_id = ? AND source_revision <= ?
-                """, key, Timestamp.from(capturedAt), key, revision, revision, key, responseId, revision));
-        }
+                    source_revision = ?, cache_key = ?, capture_generation = ?
+                WHERE response_id = ? AND source_revision <= ? AND capture_generation <= ?
+                """, key, Timestamp.from(capturedAt), key, revision, revision, key, generation, responseId, revision, generation) == 0)
+                throw newerCapture();
+        });
     }
 
     public Optional<Job> linked(UUID responseId, long revision) {
@@ -221,10 +232,10 @@ public class AiReviewStore {
             (rs, n) -> rs.getString(1), responseId, revision).stream().findFirst().flatMap(this::find);
     }
 
-    public void unlink(UUID responseId, long revision, String key) {
+    public void unlink(UUID responseId, long revision, String key, long generation) {
         tx.executeWithoutResult(status -> jdbc.update(
-            "DELETE FROM ai_review_response_links WHERE response_id = ? AND source_revision = ? AND cache_key = ?",
-            responseId, revision, key));
+            "DELETE FROM ai_review_response_links WHERE response_id = ? AND source_revision = ? AND cache_key = ? AND capture_generation = ?",
+            responseId, revision, key, generation));
     }
 
     public record Link(long revision, Job job, Instant sourceVerifiedAt) {
@@ -250,27 +261,50 @@ public class AiReviewStore {
     }
 
     public void linkField(UUID responseId, String fieldId, String sourceValueHash, String key) {
-        linkField(responseId, fieldId, sourceValueHash, key, clock.instant());
+        linkField(responseId, fieldId, sourceValueHash, key, 0L, clock.instant());
     }
 
     public void linkField(UUID responseId, String fieldId, String sourceValueHash, String key, Instant capturedAt) {
-        try {
-            tx.executeWithoutResult(status -> jdbc.update("""
-                INSERT INTO ai_review_field_links(response_id, field_id, source_value_sha256, cache_key, source_verified_at)
-                VALUES (?, ?, ?, ?, CASE WHEN EXISTS (
+        linkField(responseId, fieldId, sourceValueHash, key, 0L, capturedAt);
+    }
+
+    public void linkField(UUID responseId, String fieldId, String sourceValueHash, String key,
+            long sourceRevision, Instant capturedAt) {
+        linkField(responseId, fieldId, sourceValueHash, key, sourceRevision, capturedAt, () -> { });
+    }
+
+    public void linkField(UUID responseId, String fieldId, String sourceValueHash, String key,
+            long sourceRevision, Instant capturedAt, Runnable validateCurrent) {
+        linkField(responseId, fieldId, sourceValueHash, key, sourceRevision, capturedAt, nextCaptureGeneration(), validateCurrent);
+    }
+
+    public void linkField(UUID responseId, String fieldId, String sourceValueHash, String key,
+            long sourceRevision, Instant capturedAt, long generation, Runnable validateCurrent) {
+        tx.executeWithoutResult(status -> {
+            lockResponse(responseId);
+            validateCurrent.run();
+            var existing = jdbc.query("SELECT source_revision FROM ai_review_field_links WHERE response_id=? AND field_id=?",
+                (rs, n) -> rs.getLong(1), responseId, fieldId);
+            if (existing.isEmpty()) jdbc.update("""
+                INSERT INTO ai_review_field_links(response_id, field_id, source_value_sha256, cache_key, source_revision, capture_generation, source_verified_at)
+                VALUES (?, ?, ?, ?, ?, ?, CASE WHEN EXISTS (
                     SELECT 1 FROM ai_review_jobs WHERE cache_key = ? AND state = 'COMPLETED'
                 ) THEN CAST(? AS TIMESTAMP WITH TIME ZONE) ELSE NULL END)
-                """, responseId, fieldId, sourceValueHash, key, key, Timestamp.from(capturedAt)));
-        } catch (DuplicateKeyException duplicate) {
-            tx.executeWithoutResult(status -> jdbc.update("""
+                """, responseId, fieldId, sourceValueHash, key, sourceRevision, generation, key, Timestamp.from(capturedAt));
+            else {
+                int changed = jdbc.update("""
                 UPDATE ai_review_field_links SET source_verified_at = CASE
                     WHEN EXISTS (SELECT 1 FROM ai_review_jobs WHERE cache_key = ? AND state = 'COMPLETED')
                         THEN CAST(? AS TIMESTAMP WITH TIME ZONE)
                     WHEN cache_key = ? AND source_value_sha256 = ? THEN source_verified_at ELSE NULL END,
-                    source_value_sha256 = ?, cache_key = ?
+                    source_value_sha256 = ?, cache_key = ?, source_revision = ?, capture_generation = ?
                 WHERE response_id = ? AND field_id = ?
-                """, key, Timestamp.from(capturedAt), key, sourceValueHash, sourceValueHash, key, responseId, fieldId));
-        }
+                  AND source_revision <= ? AND capture_generation <= ?
+                """, key, Timestamp.from(capturedAt), key, sourceValueHash, sourceValueHash, key, sourceRevision, generation,
+                    responseId, fieldId, sourceRevision, generation);
+                if (changed == 0) throw newerCapture();
+            }
+        });
     }
 
     public Optional<Job> linkedField(UUID responseId, String fieldId, String sourceValueHash) {
@@ -281,11 +315,21 @@ public class AiReviewStore {
             .stream().findFirst().flatMap(this::find);
     }
 
-    public void unlinkField(UUID responseId, String fieldId, String sourceValueHash, String key) {
+    public void unlinkField(UUID responseId, String fieldId, String sourceValueHash, String key, long generation) {
         tx.executeWithoutResult(status -> jdbc.update("""
             DELETE FROM ai_review_field_links
-            WHERE response_id = ? AND field_id = ? AND source_value_sha256 = ? AND cache_key = ?
-            """, responseId, fieldId, sourceValueHash, key));
+            WHERE response_id = ? AND field_id = ? AND source_value_sha256 = ? AND cache_key = ? AND capture_generation = ?
+            """, responseId, fieldId, sourceValueHash, key, generation));
+    }
+
+    private void lockResponse(UUID responseId) {
+        if (jdbc.query("SELECT id FROM form_responses WHERE id=? FOR UPDATE", (rs,n) -> rs.getObject(1), responseId).isEmpty())
+            throw new IllegalArgumentException("Response no longer exists.");
+    }
+
+    private static RuntimeException newerCapture() {
+        return new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+            "A newer PDF preparation is already linked. Refresh the review before continuing.");
     }
 
     public record FieldLink(String sourceValueHash, Job job, Instant sourceVerifiedAt) {

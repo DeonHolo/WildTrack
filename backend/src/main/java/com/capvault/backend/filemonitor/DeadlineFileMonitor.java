@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -63,12 +64,25 @@ public class DeadlineFileMonitor {
     private final GoogleDriveGateway drive;
     private final FileCheckService checks;
     private final ObjectMapper json;
+    private final FileMonitorEventRecorder eventRecorder;
     private final int batchLimit;
 
+    /** Compatibility constructor for focused unit helpers that do not need event writes. */
     public DeadlineFileMonitor(JdbcTemplate db, FormResponseRepository responses,
             DeliverableRepository deliverables, DeliverableFieldRepository fields,
             AcademicWorkspaceRepository workspaces, FileCheckReportRepository previousReports,
             GoogleDriveGateway drive, FileCheckService checks, ObjectMapper json,
+            @Value("${wildtrack.file-monitor.max-files-per-cycle:20}") int batchLimit) {
+        this(db, responses, deliverables, fields, workspaces, previousReports, drive, checks, json,
+            new FileMonitorEventRecorder(db), batchLimit);
+    }
+
+    @Autowired
+    public DeadlineFileMonitor(JdbcTemplate db, FormResponseRepository responses,
+            DeliverableRepository deliverables, DeliverableFieldRepository fields,
+            AcademicWorkspaceRepository workspaces, FileCheckReportRepository previousReports,
+            GoogleDriveGateway drive, FileCheckService checks, ObjectMapper json,
+            FileMonitorEventRecorder eventRecorder,
             @Value("${wildtrack.file-monitor.max-files-per-cycle:20}") int batchLimit) {
         this.db = db;
         this.responses = responses;
@@ -79,6 +93,7 @@ public class DeadlineFileMonitor {
         this.drive = drive;
         this.checks = checks;
         this.json = json;
+        this.eventRecorder = eventRecorder;
         this.batchLimit = Math.max(1, Math.min(batchLimit, 30));
     }
 
@@ -117,168 +132,161 @@ public class DeadlineFileMonitor {
             seed(workspaceId, file, now);
             // Atomic claim: a concurrent dyno cannot check the same file until the
             // short lease expires. No network request is made while holding a DB lock.
+            UUID claimToken = UUID.randomUUID();
             int claimed = db.update("""
-                UPDATE monitored_drive_files SET next_check_at = ?
+                UPDATE monitored_drive_files SET next_check_at = ?, claim_token = ?
                 WHERE workspace_id = ? AND file_id = ? AND next_check_at <= ?
-                """, Timestamp.from(now.plusSeconds(180)), workspaceId, file.fileId(), Timestamp.from(now));
+                """, Timestamp.from(now.plusSeconds(180)), claimToken, workspaceId, file.fileId(), Timestamp.from(now));
             if (claimed == 0) continue;
             requests++;
-            try {
-                var state = db.queryForMap("""
-                    SELECT last_checksum, last_mime, last_modified_at, last_accessible, last_checked_at, failure_count
-                    FROM monitored_drive_files WHERE workspace_id = ? AND file_id = ?
-                    """, workspaceId, file.fileId());
-                DriveFileMetadata metadata = drive.getMetadata(DriveLinkParser.parse(file.url()));
-                // Never persist metadata or alert against a different Drive file if
-                // a provider or gateway unexpectedly returns a mismatched identity.
-                if (metadata == null || !file.fileId().equals(metadata.id())) {
-                    throw new IllegalStateException("Drive returned metadata for an unexpected file identity.");
-                }
-                String previousHash = (String) state.get("last_checksum");
-                boolean previouslyAccessible = Boolean.TRUE.equals(state.get("last_accessible"));
-                String observedHash = normalized(metadata.md5Checksum());
-                String previousMime = normalized((String) state.get("last_mime"));
-                boolean downloadAllowed = metadata.canDownload();
-                boolean contentChanged = previousHash != null && observedHash != null
-                    && !previousHash.equalsIgnoreCase(observedHash);
-                boolean accessChanged = !previouslyAccessible || !downloadAllowed;
-                boolean typeChanged = previousMime != null
-                    && !previousMime.equalsIgnoreCase(normalized(metadata.mimeType()));
-                Object previousTimestamp = state.get("last_modified_at");
-                Instant previousModified = previousTimestamp instanceof Timestamp ts ? ts.toInstant()
-                    : previousTimestamp instanceof java.time.OffsetDateTime odt ? odt.toInstant() : null;
-                boolean onlyMetadataChanged = previousHash != null && observedHash != null
-                    && previousHash.equalsIgnoreCase(observedHash) && previousModified != null
-                    && metadata.modifiedTime() != null
-                    && !previousModified.equals(metadata.modifiedTime().toInstant());
-                // Some provider responses omit MD5. In that situation a changed
-                // modifiedTime warrants reinspection, but is NOT proof that the
-                // PDF bytes changed. Do not announce a verified content change.
-                boolean uncertainChange = (previousHash == null || observedHash == null)
-                    && previousModified != null && metadata.modifiedTime() != null
-                    && !previousModified.equals(metadata.modifiedTime().toInstant());
-                if (!downloadAllowed && !Boolean.FALSE.equals(state.get("last_accessible"))) {
-                    event(workspaceId, file.fileId(), "DOWNLOAD_UNAVAILABLE", previousHash,
-                        observedHash, "The submitted file no longer permits downloading.", metadata);
-                    for (Target target : file.targets()) {
-                        try {
-                            checks.checkCaptured(workspaceId, request(target),
-                                new FileCheckService.CapturedPdf(metadata, null, null));
-                            reports++;
-                        } catch (IllegalArgumentException staleSubmission) {
-                            // Do not record against a changed/retired response field.
-                        }
-                    }
-                }
-                if (contentChanged || typeChanged) {
-                    String kind = contentChanged ? "CONTENT_CHANGED" : "FILE_TYPE_CHANGED";
-                    if (downloadAllowed) {
-                        FileCheckService.CapturedPdf capture;
-                        try {
-                            capture = checks.capture(DriveLinkParser.parse(file.url()), metadata);
-                            for (Target target : file.targets()) {
-                                try {
-                                    checks.checkCaptured(workspaceId, request(target), capture);
-                                    reports++;
-                                } catch (IllegalArgumentException staleSubmission) {
-                                    // A response/field may have changed while the monitor was checking.
-                                }
-                            }
-                            event(workspaceId, file.fileId(), kind, previousHash, observedHash,
-                                "The submitted file has a new verified content identity. Review its Document Check and history.", metadata);
-                            if (capture.bytes() != null) downloads++;
-                        } catch (RuntimeException downloadFailure) {
-                            event(workspaceId, file.fileId(), "CHANGE_AWAITING_CHECK", previousHash,
-                                observedHash, "A file change was detected, but the updated PDF could not be inspected.", metadata);
-                            throw downloadFailure;
-                        }
-                    } else {
-                        event(workspaceId, file.fileId(), "CHANGE_AWAITING_CHECK", previousHash,
-                            observedHash, "A file change was detected, but downloading is not permitted.", metadata);
-                    }
-                } else if (accessChanged && downloadAllowed && state.get("last_accessible") != null) {
-                    try {
-                        var restored = checks.capture(DriveLinkParser.parse(file.url()), metadata);
-                        if (restored.bytes() != null) downloads++;
-                        for (Target target : file.targets()) {
-                            try {
-                                checks.checkCaptured(workspaceId, request(target), restored);
-                                reports++;
-                            } catch (IllegalArgumentException staleSubmission) { }
-                        }
-                    } catch (RuntimeException recheckUnavailable) {
-                        event(workspaceId, file.fileId(), "CHANGE_AWAITING_CHECK", previousHash, observedHash,
-                            "Access was restored but Document Check could not yet inspect the file.", metadata);
-                        throw recheckUnavailable;
-                    }
-                    event(workspaceId, file.fileId(), "ACCESS_RESTORED", previousHash, observedHash,
-                        "The submitted file is accessible again.", metadata);
-                } else if (uncertainChange && downloadAllowed) {
-                    // Do not silently skip an edit just because the provider did
-                    // not supply a content checksum. The previous file identity
-                    // cannot be reconstructed without retaining older PDF bytes.
-                    var inspected = checks.capture(DriveLinkParser.parse(file.url()), metadata);
-                    if (inspected.bytes() != null) downloads++;
-                    for (Target target : file.targets()) {
-                        try {
-                            checks.checkCaptured(workspaceId, request(target), inspected);
-                            reports++;
-                        } catch (IllegalArgumentException staleSubmission) { }
-                    }
-                    event(workspaceId, file.fileId(), "CHANGE_AWAITING_CHECK", previousHash, observedHash,
-                        "Drive metadata changed without comparable checksums. The current PDF was rechecked, but an earlier content change cannot be verified.", metadata);
-                } else if (onlyMetadataChanged) {
-                    event(workspaceId, file.fileId(), "METADATA_CHANGED", previousHash, observedHash,
-                        "Drive metadata changed while the observed PDF content checksum stayed the same.", metadata);
-                }
-                // An absent checksum is UNKNOWN, not evidence that the PDF stayed unchanged.
-                db.update("""
-                    UPDATE monitored_drive_files SET source_url=?, last_checksum=?, last_mime=?,
-                      last_modified_at=?, last_accessible=?, last_checked_at=?, next_check_at=?, failure_count=0
-                    WHERE workspace_id=? AND file_id=?
-                    """, file.url(), observedHash, metadata.mimeType(),
-                    metadata.modifiedTime() == null ? null : Timestamp.from(metadata.modifiedTime().toInstant()), downloadAllowed,
-                    Timestamp.from(now), Timestamp.from(now.plus(interval(file.nearestDeadline(), now))),
-                    workspaceId, file.fileId());
-            } catch (RuntimeException failure) {
-                // Do not classify a temporary network error as deliberate student restriction.
-                // Only confirmed access denial is reported as an access event.
-                if (isAccessDenied(failure)) {
-                    event(workspaceId, file.fileId(), "ACCESS_UNAVAILABLE", null, null,
-                        "The submitted file cannot currently be accessed by WildTrack.", null);
-                    Boolean lastAccess = db.queryForObject("""
-                        SELECT last_accessible FROM monitored_drive_files
-                        WHERE workspace_id=? AND file_id=?
-                        """, Boolean.class, workspaceId, file.fileId());
-                    if (!Boolean.FALSE.equals(lastAccess)) {
-                        for (Target target : file.targets()) {
-                            try {
-                                if (failure instanceof GoogleDriveUnavailableException unavailable) {
-                                    checks.recordBatchProviderFailureTyped(workspaceId, request(target), true, unavailable);
-                                } else {
-                                    checks.recordBatchProviderFailure(workspaceId, request(target), true,
-                                        "The Drive file is inaccessible. Verify the sharing permissions.");
-                                }
-                                reports++;
-                            } catch (IllegalArgumentException staleSubmission) { }
-                        }
-                    }
-                }
-                int failures = db.queryForObject("""
-                    SELECT failure_count FROM monitored_drive_files WHERE workspace_id=? AND file_id=?
-                    """, Integer.class, workspaceId, file.fileId());
-                long retrySeconds = Math.min(3600, 120L << Math.min(failures, 4));
-                // A transient provider/parse error does not erase previously
-                // observed accessibility or create a false ACCESS_RESTORED event.
-                db.update("""
-                    UPDATE monitored_drive_files SET last_accessible=CASE WHEN ? THEN FALSE ELSE last_accessible END,
-                      failure_count=failure_count+1, next_check_at=?
-                    WHERE workspace_id=? AND file_id=?
-                    """, isAccessDenied(failure), Timestamp.from(now.plusSeconds(retrySeconds)),
-                    workspaceId, file.fileId());
-            }
+            var result = observe(workspaceId, file, claimToken);
+            downloads += result.downloads();
+            reports += result.reports();
         }
         return new Cycle(unique.size(), requests, downloads, reports);
+    }
+
+
+    private record ObservationResult(int downloads, int reports) { }
+
+    private ObservationResult observe(UUID workspace, FileGroup file, UUID claimToken) {
+        Instant observedAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        DriveFileMetadata observedMetadata = null;
+        try {
+            var before = db.queryForMap("""
+                SELECT last_checksum,last_mime,last_modified_at,last_accessible,failure_count
+                FROM monitored_drive_files WHERE workspace_id=? AND file_id=?
+                """, workspace, file.fileId());
+            DriveFileMetadata metadata = drive.getMetadata(DriveLinkParser.parse(file.url()));
+            if (metadata == null || !file.fileId().equals(metadata.id()))
+                throw new IllegalStateException("Drive returned metadata for an unexpected file identity.");
+            observedMetadata = metadata;
+            String oldHash = normalized((String) before.get("last_checksum"));
+            String newHash = normalized(metadata.md5Checksum());
+            String oldMime = normalized((String) before.get("last_mime"));
+            Object timestamp = before.get("last_modified_at");
+            Instant oldModified = timestamp instanceof Timestamp ts ? ts.toInstant()
+                : timestamp instanceof java.time.OffsetDateTime offset ? offset.toInstant() : null;
+            boolean contentChanged = oldHash != null && newHash != null && !oldHash.equals(newHash);
+            boolean typeChanged = oldMime != null && !oldMime.equals(normalized(metadata.mimeType()));
+            boolean modified = oldModified != null && metadata.modifiedTime() != null
+                && !oldModified.equals(metadata.modifiedTime().toInstant());
+            boolean uncertain = (oldHash == null || newHash == null) && modified;
+            boolean restored = !Boolean.TRUE.equals(before.get("last_accessible"))
+                && before.get("last_accessible") != null && metadata.canDownload();
+            boolean needsCapture = metadata.canDownload() && (contentChanged || typeChanged || restored || uncertain);
+            // All provider work completes before acquiring the publication transaction/row locks.
+            var capture = needsCapture ? checks.capture(DriveLinkParser.parse(file.url()), metadata) : null;
+            int reports = eventRecorder.publishCurrent(workspace, file.fileId(), claimToken, observedAt, () -> {
+                int count = 0;
+                List<Target> current = currentTargets(workspace, file);
+                if (!contentChanged && !current.isEmpty()) eventRecorder.recordVerifiedContentChange(workspace, file.fileId(),
+                    file.url(), metadata, observedAt);
+                if (!metadata.canDownload() && !Boolean.FALSE.equals(before.get("last_accessible"))) {
+                    if (!current.isEmpty()) observedEvent(workspace, file, "DOWNLOAD_UNAVAILABLE", oldHash, newHash,
+                        "The submitted file no longer permits downloading.", metadata, observedAt);
+                    count += checkTargets(workspace, file, new FileCheckService.CapturedPdf(metadata, null, null), observedAt);
+                }
+                if ((contentChanged || typeChanged) && metadata.canDownload()) {
+                    if (capture.bytes() != null && !current.isEmpty()) eventRecorder.recordVerifiedContentChange(workspace, file.fileId(),
+                        file.url(), capture.metadata(), observedAt);
+                    count += checkTargets(workspace, file, capture, observedAt);
+                    if (!current.isEmpty() && typeChanged && !contentChanged) observedEvent(workspace, file, "FILE_TYPE_CHANGED", oldHash, newHash,
+                        "The submitted file type changed. Review its Document Check and history.", metadata, observedAt);
+                } else if ((contentChanged || typeChanged) && !metadata.canDownload()) {
+                    if (!current.isEmpty()) observedEvent(workspace, file, "CHANGE_AWAITING_CHECK", oldHash, newHash,
+                        "A file change was detected, but downloading is not permitted.", metadata, observedAt);
+                } else if (restored) {
+                    if (capture.bytes() != null && !current.isEmpty()) eventRecorder.recordVerifiedContentChange(workspace, file.fileId(),
+                        file.url(), capture.metadata(), observedAt);
+                    count += checkTargets(workspace, file, capture, observedAt);
+                    if (!current.isEmpty()) observedEvent(workspace, file, "ACCESS_RESTORED", oldHash, newHash,
+                        "The submitted file is accessible again.", metadata, observedAt);
+                } else if (uncertain && metadata.canDownload()) {
+                    count += checkTargets(workspace, file, capture, observedAt);
+                    if (!current.isEmpty()) observedEvent(workspace, file, "CHANGE_AWAITING_CHECK", oldHash, newHash,
+                        "Drive metadata changed without comparable checksums. The current PDF was rechecked, but an earlier content change cannot be verified.", metadata, observedAt);
+                } else if (modified && oldHash != null && oldHash.equals(newHash)) {
+                    if (!current.isEmpty()) observedEvent(workspace, file, "METADATA_CHANGED", oldHash, newHash,
+                        "Drive metadata changed while the observed PDF content checksum stayed the same.", metadata, observedAt);
+                }
+                eventRecorder.recordMetadata(workspace, file.fileId(), file.url(), metadata, observedAt);
+                Instant finished = Instant.now();
+                db.update("""
+                    UPDATE monitored_drive_files SET next_check_at=?,failure_count=0,claim_token=NULL
+                    WHERE workspace_id=? AND file_id=? AND claim_token=?
+                    """, Timestamp.from(finished.plus(interval(file.nearestDeadline(), finished))),
+                    workspace, file.fileId(), claimToken);
+                return count;
+            });
+            return new ObservationResult(capture != null && capture.bytes() != null ? 1 : 0, reports);
+        } catch (RuntimeException failure) {
+            DriveFileMetadata metadata = observedMetadata;
+            int reports = eventRecorder.publishCurrent(workspace, file.fileId(), claimToken, observedAt, () -> {
+                int count = 0;
+                if (metadata != null) observedEvent(workspace, file, "CHANGE_AWAITING_CHECK", null,
+                    normalized(metadata.md5Checksum()), "The current PDF could not yet be inspected.", metadata, observedAt);
+                if (isAccessDenied(failure)) {
+                    observedEvent(workspace, file, "ACCESS_UNAVAILABLE", null, null,
+                        "The submitted file cannot currently be accessed by WildTrack.", null, observedAt);
+                    Boolean accessible = db.queryForObject("SELECT last_accessible FROM monitored_drive_files WHERE workspace_id=? AND file_id=?",
+                        Boolean.class, workspace, file.fileId());
+                    if (!Boolean.FALSE.equals(accessible)) for (Target target : currentTargets(workspace, file)) {
+                        checks.recordBatchProviderFailureTyped(workspace, request(target), true,
+                            (GoogleDriveUnavailableException) failure, observedAt);
+                        count++;
+                    }
+                }
+                int failures = db.queryForObject("SELECT failure_count FROM monitored_drive_files WHERE workspace_id=? AND file_id=?",
+                    Integer.class, workspace, file.fileId());
+                long retrySeconds = Math.min(3600, 120L << Math.min(failures, 4));
+                db.update("""
+                    UPDATE monitored_drive_files SET last_accessible=CASE WHEN ? THEN FALSE ELSE last_accessible END,
+                        failure_count=failure_count+1,next_check_at=?,claim_token=NULL
+                    WHERE workspace_id=? AND file_id=? AND claim_token=?
+                    """, isAccessDenied(failure), Timestamp.from(Instant.now().plusSeconds(retrySeconds)),
+                    workspace, file.fileId(), claimToken);
+                return count;
+            });
+            return new ObservationResult(0, reports);
+        }
+    }
+
+    private List<Target> currentTargets(UUID workspace, FileGroup file) {
+        List<Target> current = new ArrayList<>();
+        for (Target target : file.targets().stream().sorted(Comparator.comparing(t -> t.response().getId())).toList()) {
+            var live = db.query("""
+                SELECT id FROM form_responses WHERE id=? AND workspace_id=?
+                  AND current_student_key IS NOT NULL AND revision=? FOR UPDATE
+                """, (rs, n) -> rs.getObject(1), target.response().getId(), workspace, target.response().getRevision());
+            if (live.isEmpty()) continue;
+            var response = responses.findByIdForUpdate(target.response().getId()).orElse(null);
+            var field = fields.findById(target.field().getId()).filter(f -> f.isActive()
+                && f.getFieldType() == DeliverableFieldType.DRIVE_PDF
+                && f.getDocumentCheckPolicy() != DocumentCheckPolicy.OFF).orElse(null);
+            if (response == null || !response.isCurrentResponse() || field == null || !workspace.equals(response.getWorkspaceId())
+                    || !response.getDeliverableId().equals(field.getDeliverableId())
+                    || !Objects.equals(response.getUpdatedAt(), target.response().getUpdatedAt())) continue;
+            try {
+                if (!target.url().equals(json.readTree(response.getValuesJson()).path(field.getFieldKey()).asText("").trim())) continue;
+                current.add(new Target(response, target.deliverable(), field, target.url()));
+            } catch (java.io.IOException invalid) { /* Retired/invalid targets cannot receive a new report. */ }
+        }
+        return current;
+    }
+
+    private int checkTargets(UUID workspace, FileGroup file, FileCheckService.CapturedPdf capture, Instant observedAt) {
+        int count = 0;
+        for (Target target : currentTargets(workspace, file)) {
+            checks.checkCaptured(workspace, request(target), capture, observedAt);
+            count++;
+        }
+        return count;
+    }
+
+    private void observedEvent(UUID workspace, FileGroup file, String kind, String before, String after,
+            String detail, DriveFileMetadata metadata, Instant observedAt) {
+        eventRecorder.recordEvent(workspace, file.fileId(), kind, before, after, detail, metadata, observedAt);
     }
 
     private boolean monitorEnabled(UUID workspaceId) {
@@ -409,25 +417,6 @@ public class DeadlineFileMonitor {
             ? deliverable.getTitle() : deliverable.getTrackerColumnKey();
         return new FileCheckRequest(response.getId().toString(), target.field().getId(), key,
             target.url(), response.getUpdatedAt().toString());
-    }
-
-    private void event(UUID workspaceId, String fileId, String kind,
-            String before, String after, String detail, DriveFileMetadata metadata) {
-        // Same event state across polling retries must not spam Today's Work.
-        List<Boolean> lastSame = db.query("""
-            SELECT kind,previous_checksum,current_checksum FROM monitored_drive_events
-            WHERE workspace_id=? AND file_id=? ORDER BY observed_at DESC LIMIT 1
-            """, (rs, n) -> kind.equals(rs.getString("kind"))
-                && Objects.equals(before, rs.getString("previous_checksum"))
-                && Objects.equals(after, rs.getString("current_checksum")), workspaceId, fileId);
-        if (!lastSame.isEmpty() && lastSame.get(0)) return;
-        db.update("""
-            INSERT INTO monitored_drive_events(id,workspace_id,file_id,kind,previous_checksum,
-              current_checksum,detail,observed_at,provider_modified_at)
-            VALUES(?,?,?,?,?,?,?,?,?)
-            """, UUID.randomUUID(), workspaceId, fileId, kind, before, after, detail,
-            Timestamp.from(Instant.now()), metadata != null && metadata.modifiedTime() != null
-                ? Timestamp.from(metadata.modifiedTime().toInstant()) : null);
     }
 
     static Duration interval(Instant deadline, Instant now) {

@@ -175,6 +175,7 @@ export function WorkspacePage() {
   const archiveReadinessRequest = useRef(0);
   const [fileMonitorState, setFileMonitorState] = useState(EMPTY_FILE_MONITOR);
   const fileMonitorRequest = useRef(0);
+  const importRequest = useRef(0);
   const [monitorDialogScope, setMonitorDialogScope] = useState('');
   const [monitorDialogError, setMonitorDialogError] = useState('');
   const isAdmin = Boolean(session?.authenticated && session?.roles?.includes('ADMIN'));
@@ -310,7 +311,9 @@ export function WorkspacePage() {
   }
 
   async function importSource(sourceType, mappingOverrides = null) {
-    if (!isCurrentScope()) return;
+    if (!isCurrentScope() || applyingImportPreview) return;
+    const currentRequest = ++importRequest.current;
+    const isCurrentImport = () => importRequest.current === currentRequest && isCurrentScope();
     setImporting(sourceType);
     setMessage('');
     let preview;
@@ -321,18 +324,20 @@ export function WorkspacePage() {
         sheetUrl: sources[sourceType],
         mappingOverrides
       });
-      if (!isCurrentScope()) return;
+      if (!isCurrentImport()) return;
       setImportPreview(preview);
       setImportResolutions({});
     } catch (error) {
-      if (isCurrentScope()) setMessage(error?.message || 'Sheet preview failed.');
+      if (isCurrentImport()) setMessage(error?.message || 'Sheet preview failed.');
     }
-    if (!isCurrentScope()) return;
+    if (!isCurrentImport()) return;
     setImporting('');
   }
 
   async function applyImportPreview() {
-    if (!importPreview?.previewId || !importPreview?.sourceKey || !isCurrentScope()) return;
+    if (!importPreview?.previewId || !importPreview?.sourceKey || !isCurrentScope() || applyingImportPreview) return;
+    const currentRequest = importRequest.current;
+    const isCurrentImport = () => importRequest.current === currentRequest && isCurrentScope();
     setApplyingImportPreview(true);
     setMessage('');
     try {
@@ -342,7 +347,7 @@ export function WorkspacePage() {
         importPreview.previewId,
         importResolutions
       );
-      if (!isCurrentScope()) return;
+      if (!isCurrentImport()) return;
       setState(result.state);
       const nextSummary = result.importSummary
         ? { ...result.importSummary, sourceKey: importPreview.sourceKey }
@@ -353,9 +358,9 @@ export function WorkspacePage() {
       setImportPreview(null);
       setImportResolutions({});
     } catch (error) {
-      if (isCurrentScope()) setMessage(error?.message || 'Sheet import could not be applied. Preview the Sheet again.');
+      if (isCurrentImport()) setMessage(error?.message || 'Sheet import could not be applied. Preview the Sheet again.');
     } finally {
-      if (isCurrentScope()) setApplyingImportPreview(false);
+      if (isCurrentImport()) setApplyingImportPreview(false);
     }
   }
 
@@ -1062,7 +1067,10 @@ function ImportReconciliationDialog({ preview, resolutions, onResolutionChange, 
   return (
     <Modal
       opened
-      onClose={onClose}
+      onClose={() => { if (!applying) onClose(); }}
+      closeOnClickOutside={!applying}
+      closeOnEscape={!applying}
+      withCloseButton={!applying}
       title={`${preview.sourceLabel || preview.sourceType || 'Sheet'} re-import preview`}
       centered
       size="xl"

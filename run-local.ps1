@@ -113,6 +113,10 @@ $backendErr = Join-Path $logsDirectory "backend.err.log"
 $frontendOut = Join-Path $logsDirectory "frontend.out.log"
 $frontendErr = Join-Path $logsDirectory "frontend.err.log"
 
+. (Join-Path $root "local-process-state.ps1")
+$backend = $null
+$frontend = $null
+try {
 $backend = Start-Process `
     -FilePath (Get-Command java).Source `
     -ArgumentList @("-jar", "`"$backendJar`"", "--server.port=$BackendPort") `
@@ -121,6 +125,8 @@ $backend = Start-Process `
     -RedirectStandardError $backendErr `
     -WindowStyle Hidden `
     -PassThru
+
+Save-WildTrackProcessState $pidFile $backend $null
 
 $frontend = Start-Process `
     -FilePath (Get-Command node).Source `
@@ -131,11 +137,12 @@ $frontend = Start-Process `
     -WindowStyle Hidden `
     -PassThru
 
-@{
-    backendPid = $backend.Id
-    frontendPid = $frontend.Id
-    startedAt = (Get-Date).ToString("o")
-} | ConvertTo-Json | Set-Content -LiteralPath $pidFile -Encoding UTF8
+Save-WildTrackProcessState $pidFile $backend $frontend
+} catch {
+    if ($backend) { Stop-WildTrackRecordedProcess (Get-WildTrackProcessRecord $backend) | Out-Null }
+    if ($frontend) { Stop-WildTrackRecordedProcess (Get-WildTrackProcessRecord $frontend) | Out-Null }
+    throw
+}
 
 function Wait-ForUrl([string]$url, [string]$service) {
     for ($attempt = 1; $attempt -le 30; $attempt++) {
@@ -150,13 +157,13 @@ function Wait-ForUrl([string]$url, [string]$service) {
     throw "$service did not become ready. Check the files under $logsDirectory."
 }
 
-Wait-ForUrl "http://127.0.0.1:$BackendPort/api/health" "Backend"
+Wait-ForUrl "http://127.0.0.1:$BackendPort/api/health/ready" "Backend"
 Wait-ForUrl "http://127.0.0.1:$FrontendPort/" "Frontend"
 
 Write-Host ""
 Write-Host "WildTrack is ready." -ForegroundColor Green
 Write-Host "Frontend: http://127.0.0.1:$FrontendPort/"
-Write-Host "Backend:  http://127.0.0.1:$BackendPort/api/health"
+Write-Host "Backend:  http://127.0.0.1:$BackendPort/api/health/ready"
 Write-Host "Logs:     $logsDirectory"
 Write-Host ""
 Write-Host "Run .\stop-local.ps1 when finished."

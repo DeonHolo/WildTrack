@@ -435,6 +435,89 @@ describe('public submission form', () => {
       .toHaveTextContent('Draft changed in another session. Reload to continue.'));
   });
 
+  it.each([null, 7])('serializes edits during a pending save with initial revision %s', async (initialRevision) => {
+    let finishFirst;
+    const acknowledgedRevision = initialRevision === null ? 1 : initialRevision + 1;
+    api.getDraft.mockResolvedValue({ present: initialRevision !== null, values: {}, revision: initialRevision });
+    api.saveDraft
+      .mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve; }))
+      .mockResolvedValueOnce({ present: true, values: {}, revision: acknowledgedRevision + 1 });
+    renderForm();
+    const input = await screen.findByRole('textbox', { name: /PDF Drive Link/i });
+    fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/first' } });
+    await waitFor(() => expect(api.saveDraft).toHaveBeenCalledTimes(1), { timeout: 2500 });
+    expect(api.saveDraft.mock.calls[0][3]).toBe(initialRevision);
+    fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/intermediate' } });
+    fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/latest' } });
+    await act(async () => finishFirst({ present: true, values: {}, revision: acknowledgedRevision }));
+    await waitFor(() => expect(api.saveDraft).toHaveBeenCalledTimes(2), { timeout: 2500 });
+    expect(api.saveDraft).toHaveBeenLastCalledWith('workspace-it', 'deliv-srs',
+      { documentPdf: 'https://drive.google.com/file/d/latest' }, acknowledgedRevision);
+    expect(screen.queryByText('Draft changed in another session. Reload to continue.')).not.toBeInTheDocument();
+  });
+
+  it('resumes autosave with its acknowledged revision after submission fails', async () => {
+    let finishSave;
+    api.getDraft.mockResolvedValue({ present: true, values: {}, revision: 7 });
+    api.saveDraft.mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }))
+      .mockResolvedValue({ present: true, revision: 9 });
+    api.submitResponse.mockRejectedValue(new Error('Network unavailable.'));
+    renderForm();
+    await selectStudent();
+    const input = screen.getByRole('textbox', { name: /PDF Drive Link/i });
+    fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/pending' } });
+    await waitFor(() => expect(api.saveDraft).toHaveBeenCalledTimes(1), { timeout: 2500 });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit response' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network unavailable.');
+    await act(async () => finishSave({ present: true, revision: 8 }));
+    await waitFor(() => expect(api.saveDraft).toHaveBeenCalledTimes(2), { timeout: 2500 });
+    expect(api.saveDraft).toHaveBeenLastCalledWith('workspace-it', 'deliv-srs',
+      { documentPdf: 'https://drive.google.com/file/d/pending' }, 8);
+  });
+
+  it('cancels the draft debounce when leaving the form', async () => {
+    const view = renderForm();
+    const input = await screen.findByRole('textbox', { name: /PDF Drive Link/i });
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/leaving' } });
+      view.unmount();
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(api.saveDraft).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('does not drain queued draft edits after an in-flight save outlives the form', async () => {
+    let finishSave;
+    api.saveDraft.mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
+    const view = renderForm();
+    const input = await screen.findByRole('textbox', { name: /PDF Drive Link/i });
+    fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/first' } });
+    await waitFor(() => expect(api.saveDraft).toHaveBeenCalledTimes(1), { timeout: 2500 });
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/queued' } });
+      view.unmount();
+      await act(async () => finishSave({ present: true, revision: 2 }));
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(api.saveDraft).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('ignores a late draft receipt from the previous account', async () => {
+    let finishSave;
+    api.getDraft.mockResolvedValue({ present: false, values: null, revision: null });
+    api.saveDraft.mockImplementation(() => new Promise(resolve => { finishSave = resolve; }));
+    const view = renderForm();
+    const input = await screen.findByRole('textbox', { name: /PDF Drive Link/i });
+    fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/old-account' } });
+    await waitFor(() => expect(api.saveDraft).toHaveBeenCalledTimes(1), { timeout: 2500 });
+    setServerSession('new.student@gmail.com');
+    view.rerender(<FormHarness path="/submit/week-9-srs" />);
+    await act(async () => finishSave({ present: true, values: {}, revision: 9 }));
+    expect(screen.queryByText('Draft saved')).not.toBeInTheDocument();
+  });
+
   it('maintains institutional roster casing on student name prefill (ticket 04)', async () => {
     api.getMyAssociation.mockResolvedValue({
       studentNumber: '22-1001-001',

@@ -29,6 +29,7 @@ export function WorkspaceSessionProvider({ children }) {
   const catalogRequest = useRef(0);
   const sessionIdentity = useRef('');
   const workspaceAccess = useRef(false);
+  const sessionRevalidation = useRef(null);
 
   useLayoutEffect(() => {
     if (session !== null) resourceCache.retainAccount(session?.authenticated
@@ -145,6 +146,18 @@ export function WorkspaceSessionProvider({ children }) {
     const current = await refreshSession({ blockAppAccess: true });
     if (!current?.authenticated) throw new Error('Your WildTrack session could not be opened. Please retry Google sign-in.');
     return current;
+  }, [refreshSession]);
+
+  // Resource loaders can observe an expired session at the same time. Share
+  // one revalidation request so those failures cannot race each other.
+  const revalidateSession = useCallback(() => {
+    if (sessionRevalidation.current) return sessionRevalidation.current;
+    const pending = refreshSession({ blockAppAccess: true });
+    const tracked = pending.finally(() => {
+      if (sessionRevalidation.current === tracked) sessionRevalidation.current = null;
+    });
+    sessionRevalidation.current = tracked;
+    return tracked;
   }, [refreshSession]);
 
   useEffect(() => {
@@ -341,6 +354,7 @@ export function WorkspaceSessionProvider({ children }) {
     refreshWorkspaceCatalog,
     refreshWorkspaceManagementCatalog,
     refreshSession,
+    revalidateSession,
     completeGoogleSignIn,
     switchWorkspace,
     createWorkspace,
@@ -359,6 +373,7 @@ export function WorkspaceSessionProvider({ children }) {
     createWorkspace,
     logoutSession,
     refreshSession,
+    revalidateSession,
     refreshWorkspaceCatalog,
     refreshWorkspaceManagementCatalog,
     selectedWorkspaceId,

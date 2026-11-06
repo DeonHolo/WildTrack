@@ -52,7 +52,7 @@ public class SheetImportController {
         HttpServletRequest http
     ) {
         requireAdmin(http);
-        return sheetImportService.previewSource(workspaceId, sourceType, request);
+        return sheetImportService.previewSource(workspaceId, sourceType, request, security.requireSession(http).googleSubject());
     }
 
     @PostMapping("/apply/{sourceType}")
@@ -63,7 +63,7 @@ public class SheetImportController {
         HttpServletRequest http
     ) {
         requireAdmin(http);
-        return sheetImportService.applyPreview(workspaceId, sourceType, request);
+        return sheetImportService.applyPreview(workspaceId, sourceType, request, security.requireSession(http).googleSubject());
     }
 
     private void requireAdmin(HttpServletRequest http) {

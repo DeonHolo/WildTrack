@@ -53,6 +53,15 @@ public class TrackerWriteback {
     @Column(name = "target_a1_range", length = 240)
     private String targetA1Range;
 
+    @Column(name = "target_key", length = 200)
+    private String targetKey;
+
+    @Column(name = "generation", nullable = false)
+    private Long generation;
+
+    @Column(name = "sheet_id", length = 240)
+    private String sheetId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 80)
     private TrackerWritebackStatus status;
@@ -93,6 +102,7 @@ public class TrackerWriteback {
         this.targetRowNumber = targetRowNumber;
         this.targetColumnIndex = targetColumnIndex;
         this.targetA1Range = targetA1Range;
+        this.generation = 0L;
         this.status = status;
         this.message = message;
         this.requestedAt = LocalDateTime.now();
@@ -120,6 +130,27 @@ public class TrackerWriteback {
     public void markFailed(String message) {
         this.status = TrackerWritebackStatus.FAILED;
         this.message = message;
+    }
+
+    public void setTarget(String targetKey, long generation, String sheetId) {
+        this.targetKey = targetKey;
+        this.generation = generation;
+        this.sheetId = sheetId;
+    }
+
+    public void markPending() {
+        this.status = TrackerWritebackStatus.PENDING_SHEET_WRITE;
+        this.message = "Local tracker cell updated. Google Sheets writeback is pending.";
+    }
+
+    public void markUncertain() {
+        this.status = TrackerWritebackStatus.UNCERTAIN;
+        this.message = "The Google Sheets write could not be confirmed. Retry this receipt to check and write the current value again.";
+    }
+
+    public void markSuperseded() {
+        this.status = TrackerWritebackStatus.SUPERSEDED;
+        this.message = "A newer writeback superseded this request.";
     }
 
     public UUID getId() {
@@ -181,6 +212,10 @@ public class TrackerWriteback {
     public LocalDateTime getWrittenAt() {
         return writtenAt;
     }
+
+    public String getTargetKey() { return targetKey; }
+    public Long getGeneration() { return generation; }
+    public String getSheetId() { return sheetId; }
 
     private static String normalizeNullable(String value) {
         if (value == null) {

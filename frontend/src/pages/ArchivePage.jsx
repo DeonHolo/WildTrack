@@ -35,7 +35,7 @@ import { useWorkspaceResource } from '../hooks/useWorkspaceResource.js';
 import { useWorkspaceScope } from '../hooks/useWorkspaceScope.js';
 import { emptyArchiveState, loadArchiveState } from '../lib/archiveClient.js';
 import { syncReviewDecisionCache } from '../lib/reviewDeskClient.js';
-import { getArchiveStatus, getArchiveVersion } from '../lib/archive.js';
+import { getArchiveStatus, getArchiveVersion, orderArchiveStatuses } from '../lib/archive.js';
 import { retryArchiveRecord, unarchiveRecord, verifyArchiveRecord, getLatestArchiveBatch, prepareArchiveBatch, startArchiveBatch } from '../lib/api.js';
 
 const PAGE_SIZE = 50;
@@ -503,7 +503,7 @@ function buildFilterOptions(archives, workspaces, activeWorkspace) {
     advisers: unique(archives.map((item) => item.adviserName)),
     deliverables: unique(archives.map((item) => item.deliverableTitle)),
     versions: unique(archives.map(getArchiveVersion)),
-    statuses: unique(archives.map(getArchiveStatus))
+    statuses: orderArchiveStatuses(archives.map(getArchiveStatus))
   };
 }
 

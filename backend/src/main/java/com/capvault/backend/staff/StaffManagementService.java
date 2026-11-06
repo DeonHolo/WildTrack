@@ -101,6 +101,10 @@ public class StaffManagementService {
                 return canonical;
             }).distinct().toList();
         }
+        // A profile save replaces the selected roles. Do this check while the
+        // directory lock is held so two concurrent demotions cannot both remove
+        // the final enabled administrator.
+        requireEnabledAdministratorAfterRoleChange(rows, roles);
         // Reuse each existing role; an unchanged selection preserves multiple existing roles.
         for (StaffRole role : StaffRole.values()) {
             var matches = rows.stream().filter(a -> a.getRole() == role).toList();
@@ -151,11 +155,28 @@ public class StaffManagementService {
         var emails = all.stream().filter(a -> a.getGoogleSubject().equals(subject))
             .map(a -> normalize(a.getGoogleEmail())).collect(Collectors.toSet());
         var affected = all.stream().filter(a -> emails.contains(normalize(a.getGoogleEmail()))).toList();
+        if (!enabled) requireEnabledAdministratorAfterDisable(affected);
         affected.forEach(a -> {
             a.setEnabled(enabled); a.setUpdatedAt(clock.instant());
         });
         if (!enabled) affected.stream().map(StaffRoleAssignment::getGoogleSubject).distinct()
             .forEach(old -> teamRepository.deleteAll(teamRepository.findAllByGoogleSubject(old)));
+    }
+
+    /**
+     * Changes one role assignment through the same serialized path as the
+     * directory endpoints. This is used by login/access integrations too, so a
+     * direct role toggle cannot bypass the last-administrator invariant.
+     */
+    @Transactional
+    public void setStaffRoleEnabled(String subject, StaffRole role, boolean enabled) {
+        directory.lockDirectory();
+        var assignment = roleRepository.findByGoogleSubjectAndRole(subject, role)
+            .orElseThrow(() -> new IllegalArgumentException("No staff assignment exists for that subject and role."));
+        if (!enabled && role == StaffRole.ADMIN) requireEnabledAdministratorAfterDisable(List.of(assignment));
+        assignment.setEnabled(enabled);
+        assignment.setUpdatedAt(clock.instant());
+        roleRepository.save(assignment);
     }
 
     @Transactional
@@ -321,6 +342,31 @@ public class StaffManagementService {
         return rows.stream().map(StaffRoleAssignment::getGoogleSubject)
             .sorted(Comparator.comparing((String s) -> s.startsWith("pending:")).thenComparing(s -> s)).findFirst().orElseThrow();
     }
+    private void requireEnabledAdministratorAfterRoleChange(List<StaffRoleAssignment> affected,
+            Set<StaffRole> resultingRoles) {
+        long removed = affected.stream()
+            .filter(a -> a.isEnabled() && a.getRole() == StaffRole.ADMIN)
+            .filter(a -> !resultingRoles.contains(StaffRole.ADMIN))
+            .count();
+        requireAtLeastOneEnabledAdministratorAfterRemoving(removed);
+    }
+
+    private void requireEnabledAdministratorAfterDisable(List<StaffRoleAssignment> affected) {
+        long removed = affected.stream()
+            .filter(a -> a.isEnabled() && a.getRole() == StaffRole.ADMIN)
+            .count();
+        requireAtLeastOneEnabledAdministratorAfterRemoving(removed);
+    }
+
+    private void requireAtLeastOneEnabledAdministratorAfterRemoving(long removed) {
+        if (removed == 0) return;
+        long enabledAdministrators = roleRepository.findAll().stream()
+            .filter(a -> a.isEnabled() && a.getRole() == StaffRole.ADMIN)
+            .count();
+        if (enabledAdministrators - removed < 1)
+            throw conflict("At least one enabled administrator must remain.");
+    }
+
     private static String normalize(String text) { return Objects.requireNonNullElse(text, "").trim().toLowerCase(Locale.ROOT); }
     private static ResponseStatusException conflict(String message) { return new ResponseStatusException(HttpStatus.CONFLICT, message); }
 }

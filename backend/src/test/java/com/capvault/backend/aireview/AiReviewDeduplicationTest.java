@@ -88,6 +88,7 @@ class AiReviewDeduplicationTest {
                 field_id VARCHAR(80) NOT NULL,
                 source_value_sha256 VARCHAR(64) NOT NULL,
                 cache_key VARCHAR(64) NOT NULL REFERENCES ai_review_jobs(cache_key),
+                source_revision BIGINT NOT NULL DEFAULT 0,
                 PRIMARY KEY(response_id, field_id)
             )
             """);
@@ -95,6 +96,7 @@ class AiReviewDeduplicationTest {
             new ClassPathResource("db/migration/V39__durable_ai_review_failure_diagnostics.sql"),
             new ClassPathResource("db/migration/V42__ai_review_instruction_passes.sql"),
             new ClassPathResource("db/migration/V51__student_ai_review_access.sql")).execute(datasource);
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V55__ai_field_link_generation.sql")).execute(datasource);
         jdbc.update("INSERT INTO academic_workspaces VALUES (?)", workspace);
         jdbc.update("INSERT INTO academic_deliverables VALUES (?)", deliverableId);
         store = new AiReviewStore(jdbc, new DataSourceTransactionManager(datasource), Clock.systemUTC());
@@ -836,6 +838,40 @@ class AiReviewDeduplicationTest {
 
         assertThat(completed.status()).isEqualTo("COMPLETED");
         assertThat(completed.report().outcome()).isEqualTo(AiReviewProvider.ReviewOutcome.INCONCLUSIVE);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void staleRequestCannotReplaceCurrentFieldLinkEvenWhenItClaimsItsJobLater(boolean contextOnly) {
+        var field = new DeliverableField("race-pdf", deliverableId, "documentPdf", "PDF",
+            DeliverableFieldType.DRIVE_PDF, true, 0, DocumentCheckPolicy.MANUAL, true, true);
+        when(fields.findAllByDeliverableIdAndActiveTrueOrderByDisplayOrderAscLabelAsc(deliverableId))
+            .thenReturn(List.of(field));
+        var competing = org.mockito.Mockito.spy(store);
+        service = newService(competing);
+        var firstClaim = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var newestKey = new java.util.concurrent.atomic.AtomicReference<String>();
+        doAnswer(call -> {
+            if (firstClaim.compareAndSet(true, false)) {
+                if (contextOnly) ReflectionTestUtils.setField(deliverable, "instructions", "Updated review requirements");
+                else {
+                    first.setValuesJson("{\"documentPdf\":\"https://drive.google.com/file/d/replacement/view\"}");
+                    ReflectionTestUtils.setField(first, "revision", 1L);
+                    files.put("replacement", "%PDF-replacement-bytes".getBytes(StandardCharsets.UTF_8));
+                }
+                assertThat(service.review(workspace, first.getId(), "race-pdf", "admin", false, null).status()).isEqualTo("COMPLETED");
+                newestKey.set(store.linkedFieldsFor(List.of(first.getId())).get(first.getId()).get("race-pdf").job().key());
+            }
+            return call.callRealMethod();
+        }).when(competing).claim(anyString(), eq(workspace), eq(deliverableId), anyString(), anyString(),
+            anyString(), nullable(UUID.class), anyBoolean(), nullable(UUID.class));
+
+        assertThatThrownBy(() -> service.review(workspace, first.getId(), "race-pdf", "admin", false, null))
+            .isInstanceOf(ResponseStatusException.class);
+        assertThat(store.linkedFieldsFor(List.of(first.getId())).get(first.getId()).get("race-pdf").job().key())
+            .isEqualTo(newestKey.get());
+        assertThat(service.saved(workspace, first.getId(), "race-pdf", "admin").status()).isEqualTo("COMPLETED");
+        verify(provider, times(1)).review(any());
     }
 
     @Test void twoPdfArtifactsInOneResponseKeepIndependentSavedLinksAndReviews() {

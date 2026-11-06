@@ -119,6 +119,7 @@ export function PublicSubmissionPage() {
   const [fieldErrors, setFieldErrors] = useState({});
   const [draftStatus, setDraftStatus] = useState(''); // '', 'saving', 'saved', 'error'
   const draftRevisionRef = useRef(null);
+  const draftSaveRef = useRef({ scopeKey: '', timer: null, inFlight: null, queued: null, generation: 0, enabled: false });
   const privateScope = useRef(0);
   const [identityErrors, setIdentityErrors] = useState({});
   const [formError, setFormError] = useState('');
@@ -250,33 +251,72 @@ export function PublicSubmissionPage() {
     return () => { cancelled = true; };
   }, [hydrationKey, publicFormPayload?.workspace?.id, privateRetry]);
 
+  useEffect(() => () => {
+    const current = draftSaveRef.current;
+    if (current.timer) clearTimeout(current.timer);
+    current.timer = null;
+    current.queued = null;
+    current.enabled = false;
+    current.generation += 1;
+  }, []);
+
   useEffect(() => {
-    if (!privateReady || !valuesEdited || submitting || result) return undefined;
-    if (!Object.keys(values).length) return undefined;
-    let cancelled = false;
+    const scopeKey = JSON.stringify([editScopeKey, activeWorkspaceId, deliverable?.id, shareToken || '']);
+    const state = draftSaveRef.current;
+    if (state.scopeKey !== scopeKey) {
+      if (state.timer) clearTimeout(state.timer);
+      draftSaveRef.current = { scopeKey, timer: null, inFlight: null, queued: null, generation: state.generation + 1, enabled: false };
+    }
+    const current = draftSaveRef.current;
+    const canSave = privateReady && valuesEdited && !submitting && !result && deliverable?.id && Object.keys(values).length;
+    current.enabled = Boolean(canSave);
+    if (!canSave) {
+      if (current.timer) clearTimeout(current.timer);
+      current.timer = null;
+      current.queued = null;
+      return undefined;
+    }
+
+    current.queued = activeSubmissionValues(deliverable, values, student);
     setDraftStatus('saving');
-    const timer = setTimeout(() => {
-      saveSubmissionDraft(activeWorkspaceId, deliverable.id, activeSubmissionValues(deliverable, values, student), draftRevisionRef.current, ...(shareToken ? [shareToken] : []))
-        .then((saved) => {
-          if (cancelled) return;
+    const schedule = () => {
+      if (!current.enabled || current.timer || current.inFlight || !current.queued) return;
+      const generation = current.generation;
+      current.timer = setTimeout(() => {
+        current.timer = null;
+        const payload = current.queued;
+        current.queued = null;
+        if (!payload || !current.enabled || draftSaveRef.current !== current || current.generation !== generation) return;
+        const request = Promise.resolve(saveSubmissionDraft(
+          activeWorkspaceId,
+          deliverable.id,
+          payload,
+          draftRevisionRef.current,
+          ...(shareToken ? [shareToken] : [])
+        ));
+        current.inFlight = request;
+        request.then((saved) => {
+          if (draftSaveRef.current !== current || current.generation !== generation) return;
           if (saved.conflict) {
-            setDraftStatus('conflict');
+            current.queued = null;
+            if (current.enabled) setDraftStatus('conflict');
             return;
           }
           draftRevisionRef.current = saved.revision;
-          setDraftStatus('saved');
-        })
-        .catch((error) => {
-          if (cancelled) return;
+          if (current.enabled) setDraftStatus(current.queued ? 'saving' : 'saved');
+        }).catch((error) => {
+          if (draftSaveRef.current !== current || current.generation !== generation || !current.enabled) return;
           setDraftStatus('error');
           setFormError(describeSubmissionError(error));
+        }).finally(() => {
+          if (current.inFlight === request) current.inFlight = null;
+          if (draftSaveRef.current === current && current.generation === generation && current.enabled && current.queued) schedule();
         });
-    }, 1200);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
+      }, 1200);
     };
-  }, [activeWorkspaceId, deliverable?.id, privateReady, valuesEdited, submitting, result, student, values]);
+    schedule();
+    return undefined;
+  }, [activeWorkspaceId, deliverable?.id, editScopeKey, privateReady, valuesEdited, submitting, result, student, values, shareToken]);
 
   function updateField(id, value) {
     if (staffPreview || !activeAccount || accessDenied || submitting) return;

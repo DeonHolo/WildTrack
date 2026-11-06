@@ -1,6 +1,8 @@
 package com.capvault.backend.draft;
 
 import java.time.LocalDateTime;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -51,6 +53,9 @@ class FormDraftServiceTest {
     @Autowired
     private DeliverableRepository deliverableRepository;
 
+    @Autowired
+    private Clock clock;
+
     private UUID workspaceId;
     private UUID deliverableId;
     private UUID studentRecordId;
@@ -94,6 +99,26 @@ class FormDraftServiceTest {
         var second = save("sub-A", Map.of("link", "x"), first.revision());
 
         assertThat(second.revision()).isEqualTo(revBefore);
+    }
+
+    @Test
+    void expiredDraftIsRenewedInPlaceEvenAtTheExpiryBoundary() {
+        var first = save("sub-A", Map.of("link", "before-expiry"), null);
+        var draft = draftRepository.findByWorkspaceIdAndDeliverableIdAndGoogleSubject(
+            workspaceId, deliverableId, "sub-A").orElseThrow();
+        Instant boundary = clock.instant();
+        draft.setExpiresAt(boundary);
+        draftRepository.flush();
+
+        var renewed = save("sub-A", Map.of("link", "after-expiry"), first.revision());
+
+        assertThat(renewed.present()).isTrue();
+        assertThat(renewed.values().get("link")).isEqualTo("after-expiry");
+        assertThat(draftRepository.findById(draft.getId()).orElseThrow().getExpiresAt())
+            .isAfter(boundary);
+        assertThat(draftRepository.findByWorkspaceIdAndDeliverableIdAndGoogleSubject(
+            workspaceId, deliverableId, "sub-A")).hasValueSatisfying(saved ->
+                assertThat(saved.getId()).isEqualTo(draft.getId()));
     }
 
     @Test

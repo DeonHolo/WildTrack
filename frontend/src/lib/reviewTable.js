@@ -8,11 +8,11 @@ import {
 
 const textOrder = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 const statusOrders = {
-  documentCheck: ['Ready for review', 'Needs attention', 'Outdated', 'Not checked', 'Not applicable'],
+  documentCheck: ['Needs attention', 'Outdated', 'Not checked', 'Ready for review', 'Not applicable'],
   aiReview: [
-    'Needs attention', 'No issues', 'Retry required', 'Reviewing', 'Outdated', 'Not reviewed', 'Not applicable'
+    'Retry required', 'Needs attention', 'Outdated', 'Not reviewed', 'Reviewing', 'No issues', 'Not applicable'
   ],
-  decision: ['Accepted', 'Received', 'Needs Review', 'Archived']
+  decision: ['Needs Review', 'Received', 'Accepted', 'Archived']
 };
 
 export function resolveReviewDeliverable(response, state, deliverable) {
@@ -39,12 +39,7 @@ export function aggregateAiStatus(response, deliverable) {
   const fields = aiReviewableSubmissionFields(deliverable);
   if (!fields.length) return 'Not applicable';
   const statuses = fields.map((field) => artifactAiReviewStatus(response, field));
-  if (statuses.includes('Retry required')) return 'Retry required';
-  if (statuses.includes('Reviewing')) return 'Reviewing';
-  if (statuses.includes('Needs attention')) return 'Needs attention';
-  if (statuses.includes('Outdated')) return 'Outdated';
-  if (statuses.every((status) => status === 'No issues')) return 'No issues';
-  return 'Not reviewed';
+  return statusOrders.aiReview.find(status => statuses.includes(status)) || 'Not reviewed';
 }
 
 function sortValue(response, state, deliverable, column) {
@@ -89,8 +84,10 @@ export function sortReviewResponses(responses, state, deliverable, sort = { colu
   const multiplier = direction === 'desc' ? -1 : 1;
   return responses.map((response, index) => ({ response, index, value: sortValue(response, state, deliverable, column) }))
     .sort((first, second) => {
-      const firstMissing = isMissing(first.value);
-      const secondMissing = isMissing(second.value);
+      const order = statusOrders[column];
+      const unavailable = value => order && (value === 'Not applicable' || !order.includes(value));
+      const firstMissing = isMissing(first.value) || unavailable(first.value);
+      const secondMissing = isMissing(second.value) || unavailable(second.value);
       // Missing data stays at the end even when the selected direction reverses.
       if (firstMissing !== secondMissing) return firstMissing ? 1 : -1;
       const difference = firstMissing ? 0 : compareValues(first.value, second.value, column) * multiplier;
