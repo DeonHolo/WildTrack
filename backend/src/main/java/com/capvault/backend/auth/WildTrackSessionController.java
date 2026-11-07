@@ -29,19 +29,22 @@ public class WildTrackSessionController {
     private final Clock clock;
     private final WildTrackSessionProperties properties;
     private final StaffAccessResolver staffAccessResolver;
+    private final com.capvault.backend.student.ValidationParticipantEntry participantEntry;
 
     WildTrackSessionController(
         GoogleIdentityService googleIdentityService,
         WildTrackSessionService sessionService,
         Clock clock,
         WildTrackSessionProperties properties,
-        StaffAccessResolver staffAccessResolver
+        StaffAccessResolver staffAccessResolver,
+        com.capvault.backend.student.ValidationParticipantEntry participantEntry
     ) {
         this.googleIdentityService = googleIdentityService;
         this.sessionService = sessionService;
         this.clock = clock;
         this.properties = properties;
         this.staffAccessResolver = staffAccessResolver;
+        this.participantEntry = participantEntry;
     }
 
     public record SessionExchangeRequest(@NotBlank String credential) {
@@ -53,10 +56,11 @@ public class WildTrackSessionController {
         String name,
         Instant expiresAt,
         java.util.List<String> roles,
-        String googleSubject
+        String googleSubject,
+        boolean validationEntryAvailable
     ) {
         static CurrentSessionResponse anonymous() {
-            return new CurrentSessionResponse(false, null, null, null, java.util.List.of(), null);
+            return new CurrentSessionResponse(false, null, null, null, java.util.List.of(), null, false);
         }
     }
 
@@ -67,6 +71,9 @@ public class WildTrackSessionController {
     ) {
         GoogleIdentity identity = googleIdentityService.authenticate(request.credential());
         staffAccessResolver.onBindLogin(identity.subject(), identity.email());
+        if (staffAccessResolver.activeRolesFor(identity.subject()).isEmpty()) {
+            participantEntry.join(identity.subject(), identity.email(), identity.name());
+        }
         WildTrackSession created = sessionService.create(identity);
         writeSessionCookie(response, created.rawToken(), properties);
         return ResponseEntity.ok(identity);
@@ -88,7 +95,7 @@ public class WildTrackSessionController {
         }
         var roles = staffAccessResolver.activeRolesFor(session.googleSubject()).stream().map(Enum::name).toList();
         return ResponseEntity.ok(new CurrentSessionResponse(true, session.googleEmail(), null, session.expiresAt(), roles,
-            session.googleSubject()));
+            session.googleSubject(), roles.isEmpty() && participantEntry.availableFor(session.googleSubject())));
     }
 
     @PostMapping("/logout")

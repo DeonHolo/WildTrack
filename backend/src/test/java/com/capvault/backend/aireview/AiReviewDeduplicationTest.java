@@ -74,6 +74,17 @@ class AiReviewDeduplicationTest {
             AiReviewProvider.FindingSource.DOCUMENT, "Page 2", "")),
         List.of(), List.of(), "Review the highlighted section.");
 
+    @Test void automaticEntryStudentRunsAreScopedToOneWorkspaceAndDeliverable() {
+        var scoped = new StudentAiReviewRuns(jdbc, Clock.systemUTC(), true, workspace.toString(), deliverableId.toString());
+        assertThat(scoped.enabled(workspace, deliverableId)).isTrue();
+        assertThat(scoped.enabled(UUID.randomUUID(), deliverableId)).isFalse();
+        assertThat(scoped.enabled(workspace, UUID.randomUUID())).isFalse();
+        var disabled = new StudentAiReviewRuns(jdbc, Clock.systemUTC(), false, workspace.toString(), deliverableId.toString());
+        assertThat(disabled.enabled(workspace, deliverableId)).isFalse();
+        var incomplete = new StudentAiReviewRuns(jdbc, Clock.systemUTC(), true, workspace.toString(), "");
+        assertThat(incomplete.enabled(workspace, deliverableId)).isFalse();
+    }
+
     @BeforeEach void setup() {
         datasource = new DriverManagerDataSource("jdbc:h2:mem:ai_" + UUID.randomUUID() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1", "sa", "");
         jdbc = new JdbcTemplate(datasource);

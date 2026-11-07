@@ -42,6 +42,10 @@ capvault:
     minimum-substance-character-growth-ratio: ${CAPVAULT_FILE_CHECK_MINIMUM_SUBSTANCE_GROWTH_RATIO:1.75}
 
 wildtrack:
+  validation-entry:
+    enabled: ${WILDTRACK_VALIDATION_ENTRY_ENABLED:false}
+    workspace-id: ${WILDTRACK_VALIDATION_WORKSPACE_ID:}
+    student-ai-deliverable-id: ${WILDTRACK_VALIDATION_STUDENT_AI_DELIVERABLE_ID:}
   file-monitor:
     # Enable individual workspaces from Workspace settings. These optional values only tune pacing.
     max-files-per-cycle: ${WILDTRACK_FILE_MONITOR_MAX_FILES_PER_CYCLE:20}

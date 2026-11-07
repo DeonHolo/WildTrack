@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface WorkspaceStudentAssociationRepository extends JpaRepository<WorkspaceStudentAssociation, UUID> {
 
+    boolean existsByGoogleSubjectAndActiveTrue(String googleSubject);
+
     Optional<WorkspaceStudentAssociation> findByWorkspaceIdAndGoogleSubject(UUID workspaceId, String googleSubject);
 
     Optional<WorkspaceStudentAssociation> findByWorkspaceIdAndGoogleSubjectAndActiveTrue(UUID workspaceId, String googleSubject);
