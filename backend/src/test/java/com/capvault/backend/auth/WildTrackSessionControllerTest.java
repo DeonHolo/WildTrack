@@ -47,6 +47,9 @@ class WildTrackSessionControllerTest {
     @MockBean
     private StaffAccessResolver staffAccessResolver;
 
+    @MockBean
+    private com.capvault.backend.student.ValidationParticipantEntry participantEntry;
+
 
     private static final Instant NOW = Instant.parse("2026-08-24T00:00:00Z");
     private static final Instant EXPIRY = Instant.parse("2026-11-22T00:00:00Z");

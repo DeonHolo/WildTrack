@@ -630,6 +630,10 @@ export function connectStudentAccount(studentNumber, studentName, teamCode) {
   });
 }
 
+export function joinValidationWorkspace() {
+  return request('/workspace/students/validation-entry', { method: 'POST' });
+}
+
 export async function confirmStudentAssociation(workspaceId, studentNumber, studentName, deliverableId, shareToken) {
   await ensureCsrfToken();
   return request(`/workspace/students/associate?workspaceId=${encodeURIComponent(workspaceId)}`, {

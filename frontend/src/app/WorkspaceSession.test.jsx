@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   createWorkspace: vi.fn(),
   getCurrentSession: vi.fn(),
   getWorkspaces: vi.fn(),
+  joinValidationWorkspace: vi.fn(),
   logout: vi.fn(),
   updateWorkspace: vi.fn()
 }));
@@ -27,6 +28,7 @@ describe('WorkspaceSession', () => {
     api.createWorkspace.mockReset();
     api.updateWorkspace.mockReset();
     api.logout.mockReset();
+    api.joinValidationWorkspace.mockReset().mockResolvedValue({ workspaceId: 'validation-ws' });
   });
 
   it('exposes the backend session identity and workspace catalog', async () => {
@@ -36,6 +38,40 @@ describe('WorkspaceSession', () => {
     await waitFor(() => expect(result.current.sessionStatus).toBe('ready'));
     expect(result.current.account).toEqual({ email: 'server@student.test', name: '' });
     expect(result.current.activeWorkspace).toEqual({ id: 'ws-1', name: 'Backend workspace' });
+  });
+
+  it('finishes automatic participant entry before loading the workspace catalog', async () => {
+    api.getCurrentSession.mockResolvedValue({ authenticated: true, email: 'participant@example.test',
+      googleSubject: 'new-participant', roles: [], validationEntryAvailable: true });
+    let completeEntry;
+    api.joinValidationWorkspace.mockReturnValue(new Promise(resolve => { completeEntry = resolve; }));
+    api.getWorkspaces.mockResolvedValue([{ id: 'validation-ws', name: 'WildTrack Validation' }]);
+    const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
+    const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
+    await waitFor(() => expect(api.joinValidationWorkspace).toHaveBeenCalledTimes(1));
+    expect(api.getWorkspaces).not.toHaveBeenCalled();
+    expect(result.current.sessionStatus).toBe('loading');
+    await act(async () => completeEntry({ workspaceId: 'validation-ws' }));
+    await waitFor(() => expect(result.current.activeWorkspaceId).toBe('validation-ws'));
+    expect(result.current.needsWorkspaceChoice).toBe(false);
+  });
+
+  it.each([['ADMIN'], ['ADVISER']])('keeps staff out of automatic participant entry: %s', async role => {
+    api.getCurrentSession.mockResolvedValue({ authenticated: true, email: 'staff@example.test',
+      googleSubject: 'staff', roles: [role], validationEntryAvailable: true });
+    const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
+    const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
+    await waitFor(() => expect(result.current.sessionStatus).toBe('ready'));
+    expect(api.joinValidationWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('keeps ordinary student entry when automatic entry is closed', async () => {
+    api.getWorkspaces.mockResolvedValue([]);
+    const wrapper = ({ children }) => <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>;
+    const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
+    await waitFor(() => expect(result.current.sessionStatus).toBe('ready'));
+    expect(api.joinValidationWorkspace).not.toHaveBeenCalled();
+    expect(result.current.workspaces).toEqual([]);
   });
 
   it('shares one session revalidation request and clears access when it returns anonymous', async () => {

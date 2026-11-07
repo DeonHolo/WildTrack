@@ -4,6 +4,7 @@ import {
   createWorkspace as createBackendWorkspace,
   getCurrentSession,
   getWorkspaces,
+  joinValidationWorkspace,
   logout,
   updateWorkspace as updateBackendWorkspace
 } from '../lib/api.js';
@@ -106,6 +107,10 @@ export function WorkspaceSessionProvider({ children }) {
         setSelectedWorkspaceId('');
       }
       sessionIdentity.current = identity;
+      if (allowed && current.validationEntryAvailable && !(current.roles || []).length) {
+        await joinValidationWorkspace();
+        if (request !== sessionRequest.current) return null;
+      }
       workspaceAccess.current = Boolean(allowed);
       try {
         if (broadcastSession && localStorage.getItem('wildtrack.session-identity') !== identity) localStorage.setItem('wildtrack.session-identity', identity);

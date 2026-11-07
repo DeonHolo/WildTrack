@@ -7,6 +7,8 @@ import java.util.Locale;
 import java.util.UUID;
 
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -15,7 +17,27 @@ import org.springframework.stereotype.Repository;
 public class StudentAiReviewRuns {
     private final JdbcTemplate jdbc;
     private final Clock clock;
-    public StudentAiReviewRuns(JdbcTemplate jdbc, Clock clock) { this.jdbc = jdbc; this.clock = clock; }
+    private final boolean validationEntryEnabled;
+    private final UUID validationWorkspaceId;
+    private final UUID validationDeliverableId;
+
+    @Autowired
+    public StudentAiReviewRuns(JdbcTemplate jdbc, Clock clock,
+            @Value("${wildtrack.validation-entry.enabled:false}") boolean validationEntryEnabled,
+            @Value("${wildtrack.validation-entry.workspace-id:}") String validationWorkspaceId,
+            @Value("${wildtrack.validation-entry.student-ai-deliverable-id:}") String validationDeliverableId) {
+        this.jdbc = jdbc;
+        this.clock = clock;
+        this.validationEntryEnabled = validationEntryEnabled;
+        this.validationWorkspaceId = optionalId(validationWorkspaceId);
+        this.validationDeliverableId = optionalId(validationDeliverableId);
+    }
+
+    StudentAiReviewRuns(JdbcTemplate jdbc, Clock clock) { this(jdbc, clock, false, "", ""); }
+
+    private static UUID optionalId(String value) {
+        return value == null || value.isBlank() ? null : UUID.fromString(value.trim());
+    }
 
     record Key(UUID workspaceId, UUID deliverableId, String studentNumber, String fieldId) {
         Key { studentNumber = studentNumber.trim().toLowerCase(Locale.ROOT); }
@@ -24,6 +46,8 @@ public class StudentAiReviewRuns {
     record Reservation(Key key, UUID token) { }
 
     boolean enabled(UUID workspaceId, UUID deliverableId) {
+        if (validationEntryEnabled && validationWorkspaceId != null && validationDeliverableId != null
+                && validationWorkspaceId.equals(workspaceId) && validationDeliverableId.equals(deliverableId)) return true;
         return jdbc.query("SELECT enabled FROM student_ai_review_settings WHERE workspace_id = ? AND deliverable_id = ?",
             (rs, row) -> rs.getBoolean(1), workspaceId, deliverableId).stream().findFirst().orElse(false);
     }
