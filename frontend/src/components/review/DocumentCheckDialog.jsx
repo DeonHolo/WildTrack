@@ -1,6 +1,6 @@
 import { Alert, Badge, Modal, Tabs } from '@mantine/core';
 import { useEffect, useState } from 'react';
-import { ArrowSquareOut, CheckCircle, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react';
+import { ArrowSquareOut, CheckCircle, MagnifyingGlass, Minus, WarningCircle } from '@phosphor-icons/react';
 import { InfoTooltip } from '../InfoTooltip.jsx';
 import { Button, StatusIndicator } from '../ui.jsx';
 import { documentCheckFlags, documentCheckSummary, formatDateTime, makeDriveViewUrl, submissionSubstanceStatus } from '../../lib/workflow.js';
@@ -61,6 +61,19 @@ export function DocumentCheckDialog({
   const editorDisplay = latestObservation?.modifiedBy;
   const ownerStudent = latestObservation?.driveOwnerStudent;
   const editorStudent = latestObservation?.modifiedByStudent;
+  const optionalFacts = [
+    { label: 'File size', value: formatBytes(metadata?.size), ready: true, available: hasNumericValue(metadata?.size) },
+    { label: 'Pages', value: document && hasNumericValue(document.pageCount) ? String(document.pageCount) : 'Not available', ready: true, available: hasNumericValue(document?.pageCount) },
+    { label: 'Readable text', value: hasNumericValue(document?.extractedCharacterCount) ? Number(document.extractedCharacterCount).toLocaleString() + ' characters' : 'Not available', ready: true, available: hasNumericValue(document?.extractedCharacterCount) },
+    { label: 'Last modified (Drive)', value: metadata?.modifiedTime ? formatDateTime(metadata.modifiedTime) : 'Not available', ready: true, available: hasTextValue(metadata?.modifiedTime) },
+    { label: 'Created time', value: createdTime ? formatDateTime(createdTime) : 'Unavailable', ready: true, available: hasTextValue(createdTime) },
+    { label: 'Drive owner', value: <DriveIdentityValue registeredStudent={ownerStudent} providerValue={ownerDisplay} />, ready: true, wide: true, available: driveIdentityAvailable(ownerStudent, ownerDisplay) },
+    { label: 'Last modified by', value: <DriveIdentityValue registeredStudent={editorStudent} providerValue={editorDisplay} />, ready: true, wide: true, available: driveIdentityAvailable(editorStudent, editorDisplay) }
+  ];
+  const missingOptionalFacts = (studentView ? optionalFacts.slice(0, 5) : optionalFacts).filter(fact => !fact.available);
+  const optionalFactsScope = [open ? 'open' : 'closed', response.id, historyTarget?.fieldId || report?.fieldId || report?.sourceFieldId || '',
+    fileLink || report?.sourceUrl || '', audience, report?.id || '', report?.checkedAt || report?.sourceResponseUpdatedAt || report?.status || '',
+    documentCheck === undefined ? 'response' : 'override'].join('|');
   const checkExplanation = studentView
     ? STUDENT_DOCUMENT_CHECK_HELP
     : 'Document Check verifies file access and readability, then screens whether the PDF appears substantially filled. Template structure is supporting evidence only. It does not grade the submission or replace staff review.';
@@ -124,25 +137,18 @@ export function DocumentCheckDialog({
               <CheckFact label="Drive access" value={metadata ? 'Accessible' : unavailableValue(response)} ready={Boolean(metadata)} />
               <CheckFact label="File type" value={metadata?.mimeType === 'application/pdf' ? 'PDF' : metadata?.mimeType || 'Not available'} ready={metadata?.mimeType === 'application/pdf'} />
               <CheckFact label="Download" value={metadata ? metadata.canDownload ? 'Allowed' : 'Disabled' : 'Not available'} ready={Boolean(metadata?.canDownload)} />
-              <CheckFact label="File size" value={formatBytes(metadata?.size)} ready={Boolean(metadata?.size)} neutral />
+              <OptionalCheckFact fact={optionalFacts[0]} />
               <CheckFact label="PDF integrity" value={document?.readable ? 'Readable' : document?.encrypted ? 'Password protected' : 'Not verified'} ready={Boolean(document?.readable)} />
-              <CheckFact label="Pages" value={document ? String(document.pageCount) : 'Not available'} ready={Boolean(document?.pageCount)} neutral />
-              <CheckFact
-                label="Readable text"
-                value={Number.isFinite(Number(document?.extractedCharacterCount)) ? Number(document.extractedCharacterCount).toLocaleString() + ' characters' : 'Not available'}
-                ready={Number(document?.extractedCharacterCount) > 0}
-                neutral
-              />
-              <CheckFact label="Last modified (Drive)" value={metadata?.modifiedTime ? formatDateTime(metadata.modifiedTime) : 'Not available'} ready={Boolean(metadata?.modifiedTime)} neutral />
-              <CheckFact label="Created time" value={createdTime ? formatDateTime(createdTime) : 'Unavailable'} ready={Boolean(createdTime)} neutral />
-              {!studentView ? (
-                <>
-                  <CheckFact label="Drive owner" wide neutral
-                    value={<DriveIdentityValue registeredStudent={ownerStudent} providerValue={ownerDisplay} />} />
-                  <CheckFact label="Last modified by" wide neutral
-                    value={<DriveIdentityValue registeredStudent={editorStudent} providerValue={editorDisplay} />} />
-                </>
-              ) : null}
+              <OptionalCheckFact fact={optionalFacts[1]} />
+              <OptionalCheckFact fact={optionalFacts[2]} />
+              <OptionalCheckFact fact={optionalFacts[3]} />
+              <OptionalCheckFact fact={optionalFacts[4]} />
+              {!studentView ? <OptionalCheckFact fact={optionalFacts[5]} /> : null}
+              {!studentView ? <OptionalCheckFact fact={optionalFacts[6]} /> : null}
+              {missingOptionalFacts.length ? <details key={optionalFactsScope} className="document-check-unavailable-facts">
+                <summary>Unavailable details ({missingOptionalFacts.length})</summary>
+                <div className="document-check-grid">{missingOptionalFacts.map(fact => <CheckFact key={fact.label} {...fact} unknown />)}</div>
+              </details> : null}
               </div>
             </section>
 
@@ -310,14 +316,33 @@ function studentSummary(report, response) {
   return report?.summary || response?.checkSummary || 'Document Check finished. Review the details below.';
 }
 
-function CheckFact({ label, value, ready, neutral = false, wide = false }) {
+function CheckFact({ label, value, ready, neutral = false, unknown = false, wide = false }) {
   return (
     <div className={`document-check-fact${wide ? ' document-check-fact--identity' : ''}`}>
-      {ready || neutral ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
+      {unknown ? <Minus weight="regular" aria-hidden="true" /> : neutral || ready ? <CheckCircle weight="regular" aria-hidden="true" /> : <WarningCircle weight="regular" aria-hidden="true" />}
       <span>{label}</span>
       {wide ? value : <strong>{value}</strong>}
     </div>
   );
+}
+
+function OptionalCheckFact({ fact }) {
+  return fact.available ? <CheckFact {...fact} neutral /> : null;
+}
+
+function hasTextValue(value) {
+  return Boolean(String(value || '').trim());
+}
+
+function hasNumericValue(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)) && Number(value) >= 0;
+}
+
+function driveIdentityAvailable(registeredStudent, providerValue) {
+  const studentName = String(registeredStudent?.studentName || '').trim();
+  const studentEmail = String(registeredStudent?.email || '').trim();
+  const provider = String(providerValue || '').trim();
+  return Boolean((studentName && studentEmail) || (provider && provider !== 'Unavailable'));
 }
 
 function formatBytes(value) {

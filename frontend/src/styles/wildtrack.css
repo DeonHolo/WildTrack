@@ -1442,6 +1442,7 @@
   max-width: 12ch;
   font-size: 2.4rem;
   line-height: 1.05;
+  overflow-wrap: anywhere;
   text-wrap: balance;
 }
 
@@ -1457,9 +1458,8 @@
 }
 
 .wt-login-hero-mascot {
-  width: 292px;
+  width: 100%;
   justify-self: end;
-  transform: translateX(20px);
   background-position: center bottom !important;
   background-size: auto 94% !important;
 }
@@ -1493,9 +1493,8 @@
 
   .wt-login-hero-mascot {
     z-index: 0;
-    width: 190px;
-    transform: translateX(21px);
-    background-size: auto 90% !important;
+    width: 100%;
+    background-size: contain !important;
   }
 
   .wt-form-title {
@@ -1549,7 +1548,7 @@
   position: relative;
   display: grid;
   min-height: 156px;
-  grid-template-columns: minmax(0, 1fr) clamp(250px, 36%, 286px);
+  grid-template-columns: minmax(0, 1fr) 286px;
   align-items: center;
   overflow: hidden;
   border: 1px solid var(--wt-maroon-deep);
@@ -1601,6 +1600,7 @@
   font-size: 1.7rem;
   letter-spacing: 0;
   line-height: 1.12;
+  overflow-wrap: anywhere;
 }
 
 .wt-student-welcome-progress {
@@ -1615,6 +1615,7 @@
 
 .wt-student-welcome-next strong {
   color: var(--mantine-color-wildtrackGold-2);
+  overflow-wrap: anywhere;
 }
 
 .wt-student-welcome-art {
@@ -2081,7 +2082,8 @@
 
   .wt-student-welcome {
     min-height: 148px;
-    grid-template-columns: minmax(0, 1fr) 102px;
+    --wt-student-welcome-art-space: clamp(120px, 36vw, 150px);
+    grid-template-columns: minmax(0, 1fr) var(--wt-student-welcome-art-space);
     padding: 20px;
   }
 
@@ -2106,15 +2108,20 @@
   }
 
   .wt-student-welcome-art {
-    right: -6px;
+    right: 0;
     bottom: 0;
-    width: 188px;
+    width: calc(var(--wt-student-welcome-art-space) + 16px);
     height: 100%;
   }
 
   .wt-student-welcome.is-complete .wt-student-welcome-art {
-    width: 170px;
+    width: calc(var(--wt-student-welcome-art-space) + 16px);
     height: 128px;
+  }
+
+  .wt-student-welcome:not(.is-complete) .wt-student-welcome-art {
+    right: -24px;
+    width: calc(var(--wt-student-welcome-art-space) + 40px);
   }
 }
 

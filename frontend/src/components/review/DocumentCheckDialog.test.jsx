@@ -50,6 +50,77 @@ function identityFact(dialog, label) {
 }
 
 describe('DocumentCheck saved metadata and recorded history', () => {
+  it('collapses missing optional facts and reveals them without hiding core validation', () => {
+    show();
+    const dialog = screen.getByRole('dialog');
+    const disclosure = dialog.querySelector('details.document-check-unavailable-facts');
+    expect(disclosure).not.toHaveAttribute('open');
+    expect(within(dialog).getByText('Drive access')).toBeVisible();
+    expect(within(dialog).getByText('File size')).not.toBeVisible();
+    fireEvent.click(within(disclosure).getByText(/Unavailable details/));
+    expect(within(dialog).getByText('File size')).toBeVisible();
+    expect(within(dialog).getByText('Readable text')).toBeVisible();
+  });
+
+  it('retains populated optional facts and numeric zero without inventing absent text', () => {
+    show({ documentCheck: {
+      ...response.documentCheck,
+      metadata: { ...response.documentCheck.metadata, size: 0, modifiedTime: '2026-09-18T10:00:00+08:00', createdTime: '2026-09-18T09:00:00+08:00' },
+      document: { readable: true, pageCount: 0, extractedCharacterCount: 0 }
+    } });
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('0 bytes')).toBeVisible();
+    expect(within(dialog).getByText('0', { selector: '.document-check-fact strong' })).toBeVisible();
+    expect(within(dialog).getByText('0 characters')).toBeVisible();
+    expect(within(dialog).getByText('Last modified (Drive)')).toBeVisible();
+    expect(within(dialog).getByText('Created time')).toBeVisible();
+  });
+
+  it('keeps a verified identity visible when the provider value is unavailable', () => {
+    show({ observedHistory: { observations: [{
+      ...observedHistory.observations[0], driveOwner: 'Unavailable',
+      driveOwnerStudent: { studentName: 'VERIFIED OWNER', email: 'verified.owner@example.test' }
+    }] } });
+    expect(identityFact(screen.getByRole('dialog'), 'Drive owner')).toHaveTextContent('VERIFIED OWNER');
+  });
+
+  it.each(['staff', 'student'])('keeps core failed checks visible for %s on unavailable reports', audience => {
+    show({ audience, documentCheck: { ...response.documentCheck, status: 'Unavailable', resultStatus: 'BLOCKED', metadata: null, document: null } });
+    const dialog = screen.getByRole('dialog');
+    for (const label of ['Drive access', 'File type', 'Download', 'PDF integrity']) {
+      expect(within(dialog).getByText(label)).toBeVisible();
+    }
+  });
+
+  it('resets the disclosure when response, audience, or open scope changes', () => {
+    const view = show();
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByText(/Unavailable details/));
+    expect(dialog.querySelector('details.document-check-unavailable-facts')).toHaveAttribute('open');
+    const props = { fileLink, historyTarget: { ...target, responseId: 'response-2' }, audience: 'student', onClose: vi.fn(), allowRecheck: false };
+    view.rerender(<MantineProvider theme={wildTrackTheme} forceColorScheme="light"><DocumentCheckDialog response={{ ...response, id: 'response-2' }} open {...props} /></MantineProvider>);
+    expect(screen.getByRole('dialog').querySelector('details.document-check-unavailable-facts')).not.toHaveAttribute('open');
+    view.rerender(<MantineProvider theme={wildTrackTheme} forceColorScheme="light"><DocumentCheckDialog response={{ ...response, id: 'response-2' }} open={false} {...props} /></MantineProvider>);
+    view.rerender(<MantineProvider theme={wildTrackTheme} forceColorScheme="light"><DocumentCheckDialog response={{ ...response, id: 'response-2' }} open {...props} /></MantineProvider>);
+    expect(screen.getByRole('dialog').querySelector('details.document-check-unavailable-facts')).not.toHaveAttribute('open');
+  });
+
+  it('resets for a same-time report replacement and embedded close/reopen', () => {
+    const view = show({ embedded: true });
+    const disclosure = document.querySelector('details.document-check-unavailable-facts');
+    fireEvent.click(disclosure.querySelector('summary'));
+    const report = { ...response.documentCheck, id: 'new-report' };
+    const renderDialog = (props = {}) => view.rerender(<MantineProvider theme={wildTrackTheme} forceColorScheme="light">
+      <DocumentCheckDialog response={response} documentCheck={report} fileLink={fileLink} historyTarget={target}
+        onClose={vi.fn()} allowRecheck={false} {...props} />
+    </MantineProvider>);
+    renderDialog({ embedded: true, open: true });
+    expect(document.querySelector('details.document-check-unavailable-facts')).not.toHaveAttribute('open');
+    renderDialog({ embedded: true, open: false });
+    renderDialog({ embedded: true, open: true });
+    expect(document.querySelector('details.document-check-unavailable-facts')).not.toHaveAttribute('open');
+  });
+
   it('shows template findings only when a scoped uploaded template exists', () => {
     const view = show();
     expect(screen.queryByRole('link', { name: 'Open official template' })).not.toBeInTheDocument();
