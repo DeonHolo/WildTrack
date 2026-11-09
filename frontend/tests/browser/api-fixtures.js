@@ -11,6 +11,7 @@ export async function installApiFixtures(page, {
   formStatus = 'PUBLISHED',
   shortShareLinks = false,
   templates = [],
+  dashboard = payload => payload,
   monitoring = payload => payload
 } = {}) {
   const workspace = {
@@ -334,12 +335,12 @@ export async function installApiFixtures(page, {
       return reply(deliverable);
     }
     const responses = response ? [response] : [];
-    if (path === '/workspace/students/dashboard' && method === 'GET') return reply({
+    if (path === '/workspace/students/dashboard' && method === 'GET') return reply(dashboard({
       association, rosterOptions: [student], students: association ? [student] : [],
       projects: association ? projects : [], trackerColumns: columns, trackerRows: association ? rows : [],
       deliverables, responses, reviewStates: {}, fileChecks: {},
       fileChecksByField: checkedPdf && response ? { [response.id]: { 'field-document-pdf': checkedReport } } : {}
-    });
+    }));
     if (path === '/monitoring' && method === 'GET') return reply(monitoring({ students: [student], projects, trackerColumns: columns, trackerRows: rows, deliverables, responses, reviewStates: Object.fromEntries(responses.map(item => [item.id, { feedback: [], acceptance: null }])), fileChecks: {}, teamCodes: [student.teamCode], allTeams: role === 'admin' }));
     if (path === '/workspace/students/account-bindings' && method === 'GET') {
       if (role !== 'admin') return reply({ message: 'Admin authorization required.' }, 403);

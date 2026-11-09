@@ -3381,6 +3381,37 @@ textarea:not(.mantine-Input-input):focus {
   font-size: 13px;
 }
 
+.document-check-unavailable-facts {
+  grid-column: 1 / -1;
+}
+
+.document-check-unavailable-facts summary {
+  display: list-item;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  list-style-position: inside;
+}
+
+.document-check-unavailable-facts summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.document-check-unavailable-facts[open] summary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.document-check-unavailable-facts > .document-check-grid {
+  padding-top: 8px;
+}
+
 /* Staff-only Drive identities need the full dialog width, not the narrow
    right-hand value column of an ordinary three-column validation fact. */
 .document-check-fact--identity {

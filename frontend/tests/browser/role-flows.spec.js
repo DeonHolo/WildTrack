@@ -105,9 +105,9 @@ for (const viewport of artworkViewports) {
         }
       }
 
-      const percent = Number.parseFloat(styles.backgroundSize.split(' ')[1]) / 100;
-      const imageHeight = element.clientHeight * percent;
-      const scale = imageHeight / image.naturalHeight;
+      const scale = styles.backgroundSize === 'contain'
+        ? Math.min(element.clientWidth / image.naturalWidth, element.clientHeight / image.naturalHeight)
+        : element.clientHeight * Number.parseFloat(styles.backgroundSize.split(' ')[1]) / 100 / image.naturalHeight;
       const imageWidth = image.naturalWidth * scale;
       const positionX = Number.parseFloat(styles.backgroundPosition.split(' ')[0]) / 100;
       const imageLeft = (element.clientWidth - imageWidth) * positionX;
